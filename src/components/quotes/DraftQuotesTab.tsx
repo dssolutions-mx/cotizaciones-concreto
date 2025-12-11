@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Trash2, Send, Eye, Search, Filter, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface DraftQuotesTabProps {
   onDataSaved?: () => void;
@@ -295,7 +296,7 @@ export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter
       setQuotes(transformedQuotes);
     } catch (error) {
       console.error('Error fetching quotes:', error);
-      alert('No se pudieron cargar las cotizaciones');
+      toast.error('No se pudieron cargar las cotizaciones');
     } finally {
       setIsLoading(false);
     }
@@ -354,26 +355,26 @@ export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter
         } catch (saveError: unknown) {
           console.error('Failed to save modifications before sending to approval:', saveError);
           const errorMessage = saveError instanceof Error ? saveError.message : 'Error desconocido';
-          alert(`Error al guardar modificaciones: ${errorMessage}`);
+          toast.error(`Error al guardar modificaciones: ${errorMessage}`);
           return;
         }
       }
 
       const { data: userData, error: authError } = await supabase.auth.getUser();
       if (authError) {
-        alert(`Error de autenticación: ${authError.message}`);
+        toast.error(`Error de autenticación: ${authError.message}`);
         return;
       }
 
       if (!userData.user) {
-        alert('No se ha podido confirmar su identidad. Por favor, inicie sesión nuevamente.');
+        toast.error('No se ha podido confirmar su identidad. Por favor, inicie sesión nuevamente.');
         return;
       }
 
       try {
         const result = await QuotesService.sendToApproval(quoteId);
         
-        alert('Cotización enviada a aprobación');
+        toast.success('Cotización enviada a aprobación');
         fetchDraftQuotes();
         onDataSaved?.();
       } catch (serviceError: unknown) {
@@ -403,17 +404,17 @@ export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter
             
           if (updateError) throw new Error(`Error al actualizar estado: ${updateError.message}`);
           
-          alert('Cotización enviada a aprobación');
+          toast.success('Cotización enviada a aprobación');
           fetchDraftQuotes();
           onDataSaved?.();
         } catch (fallbackError: unknown) {
           const errorMessage = fallbackError instanceof Error ? fallbackError.message : 'Error desconocido';
-          alert(`No se pudo enviar la cotización a aprobación: ${errorMessage}`);
+          toast.error(`No se pudo enviar la cotización a aprobación: ${errorMessage}`);
         }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      alert(`Error inesperado al enviar cotización a aprobación: ${errorMessage}`);
+      toast.error(`Error inesperado al enviar cotización a aprobación: ${errorMessage}`);
     }
   };
 
@@ -491,10 +492,10 @@ export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter
       // Notify parent component if needed
       onDataSaved?.();
 
-      alert('Cotización actualizada exitosamente');
+      toast.success('Cotización actualizada exitosamente');
     } catch (error) {
       console.error('Error updating quote details:', error);
-      alert('No se pudieron guardar los cambios');
+      toast.error('No se pudieron guardar los cambios');
     }
   };
 
@@ -551,11 +552,11 @@ export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter
       // Refresh the list
       fetchDraftQuotes();
       onDataSaved?.();
-      alert('Cotización eliminada correctamente');
+      toast.success('Cotización eliminada correctamente');
     } catch (error: unknown) {
       console.error('Error deleting quote:', error);
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      alert(`Error al eliminar cotización: ${errorMessage}`);
+      toast.error(`Error al eliminar cotización: ${errorMessage}`);
     }
   };
 

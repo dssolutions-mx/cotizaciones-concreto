@@ -16,6 +16,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Check, X, MoreVertical, Eye, FileText, Search, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
@@ -263,13 +264,13 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
         throw new Error(`Error handling price history: ${priceError.message}`);
       }
 
-      alert('Cotización aprobada');
+      toast.success('Cotización aprobada');
       fetchPendingQuotes();
       onDataSaved?.();
       closeQuoteDetails();
     } catch (error: any) {
       console.error('Error approving quote:', error.message);
-      alert(`No se pudo aprobar la cotización: ${error.message}`);
+      toast.error(`No se pudo aprobar la cotización: ${error.message}`);
     }
   };
 
@@ -279,13 +280,13 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
         await saveQuoteModifications(false);
       }
       await QuotesService.updateStatus(quoteId, 'REJECTED', { rejection_reason: reason });
-      alert('Cotización rechazada');
+      toast.success('Cotización rechazada');
       fetchPendingQuotes();
       onDataSaved?.();
       closeQuoteDetails();
     } catch (error) {
       console.error('Error rejecting quote:', error);
-      alert('No se pudo rechazar la cotización');
+      toast.error('No se pudo rechazar la cotización');
     }
   };
 
@@ -301,10 +302,10 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
 
       fetchPendingQuotes();
       onDataSaved?.();
-      alert('Cotización eliminada correctamente');
+      toast.success('Cotización eliminada correctamente');
     } catch (error: any) {
       console.error('Error deleting quote:', error);
-      alert(`Error al eliminar cotización: ${error.message}`);
+      toast.error(`Error al eliminar cotización: ${error.message}`);
     }
   };
 
@@ -390,7 +391,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
       fetchPendingQuotes();
       onDataSaved?.();
       if (showAlert) {
-        alert('Cotización actualizada exitosamente');
+        toast.success('Cotización actualizada exitosamente');
         closeQuoteDetails();
       }
     } catch (error) {

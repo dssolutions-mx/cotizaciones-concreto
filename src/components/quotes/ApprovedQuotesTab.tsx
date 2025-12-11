@@ -8,6 +8,7 @@ import QuotePDF from './QuotePDF';
 import { useRouter } from 'next/navigation';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { features } from '@/config/featureFlags';
+import { toast } from 'sonner';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
@@ -339,7 +340,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       setQuotes(transformedQuotes);
     } catch (error) {
       console.error('Error fetching approved quotes:', error);
-      alert('No se pudieron cargar las cotizaciones aprobadas');
+      toast.error('No se pudieron cargar las cotizaciones aprobadas');
     } finally {
       setIsLoading(false);
     }
@@ -566,7 +567,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       }
 
       // Mostrar un mensaje de éxito
-      alert('Se ha creado una nueva cotización pendiente a partir de la cotización aprobada');
+      toast.success('Se ha creado una nueva cotización pendiente a partir de la cotización aprobada');
 
       // Redirigir a la lista de cotizaciones pendientes en lugar de la página de edición
       router.push('/quotes?tab=pending');
@@ -577,7 +578,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       
     } catch (error) {
       console.error('Error duplicando cotización:', error);
-      alert('No se pudo duplicar la cotización. Revise la consola para más detalles.');
+      toast.error('No se pudo duplicar la cotización. Revise la consola para más detalles.');
     } finally {
       setIsDuplicating(false);
       setShowConfirmDialog(false);

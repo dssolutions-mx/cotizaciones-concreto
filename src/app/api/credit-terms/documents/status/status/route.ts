@@ -8,10 +8,10 @@ import { creditTermsService } from '@/lib/supabase/creditTerms';
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { documentId: string } }
+  { params }: { params: Promise<{ documentId: string }> }
 ) {
   try {
-    const { documentId } = params;
+    const { documentId } = await params;
 
     if (!documentId) {
       return NextResponse.json(

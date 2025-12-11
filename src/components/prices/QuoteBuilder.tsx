@@ -29,6 +29,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 interface Client {
   id: string;
@@ -147,31 +148,38 @@ export default function QuoteBuilder() {
 
   const resolveMasterPrice = async (masterId: string): Promise<number | null> => {
     try {
-      // 1) Exact scope: by client and site
-      const { data: exact } = await supabase
-        .from('product_prices')
-        .select('base_price, effective_date')
-        .eq('is_active', true)
-        .eq('master_recipe_id', masterId)
-        .eq('client_id', selectedClient || null)
-        .eq('construction_site', constructionSite || null)
-        .order('effective_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (exact?.base_price != null) return exact.base_price as number;
+      // IMPORTANT: PostgREST does not support `eq.null` filters (it must be `is.null`).
+      // Also, avoid querying client/site scoped prices until the user has those selected.
+
+      // 1) Exact scope: by client and site (requires both)
+      if (selectedClient && constructionSite) {
+        const { data: exact } = await supabase
+          .from('product_prices')
+          .select('base_price, effective_date')
+          .eq('is_active', true)
+          .eq('master_recipe_id', masterId)
+          .eq('client_id', selectedClient)
+          .eq('construction_site', constructionSite)
+          .order('effective_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (exact?.base_price != null) return exact.base_price as number;
+      }
 
       // 2) Client-only scope
-      const { data: clientScoped } = await supabase
-        .from('product_prices')
-        .select('base_price, effective_date')
-        .eq('is_active', true)
-        .eq('master_recipe_id', masterId)
-        .eq('client_id', selectedClient || null)
-        .is('construction_site', null)
-        .order('effective_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (clientScoped?.base_price != null) return clientScoped.base_price as number;
+      if (selectedClient) {
+        const { data: clientScoped } = await supabase
+          .from('product_prices')
+          .select('base_price, effective_date')
+          .eq('is_active', true)
+          .eq('master_recipe_id', masterId)
+          .eq('client_id', selectedClient)
+          .is('construction_site', null)
+          .order('effective_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (clientScoped?.base_price != null) return clientScoped.base_price as number;
+      }
 
       // 3) Global (no client/site)
       const { data: global } = await supabase
@@ -215,7 +223,7 @@ export default function QuoteBuilder() {
       // Prevent duplicate by master
       const existsByMaster = quoteProducts.some(p => p.master_recipe_id === masterId);
       if (existsByMaster) {
-        alert('Este maestro ya está en la cotización');
+        toast.error('Este maestro ya está en la cotización');
         return;
       }
 
@@ -229,7 +237,7 @@ export default function QuoteBuilder() {
 
       const chosenVariant = variants?.[0];
       if (!chosenVariant) {
-        alert('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
+        toast.error('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
         return;
       }
 
@@ -268,7 +276,7 @@ export default function QuoteBuilder() {
       setQuoteProducts([...quoteProducts, newProduct]);
     } catch (error) {
       console.error('Error adding master product:', error);
-      alert('No se pudo agregar el maestro. Verifique los datos.');
+      toast.error('No se pudo agregar el maestro. Verifique los datos.');
     }
   };
   
@@ -299,7 +307,7 @@ export default function QuoteBuilder() {
         setClients(clientsData);
       } catch (error) {
         console.error('Error loading initial data:', error);
-        alert('Error loading initial data. Please refresh the page.');
+        toast.error('Error al cargar datos iniciales. Por favor, actualice la página.');
       } finally {
         setIsLoading(false);
       }
@@ -340,7 +348,7 @@ export default function QuoteBuilder() {
           setClientHistory(history);
         } catch (error) {
           console.error('Error loading client history:', error);
-          alert('Error loading client history.');
+          toast.error('Error al cargar el historial del cliente.');
         } finally {
           setIsLoading(false);
         }
@@ -465,7 +473,7 @@ export default function QuoteBuilder() {
       // Check if product already exists in quote
       const existingProduct = quoteProducts.find(p => p.recipe.id === recipeId);
       if (existingProduct) {
-        alert('This product is already in the quote');
+        toast.error('Este producto ya está en la cotización');
         return;
       }
 
@@ -486,7 +494,7 @@ export default function QuoteBuilder() {
       setQuoteProducts([...quoteProducts, newProduct]);
     } catch (error) {
       console.error('Error adding product:', error);
-      alert('Could not add product. Please verify recipe data.');
+      toast.error('No se pudo agregar el producto. Verifique la información de la receta.');
     }
   };
 
@@ -543,7 +551,7 @@ export default function QuoteBuilder() {
 
   const validateQuote = () => {
     if (!selectedClient) {
-      alert('Por favor, seleccione un cliente');
+      toast.error('Por favor, seleccione un cliente');
       return false;
     }
 
@@ -552,33 +560,33 @@ export default function QuoteBuilder() {
     const hasPumpingService = includePumpService && pumpServiceProduct.price > 0;
 
     if (!hasConcreteProducts && !hasPumpingService) {
-      alert('Por favor, agregue al menos un producto de concreto o configure un servicio de bombeo');
+      toast.error('Por favor, agregue al menos un producto de concreto o configure un servicio de bombeo');
       return false;
     }
 
     if (!constructionSite) {
-      alert('Por favor, ingrese el sitio de construcción');
+      toast.error('Por favor, ingrese el sitio de construcción');
       return false;
     }
 
     if (!location) {
-      alert('Por favor, ingrese la ubicación');
+      toast.error('Por favor, ingrese la ubicación');
       return false;
     }
 
     if (!validityDate) {
-      alert('Por favor, seleccione la fecha de validez');
+      toast.error('Por favor, seleccione la fecha de validez');
       return false;
     }
 
     // Validate pumping service when included
     if (includePumpService) {
       if (pumpServiceProduct.price <= 0) {
-        alert('Por favor, ingrese un precio válido para el servicio de bombeo');
+        toast.error('Por favor, ingrese un precio válido para el servicio de bombeo');
         return false;
       }
       if (pumpServiceProduct.volume <= 0) {
-        alert('Por favor, ingrese un volumen válido para el servicio de bombeo');
+        toast.error('Por favor, ingrese un volumen válido para el servicio de bombeo');
         return false;
       }
     }
@@ -692,7 +700,7 @@ export default function QuoteBuilder() {
       }
 
       // Mostrar mensaje de éxito
-      alert(`Cotización ${createdQuote.quote_number} guardada exitosamente`);
+      toast.success(`Cotización ${createdQuote.quote_number} guardada exitosamente`);
       
       // Limpiar formulario
       setSelectedClient('');
@@ -711,7 +719,7 @@ export default function QuoteBuilder() {
       return createdQuote;
     } catch (error) {
       console.error('Error al guardar la cotización:', error);
-      alert('Error al guardar la cotización: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+      toast.error('Error al guardar la cotización: ' + (error instanceof Error ? error.message : 'Error desconocido'));
       throw error;
     } finally {
       setIsLoading(false);
@@ -786,7 +794,7 @@ export default function QuoteBuilder() {
       description: 'Servicio de Bombeo'
     });
     sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY);
-    alert('Borrador de cotización limpiado.');
+    toast.success('Borrador de cotización limpiado.');
     console.log('Draft quote cleared from state and sessionStorage.');
   };
 
@@ -866,7 +874,10 @@ export default function QuoteBuilder() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 @container">
       {/* Left Panel: Product Catalog */}
-      <Card variant="thick" className="lg:col-span-2 h-[calc(100vh-15rem)] min-h-[600px] flex flex-col border-0 p-6">
+      <Card
+        variant="thick"
+        className="lg:col-span-2 flex flex-col border-0 p-6 lg:h-[calc(100vh-15rem)] lg:min-h-[600px]"
+      >
         <div className="mb-6 shrink-0">
           <h2 className="text-title-2 font-bold text-gray-800 mb-4">
             {features.masterPricingEnabled ? 'Catálogo de Maestros' : 'Catálogo de Productos'}
@@ -1096,7 +1107,9 @@ export default function QuoteBuilder() {
       </Card>
 
       {/* Right Panel: Client Selection and History */}
-      <div className="flex flex-col gap-6 h-[calc(100vh-15rem)] min-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+      <div className="flex flex-col gap-6 lg:h-[calc(100vh-15rem)] lg:min-h-[600px] min-h-0">
+        {/* Scrollable content (desktop) / natural flow (mobile) */}
+        <div className="flex flex-col gap-6 flex-1 min-h-0 lg:overflow-y-auto lg:pr-2 lg:custom-scrollbar pb-6">
         <Card variant="thick" className="p-6 border-0 shrink-0">
           <h2 className="text-title-3 font-bold mb-6 text-gray-800 flex items-center gap-2">
             <User className="w-5 h-5 text-blue-500" />
@@ -1332,15 +1345,23 @@ export default function QuoteBuilder() {
             )}
           </div>
         </Card>
-        
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-3 shrink-0 pb-2">
-          <Button variant="secondary" onClick={clearDraft} disabled={isLoading}>
-            Limpiar
-          </Button>
-          <Button onClick={saveQuote} disabled={isLoading} loading={isLoading}>
-            Guardar
-          </Button>
+        </div>
+
+        {/* Actions (always visible on desktop; prominent on mobile) */}
+        <div className="shrink-0 lg:mt-auto sticky bottom-0 z-10">
+          <Card
+            variant="thick"
+            className="p-3 sm:p-4 border-0 bg-white/80 backdrop-blur-md"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Button variant="secondary" onClick={clearDraft} disabled={isLoading}>
+                Limpiar borrador
+              </Button>
+              <Button onClick={saveQuote} disabled={isLoading} loading={isLoading}>
+                Guardar cotización
+              </Button>
+            </div>
+          </Card>
         </div>
       </div>
 
@@ -1433,9 +1454,15 @@ export default function QuoteBuilder() {
       {/* Loading Overlay */}
       {isLoading && (
         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
-          <Card variant="thick" className="p-8 flex flex-col items-center gap-4">
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600"></div>
-            <p className="font-medium text-gray-700">Procesando solicitud...</p>
+          <Card
+            variant="thick"
+            role="status"
+            aria-live="polite"
+            aria-busy="true"
+            className="w-[min(92vw,420px)] p-8 sm:p-10 flex flex-col items-center gap-4 text-center"
+          >
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600" aria-hidden="true"></div>
+            <p className="font-medium text-gray-700">Procesando solicitud…</p>
           </Card>
         </div>
       )}
