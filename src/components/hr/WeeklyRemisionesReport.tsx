@@ -186,7 +186,7 @@ export default function WeeklyRemisionesReport() {
           ),
         ];
 
-        const file = `rrhh-remisiones-${exportData.startDate}_a_${exportData.endDate}.csv`;
+        const file = `rh-remisiones-${exportData.startDate}_a_${exportData.endDate}.csv`;
         downloadCsv(file, lines.join('\n'));
       } catch (e) {
         console.error('CSV export failed:', e);

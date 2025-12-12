@@ -140,11 +140,11 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
   return finanzasSubMenuItems;
 }
 
-// Define RRHH submenu items
-const rrhhSubMenuItems = [
+// Define RH submenu items
+const rhSubMenuItems = [
   {
     title: "Remisiones Semanal",
-    href: "/rrhh/remisiones-semanal",
+    href: "/rh/remisiones-semanal",
     IconComponent: BarChart3,
   },
 ];
@@ -271,7 +271,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const isQualityRoute = pathname?.startsWith('/quality');
   const isAdminRoute = pathname?.startsWith('/admin');
   const isInventoryRoute = pathname?.startsWith('/production-control');
-  const isRrhhRoute = pathname?.startsWith('/rrhh');
+  const isRhRoute = pathname?.startsWith('/rh');
 
   // Persist collapsed state (default collapsed)
   useEffect(() => {
@@ -364,9 +364,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
     let addQualityLink = false;
     // Flag to check if Admin link should be added
     let addAdminLink = false;
-    // Flag to check if RRHH link should be added
-    // RRHH is intended for all internal roles (exclude external client portal users)
-    let addRrhhLink = role !== 'EXTERNAL_CLIENT';
+    // Flag to check if RH link should be added
+    // RH is intended for all internal roles (exclude external client portal users)
+    let addRhLink = role !== 'EXTERNAL_CLIENT';
 
     // Específicos por rol
     switch (role) {
@@ -440,9 +440,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
         break;
     }
 
-    // Add RRHH link for all internal roles
-    if (addRrhhLink) {
-      navItems.push({ href: '/rrhh', label: 'RRHH', IconComponent: Users });
+    // Add RH link for all internal roles
+    if (addRhLink) {
+      navItems.push({ href: '/rh', label: 'RH', IconComponent: Users });
     }
 
     // Add Finanzas link if applicable
@@ -517,13 +517,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
             {navItems.map((item, index) => {
               const isFinanzasMainLink = item.href === '/finanzas';
               const isQualityMainLink = item.href === '/quality';
-              const isRrhhMainLink = item.href === '/rrhh';
+              const isRhMainLink = item.href === '/rh';
               const isActive = isFinanzasMainLink
                 ? isFinanzasRoute
                 : isQualityMainLink
                 ? isQualityRoute
-                : isRrhhMainLink
-                ? isRrhhRoute
+                : isRhMainLink
+                ? isRhRoute
                 : item.href === '/admin'
                 ? isAdminRoute
                 : pathname === item.href;
@@ -565,13 +565,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     </div>
                   )}
 
-                  {isRrhhMainLink && isRrhhRoute && (
+                  {isRhMainLink && isRhRoute && (
                     <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                      {rrhhSubMenuItems.map((subItem, subIndex) => {
+                      {rhSubMenuItems.map((subItem, subIndex) => {
                         const SubIcon = subItem.IconComponent;
                         return (
                           <Link
-                            key={`rrhh-subnav-${subIndex}`}
+                            key={`rh-subnav-${subIndex}`}
                             href={subItem.href}
                             className={cn(
                               "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
@@ -688,13 +688,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 const isFinanzasMainLink = item.href === '/finanzas';
                 const isQualityMainLink = item.href === '/quality';
                 const isAdminMainLink = item.href === '/admin';
-                const isRrhhMainLink = item.href === '/rrhh';
+                const isRhMainLink = item.href === '/rh';
                 const isActive = isFinanzasMainLink
                   ? isFinanzasRoute
                   : isQualityMainLink
                   ? isQualityRoute
-                  : isRrhhMainLink
-                  ? isRrhhRoute
+                  : isRhMainLink
+                  ? isRhRoute
                   : isAdminMainLink
                   ? isAdminRoute
                   : pathname === item.href;
@@ -742,16 +742,16 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   );
                 }
 
-                if (isRrhhMainLink) {
+                if (isRhMainLink) {
                   return (
                     <Tooltip key={`nav-col-${index}`}>
                       <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
                       <TooltipContent sideOffset={8} side="right" className="p-0">
                         <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
-                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">RRHH</div>
-                          {rrhhSubMenuItems.map((subItem, subIndex) => (
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">RH</div>
+                          {rhSubMenuItems.map((subItem, subIndex) => (
                             <Link
-                              key={`rrhh-sub-${subIndex}`}
+                              key={`rh-sub-${subIndex}`}
                               href={subItem.href}
                               className={cn(
                                 "flex items-center gap-2 px-3 py-2 rounded text-sm",
@@ -957,8 +957,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 const Icon = item.IconComponent;
                 const isCurrentItemActive = item.href === '/finanzas'
                   ? isFinanzasRoute
-                  : item.href === '/rrhh'
-                  ? isRrhhRoute
+                  : item.href === '/rh'
+                  ? isRhRoute
                   : item.href === '/quality'
                   ? isQualityRoute
                   : item.href === '/admin'
@@ -1002,14 +1002,14 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       </div>
                     )}
 
-                    {item.href === '/rrhh' && isRrhhRoute && (
+                    {item.href === '/rh' && isRhRoute && (
                       <div className="pl-6 mb-2 space-y-1">
-                        {rrhhSubMenuItems.map((subItem, subIndex) => {
+                        {rhSubMenuItems.map((subItem, subIndex) => {
                           const isSubItemActive = pathname === subItem.href;
                           const SubIcon = subItem.IconComponent;
                           return (
                             <Link
-                              key={`mobile-rrhh-sub-${subIndex}`}
+                              key={`mobile-rh-sub-${subIndex}`}
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(

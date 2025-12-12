@@ -1,6 +1,5 @@
 import WeeklyRemisionesReport from '@/components/hr/WeeklyRemisionesReport';
 
-export default function RRHHWeeklyRemisionesPage() {
+export default function RHWeeklyRemisionesPage() {
   return <WeeklyRemisionesReport />;
 }
-
