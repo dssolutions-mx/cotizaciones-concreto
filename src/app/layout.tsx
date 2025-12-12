@@ -140,6 +140,15 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
   return finanzasSubMenuItems;
 }
 
+// Define RRHH submenu items
+const rrhhSubMenuItems = [
+  {
+    title: "Remisiones Semanal",
+    href: "/rrhh/remisiones-semanal",
+    IconComponent: BarChart3,
+  },
+];
+
 // Define inventory submenu items
 type InventoryNavItem = 
   | { title: string; href: string; IconComponent: React.ElementType }
@@ -262,6 +271,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const isQualityRoute = pathname?.startsWith('/quality');
   const isAdminRoute = pathname?.startsWith('/admin');
   const isInventoryRoute = pathname?.startsWith('/production-control');
+  const isRrhhRoute = pathname?.startsWith('/rrhh');
 
   // Persist collapsed state (default collapsed)
   useEffect(() => {
@@ -354,6 +364,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
     let addQualityLink = false;
     // Flag to check if Admin link should be added
     let addAdminLink = false;
+    // Flag to check if RRHH link should be added
+    // RRHH is intended for all internal roles (exclude external client portal users)
+    let addRrhhLink = role !== 'EXTERNAL_CLIENT';
 
     // Específicos por rol
     switch (role) {
@@ -425,6 +438,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
         
       default:
         break;
+    }
+
+    // Add RRHH link for all internal roles
+    if (addRrhhLink) {
+      navItems.push({ href: '/rrhh', label: 'RRHH', IconComponent: Users });
     }
 
     // Add Finanzas link if applicable
@@ -499,10 +517,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
             {navItems.map((item, index) => {
               const isFinanzasMainLink = item.href === '/finanzas';
               const isQualityMainLink = item.href === '/quality';
+              const isRrhhMainLink = item.href === '/rrhh';
               const isActive = isFinanzasMainLink
                 ? isFinanzasRoute
                 : isQualityMainLink
                 ? isQualityRoute
+                : isRrhhMainLink
+                ? isRrhhRoute
                 : item.href === '/admin'
                 ? isAdminRoute
                 : pathname === item.href;
@@ -528,6 +549,29 @@ function Navigation({ children }: { children: React.ReactNode }) {
                         return (
                           <Link
                             key={`subnav-${subIndex}`}
+                            href={subItem.href}
+                            className={cn(
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              pathname === subItem.href
+                                ? "bg-gray-200 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-gray-100"
+                            )}
+                          >
+                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                            {subItem.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isRrhhMainLink && isRrhhRoute && (
+                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                      {rrhhSubMenuItems.map((subItem, subIndex) => {
+                        const SubIcon = subItem.IconComponent;
+                        return (
+                          <Link
+                            key={`rrhh-subnav-${subIndex}`}
                             href={subItem.href}
                             className={cn(
                               "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
@@ -644,10 +688,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 const isFinanzasMainLink = item.href === '/finanzas';
                 const isQualityMainLink = item.href === '/quality';
                 const isAdminMainLink = item.href === '/admin';
+                const isRrhhMainLink = item.href === '/rrhh';
                 const isActive = isFinanzasMainLink
                   ? isFinanzasRoute
                   : isQualityMainLink
                   ? isQualityRoute
+                  : isRrhhMainLink
+                  ? isRrhhRoute
                   : isAdminMainLink
                   ? isAdminRoute
                   : pathname === item.href;
@@ -679,6 +726,32 @@ function Navigation({ children }: { children: React.ReactNode }) {
                           {getFinanzasSubMenuItemsForRole(profile?.role).map((subItem, subIndex) => (
                             <Link
                               key={`fin-sub-${subIndex}`}
+                              href={subItem.href}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded text-sm",
+                                pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
+                              )}
+                            >
+                              <subItem.IconComponent size={16} />
+                              {subItem.title}
+                            </Link>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                if (isRrhhMainLink) {
+                  return (
+                    <Tooltip key={`nav-col-${index}`}>
+                      <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
+                      <TooltipContent sideOffset={8} side="right" className="p-0">
+                        <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">RRHH</div>
+                          {rrhhSubMenuItems.map((subItem, subIndex) => (
+                            <Link
+                              key={`rrhh-sub-${subIndex}`}
                               href={subItem.href}
                               className={cn(
                                 "flex items-center gap-2 px-3 py-2 rounded text-sm",
@@ -884,6 +957,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 const Icon = item.IconComponent;
                 const isCurrentItemActive = item.href === '/finanzas'
                   ? isFinanzasRoute
+                  : item.href === '/rrhh'
+                  ? isRrhhRoute
                   : item.href === '/quality'
                   ? isQualityRoute
                   : item.href === '/admin'
@@ -912,6 +987,29 @@ function Navigation({ children }: { children: React.ReactNode }) {
                           return (
                             <Link
                               key={`mobile-finanzas-sub-${subIndex}`}
+                              href={subItem.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={cn(
+                                "flex items-center py-1.5 px-2 rounded-md text-sm",
+                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                              )}
+                            >
+                              <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                              {subItem.title}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {item.href === '/rrhh' && isRrhhRoute && (
+                      <div className="pl-6 mb-2 space-y-1">
+                        {rrhhSubMenuItems.map((subItem, subIndex) => {
+                          const isSubItemActive = pathname === subItem.href;
+                          const SubIcon = subItem.IconComponent;
+                          return (
+                            <Link
+                              key={`mobile-rrhh-sub-${subIndex}`}
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
