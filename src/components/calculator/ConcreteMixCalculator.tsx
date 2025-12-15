@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Calculator, Download, FileText, Database, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -781,44 +781,42 @@ const ConcreteMixCalculator = () => {
     };
   };
 
-  // Generate multiple recipes
-  const generateRecipes = () => {
+  // Memoize enabled combinations to avoid recalculating
+  const enabledCombinations = useMemo(() => {
+    return getEnabledWaterCombinations(recipeParams.waterDefinitions, designType);
+  }, [recipeParams.waterDefinitions, designType]);
+
+  // Memoize recipe generation - only recalculate when dependencies change
+  const memoizedRecipes = useMemo(() => {
     if (materials.sands.length === 0 || materials.gravels.length === 0) {
-      return;
+      return [];
     }
     
     // Validate materials before generating recipes
     const validation = validateSelectedMaterials();
     if (!validation.isValid) {
-      alert(`No se pueden generar recetas. Materiales incompletos:\n\n${validation.errors.join('\n')}\n\nPor favor complete la información faltante en la configuración de materiales.`);
-      return;
+      // Don't alert here - validation is shown in UI
+      return [];
     }
     
     // Validate water definitions before generating
     const waterErrors = validateWaterDefinitions(recipeParams.waterDefinitions);
     if (waterErrors.length > 0) {
       console.warn('Water definition errors:', waterErrors);
-      alert('Errores en las definiciones de agua:\n' + waterErrors.join('\n'));
-      return;
+      return [];
     }
     
-    // Validate additive system config - only show warnings in console, not alerts
-  const additiveErrors = validateAdditiveSystemConfig(recipeParams.additiveSystemConfig, materials);
-  if (additiveErrors.length > 0) {
-    console.warn('Additive system validation warnings (these will be shown in the UI):', additiveErrors);
-    // Don't show alerts - let the UI handle validation display
-    // return; // Don't block recipe generation for validation warnings
-  }
+    // Validate additive system config - only show warnings in console
+    const additiveErrors = validateAdditiveSystemConfig(recipeParams.additiveSystemConfig, materials);
+    if (additiveErrors.length > 0) {
+      console.warn('Additive system validation warnings:', additiveErrors);
+    }
     
     const recipes: Recipe[] = [];
     const strengths = designType === 'FC' ? FC_STRENGTHS : MR_STRENGTHS;
     
-    // Get enabled water-slump-placement combinations
-    const enabledCombinations = getEnabledWaterCombinations(recipeParams.waterDefinitions, designType);
-    
     if (enabledCombinations.length === 0) {
-      alert('No hay combinaciones de agua habilitadas. Por favor habilite al menos una definición de agua.');
-      return;
+      return [];
     }
     
     // Generate recipes only for enabled combinations
@@ -836,13 +834,26 @@ const ConcreteMixCalculator = () => {
       });
     });
     
-    setGeneratedRecipes(recipes);
-    // Compute ARKIK codes map for each recipe for display/override
+    console.log(`Generated ${recipes.length} recipes using ${enabledCombinations.length} water combinations`);
+    return recipes;
+  }, [
+    materials,
+    designParams,
+    recipeParams,
+    designType,
+    enabledCombinations
+  ]);
+
+  // Memoize ARKIK code generation - depends on generated recipes and concrete type settings
+  const arkikCodesMemoized = useMemo(() => {
+    if (memoizedRecipes.length === 0) return {};
+    
     const codes: Record<string, { longCode: string; shortCode: string }> = {};
     const detectNames = selectedMaterials.additives
       .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name || '')
       .filter(Boolean) as string[];
-    recipes.forEach(r => {
+    
+    memoizedRecipes.forEach(r => {
       // Get per-recipe concrete type or use default
       const recipeConcreteType = concreteTypePerRecipe[r.code] || concreteType;
       // Check if any PCE additive has non-zero quantity in THIS RECIPE
@@ -859,18 +870,35 @@ const ConcreteMixCalculator = () => {
         aggregateSize: r.aggregateSize,
         placement: r.placement,
         recipeType: designType,
-        typeCode: typeCode, // Use user-selected type code
-        num: '2', // Default number
-        variante: '000', // Default variant, will be overridden by PCE detection
+        typeCode: typeCode,
+        num: '2',
+        variante: '000',
         detectPCEFromAdditiveNames: detectNames,
         concreteTypeCode: recipeConcreteType,
         hasNonZeroPCEQuantity: hasNonZeroPCE
       });
       codes[r.code] = { longCode, shortCode };
     });
-    setArkikCodes(codes);
-    console.log(`Generated ${recipes.length} recipes using ${enabledCombinations.length} water combinations`);
-  };
+    
+    return codes;
+  }, [
+    memoizedRecipes,
+    concreteType,
+    concreteTypePerRecipe,
+    designType,
+    typeCode,
+    selectedMaterials.additives,
+    availableMaterials.additives
+  ]);
+
+  // Update state when memoized values change
+  useEffect(() => {
+    setGeneratedRecipes(memoizedRecipes);
+  }, [memoizedRecipes]);
+
+  useEffect(() => {
+    setArkikCodes(arkikCodesMemoized);
+  }, [arkikCodesMemoized]);
 
   // Handle material selection
   const handleMaterialSelect = (type: keyof SelectedMaterials, id: number) => {
@@ -918,7 +946,7 @@ const ConcreteMixCalculator = () => {
       }));
       
       setActiveTab('parameters');
-      generateRecipes();
+      // Recipes will be regenerated automatically via useMemo when materials change
     } catch (error) {
       console.error('Error preparing materials:', error);
       alert(`Error al preparar materiales: ${error instanceof Error ? error.message : 'Error desconocido'}`);
@@ -1228,177 +1256,82 @@ const ConcreteMixCalculator = () => {
       });
 
       // Preflight detect conflicts (same-spec with master and code collisions)
+      // OPTIMIZED: Batch all queries instead of per-recipe queries (72-108 queries → 3 queries)
       const conflictRows: Array<any> = [];
-      for (const { r, intendedCode } of provisional) {
-        // Map placement to database values (handle both 'D'/'B' and 'DIRECTO'/'BOMBEADO' formats)
-        // Migration-created masters use 'D'/'B', calculator-created use 'DIRECTO'/'BOMBEADO'
-        const placementDbValues = r.placement === 'D' 
-          ? ['DIRECTO', 'D']  // Check both formats for migration compatibility
-          : ['BOMBEADO', 'B', 'BOMB'];  // Check multiple formats
-        
-        // Build query with .or() for placement_type to handle multiple formats
-        let recipesQuery = supabase
-          .from('recipes')
-          .select('id, recipe_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, master_recipe_id, master_recipes:master_recipe_id(id, master_code)')
-          .eq('plant_id', currentPlant.id)
-          .eq('strength_fc', r.strength)
-          .eq('max_aggregate_size', r.aggregateSize)
-          .eq('slump', r.slump);
-        
-        // Use .or() to check multiple placement_type values
-        if (placementDbValues.length === 1) {
-          recipesQuery = recipesQuery.eq('placement_type', placementDbValues[0]);
-        } else {
-          const orConditions = placementDbValues.map(val => `placement_type.eq.${val}`).join(',');
-          recipesQuery = recipesQuery.or(orConditions);
-        }
-        
-        const { data: sameSpecs, error: sameSpecError } = await recipesQuery;
-        
-        if (sameSpecError) {
-          console.error(`[Preflight Recipe: ${r.code}] Error fetching same-spec recipes:`, sameSpecError);
-        }
+      
+      // Fetch ALL recipes for this plant once
+      const { data: allRecipes, error: allRecipesError } = await supabase
+        .from('recipes')
+        .select('id, recipe_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, master_recipe_id, master_recipes:master_recipe_id(id, master_code)')
+        .eq('plant_id', currentPlant.id);
+      
+      if (allRecipesError) {
+        console.error('[Preflight] Error fetching all recipes:', allRecipesError);
+        throw new Error('Error fetching recipes for conflict detection');
+      }
 
-        // Process same-spec recipes - filter by age (using helper function for consistency)
-        const sameSpecFiltered = (sameSpecs || []).filter((row: any) => {
+      // Fetch ALL masters for this plant once
+      const { data: allMasters, error: allMastersError } = await supabase
+        .from('master_recipes')
+        .select('id, master_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump')
+        .eq('plant_id', currentPlant.id);
+      
+      if (allMastersError) {
+        console.error('[Preflight] Error fetching all masters:', allMastersError);
+        throw new Error('Error fetching masters for conflict detection');
+      }
+
+      // Check all codes at once
+      const allIntendedCodes = provisional.map(p => p.intendedCode);
+      const { data: existingCodes, error: codesError } = await supabase
+        .from('recipes')
+        .select('id, recipe_code')
+        .eq('plant_id', currentPlant.id)
+        .in('recipe_code', allIntendedCodes);
+      
+      if (codesError) {
+        console.error('[Preflight] Error checking code collisions:', codesError);
+      }
+
+      // Create lookup maps for fast access
+      const existingCodesMap = new Map((existingCodes || []).map(c => [c.recipe_code, c.id]));
+
+      // Helper function to normalize placement for comparison
+      const normalizePlacement = (placement: string): string[] => {
+        if (placement === 'D' || placement === 'DIRECTO') return ['DIRECTO', 'D'];
+        return ['BOMBEADO', 'B', 'BOMB'];
+      };
+
+      // Now process each recipe by filtering the batched data in memory
+      for (const { r, intendedCode } of provisional) {
+        const placementDbValues = normalizePlacement(r.placement);
+        
+        // Filter recipes in memory by specs
+        const sameSpecRecipes = (allRecipes || []).filter((row: any) => {
+          const placementMatch = placementDbValues.includes(row.placement_type);
+          return row.strength_fc === r.strength &&
+                 row.max_aggregate_size === r.aggregateSize &&
+                 row.slump === r.slump &&
+                 placementMatch;
+        });
+
+        // Filter by age (using helper function for consistency)
+        const sameSpecFiltered = sameSpecRecipes.filter((row: any) => {
           return matchesAgeCriteria(row.age_days, row.age_hours, r.age, r.ageUnit);
         });
 
-        // Also fetch master recipes directly with same core specs
-        let mastersQuery = supabase
-          .from('master_recipes')
-          .select('id, master_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump')
-          .eq('plant_id', currentPlant.id)
-          .eq('strength_fc', r.strength)
-          .eq('max_aggregate_size', r.aggregateSize)
-          .eq('slump', r.slump);
-        
-        // Use .or() to check multiple placement_type values
-        if (placementDbValues.length === 1) {
-          mastersQuery = mastersQuery.eq('placement_type', placementDbValues[0]);
-        } else {
-          const orConditions = placementDbValues.map(val => `placement_type.eq.${val}`).join(',');
-          mastersQuery = mastersQuery.or(orConditions);
-        }
-        
-        const { data: sameMasters, error: sameMastersError } = await mastersQuery;
-
-        if (sameMastersError) {
-          console.error(`[Preflight Recipe: ${r.code}] Error fetching same-spec masters:`, sameMastersError);
-          console.error('Query details:', {
-            plant_id: currentPlant.id,
-            strength_fc: r.strength,
-            placement_type: placementDbValues,
-            max_aggregate_size: r.aggregateSize,
-            slump: r.slump
-          });
-        }
-
-        console.log(`[Preflight Recipe: ${r.code}]`, {
-          searchParams: {
-            strength_fc: r.strength,
-            placement_type: placementDbValues,  // Show all placement types being searched
-            placement_original: r.placement,
-            max_aggregate_size: r.aggregateSize,
-            slump: r.slump,
-            age: `${r.age}${r.ageUnit}`,
-            plant_id: currentPlant.id
-          },
-          foundMasters: sameMasters?.length || 0,
-          foundRecipes: sameSpecs?.length || 0,
-          rawMasters: (sameMasters || []).map(m => ({
-            id: m.id,
-            code: m.master_code,
-            strength_fc: m.strength_fc,
-            placement_type: m.placement_type,  // Show actual placement_type from DB
-            max_aggregate_size: m.max_aggregate_size,
-            slump: m.slump,
-            age_days: m.age_days,
-            age_hours: m.age_hours,
-            age_days_type: typeof m.age_days,
-            age_hours_type: typeof m.age_hours
-          })),
-          rawRecipes: (sameSpecs || []).slice(0, 3).map(rec => ({
-            id: rec.id,
-            code: rec.recipe_code,
-            strength_fc: rec.strength_fc,
-            placement_type: rec.placement_type,
-            max_aggregate_size: rec.max_aggregate_size,
-            slump: rec.slump,
-            age_days: rec.age_days,
-            age_hours: rec.age_hours
-          }))
-        });
-        
-        // Debug: Log if query returned empty but we expect results
-        if ((sameMasters?.length || 0) === 0 && (sameSpecs?.length || 0) === 0) {
-          console.warn(`[Preflight Recipe: ${r.code}] WARNING: No masters or recipes found!`, {
-            queryParams: {
-              plant_id: currentPlant.id,
-              strength_fc: r.strength,
-              placement_type: placementDbValues,
-              max_aggregate_size: r.aggregateSize,
-              slump: r.slump
-            },
-            recipeDetails: {
-              code: r.code,
-              strength: r.strength,
-              slump: r.slump,
-              placement: r.placement,
-              aggregateSize: r.aggregateSize,
-              age: r.age,
-              ageUnit: r.ageUnit
-            }
-          });
-        }
-
-        // Filter masters by age using helper function that handles both calculator and migration patterns
-        const sameSpecMastersFiltered = (sameMasters || []).filter((master: any) => {
-          const matches = matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
-          
-          // Enhanced logging for debugging
-          if (!matches && sameMasters && sameMasters.length > 0) {
-            const masterDays = master.age_days == null ? null : Number(master.age_days);
-            const masterHours = master.age_hours == null ? null : Number(master.age_hours);
-            const recipeAgeNum = Number(r.age);
-            
-            let reason = '';
-            if (r.ageUnit === 'D') {
-              if (masterDays !== recipeAgeNum) {
-                reason = `age_days mismatch: ${masterDays} !== ${recipeAgeNum}`;
-              } else if (masterHours != null && masterHours !== 0 && masterHours !== masterDays * 24) {
-                reason = `age_hours doesn't match migration pattern: ${masterHours} !== ${masterDays * 24}`;
-              }
-            } else {
-              if (masterHours !== recipeAgeNum) {
-                reason = `age_hours mismatch: ${masterHours} !== ${recipeAgeNum}`;
-              } else if (masterDays != null && masterDays !== 0 && masterDays !== masterHours / 24) {
-                reason = `age_days doesn't match migration pattern: ${masterDays} !== ${masterHours / 24}`;
-              }
-            }
-            
-            console.log(`[Preflight Recipe: ${r.code}] Master excluded:`, {
-              master_code: master.master_code,
-              master_age_days: masterDays,
-              master_age_hours: masterHours,
-              recipe_age: `${recipeAgeNum}${r.ageUnit}`,
-              reason: reason || 'unknown'
-            });
-          }
-          
-          return matches;
+        // Filter masters in memory by specs
+        const sameSpecMasters = (allMasters || []).filter((master: any) => {
+          const placementMatch = placementDbValues.includes(master.placement_type);
+          return master.strength_fc === r.strength &&
+                 master.max_aggregate_size === r.aggregateSize &&
+                 master.slump === r.slump &&
+                 placementMatch;
         });
 
-        console.log(`[Preflight Recipe: ${r.code}] After age filter:`, {
-          mastersBeforeFilter: sameMasters?.length || 0,
-          mastersAfterFilter: sameSpecMastersFiltered.length,
-          masters: sameSpecMastersFiltered.map(m => ({
-            id: m.id,
-            code: m.master_code,
-            age_days: m.age_days,
-            age_hours: m.age_hours,
-            pattern: m.age_hours != null && m.age_days != null && m.age_hours === m.age_days * 24 ? 'MIGRATION' : 'CALCULATOR'
-          }))
+        // Filter masters by age using helper function
+        const sameSpecMastersFiltered = sameSpecMasters.filter((master: any) => {
+          return matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
         });
 
         // Combine recipe candidates with master data and master-only candidates
@@ -1411,7 +1344,7 @@ const ConcreteMixCalculator = () => {
         }));
 
         // Add master candidates that don't yet have variants
-        const masterIdsFromRecipes = new Set(sameSpecFiltered.map(r => r.master_recipe_id).filter(Boolean));
+        const masterIdsFromRecipes = new Set(sameSpecFiltered.map((r: any) => r.master_recipe_id).filter(Boolean));
         const mastersWithoutVariants = sameSpecMastersFiltered
           .filter(m => !masterIdsFromRecipes.has(m.id))
           .map(m => ({
@@ -1424,32 +1357,10 @@ const ConcreteMixCalculator = () => {
 
         const allCandidates = [...sameSpecWithMasters, ...mastersWithoutVariants];
 
-        console.log(`[Preflight Recipe: ${r.code}] Final candidates:`, {
-          recipeVariants: sameSpecWithMasters.length,
-          standaloneMAsters: mastersWithoutVariants.length,
-          total: allCandidates.length,
-          candidates: allCandidates.map(c => ({
-            type: c.type,
-            masterCode: c.master_code,
-            masterId: c.master_recipe_id,
-            recipeCode: c.recipe_code
-          }))
-        });
+        // Check for code collision using the lookup map
+        const codeExists = existingCodesMap.has(intendedCode) ? { id: existingCodesMap.get(intendedCode)! } : null;
 
-        // Check for code collision
-        const { data: codeExists, error: codeError } = await supabase
-          .from('recipes')
-          .select('id')
-          .eq('plant_id', currentPlant.id)
-          .eq('recipe_code', intendedCode)
-          .limit(1)
-          .maybeSingle?.() as any;
-
-        if (codeError && codeError.code !== 'PGRST116') {
-          console.error('Error checking code collision:', codeError);
-        }
-
-        // Suggest decision defaults
+        // Suggest decision defaults with improved master detection
         let decision: 'updateVariant' | 'createVariant' | 'newMaster' = 'newMaster';
         let selectedExistingId: string | undefined = undefined;
         let masterMode: 'existing' | 'new' = 'new';
@@ -1461,17 +1372,46 @@ const ConcreteMixCalculator = () => {
           decision = 'updateVariant';
           selectedExistingId = codeExists.id;
         } else if (allCandidates.length > 0) {
-          // Same spec found - either variant or master
-          const anyWithMaster = allCandidates.find(s => s.master_recipe_id);
-          if (anyWithMaster) {
+          // Same spec found - find the most common master or first master
+          // Collect all unique masters from candidates
+          const masterIdCounts = new Map<string, number>();
+          const masterIdToCode = new Map<string, string>();
+          
+          allCandidates.forEach(c => {
+            if (c.master_recipe_id) {
+              const count = masterIdCounts.get(c.master_recipe_id) || 0;
+              masterIdCounts.set(c.master_recipe_id, count + 1);
+              if (c.master_code) {
+                masterIdToCode.set(c.master_recipe_id, c.master_code);
+              }
+            }
+          });
+          
+          // Find the most common master (or first one if tied)
+          let bestMasterId: string | undefined = undefined;
+          let maxCount = 0;
+          
+          masterIdCounts.forEach((count, masterId) => {
+            if (count > maxCount) {
+              maxCount = count;
+              bestMasterId = masterId;
+            }
+          });
+          
+          // If we found a master, use it
+          if (bestMasterId) {
             decision = 'createVariant';
             masterMode = 'existing';
-            selectedMasterId = anyWithMaster.master_recipe_id;
+            selectedMasterId = bestMasterId;
           } else {
-            // Should not happen if allCandidates has proper masters
+            // No master found in candidates, create new master
             decision = 'newMaster';
             newMasterCode = intendedCode.split('-').slice(0, -2).join('-');
           }
+        } else {
+          // No candidates - create new master
+          decision = 'newMaster';
+          newMasterCode = intendedCode.split('-').slice(0, -2).join('-');
         }
 
         // ALWAYS add to conflictRows for user confirmation (even if no conflicts detected)
@@ -1676,47 +1616,8 @@ const ConcreteMixCalculator = () => {
     setActiveTab('materials');
   }, [currentPlant?.id]);
 
-  useEffect(() => {
-    if (materials.sands.length > 0 && materials.gravels.length > 0) {
-      generateRecipes();
-    }
-  }, [designParams, recipeParams, designType, materials, concreteType, typeCode]);
-
-  // Regenerate ARKIK codes when concreteType changes
-  useEffect(() => {
-    if (generatedRecipes.length > 0) {
-      const codes: Record<string, { longCode: string; shortCode: string }> = {};
-      const detectNames = selectedMaterials.additives
-        .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name || '')
-        .filter(Boolean) as string[];
-      generatedRecipes.forEach(r => {
-        const recipeConcreteType = concreteTypePerRecipe[r.code] || concreteType;
-        // Check if any PCE additive has non-zero quantity in THIS RECIPE
-        const hasNonZeroPCE = r.calculatedAdditives.some(additive => {
-          const hasPCE = additive.name.toUpperCase().includes('PCE');
-          const hasQuantity = additive.totalCC > 0;
-          return hasPCE && hasQuantity;
-        });
-        const { longCode, shortCode } = computeArkikCodes({
-          strength: r.strength,
-          age: r.age,
-          ageUnit: r.ageUnit,
-          slump: r.slump,
-          aggregateSize: r.aggregateSize,
-          placement: r.placement,
-          recipeType: designType,
-          typeCode: typeCode, // Use user-selected type code
-          num: '2', // Default number
-          variante: '000', // Default variant, will be overridden by PCE detection
-          detectPCEFromAdditiveNames: detectNames,
-          concreteTypeCode: recipeConcreteType,
-          hasNonZeroPCEQuantity: hasNonZeroPCE
-        });
-        codes[r.code] = { longCode, shortCode };
-      });
-      setArkikCodes(codes);
-    }
-  }, [concreteType, concreteTypePerRecipe, generatedRecipes, designType, materials.additives, selectedMaterials.additives, availableMaterials.additives, typeCode]);
+  // Recipes and ARKIK codes are now memoized and update automatically when dependencies change
+  // No need for useEffect hooks - memoization handles regeneration
 
   // Handle design type change - update default concrete type
   const handleDesignTypeChange = (newType: DesignType) => {
@@ -2005,7 +1906,7 @@ const ConcreteMixCalculator = () => {
             })()}
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setSaveOpen(false)}>Cancelar</Button>
+              <Button variant="secondary" onClick={() => setSaveOpen(false)}>Cancelar</Button>
               <Button onClick={handleConfirmSave} disabled={saving}>
                 {saving ? 'Procesando...' : 'Siguiente'}
               </Button>
@@ -2022,7 +1923,7 @@ const ConcreteMixCalculator = () => {
                 Para cada receta, selecciona si deseas actualizar una variante existente, crear una nueva variante bajo un maestro, o crear un nuevo maestro con su primera variante.
               </p>
             </DialogHeader>
-            <div className="max-h-[60vh] overflow-auto space-y-3">
+            <div className="max-h-[70vh] overflow-y-auto space-y-3 p-1">
               {conflicts.map((c, idx) => (
                 <div key={c.code} className="p-3 border rounded">
                   <div className="flex items-start justify-between">
@@ -2058,14 +1959,16 @@ const ConcreteMixCalculator = () => {
 
                   {c.sameSpecCandidates.length > 0 && (
                     <div className="mt-3">
-                      <div className="text-xs text-gray-600 mb-1">Variantes y maestros existentes (mismas especificaciones)</div>
-                      <div className="rounded border bg-gray-50 max-h-32 overflow-auto">
+                      <div className="text-xs text-gray-600 mb-1">
+                        Variantes y maestros existentes (mismas especificaciones) ({c.sameSpecCandidates.length})
+                      </div>
+                      <div className="rounded border bg-gray-50 max-h-48 overflow-y-auto">
                         <ul className="text-xs p-2 space-y-1">
                           {c.sameSpecCandidates.map(s => {
                             // Determine type: explicit type field, or infer from recipe_code presence
                             const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
                             return (
-                              <li key={s.id} className="font-mono">
+                              <li key={s.id} className="font-mono break-words">
                                 {isMaster ? (
                                   <span className="text-blue-600">📦 MAESTRO: {s.master_code || 'N/A'}</span>
                                 ) : (
@@ -2231,7 +2134,7 @@ const ConcreteMixCalculator = () => {
               ))}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setConflictsOpen(false)}>Cancelar</Button>
+              <Button variant="secondary" onClick={() => setConflictsOpen(false)}>Cancelar</Button>
               <Button 
                 disabled={(() => {
                   // Disable button if there's a code collision and user hasn't changed the code for new variants/masters
@@ -2332,14 +2235,19 @@ const ConcreteMixCalculator = () => {
                   
                   // Extract ARKIK codes from decisions for success modal
                   const createdCodes = decisions.map(d => d.finalArkikCode);
-                  setSuccessRecipeCodes(createdCodes);
-                  setSuccessOpen(true);
+                  
+                  // Close conflicts dialog and clear saving state first
                   setConflictsOpen(false);
                   setSaveOpen(false);
+                  setSaving(false);
+                  
+                  // Then show success modal
+                  setSuccessRecipeCodes(createdCodes);
+                  setSuccessOpen(true);
                 } catch (e) {
                   console.error(e);
-                  alert('Error resolviendo y guardando recetas');
-                } finally {
+                  const errorMessage = e instanceof Error ? e.message : 'Error desconocido al guardar recetas';
+                  alert(`Error al guardar recetas:\n\n${errorMessage}\n\nPor favor verifica los datos e intenta de nuevo.`);
                   setSaving(false);
                 }
               }}>{saving ? 'Guardando...' : 'Confirmar'}</Button>
@@ -2402,7 +2310,7 @@ const ConcreteMixCalculator = () => {
 
             <DialogFooter className="gap-2">
               <Button
-                variant="outline"
+                variant="secondary"
                 onClick={() => setSuccessOpen(false)}
               >
                 Cerrar

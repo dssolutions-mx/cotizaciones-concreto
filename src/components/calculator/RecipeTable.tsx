@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, memo } from 'react';
 import { Eye, EyeOff, Download, Edit2, ToggleLeft, ToggleRight, ChevronRight, ChevronDown } from 'lucide-react';
 import { Recipe, Materials, FCROverrides } from '@/types/calculator';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,7 @@ interface RecipeTableProps {
   onArkikCodeChange?: (recipeCode: string, newLongCode: string) => void;
 }
 
-export const RecipeTable: React.FC<RecipeTableProps> = ({
+export const RecipeTable: React.FC<RecipeTableProps> = memo(({
   recipes,
   materials,
   fcrOverrides,
@@ -61,8 +61,9 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingArkik, setEditingArkik] = useState<string | null>(null);
 
-  // Get all unique additives across all recipes for consistent table columns
-  const getAllUniqueAdditives = () => {
+  // Memoize unique additives calculation to avoid recalculating on every render
+  const uniqueAdditives = useMemo(() => {
+    if (recipes.length === 0) return [];
     const additiveMap = new Map();
     recipes.forEach(recipe => {
       recipe.calculatedAdditives.forEach(additive => {
@@ -71,9 +72,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
     });
     // Sort by ID for consistent column order
     return Array.from(additiveMap.values()).sort((a, b) => a.id - b.id);
-  };
-
-  const uniqueAdditives = recipes.length > 0 ? getAllUniqueAdditives() : [];
+  }, [recipes]);
   const totalColumns = useMemo(() => {
     // selection + expand + code + fc + fcr + age + slump + placement + ac
     const fixed = 9;
@@ -218,7 +217,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={onToggleDetails}
             className="flex items-center gap-2"
@@ -228,7 +227,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
           </Button>
           
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => setShowSSS(!showSSS)}
             className="flex items-center gap-2"
@@ -245,7 +244,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
           <Button
             onClick={onSaveSelected}
             disabled={selectedRecipesForExport.size === 0}
-            variant="outline"
+            variant="secondary"
             className="flex items-center gap-2"
           >
             <Download className="h-4 w-4" />
@@ -541,4 +540,4 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
       )}
     </div>
   );
-};
+});
