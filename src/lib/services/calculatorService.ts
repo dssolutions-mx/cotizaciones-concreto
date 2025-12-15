@@ -541,22 +541,22 @@ function buildMaterialsForRecipe(
   allMaterials: any[],
   selection?: CalculatorMaterialSelection
 ): { materialQuantities: any[]; ssMaterials: any[] } {
-  const materialQuantities: any[] = [];
+        const materialQuantities: any[] = [];
   const ssMaterials: any[] = [];
-
+        
   // Find cement and water materials
-  const cementMat = allMaterials?.find(m => m.category === 'CEMENTO' || m.category === 'cemento');
+        const cementMat = allMaterials?.find(m => m.category === 'CEMENTO' || m.category === 'cemento');
   const waterMat = allMaterials?.find(m => m.category === 'AGUA' || m.category === 'agua');
 
   // Cement - Dry
   if (cementMat && r.materialsDry.cement && r.materialsDry.cement > 0) {
-    materialQuantities.push({
+          materialQuantities.push({
       recipe_version_id: versionId,
-      material_id: cementMat.id,
-      material_type: 'CEMENTO',
-      quantity: r.materialsDry.cement,
-      unit: 'kg/m³'
-    });
+            material_id: cementMat.id,
+            material_type: 'CEMENTO',
+            quantity: r.materialsDry.cement,
+            unit: 'kg/m³'
+          });
   }
 
   // Cement - SSS
@@ -572,13 +572,13 @@ function buildMaterialsForRecipe(
 
   // Water - Dry
   if (waterMat && r.materialsDry.water && r.materialsDry.water > 0) {
-    materialQuantities.push({
+          materialQuantities.push({
       recipe_version_id: versionId,
-      material_id: waterMat.id,
-      material_type: 'AGUA',
-      quantity: r.materialsDry.water,
-      unit: 'L/m³'
-    });
+            material_id: waterMat.id,
+            material_type: 'AGUA',
+            quantity: r.materialsDry.water,
+            unit: 'L/m³'
+          });
   }
 
   // Water - SSS
@@ -590,26 +590,26 @@ function buildMaterialsForRecipe(
       sss_value: r.materialsSSS.water,
       unit: 'L/m³'
     });
-  }
+        }
 
-  // Aggregates and additives from selection
-  if (selection) {
-    // Sands
-    if (selection.sandIds) {
-      Object.entries(selection.sandIds).forEach(([idx, matId]) => {
-        const key = `sand${idx}`;
-        const dryValue = r.materialsDry[key];
+        // Aggregates and additives from selection
+        if (selection) {
+          // Sands
+          if (selection.sandIds) {
+            Object.entries(selection.sandIds).forEach(([idx, matId]) => {
+              const key = `sand${idx}`;
+              const dryValue = r.materialsDry[key];
         const sssValue = r.materialsSSS[key];
         
-        if (dryValue && dryValue > 0 && matId) {
-          materialQuantities.push({
+              if (dryValue && dryValue > 0 && matId) {
+                materialQuantities.push({
             recipe_version_id: versionId,
-            material_id: matId,
-            material_type: 'AGREGADO_FINO',
-            quantity: dryValue,
-            unit: 'kg/m³'
-          });
-        }
+                  material_id: matId,
+                  material_type: 'AGREGADO_FINO',
+                  quantity: dryValue,
+                  unit: 'kg/m³'
+                });
+              }
         
         if (sssValue && sssValue > 0 && matId) {
           ssMaterials.push({
@@ -617,28 +617,28 @@ function buildMaterialsForRecipe(
             material_id: matId,
             material_type: 'AGREGADO_FINO',
             sss_value: sssValue,
-            unit: 'kg/m³'
-          });
-        }
-      });
-    }
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
 
-    // Gravels
-    if (selection.gravelIds) {
-      Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
-        const key = `gravel${idx}`;
-        const dryValue = r.materialsDry[key];
+          // Gravels
+          if (selection.gravelIds) {
+            Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
+              const key = `gravel${idx}`;
+              const dryValue = r.materialsDry[key];
         const sssValue = r.materialsSSS[key];
         
-        if (dryValue && dryValue > 0 && matId) {
-          materialQuantities.push({
+              if (dryValue && dryValue > 0 && matId) {
+                materialQuantities.push({
             recipe_version_id: versionId,
-            material_id: matId,
-            material_type: 'AGREGADO_GRUESO',
-            quantity: dryValue,
-            unit: 'kg/m³'
-          });
-        }
+                  material_id: matId,
+                  material_type: 'AGREGADO_GRUESO',
+                  quantity: dryValue,
+                  unit: 'kg/m³'
+                });
+              }
         
         if (sssValue && sssValue > 0 && matId) {
           ssMaterials.push({
@@ -646,31 +646,31 @@ function buildMaterialsForRecipe(
             material_id: matId,
             material_type: 'AGREGADO_GRUESO',
             sss_value: sssValue,
-            unit: 'kg/m³'
-          });
-        }
-      });
-    }
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
 
-    // Additives
-    if (selection.additiveIds) {
-      Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
-        const key = `additive${idx}`;
-        const dryValue = r.materialsDry[key];
+          // Additives
+          if (selection.additiveIds) {
+            Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
+              const key = `additive${idx}`;
+              const dryValue = r.materialsDry[key];
         const sssValue = r.materialsSSS[key];
         
         if ((dryValue && dryValue > 0) || (sssValue && sssValue > 0)) {
-          const additiveMat = allMaterials?.find(m => m.id === matId);
-          const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
+                const additiveMat = allMaterials?.find(m => m.id === matId);
+                const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
           
           if (dryValue && dryValue > 0 && matId) {
-            materialQuantities.push({
+                materialQuantities.push({
               recipe_version_id: versionId,
-              material_id: matId,
-              material_type: 'ADITIVO',
-              quantity: dryValue,
-              unit: unit
-            });
+                  material_id: matId,
+                  material_type: 'ADITIVO',
+                  quantity: dryValue,
+                  unit: unit
+                });
           }
           
           if (sssValue && sssValue > 0 && matId) {
@@ -682,10 +682,10 @@ function buildMaterialsForRecipe(
               unit: unit
             });
           }
+              }
+            });
+          }
         }
-      });
-    }
-  }
 
   return { materialQuantities, ssMaterials };
 }
@@ -719,7 +719,13 @@ async function insertWithRetry(
 }
 
 // Extended save with decisions for master/variant governance
-// PERFORMANCE: Batches material inserts to prevent 504 timeouts (360+ queries → 2 queries)
+// PERFORMANCE OPTIMIZED: Batches ALL operations (72-144 queries → ~8-10 queries)
+// - Batch master creation
+// - Batch version number pre-fetch
+// - Batch recipe updates
+// - Batch recipe creation
+// - Batch version creation
+// - Batch material inserts
 export async function saveRecipesWithDecisions(
   recipes: CalculatorRecipe[],
   decisions: CalculatorSaveDecision[],
@@ -741,14 +747,22 @@ export async function saveRecipesWithDecisions(
   const materialMap = new Map((allMaterials || []).map(m => [m.id, m]));
 
   const totalRecipes = recipes.length;
-  console.log(`[Calculator] Starting batch save of ${totalRecipes} recipes with batched material inserts`);
+  console.log(`[Calculator] Starting OPTIMIZED batch save of ${totalRecipes} recipes`);
 
-  // Arrays to collect all materials for batch insertion
-  const allMaterialQuantities: any[] = [];
-  const allSSMaterials: any[] = [];
+  // Track all created entities for rollback
   const createdVersions: Array<{ recipeCode: string; versionId: string; recipeId: string; isNew: boolean }> = [];
+  const createdMasters: Array<{ id: string; masterCode: string }> = [];
+  const createdRecipes: Array<{ id: string; recipeCode: string }> = [];
 
-  // Step 1: Create all recipes and versions first
+  // ============================================================================
+  // PHASE 1: COLLECT ALL OPERATIONS (Prepare for batching)
+  // ============================================================================
+  
+  // Group recipes by action type
+  const updateRecipes: Array<{ recipe: CalculatorRecipe; decision: CalculatorSaveDecision; finalCode: string }> = [];
+  const newRecipes: Array<{ recipe: CalculatorRecipe; decision: CalculatorSaveDecision; finalCode: string; needsMaster: boolean }> = [];
+  const newMasters: Array<{ recipe: CalculatorRecipe; decision: CalculatorSaveDecision; masterCode: string }> = [];
+
   for (let i = 0; i < totalRecipes; i++) {
     const r = recipes[i];
     const decision = decisionByCode.get(r.code);
@@ -756,181 +770,343 @@ export async function saveRecipesWithDecisions(
 
     const finalCode = decision.finalArkikCode || r.code;
 
-    try {
-      let versionId: string;
-      let recipeId: string;
+    if (decision.action === 'updateVariant') {
+      updateRecipes.push({ recipe: r, decision, finalCode });
+    } else if (decision.action === 'createVariant' || decision.action === 'newMaster') {
+      const needsMaster = decision.action === 'newMaster';
+      newRecipes.push({ recipe: r, decision, finalCode, needsMaster });
+      if (needsMaster) {
+        newMasters.push({ recipe: r, decision, masterCode: decision.newMasterCode || finalCode.split('-').slice(0, -2).join('-') });
+      }
+    }
+  }
 
-      if (decision.action === 'updateVariant') {
-        // Update existing recipe AND create new version with materials
-        if (!decision.existingRecipeId) throw new Error('Falta existingRecipeId para actualizar variante');
-        
-        console.log(`[Recipe ${finalCode}] Updating existing variant ${decision.existingRecipeId}`);
-        
-        const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
-        
-        // Update recipe record
-        const { error: updErr } = await supabase
-          .from('recipes')
-          .update({
-            recipe_code: finalCode,
-            strength_fc: r.strength,
-            age_days: r.ageUnit === 'D' ? r.age : null,
-            age_hours: r.ageUnit === 'H' ? r.age : null,
-            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
-            max_aggregate_size: r.aggregateSize,
-            slump: r.slump,
-            variant_suffix: variantSuffix
-          })
-          .eq('id', decision.existingRecipeId);
-        if (updErr) {
-          console.error(`[Recipe ${finalCode}] Failed to update recipe:`, updErr);
-          throw updErr;
-        }
-        
-        // Get current version number to increment
-        const { data: currentVersions } = await supabase
-          .from('recipe_versions')
-          .select('version_number')
-          .eq('recipe_id', decision.existingRecipeId)
-          .order('version_number', { ascending: false })
-          .limit(1);
-        
-        const nextVersionNumber = currentVersions && currentVersions.length > 0 
-          ? (currentVersions[0].version_number || 0) + 1 
-          : 1;
-        
-        // Mark previous versions as not current
-        await supabase
-          .from('recipe_versions')
-          .update({ is_current: false })
-          .eq('recipe_id', decision.existingRecipeId)
-          .eq('is_current', true);
-        
-        // Create new version
-        const { data: version, error: versionErr } = await supabase
-          .from('recipe_versions')
-          .insert({
-            recipe_id: decision.existingRecipeId,
-            version_number: nextVersionNumber,
-            effective_date: new Date().toISOString(),
-            is_current: true,
-            notes: `Actualizado por calculadora automática - ${r.recipeType === 'MR' ? 'MR' : 'FC'}`
-          })
-          .select('id')
-          .single();
-        
-        if (versionErr || !version || !version.id) {
-          console.error(`[Recipe ${finalCode}] Version creation failed:`, versionErr);
-          throw new Error(`Failed to create version for recipe ${finalCode}: ${versionErr?.message || 'Version is null'}`);
-        }
-        
-        console.log(`[Recipe ${finalCode}] Created version ${nextVersionNumber}:`, version.id);
-        
-        versionId = version.id;
-        recipeId = decision.existingRecipeId;
-        
-        // Track for rollback (updateVariant - can't rollback updates, but track for error reporting)
-        createdVersions.push({ recipeCode: r.code, versionId, recipeId, isNew: false });
+  console.log(`[Calculator] Phase 1: Collected ${newMasters.length} new masters, ${updateRecipes.length} updates, ${newRecipes.length} new recipes`);
 
-      } else if (decision.action === 'createVariant' || decision.action === 'newMaster') {
-        // Create new recipe (for both createVariant and newMaster)
+  // ============================================================================
+  // PHASE 2: BATCH CREATE MASTERS (if any)
+  // ============================================================================
+  const masterCodeToId = new Map<string, string>();
+  
+  if (newMasters.length > 0) {
+    console.log(`[Calculator] Phase 2: Batch creating ${newMasters.length} masters`);
+    const masterRecords = newMasters.map(({ recipe, masterCode }) => ({
+      master_code: masterCode,
+      plant_id: plantId,
+      strength_fc: recipe.strength,
+      age_days: recipe.ageUnit === 'D' ? recipe.age : null,
+      age_hours: recipe.ageUnit === 'H' ? recipe.age : null,
+      placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+      max_aggregate_size: recipe.aggregateSize,
+      slump: recipe.slump
+    }));
+
+    const { data: createdMastersData, error: masterErr } = await supabase
+      .from('master_recipes')
+      .insert(masterRecords)
+      .select('id, master_code');
+
+    if (masterErr) {
+      console.error(`[Calculator] Batch master creation failed:`, masterErr);
+      throw new Error(`Error al crear maestros: ${masterErr.message}`);
+    }
+
+    (createdMastersData || []).forEach(m => {
+      masterCodeToId.set(m.master_code, m.id);
+      createdMasters.push({ id: m.id, masterCode: m.master_code });
+    });
+
+    console.log(`[Calculator] Successfully batch created ${createdMastersData?.length || 0} masters`);
+  }
+
+  // ============================================================================
+  // PHASE 3: PRE-FETCH VERSION NUMBERS (for updates)
+  // ============================================================================
+  const recipeIdToNextVersion = new Map<string, number>();
+  
+  if (updateRecipes.length > 0) {
+    console.log(`[Calculator] Phase 3: Pre-fetching version numbers for ${updateRecipes.length} recipes`);
+    const recipeIdsToUpdate = updateRecipes.map(u => u.decision.existingRecipeId!).filter(Boolean);
+    
+    // Batch query all version numbers
+    const { data: versionData, error: versionErr } = await supabase
+      .from('recipe_versions')
+      .select('recipe_id, version_number')
+      .in('recipe_id', recipeIdsToUpdate)
+      .order('version_number', { ascending: false });
+
+    if (versionErr) {
+      console.error(`[Calculator] Version number pre-fetch failed:`, versionErr);
+      throw new Error(`Error al obtener números de versión: ${versionErr.message}`);
+    }
+
+    // Group by recipe_id and get max version number
+    const versionMap = new Map<string, number>();
+    (versionData || []).forEach(v => {
+      const current = versionMap.get(v.recipe_id) || 0;
+      if (v.version_number > current) {
+        versionMap.set(v.recipe_id, v.version_number);
+      }
+    });
+
+    // Set next version number for each recipe
+    recipeIdsToUpdate.forEach(recipeId => {
+      const currentMax = versionMap.get(recipeId) || 0;
+      recipeIdToNextVersion.set(recipeId, currentMax + 1);
+    });
+
+    console.log(`[Calculator] Pre-fetched version numbers for ${recipeIdToNextVersion.size} recipes`);
+  }
+
+  // ============================================================================
+  // PHASE 4: BATCH UPDATE RECIPES (if any)
+  // ============================================================================
+  if (updateRecipes.length > 0) {
+    console.log(`[Calculator] Phase 4: Batch updating ${updateRecipes.length} recipes`);
+    
+    // Note: Supabase doesn't support multi-row updates directly, so we need to do them individually
+    // But we can at least batch them in parallel using Promise.all
+    const updatePromises = updateRecipes.map(async ({ recipe, decision, finalCode }) => {
+      const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
+      const { error: updErr } = await supabase
+        .from('recipes')
+        .update({
+          recipe_code: finalCode,
+          strength_fc: recipe.strength,
+          age_days: recipe.ageUnit === 'D' ? recipe.age : null,
+          age_hours: recipe.ageUnit === 'H' ? recipe.age : null,
+          placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+          max_aggregate_size: recipe.aggregateSize,
+          slump: recipe.slump,
+          variant_suffix: variantSuffix
+        })
+        .eq('id', decision.existingRecipeId!);
+      
+      if (updErr) {
+        throw new Error(`Error al actualizar receta ${finalCode}: ${updErr.message}`);
+      }
+    });
+
+    await Promise.all(updatePromises);
+    console.log(`[Calculator] Successfully batch updated ${updateRecipes.length} recipes`);
+  }
+
+  // ============================================================================
+  // PHASE 5: BATCH UPDATE VERSIONS (mark non-current)
+  // ============================================================================
+  if (updateRecipes.length > 0) {
+    console.log(`[Calculator] Phase 5: Batch marking ${updateRecipes.length} versions as non-current`);
+    const recipeIdsToUpdate = updateRecipes.map(u => u.decision.existingRecipeId!).filter(Boolean);
+    
+    const { error: updateErr } = await supabase
+          .from('recipe_versions')
+      .update({ is_current: false })
+      .in('recipe_id', recipeIdsToUpdate)
+      .eq('is_current', true);
+
+    if (updateErr) {
+      console.error(`[Calculator] Batch version update failed:`, updateErr);
+      throw new Error(`Error al actualizar versiones: ${updateErr.message}`);
+    }
+
+    console.log(`[Calculator] Successfully marked versions as non-current`);
+  }
+
+  // ============================================================================
+  // PHASE 6: BATCH CREATE RECIPES (if any)
+  // ============================================================================
+  const recipeCodeToId = new Map<string, string>();
+  
+  if (newRecipes.length > 0) {
+    console.log(`[Calculator] Phase 6: Batch creating ${newRecipes.length} recipes`);
+    
+    const recipeRecords = newRecipes.map(({ recipe, decision, finalCode }) => {
+      const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
         let masterId = decision.masterRecipeId;
 
-        if (decision.action === 'newMaster') {
-          // First create the master
-          const { data: master, error: masterErr } = await supabase
-            .from('master_recipes')
-            .insert({
-              master_code: decision.newMasterCode,
-              plant_id: plantId,
-              strength_fc: r.strength,
-              age_days: r.ageUnit === 'D' ? r.age : null,
-              age_hours: r.ageUnit === 'H' ? r.age : null,
-              placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
-              max_aggregate_size: r.aggregateSize,
-              slump: r.slump
-            })
-            .select('id')
-            .single();
-          if (masterErr) throw masterErr;
-          masterId = master.id;
+      // If new master, get ID from map created in Phase 2
+      if (decision.action === 'newMaster' && decision.newMasterCode) {
+        masterId = masterCodeToId.get(decision.newMasterCode);
+        if (!masterId) {
+          throw new Error(`Master ID not found for code: ${decision.newMasterCode}`);
         }
+      }
 
-        // Insert recipe
-        const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
-        const { data: newRecipe, error: recipeErr } = await supabase
-          .from('recipes')
-          .insert({
+      return {
             recipe_code: finalCode,
-            strength_fc: r.strength,
-            age_days: r.ageUnit === 'D' ? r.age : null,
-            age_hours: r.ageUnit === 'H' ? r.age : null,
-            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
-            max_aggregate_size: r.aggregateSize,
-            slump: r.slump,
-            application_type: r.recipeType === 'MR' ? 'pavimento' : 'standard',
+        strength_fc: recipe.strength,
+        age_days: recipe.ageUnit === 'D' ? recipe.age : null,
+        age_hours: recipe.ageUnit === 'H' ? recipe.age : null,
+        placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+        max_aggregate_size: recipe.aggregateSize,
+        slump: recipe.slump,
+        application_type: recipe.recipeType === 'MR' ? 'pavimento' : 'standard',
             has_waterproofing: false,
             performance_grade: 'standard',
             plant_id: plantId,
             master_recipe_id: masterId,
             variant_suffix: variantSuffix
-          })
-          .select('id')
-          .single();
-        if (recipeErr) throw recipeErr;
+      };
+    });
 
-        // Create version
-        const { data: version, error: versionErr } = await supabase
-          .from('recipe_versions')
-          .insert({
-            recipe_id: newRecipe.id,
-            version_number: 1,
-            effective_date: new Date().toISOString(),
-            is_current: true,
-            notes: `Generado por calculadora automática - ${r.recipeType === 'MR' ? 'MR' : 'FC'}`
-          })
-          .select('id')
-          .single();
-        
-        if (versionErr || !version || !version.id) {
-          console.error(`[Recipe ${finalCode}] Version creation failed:`, versionErr);
-          throw new Error(`Failed to create version for recipe ${finalCode}: ${versionErr?.message || 'Version is null'}`);
+    const { data: createdRecipesData, error: recipeErr } = await supabase
+      .from('recipes')
+      .insert(recipeRecords)
+      .select('id, recipe_code');
+
+    if (recipeErr) {
+      console.error(`[Calculator] Batch recipe creation failed:`, recipeErr);
+      throw new Error(`Error al crear recetas: ${recipeErr.message}`);
+    }
+
+    (createdRecipesData || []).forEach(r => {
+      recipeCodeToId.set(r.recipe_code, r.id);
+      createdRecipes.push({ id: r.id, recipeCode: r.recipe_code });
+    });
+
+    console.log(`[Calculator] Successfully batch created ${createdRecipesData?.length || 0} recipes`);
+  }
+
+  // ============================================================================
+  // PHASE 7: BATCH CREATE VERSIONS
+  // ============================================================================
+  const recipeCodeToVersionId = new Map<string, string>();
+  const recipeCodeToRecipeId = new Map<string, string>();
+  
+  // Prepare version records for both updates and new recipes
+  const versionRecords: Array<{
+    recipe_id: string;
+    version_number: number;
+    effective_date: string;
+    is_current: boolean;
+    notes: string;
+    recipeCode: string; // Track for mapping
+  }> = [];
+
+  // Versions for updated recipes
+  updateRecipes.forEach(({ recipe, decision, finalCode }) => {
+    const recipeId = decision.existingRecipeId!;
+    const nextVersion = recipeIdToNextVersion.get(recipeId) || 1;
+    versionRecords.push({
+      recipe_id: recipeId,
+      version_number: nextVersion,
+      effective_date: new Date().toISOString(),
+      is_current: true,
+      notes: `Actualizado por calculadora automática - ${recipe.recipeType === 'MR' ? 'MR' : 'FC'}`,
+      recipeCode: recipe.code
+    });
+  });
+
+  // Versions for new recipes
+  newRecipes.forEach(({ recipe, finalCode }) => {
+    const recipeId = recipeCodeToId.get(finalCode);
+    if (!recipeId) {
+      throw new Error(`Recipe ID not found for code: ${finalCode}`);
+    }
+    versionRecords.push({
+      recipe_id: recipeId,
+      version_number: 1,
+      effective_date: new Date().toISOString(),
+      is_current: true,
+      notes: `Generado por calculadora automática - ${recipe.recipeType === 'MR' ? 'MR' : 'FC'}`,
+      recipeCode: recipe.code
+    });
+  });
+
+  if (versionRecords.length > 0) {
+    console.log(`[Calculator] Phase 7: Batch creating ${versionRecords.length} versions`);
+    
+    // Insert versions (without recipeCode field - it's just for tracking)
+    const versionInserts = versionRecords.map(({ recipeCode, ...v }) => v);
+    const { data: createdVersionsData, error: versionErr } = await supabase
+      .from('recipe_versions')
+      .insert(versionInserts)
+      .select('id, recipe_id');
+
+    if (versionErr) {
+      console.error(`[Calculator] Batch version creation failed:`, versionErr);
+      throw new Error(`Error al crear versiones: ${versionErr.message}`);
+    }
+
+    // Map recipe IDs to recipe codes (for both updates and new recipes)
+    const recipeIdToCode = new Map<string, string>();
+    updateRecipes.forEach(({ recipe, decision }) => {
+      recipeIdToCode.set(decision.existingRecipeId!, recipe.code);
+    });
+    newRecipes.forEach(({ recipe, finalCode }) => {
+      const recipeId = recipeCodeToId.get(finalCode);
+      if (recipeId) {
+        recipeIdToCode.set(recipeId, recipe.code);
+      }
+    });
+
+    // Map versions back to recipe codes using recipe_id
+    (createdVersionsData || []).forEach((v) => {
+      const recipeCode = recipeIdToCode.get(v.recipe_id);
+      if (recipeCode) {
+        recipeCodeToVersionId.set(recipeCode, v.id);
+        const recipeId = updateRecipes.find(u => u.recipe.code === recipeCode)?.decision.existingRecipeId 
+          || recipeCodeToId.get(newRecipes.find(n => n.recipe.code === recipeCode)?.finalCode || '');
+        if (recipeId) {
+          recipeCodeToRecipeId.set(recipeCode, recipeId);
         }
-        
-        console.log(`[Recipe ${finalCode}] Created version:`, version.id);
-        
-        versionId = version.id;
-        recipeId = newRecipe.id;
-        
-        // Track for rollback (new recipe - can be deleted if material insertion fails)
-        createdVersions.push({ recipeCode: r.code, versionId, recipeId, isNew: true });
       }
+    });
 
-      // Build materials for this recipe (but don't insert yet)
-      const { materialQuantities, ssMaterials } = buildMaterialsForRecipe(
-        r,
-        versionId,
-        allMaterials || [],
-        selection
-      );
-
-      // Add to batch arrays
-      allMaterialQuantities.push(...materialQuantities);
-      allSSMaterials.push(...ssMaterials);
-
-      // Report progress
-      if (onProgress) {
-        onProgress(i + 1, totalRecipes, r.code);
+    // Build createdVersions array for rollback tracking
+    versionRecords.forEach(record => {
+      const versionId = recipeCodeToVersionId.get(record.recipeCode);
+      const recipeId = recipeCodeToRecipeId.get(record.recipeCode);
+      if (versionId && recipeId) {
+        const isNew = newRecipes.some(n => n.recipe.code === record.recipeCode);
+        createdVersions.push({ recipeCode: record.recipeCode, versionId, recipeId, isNew });
       }
+    });
 
-    } catch (err: any) {
-      console.error(`Error al guardar receta ${finalCode}:`, err);
-      throw new Error(`Error al guardar receta ${finalCode}: ${err.message}`);
+    console.log(`[Calculator] Successfully batch created ${createdVersionsData?.length || 0} versions`);
+  }
+
+  // ============================================================================
+  // PHASE 8: BUILD MATERIALS FOR ALL RECIPES
+  // ============================================================================
+  console.log(`[Calculator] Phase 8: Building materials for ${totalRecipes} recipes`);
+  const allMaterialQuantities: any[] = [];
+  const allSSMaterials: any[] = [];
+
+  for (let i = 0; i < totalRecipes; i++) {
+    const r = recipes[i];
+    const decision = decisionByCode.get(r.code);
+    if (!decision) continue;
+
+    const finalCode = decision.finalArkikCode || r.code;
+    const versionId = recipeCodeToVersionId.get(r.code);
+    
+    if (!versionId) {
+      console.error(`[Calculator] Version ID not found for recipe ${r.code}`);
+      continue;
+    }
+
+    // Build materials for this recipe
+    const { materialQuantities, ssMaterials } = buildMaterialsForRecipe(
+      r,
+      versionId,
+      allMaterials || [],
+      selection
+    );
+
+    allMaterialQuantities.push(...materialQuantities);
+    allSSMaterials.push(...ssMaterials);
+
+    // Report progress
+    if (onProgress) {
+      onProgress(i + 1, totalRecipes, r.code);
     }
   }
 
-  // Step 2: Batch insert ALL materials at once (reduces 360+ queries to 2 queries)
-  console.log(`[Calculator] Batch inserting ${allMaterialQuantities.length} material quantities and ${allSSMaterials.length} SSS materials`);
+  // ============================================================================
+  // PHASE 9: BATCH INSERT MATERIALS (already optimized)
+  // ============================================================================
+  console.log(`[Calculator] Phase 9: Batch inserting ${allMaterialQuantities.length} material quantities and ${allSSMaterials.length} SSS materials`);
 
   try {
     if (allMaterialQuantities.length > 0) {
@@ -943,28 +1119,45 @@ export async function saveRecipesWithDecisions(
       console.log(`[Calculator] Successfully batch inserted ${allSSMaterials.length} SSS materials`);
     }
   } catch (err: any) {
-    // Rollback: Delete newly created recipes/versions if material insertion failed
+    // Rollback: Delete newly created entities if material insertion failed
     console.error(`[Calculator] Material insertion failed, attempting rollback...`, err);
     
-    const newRecipesToDelete = createdVersions.filter(v => v.isNew);
-    if (newRecipesToDelete.length > 0) {
-      console.log(`[Calculator] Rolling back ${newRecipesToDelete.length} newly created recipes`);
+    try {
+      // Delete newly created versions first (foreign key constraint)
+      const newVersionsToDelete = createdVersions.filter(v => v.isNew);
+      if (newVersionsToDelete.length > 0) {
+        console.log(`[Calculator] Rolling back ${newVersionsToDelete.length} newly created versions`);
+        const versionIdsToDelete = newVersionsToDelete.map(v => v.versionId);
+        await supabase
+          .from('recipe_versions')
+          .delete()
+          .in('id', versionIdsToDelete);
+      }
       
-      // Delete versions first (foreign key constraint)
-      const versionIdsToDelete = newRecipesToDelete.map(v => v.versionId);
-      await supabase
-        .from('recipe_versions')
-        .delete()
-        .in('id', versionIdsToDelete);
+      // Delete newly created recipes
+      if (createdRecipes.length > 0) {
+        console.log(`[Calculator] Rolling back ${createdRecipes.length} newly created recipes`);
+        const recipeIdsToDelete = createdRecipes.map(r => r.id);
+        await supabase
+          .from('recipes')
+          .delete()
+          .in('id', recipeIdsToDelete);
+      }
       
-      // Then delete recipes
-      const recipeIdsToDelete = newRecipesToDelete.map(v => v.recipeId);
-      await supabase
-        .from('recipes')
-        .delete()
-        .in('id', recipeIdsToDelete);
+      // Delete newly created masters (only if no recipes reference them)
+      if (createdMasters.length > 0) {
+        console.log(`[Calculator] Rolling back ${createdMasters.length} newly created masters`);
+        const masterIdsToDelete = createdMasters.map(m => m.id);
+        await supabase
+          .from('master_recipes')
+          .delete()
+          .in('id', masterIdsToDelete);
+      }
       
-      console.log(`[Calculator] Rolled back ${newRecipesToDelete.length} recipes`);
+      console.log(`[Calculator] Rollback completed`);
+    } catch (rollbackErr) {
+      console.error(`[Calculator] Rollback failed:`, rollbackErr);
+      // Continue to throw original error
     }
     
     // Provide detailed error message
@@ -985,7 +1178,7 @@ export async function saveRecipesWithDecisions(
     try {
       // Batch query for material counts
       const { data: materialCounts, error: materialError } = await supabase
-        .from('material_quantities')
+          .from('material_quantities')
         .select('recipe_version_id')
         .in('recipe_version_id', versionIds);
       
@@ -1034,5 +1227,5 @@ export async function saveRecipesWithDecisions(
     }
   }
 
-  console.log(`[Calculator] Successfully saved ${totalRecipes} recipes with batched material inserts`);
+  console.log(`[Calculator] Successfully saved ${totalRecipes} recipes using optimized batch operations (masters, recipes, versions, and materials)`);
 }
