@@ -920,19 +920,32 @@ export async function saveRecipesWithDecisions(
   if (newRecipes.length > 0) {
     console.log(`[Calculator] Phase 6: Batch creating ${newRecipes.length} recipes`);
     
-    const recipeRecords = newRecipes.map(({ recipe, decision, finalCode }) => {
-      const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
+      const recipeRecords = newRecipes.map(({ recipe, decision, finalCode }) => {
+        const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
         let masterId = decision.masterRecipeId;
-
-      // If new master, get ID from map created in Phase 2
-      if (decision.action === 'newMaster' && decision.newMasterCode) {
-        masterId = masterCodeToId.get(decision.newMasterCode);
-        if (!masterId) {
-          throw new Error(`Master ID not found for code: ${decision.newMasterCode}`);
+        
+        // If new master, get ID from map created in Phase 2
+        if (decision.action === 'newMaster' && decision.newMasterCode) {
+          masterId = masterCodeToId.get(decision.newMasterCode);
+          if (!masterId) {
+            console.error(`[Calculator] Master ID not found for code: ${decision.newMasterCode}`, {
+              availableMasters: Array.from(masterCodeToId.entries()),
+              newMasterCode: decision.newMasterCode
+            });
+            throw new Error(`No se encontró el maestro con código "${decision.newMasterCode}". Verifica que el maestro fue creado correctamente.`);
+          }
         }
-      }
+        
+        // Validate master ID exists for createVariant
+        if (decision.action === 'createVariant' && !masterId) {
+          console.error(`[Calculator] Missing master ID for createVariant`, {
+            recipeCode: finalCode,
+            decision
+          });
+          throw new Error(`No se especificó un maestro para la variante "${finalCode}". Verifica la selección en el diálogo de conflictos.`);
+        }
 
-      return {
+        return {
             recipe_code: finalCode,
         strength_fc: recipe.strength,
         age_days: recipe.ageUnit === 'D' ? recipe.age : null,

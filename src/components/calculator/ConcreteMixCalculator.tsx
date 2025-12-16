@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calculator, Download, FileText, Database, Loader2, AlertTriangle } from 'lucide-react';
+import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase/client';
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/components/ui/use-toast';
 
 // Types
 import { 
@@ -78,6 +79,7 @@ type ConcreteTypePerRecipe = Record<string, ConcreteTypeCode>;
 const ConcreteMixCalculator = () => {
   const { profile } = useAuthBridge();
   const { currentPlant, isLoading: plantLoading, refreshPlantData } = usePlantContext();
+  const { toast } = useToast();
   
   // Loading states
   const [loading, setLoading] = useState(false);
@@ -282,7 +284,11 @@ const ConcreteMixCalculator = () => {
       setMaterialsLoaded(true);
     } catch (error) {
       console.error('Error loading materials:', error);
-      alert('Error al cargar materiales');
+      toast({
+        title: "Error al cargar materiales",
+        description: "No se pudieron cargar los materiales. Por favor recarga la página.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -929,7 +935,11 @@ const ConcreteMixCalculator = () => {
       // Validate materials before proceeding
       const validation = validateSelectedMaterials();
       if (!validation.isValid) {
-        alert(`No se pueden generar recetas. Materiales incompletos:\n\n${validation.errors.join('\n')}\n\nPor favor complete la información faltante en la configuración de materiales.`);
+        toast({
+          title: "Materiales incompletos",
+          description: `No se pueden generar recetas. ${validation.errors.join('. ')}. Por favor complete la información faltante.`,
+          variant: "destructive",
+        });
         return;
       }
       
@@ -949,7 +959,11 @@ const ConcreteMixCalculator = () => {
       // Recipes will be regenerated automatically via useMemo when materials change
     } catch (error) {
       console.error('Error preparing materials:', error);
-      alert(`Error al preparar materiales: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      toast({
+        title: "Error al preparar materiales",
+        description: error instanceof Error ? error.message : 'Error desconocido',
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
@@ -1144,7 +1158,11 @@ const ConcreteMixCalculator = () => {
   const handleExportSelected = async () => {
     const recipesToExport = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
     if (recipesToExport.length === 0) {
-      alert('Por favor selecciona al menos una receta para exportar');
+      toast({
+        title: "Ninguna receta seleccionada",
+        description: "Por favor selecciona al menos una receta para exportar.",
+        variant: "destructive",
+      });
       return;
     }
     
@@ -1181,10 +1199,18 @@ const ConcreteMixCalculator = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      alert('Recetas exportadas exitosamente');
+      toast({
+        title: "Recetas exportadas",
+        description: "Las recetas se exportaron exitosamente.",
+        variant: "default",
+      });
     } catch (error) {
       console.error('Error exporting recipes:', error);
-      alert('Error al exportar recetas');
+      toast({
+        title: "Error al exportar recetas",
+        description: error instanceof Error ? error.message : 'Error desconocido',
+        variant: "destructive",
+      });
     } finally {
       setExportLoading(false);
     }
@@ -1198,6 +1224,7 @@ const ConcreteMixCalculator = () => {
   };
 
   // Helper function to match age criteria, handling both calculator and migration patterns
+  // IMPROVED: More permissive matching to handle various data patterns
   const matchesAgeCriteria = (
     masterAgeDays: number | null | undefined,
     masterAgeHours: number | null | undefined,
@@ -1205,38 +1232,48 @@ const ConcreteMixCalculator = () => {
     recipeAgeUnit: 'D' | 'H'
   ): boolean => {
     // Normalize values (handle null, undefined, convert to numbers)
-    const masterDays = masterAgeDays == null ? null : Number(masterAgeDays);
-    const masterHours = masterAgeHours == null ? null : Number(masterAgeHours);
+    const masterDays = masterAgeDays == null ? 0 : Number(masterAgeDays);
+    const masterHours = masterAgeHours == null ? 0 : Number(masterAgeHours);
     const recipeAgeNum = Number(recipeAge);
 
     if (recipeAgeUnit === 'D') {
-      // For days-based recipes: check if master.age_days matches
-      if (masterDays !== recipeAgeNum) {
-        return false;
+      // For days-based recipes: check days OR equivalent hours
+      
+      // Option 1: Master has matching age_days
+      if (masterDays === recipeAgeNum) {
+        return true;
       }
       
-      // Accept if age_hours is null, 0, or matches migration pattern (age_hours = age_days * 24)
-      if (masterHours == null || masterHours === 0) {
-        return true; // Calculator pattern: only age_days set
+      // Option 2: Master only has age_hours that matches (convert days to hours)
+      if (masterDays === 0 && masterHours === recipeAgeNum * 24) {
+        return true;
       }
       
-      // Migration pattern: both fields set, check if age_hours = age_days * 24
-      const expectedHours = masterDays * 24;
-      return masterHours === expectedHours;
+      // Option 3: Master has both and hours matches (ignore days mismatch)
+      if (masterHours === recipeAgeNum * 24) {
+        return true;
+      }
+      
+      return false;
     } else {
-      // For hours-based recipes: check if master.age_hours matches
-      if (masterHours !== recipeAgeNum) {
-        return false;
+      // For hours-based recipes: check hours OR equivalent days
+      
+      // Option 1: Master has matching age_hours
+      if (masterHours === recipeAgeNum) {
+        return true;
       }
       
-      // Accept if age_days is null, 0, or matches migration pattern (age_days = age_hours / 24)
-      if (masterDays == null || masterDays === 0) {
-        return true; // Calculator pattern: only age_hours set
+      // Option 2: Master only has age_days that matches (convert hours to days, if divisible by 24)
+      if (recipeAgeNum % 24 === 0 && masterHours === 0 && masterDays === recipeAgeNum / 24) {
+        return true;
       }
       
-      // Migration pattern: both fields set, check if age_days = age_hours / 24
-      const expectedDays = masterHours / 24;
-      return masterDays === expectedDays;
+      // Option 3: Master has both and days matches (ignore hours mismatch)
+      if (recipeAgeNum % 24 === 0 && masterDays === recipeAgeNum / 24) {
+        return true;
+      }
+      
+      return false;
     }
   };
 
@@ -1260,6 +1297,7 @@ const ConcreteMixCalculator = () => {
       const conflictRows: Array<any> = [];
       
       // Fetch ALL recipes for this plant once
+      console.log('[Preflight] Fetching all recipes for plant:', currentPlant.id);
       const { data: allRecipes, error: allRecipesError } = await supabase
         .from('recipes')
         .select('id, recipe_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, master_recipe_id, master_recipes:master_recipe_id(id, master_code)')
@@ -1267,10 +1305,27 @@ const ConcreteMixCalculator = () => {
       
       if (allRecipesError) {
         console.error('[Preflight] Error fetching all recipes:', allRecipesError);
+        toast({
+          title: "Error al cargar recetas",
+          description: `No se pudieron cargar las recetas existentes: ${allRecipesError.message}`,
+          variant: "destructive",
+        });
         throw new Error('Error fetching recipes for conflict detection');
       }
+      
+      console.log('[Preflight] Fetched recipes:', {
+        count: allRecipes?.length || 0,
+        sample: allRecipes?.slice(0, 3).map(r => ({
+          code: r.recipe_code,
+          master_id: r.master_recipe_id,
+          master_code: r.master_recipes?.master_code,
+          strength: r.strength_fc,
+          placement: r.placement_type
+        }))
+      });
 
       // Fetch ALL masters for this plant once
+      console.log('[Preflight] Fetching all masters for plant:', currentPlant.id);
       const { data: allMasters, error: allMastersError } = await supabase
         .from('master_recipes')
         .select('id, master_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump')
@@ -1278,8 +1333,27 @@ const ConcreteMixCalculator = () => {
       
       if (allMastersError) {
         console.error('[Preflight] Error fetching all masters:', allMastersError);
+        toast({
+          title: "Error al cargar maestros",
+          description: `No se pudieron cargar los maestros existentes: ${allMastersError.message}`,
+          variant: "destructive",
+        });
         throw new Error('Error fetching masters for conflict detection');
       }
+      
+      console.log('[Preflight] Fetched masters:', {
+        count: allMasters?.length || 0,
+        sample: allMasters?.slice(0, 5).map(m => ({
+          code: m.master_code,
+          id: m.id,
+          strength: m.strength_fc,
+          age_days: m.age_days,
+          age_hours: m.age_hours,
+          placement: m.placement_type,
+          slump: m.slump,
+          size: m.max_aggregate_size
+        }))
+      });
 
       // Check all codes at once
       const allIntendedCodes = provisional.map(p => p.intendedCode);
@@ -1297,8 +1371,13 @@ const ConcreteMixCalculator = () => {
       const existingCodesMap = new Map((existingCodes || []).map(c => [c.recipe_code, c.id]));
 
       // Helper function to normalize placement for comparison
+      // CRITICAL: Handle all placement type variations in database (B, D, BOMBEADO, DIRECTO, BOMB)
       const normalizePlacement = (placement: string): string[] => {
-        if (placement === 'D' || placement === 'DIRECTO') return ['DIRECTO', 'D'];
+        const upper = placement.toUpperCase();
+        if (upper === 'D' || upper === 'DIRECTO') {
+          return ['DIRECTO', 'D'];
+        }
+        // For B/BOMBEADO/BOMB - return all variations
         return ['BOMBEADO', 'B', 'BOMB'];
       };
 
@@ -1306,45 +1385,111 @@ const ConcreteMixCalculator = () => {
       for (const { r, intendedCode } of provisional) {
         const placementDbValues = normalizePlacement(r.placement);
         
+        console.log(`[Preflight Recipe: ${r.code}] Processing recipe:`, {
+          strength: r.strength,
+          age: r.age,
+          ageUnit: r.ageUnit,
+          placement: r.placement,
+          placementDbValues: placementDbValues,
+          slump: r.slump,
+          aggregateSize: r.aggregateSize
+        });
+        
         // Filter recipes in memory by specs
+        // CRITICAL: Use permissive aggregate size matching (19mm and 20mm are both 3/4")
         const sameSpecRecipes = (allRecipes || []).filter((row: any) => {
           const placementMatch = placementDbValues.includes(row.placement_type);
-          return row.strength_fc === r.strength &&
-                 row.max_aggregate_size === r.aggregateSize &&
+          // Allow 1mm tolerance for aggregate size (19 ≈ 20 mm)
+          const aggregateSizeMatch = Math.abs(row.max_aggregate_size - r.aggregateSize) <= 1;
+          const matches = row.strength_fc === r.strength &&
+                 aggregateSizeMatch &&
                  row.slump === r.slump &&
                  placementMatch;
+          return matches;
+        });
+
+        console.log(`[Preflight Recipe: ${r.code}] Found ${sameSpecRecipes.length} recipes with matching specs (before age filter)`, {
+          aggregateSizeTarget: r.aggregateSize,
+          aggregateSizeTolerance: '±1mm',
+          acceptedRange: `${r.aggregateSize - 1}-${r.aggregateSize + 1}mm`
         });
 
         // Filter by age (using helper function for consistency)
         const sameSpecFiltered = sameSpecRecipes.filter((row: any) => {
-          return matchesAgeCriteria(row.age_days, row.age_hours, r.age, r.ageUnit);
+          const ageMatches = matchesAgeCriteria(row.age_days, row.age_hours, r.age, r.ageUnit);
+          if (!ageMatches) {
+            console.log(`[Preflight Recipe: ${r.code}] Age mismatch for ${row.recipe_code}:`, {
+              row_age_days: row.age_days,
+              row_age_hours: row.age_hours,
+              expected_age: r.age,
+              expected_unit: r.ageUnit
+            });
+          }
+          return ageMatches;
         });
+        
+        console.log(`[Preflight Recipe: ${r.code}] Found ${sameSpecFiltered.length} recipes after age filter`);
 
         // Filter masters in memory by specs
+        // CRITICAL: Use permissive aggregate size matching (19mm and 20mm are both 3/4")
         const sameSpecMasters = (allMasters || []).filter((master: any) => {
           const placementMatch = placementDbValues.includes(master.placement_type);
-          return master.strength_fc === r.strength &&
-                 master.max_aggregate_size === r.aggregateSize &&
+          // Allow 1mm tolerance for aggregate size (19 ≈ 20 mm)
+          const aggregateSizeMatch = Math.abs(master.max_aggregate_size - r.aggregateSize) <= 1;
+          const matches = master.strength_fc === r.strength &&
+                 aggregateSizeMatch &&
                  master.slump === r.slump &&
                  placementMatch;
+          return matches;
         });
+        
+        console.log(`[Preflight Recipe: ${r.code}] Found ${sameSpecMasters.length} masters with matching specs (before age filter)`);
 
         // Filter masters by age using helper function
         const sameSpecMastersFiltered = sameSpecMasters.filter((master: any) => {
-          return matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
+          const ageMatches = matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
+          if (!ageMatches) {
+            console.log(`[Preflight Recipe: ${r.code}] Age mismatch for master ${master.master_code}:`, {
+              master_age_days: master.age_days,
+              master_age_hours: master.age_hours,
+              expected_age: r.age,
+              expected_unit: r.ageUnit
+            });
+          }
+          return ageMatches;
         });
+        
+        console.log(`[Preflight Recipe: ${r.code}] Found ${sameSpecMastersFiltered.length} masters after age filter:`, 
+          sameSpecMastersFiltered.map(m => ({ code: m.master_code, id: m.id }))
+        );
 
         // Combine recipe candidates with master data and master-only candidates
-        const sameSpecWithMasters = sameSpecFiltered.map((row: any) => ({
-          id: row.id,
-          recipe_code: row.recipe_code,
-          master_recipe_id: row.master_recipe_id,
-          master_code: row.master_recipes?.master_code || null,
-          type: 'recipe'
-        }));
+        // IMPROVED: Better extraction of master information from recipes
+        const sameSpecWithMasters = sameSpecFiltered.map((row: any) => {
+          // Extract master info - handle both nested object and direct reference
+          const masterId = row.master_recipe_id;
+          const masterCode = row.master_recipes?.master_code || 
+                           (row.master_recipe_id ? sameSpecMastersFiltered.find(m => m.id === masterId)?.master_code : null);
+          
+          return {
+            id: row.id,
+            recipe_code: row.recipe_code,
+            master_recipe_id: masterId,
+            master_code: masterCode,
+            type: 'recipe' as const
+          };
+        });
 
         // Add master candidates that don't yet have variants
-        const masterIdsFromRecipes = new Set(sameSpecFiltered.map((r: any) => r.master_recipe_id).filter(Boolean));
+        // Collect all master IDs that are referenced by recipes
+        const masterIdsFromRecipes = new Set<string>();
+        sameSpecFiltered.forEach((r: any) => {
+          if (r.master_recipe_id) {
+            masterIdsFromRecipes.add(r.master_recipe_id);
+          }
+        });
+        
+        // Add standalone masters (masters without any variants yet)
         const mastersWithoutVariants = sameSpecMastersFiltered
           .filter(m => !masterIdsFromRecipes.has(m.id))
           .map(m => ({
@@ -1352,15 +1497,29 @@ const ConcreteMixCalculator = () => {
             recipe_code: null,
             master_recipe_id: m.id,
             master_code: m.master_code,
-            type: 'master'
+            type: 'master' as const
           }));
 
         const allCandidates = [...sameSpecWithMasters, ...mastersWithoutVariants];
+        
+        // Debug logging for master detection
+        console.log(`[Preflight Recipe: ${r.code}] Candidates found:`, {
+          recipes: sameSpecWithMasters.length,
+          standaloneMasters: mastersWithoutVariants.length,
+          total: allCandidates.length,
+          mastersFromRecipes: Array.from(masterIdsFromRecipes),
+          candidates: allCandidates.map(c => ({
+            type: c.type,
+            recipe_code: c.recipe_code,
+            master_id: c.master_recipe_id,
+            master_code: c.master_code
+          }))
+        });
 
         // Check for code collision using the lookup map
         const codeExists = existingCodesMap.has(intendedCode) ? { id: existingCodesMap.get(intendedCode)! } : null;
 
-        // Suggest decision defaults with improved master detection
+        // Suggest decision defaults with IMPROVED master detection
         let decision: 'updateVariant' | 'createVariant' | 'newMaster' = 'newMaster';
         let selectedExistingId: string | undefined = undefined;
         let masterMode: 'existing' | 'new' = 'new';
@@ -1372,22 +1531,26 @@ const ConcreteMixCalculator = () => {
           decision = 'updateVariant';
           selectedExistingId = codeExists.id;
         } else if (allCandidates.length > 0) {
-          // Same spec found - find the most common master or first master
-          // Collect all unique masters from candidates
+          // Same spec found - IMPROVED master detection
+          // Collect ALL unique masters from candidates (both from recipes and standalone)
           const masterIdCounts = new Map<string, number>();
           const masterIdToCode = new Map<string, string>();
           
           allCandidates.forEach(c => {
-            if (c.master_recipe_id) {
-              const count = masterIdCounts.get(c.master_recipe_id) || 0;
-              masterIdCounts.set(c.master_recipe_id, count + 1);
-              if (c.master_code) {
-                masterIdToCode.set(c.master_recipe_id, c.master_code);
+            // Handle both recipe variants (with master_recipe_id) and standalone masters
+            const masterId = c.master_recipe_id;
+            if (masterId) {
+              const count = masterIdCounts.get(masterId) || 0;
+              masterIdCounts.set(masterId, count + 1);
+              
+              // Store master code if available
+              if (c.master_code && !masterIdToCode.has(masterId)) {
+                masterIdToCode.set(masterId, c.master_code);
               }
             }
           });
           
-          // Find the most common master (or first one if tied)
+          // Find the most common master (prioritize masters with more variants)
           let bestMasterId: string | undefined = undefined;
           let maxCount = 0;
           
@@ -1399,14 +1562,16 @@ const ConcreteMixCalculator = () => {
           });
           
           // If we found a master, use it
-          if (bestMasterId) {
+          if (bestMasterId && masterIdToCode.has(bestMasterId)) {
             decision = 'createVariant';
             masterMode = 'existing';
             selectedMasterId = bestMasterId;
+            console.log(`[Preflight Recipe: ${r.code}] Auto-selected master: ${masterIdToCode.get(bestMasterId)} (${maxCount} variants)`);
           } else {
-            // No master found in candidates, create new master
+            // No valid master found, create new master
             decision = 'newMaster';
             newMasterCode = intendedCode.split('-').slice(0, -2).join('-');
+            console.log(`[Preflight Recipe: ${r.code}] No valid master found, creating new master: ${newMasterCode}`);
           }
         } else {
           // No candidates - create new master
@@ -1439,10 +1604,25 @@ const ConcreteMixCalculator = () => {
       setConflicts(conflictRows);
       setConflictsOpen(true);
       setSaving(false);
+      
+      // Show success toast
+      toast({
+        title: "Conflictos detectados",
+        description: `Se encontraron ${conflictRows.length} receta(s) con conflictos. Por favor revisa y confirma las decisiones.`,
+        variant: "default",
+      });
+      
       return;
     } catch (e) {
-      console.error(e);
-      alert('Error detectando conflictos: ' + (e instanceof Error ? e.message : String(e)));
+      console.error('[Preflight Error]', e);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      
+      toast({
+        title: "Error en detección de conflictos",
+        description: `No se pudieron detectar conflictos: ${errorMessage}. Por favor intenta de nuevo.`,
+        variant: "destructive",
+      });
+      
       setSaving(false);
     }
   };
@@ -1784,7 +1964,11 @@ const ConcreteMixCalculator = () => {
                 tempFCR={tempFCR}
                 onToggleDetails={() => setShowDetails(!showDetails)}
                 onSaveSelected={handleSaveSelectedToSystem}
-                onExportArkik={() => alert('Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.')}
+                onExportArkik={() => toast({
+                  title: "Exportar ARKIK",
+                  description: "Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.",
+                  variant: "default",
+                })}
                 onToggleRecipeSelection={(code) => {
                   setSelectedRecipesForExport(prev => {
                     const newSet = new Set(prev);
@@ -1918,67 +2102,184 @@ const ConcreteMixCalculator = () => {
         <Dialog open={conflictsOpen} onOpenChange={setConflictsOpen}>
           <DialogContent className="max-w-3xl">
             <DialogHeader>
-              <DialogTitle>Confirmar recetas: Decisión de variante maestro</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Confirmar recetas: Decisión de variante/maestro
+              </DialogTitle>
               <p className="text-sm text-gray-600 mt-2">
                 Para cada receta, selecciona si deseas actualizar una variante existente, crear una nueva variante bajo un maestro, o crear un nuevo maestro con su primera variante.
               </p>
             </DialogHeader>
-            <div className="max-h-[70vh] overflow-y-auto space-y-3 p-1">
-              {conflicts.map((c, idx) => (
-                <div key={c.code} className="p-3 border rounded">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="text-sm text-gray-600">Receta</div>
-                      <div className="font-mono text-sm font-semibold">
-                        {c.overrideCode !== c.intendedCode ? (
-                          <span>
-                            <span className="line-through text-gray-400">{c.intendedCode}</span>
-                            <span className="ml-2 text-blue-600">{c.overrideCode}</span>
-                          </span>
-                        ) : (
-                          c.intendedCode
-                        )}
+            
+            {/* Summary Bar */}
+            {(() => {
+              const readyCount = conflicts.filter(c => {
+                if (c.decision === 'updateVariant') {
+                  return c.selectedExistingId && (!c.codeCollision || c.overrideCode !== c.intendedCode);
+                } else if (c.decision === 'createVariant') {
+                  const hasMaster = (c.masterMode === 'existing' && c.selectedMasterId) || c.masterMode === 'new';
+                  const codeOk = !c.codeCollision || c.overrideCode !== c.intendedCode;
+                  return hasMaster && codeOk;
+                } else {
+                  return !c.codeCollision || c.overrideCode !== c.intendedCode;
+                }
+              }).length;
+              const needsAttention = conflicts.length - readyCount;
+              
+              return (
+                <div className="p-3 bg-gray-50 border rounded-lg mb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                        <span className="text-sm">
+                          <span className="font-bold text-green-600">{readyCount}</span> listas
+                        </span>
                       </div>
-                      <div className="text-xs text-gray-600 mt-1">F'c: {c.strength} | Rev: {c.slump}cm | Coloc: {c.placement} | Edad: {c.age}{c.ageUnit}</div>
-                      {c.overrideCode !== c.intendedCode && (
-                        <div className="text-xs text-blue-600 mt-1">
-                          ✓ Código modificado: {c.intendedCode} → {c.overrideCode}
+                      {needsAttention > 0 && (
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-amber-600" />
+                          <span className="text-sm">
+                            <span className="font-bold text-amber-600">{needsAttention}</span> requieren atención
+                          </span>
                         </div>
                       )}
                     </div>
-                    {c.codeCollision && (
-                      <div className="text-xs text-red-600 font-semibold">
-                        {c.overrideCode === c.intendedCode ? (
-                          '⚠ Colisión de código'
-                        ) : (
-                          '✓ Colisión resuelta'
-                        )}
-                      </div>
-                    )}
+                    <div className="text-xs text-gray-500">
+                      {readyCount === conflicts.length ? (
+                        <span className="text-green-600 font-semibold">✓ Todo listo para guardar</span>
+                      ) : (
+                        <span className="text-amber-600">Revisa los campos marcados</span>
+                      )}
+                    </div>
                   </div>
+                </div>
+              );
+            })()}
+            
+            <div className="max-h-[70vh] overflow-y-auto space-y-3 p-1">
+              {conflicts.map((c, idx) => {
+                // Calculate validation status for this recipe
+                const hasIssues = (() => {
+                  if (c.decision === 'updateVariant') {
+                    return !c.selectedExistingId || (c.codeCollision && c.overrideCode === c.intendedCode);
+                  } else if (c.decision === 'createVariant') {
+                    const missingMaster = (c.masterMode === 'existing' || !c.masterMode) && !c.selectedMasterId;
+                    const codeIssue = c.codeCollision && c.overrideCode === c.intendedCode;
+                    return missingMaster || codeIssue;
+                  } else {
+                    return c.codeCollision && c.overrideCode === c.intendedCode;
+                  }
+                })();
+                
+                return (
+                <div key={c.code} className={`p-3 border-2 rounded-lg ${hasIssues ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start gap-2 flex-1">
+                      {/* Status Icon */}
+                      {hasIssues ? (
+                        <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      )}
+                      
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-gray-500">Receta #{idx + 1}</span>
+                          {/* Decision Badge */}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                            c.decision === 'updateVariant' ? 'bg-blue-100 text-blue-700' :
+                            c.decision === 'createVariant' ? 'bg-purple-100 text-purple-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {c.decision === 'updateVariant' ? 'Actualizar' :
+                             c.decision === 'createVariant' ? 'Nueva Variante' :
+                             'Nuevo Maestro'}
+                          </span>
+                          {c.codeCollision && (
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                              c.overrideCode === c.intendedCode ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                            }`}>
+                              {c.overrideCode === c.intendedCode ? '⚠ Código duplicado' : '✓ Código corregido'}
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="font-mono text-sm font-semibold mt-1">
+                          {c.overrideCode !== c.intendedCode ? (
+                            <span>
+                              <span className="line-through text-gray-400">{c.intendedCode}</span>
+                              <span className="ml-2 text-blue-600">{c.overrideCode}</span>
+                            </span>
+                          ) : (
+                            c.intendedCode
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600 mt-1">
+                          F'c: {c.strength} kg/cm² | Rev: {c.slump}cm | Coloc: {c.placement} | Edad: {c.age}{c.ageUnit} | TMA: {c.aggregateSize}mm
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Issues Alert */}
+                  {hasIssues && (
+                    <Alert className="mb-3 bg-amber-50 border-amber-300">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-sm text-amber-800">
+                        {c.decision === 'updateVariant' && !c.selectedExistingId && (
+                          <div>• Debes <strong>seleccionar una variante existente</strong> para actualizar</div>
+                        )}
+                        {c.decision === 'createVariant' && (c.masterMode === 'existing' || !c.masterMode) && !c.selectedMasterId && (
+                          <div>• Debes <strong>seleccionar un maestro</strong> o cambiar a "Nuevo maestro"</div>
+                        )}
+                        {c.codeCollision && c.overrideCode === c.intendedCode && (
+                          <div>• El código <strong className="font-mono">{c.overrideCode}</strong> ya existe. Cambia la última parte (ej: "000" → "001")</div>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
                   {c.sameSpecCandidates.length > 0 && (
                     <div className="mt-3">
-                      <div className="text-xs text-gray-600 mb-1">
-                        Variantes y maestros existentes (mismas especificaciones) ({c.sameSpecCandidates.length})
+                      <div className="flex items-center gap-2 mb-2">
+                        <Info className="h-4 w-4 text-blue-600" />
+                        <div className="text-xs font-semibold text-gray-700">
+                          Recetas y maestros existentes con las mismas especificaciones ({c.sameSpecCandidates.length})
+                        </div>
                       </div>
-                      <div className="rounded border bg-gray-50 max-h-48 overflow-y-auto">
+                      <div className="rounded border border-blue-200 bg-blue-50 max-h-48 overflow-y-auto">
                         <ul className="text-xs p-2 space-y-1">
                           {c.sameSpecCandidates.map(s => {
                             // Determine type: explicit type field, or infer from recipe_code presence
                             const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
                             return (
-                              <li key={s.id} className="font-mono break-words">
+                              <li key={s.id} className="font-mono break-words flex items-center gap-2">
                                 {isMaster ? (
-                                  <span className="text-blue-600">📦 MAESTRO: {s.master_code || 'N/A'}</span>
+                                  <>
+                                    <span className="text-blue-600 font-semibold flex-shrink-0">📦</span>
+                                    <span className="text-blue-700">
+                                      <span className="font-semibold">MAESTRO:</span> {s.master_code || 'N/A'}
+                                    </span>
+                                  </>
                                 ) : (
-                                  <span>🔧 Variante: {s.recipe_code || 'N/A'} {s.master_code ? `(Maestro: ${s.master_code})` : ''}</span>
+                                  <>
+                                    <span className="text-gray-600 flex-shrink-0">🔧</span>
+                                    <span className="text-gray-700">
+                                      <span className="font-semibold">Variante:</span> {s.recipe_code || 'N/A'} 
+                                      {s.master_code && <span className="text-gray-600"> (Maestro: {s.master_code})</span>}
+                                    </span>
+                                  </>
                                 )}
                               </li>
                             );
                           })}
                         </ul>
                       </div>
+                      <p className="text-xs text-gray-600 mt-1 flex items-start gap-1">
+                        <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                        <span>Estos son registros existentes que coinciden con F'c, Rev, Colocación, TMA y Edad de tu receta.</span>
+                      </p>
                     </div>
                   )}
 
@@ -1996,10 +2297,19 @@ const ConcreteMixCalculator = () => {
                       </select>
                     </div>
                     {c.decision === 'updateVariant' && (
-                      <div>
-                        <Label className="text-xs">Variante existente</Label>
-                        <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedExistingId || ''} onChange={(e) => setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedExistingId:e.target.value}:x))}>
-                          <option value="">Selecciona…</option>
+                      <div className="col-span-2">
+                        <Label className="text-xs flex items-center gap-1">
+                          Variante existente
+                          {!c.selectedExistingId && <span className="text-red-600">*</span>}
+                        </Label>
+                        <select 
+                          className={`w-full border rounded px-2 py-1 text-sm ${
+                            !c.selectedExistingId ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                          }`}
+                          value={c.selectedExistingId || ''} 
+                          onChange={(e) => setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedExistingId:e.target.value}:x))}
+                        >
+                          <option value="">⚠ Selecciona una variante…</option>
                           {c.sameSpecCandidates
                             .filter(s => {
                               // Only show recipe variants, not standalone masters
@@ -2010,6 +2320,11 @@ const ConcreteMixCalculator = () => {
                               <option key={s.id} value={s.id}>{s.recipe_code}</option>
                             ))}
                         </select>
+                        {!c.selectedExistingId && (
+                          <p className="text-xs text-red-600 mt-1">
+                            Selecciona cuál variante actualizar
+                          </p>
+                        )}
                       </div>
                     )}
                     {c.decision === 'createVariant' && (
@@ -2023,25 +2338,46 @@ const ConcreteMixCalculator = () => {
                         </div>
                         {(!c.masterMode || c.masterMode === 'existing') ? (
                           <div>
-                            <Label className="text-xs">Maestro</Label>
-                            <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedMasterId || ''} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedMasterId: e.target.value}:x))}>
-                              <option value="">Selecciona…</option>
-                              {/* Get unique masters - include both masters from variants AND standalone masters */}
+                            <Label className="text-xs flex items-center gap-1">
+                              Maestro
+                              {!c.selectedMasterId && <span className="text-red-600">*</span>}
+                            </Label>
+                            <select 
+                              className={`w-full border rounded px-2 py-1 text-sm ${
+                                !c.selectedMasterId ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                              }`}
+                              value={c.selectedMasterId || ''} 
+                              onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedMasterId: e.target.value}:x))}
+                            >
+                              <option value="">⚠ Selecciona un maestro…</option>
+                              {/* IMPROVED: Get unique masters - include both masters from variants AND standalone masters */}
                               {(() => {
                                 const seenMasterIds = new Set<string>();
-                                const uniqueMasters: any[] = [];
+                                const uniqueMasters: Array<{ id: string; master_code: string; type: string; variantCount: number }> = [];
                                 
-                                // First, collect masters from recipe variants
+                                // First, collect masters from recipe variants and count variants
+                                const masterVariantCounts = new Map<string, number>();
                                 for (const candidate of c.sameSpecCandidates) {
-                                  if (candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
-                                    seenMasterIds.add(candidate.master_recipe_id);
-                                    uniqueMasters.push({
-                                      id: candidate.master_recipe_id,
-                                      master_code: candidate.master_code,
-                                      type: 'from_variant'
-                                    });
+                                  if (candidate.master_recipe_id) {
+                                    const count = masterVariantCounts.get(candidate.master_recipe_id) || 0;
+                                    masterVariantCounts.set(candidate.master_recipe_id, count + 1);
+                                    
+                                    if (!seenMasterIds.has(candidate.master_recipe_id)) {
+                                      seenMasterIds.add(candidate.master_recipe_id);
+                                      uniqueMasters.push({
+                                        id: candidate.master_recipe_id,
+                                        master_code: candidate.master_code || 'N/A',
+                                        type: 'from_variant',
+                                        variantCount: 0 // Will update below
+                                      });
+                                    }
                                   }
                                 }
+                                
+                                // Update variant counts
+                                uniqueMasters.forEach(m => {
+                                  m.variantCount = masterVariantCounts.get(m.id) || 0;
+                                });
                                 
                                 // Then, add standalone masters (type: 'master' or inferred from missing recipe_code)
                                 for (const candidate of c.sameSpecCandidates) {
@@ -2050,23 +2386,53 @@ const ConcreteMixCalculator = () => {
                                     seenMasterIds.add(candidate.master_recipe_id);
                                     uniqueMasters.push({
                                       id: candidate.master_recipe_id,
-                                      master_code: candidate.master_code,
-                                      type: 'standalone'
+                                      master_code: candidate.master_code || 'N/A',
+                                      type: 'standalone',
+                                      variantCount: 0
                                     });
                                   }
                                 }
                                 
-                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`, {
-                                  masters: uniqueMasters.map(m => ({ id: m.id, code: m.master_code, type: m.type }))
+                                // Sort: masters with more variants first, then standalone
+                                uniqueMasters.sort((a, b) => {
+                                  if (a.variantCount !== b.variantCount) {
+                                    return b.variantCount - a.variantCount; // More variants first
+                                  }
+                                  return a.type === 'standalone' ? 1 : -1; // Standalone last
                                 });
                                 
-                                return uniqueMasters.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.master_code || 'N/A'} {m.type === 'standalone' ? '(sin variantes)' : ''}
-                                  </option>
-                                ));
+                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`, {
+                                  masters: uniqueMasters.map(m => ({ id: m.id, code: m.master_code, type: m.type, variants: m.variantCount }))
+                                });
+                                
+                                // If no masters found but we have candidates, show warning
+                                if (uniqueMasters.length === 0 && c.sameSpecCandidates.length > 0) {
+                                  console.warn(`[Conflict Row ${idx}] WARNING: Found candidates but no masters detected!`, {
+                                    candidates: c.sameSpecCandidates.map(c => ({
+                                      type: c.type,
+                                      recipe_code: c.recipe_code,
+                                      master_id: c.master_recipe_id,
+                                      master_code: c.master_code
+                                    }))
+                                  });
+                                }
+                                
+                                return uniqueMasters.length > 0 ? (
+                                  uniqueMasters.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.master_code} {m.variantCount > 0 ? `(${m.variantCount} variantes)` : '(sin variantes)'}
+                                    </option>
+                                  ))
+                                ) : (
+                                  <option value="" disabled>⚠ No se encontraron maestros con estas especificaciones</option>
+                                );
                               })()}
                             </select>
+                            {!c.selectedMasterId && (
+                              <p className="text-xs text-red-600 mt-1">
+                                Selecciona un maestro o cambia a "Nuevo maestro"
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <div>
@@ -2161,18 +2527,33 @@ const ConcreteMixCalculator = () => {
                     const finalCode = conf ? (conf.overrideCode || intendedCode) : intendedCode;
                     return { ...r, recipeType: designType, recipe_code: finalCode };
                   });
-                  // Validate decisions completeness
+                  // Validate decisions completeness with detailed error messages
                   for (const c of conflicts) {
                     if (c.decision === 'updateVariant' && !c.selectedExistingId) {
-                      throw new Error('Selecciona una variante existente para actualizar.');
+                      toast({
+                        title: "Validación fallida",
+                        description: `Receta ${c.code}: Debes seleccionar una variante existente para actualizar.`,
+                        variant: "destructive",
+                      });
+                      throw new Error(`Receta ${c.code}: Selecciona una variante existente para actualizar.`);
                     }
                     if (c.decision === 'createVariant' && ((!c.masterMode || c.masterMode === 'existing') && !c.selectedMasterId)) {
-                      throw new Error('Selecciona un maestro existente o cambia a Nuevo maestro.');
+                      toast({
+                        title: "Validación fallida",
+                        description: `Receta ${c.code}: Debes seleccionar un maestro existente o cambiar a "Nuevo maestro".`,
+                        variant: "destructive",
+                      });
+                      throw new Error(`Receta ${c.code}: Selecciona un maestro existente o cambia a Nuevo maestro.`);
                     }
                     if ((c.decision === 'createVariant' && c.masterMode === 'new') || c.decision === 'newMaster') {
                       const code = c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-');
                       if (!code || code.split('-').length < 6) {
-                        throw new Error('Código maestro inválido.');
+                        toast({
+                          title: "Validación fallida",
+                          description: `Receta ${c.code}: Código maestro inválido. Debe tener al menos 6 secciones separadas por guiones.`,
+                          variant: "destructive",
+                        });
+                        throw new Error(`Receta ${c.code}: Código maestro inválido.`);
                       }
                     }
                     // CRITICAL: For new variants and new masters, code MUST be different if there's a collision
@@ -2181,8 +2562,13 @@ const ConcreteMixCalculator = () => {
                       
                       // Check if code matches the original (collision)
                       if (finalArkikCode === c.intendedCode) {
+                        toast({
+                          title: "Código duplicado",
+                          description: `Receta ${c.code}: El código "${finalArkikCode}" ya existe. Cambia la última sección del código (ej: "000" → "001").`,
+                          variant: "destructive",
+                        });
                         throw new Error(
-                          `El código ARKIK "${finalArkikCode}" ya existe. ` +
+                          `Receta ${c.code}: El código ARKIK "${finalArkikCode}" ya existe. ` +
                           `Debes cambiar el código para crear una nueva variante. ` +
                           `Modifica el código en el campo "Código ARKIK" (generalmente la última sección del código).`
                         );
@@ -2190,8 +2576,13 @@ const ConcreteMixCalculator = () => {
                       
                       // Check if code matches any existing variant
                       if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
+                        toast({
+                          title: "Código duplicado",
+                          description: `Receta ${c.code}: El código "${finalArkikCode}" ya existe en las variantes existentes. Usa un código diferente.`,
+                          variant: "destructive",
+                        });
                         throw new Error(
-                          `El código ARKIK "${finalArkikCode}" ya existe en las variantes existentes. ` +
+                          `Receta ${c.code}: El código ARKIK "${finalArkikCode}" ya existe en las variantes existentes. ` +
                           `Usa un código diferente en el campo "Código ARKIK".`
                         );
                       }
@@ -2244,10 +2635,26 @@ const ConcreteMixCalculator = () => {
                   // Then show success modal
                   setSuccessRecipeCodes(createdCodes);
                   setSuccessOpen(true);
+                  
+                  // Show success toast
+                  toast({
+                    title: "Recetas guardadas exitosamente",
+                    description: `Se guardaron ${createdCodes.length} receta(s) correctamente.`,
+                    variant: "default",
+                  });
                 } catch (e) {
-                  console.error(e);
+                  console.error('[Save Error]', e);
                   const errorMessage = e instanceof Error ? e.message : 'Error desconocido al guardar recetas';
-                  alert(`Error al guardar recetas:\n\n${errorMessage}\n\nPor favor verifica los datos e intenta de nuevo.`);
+                  
+                  // Show detailed error toast
+                  toast({
+                    title: "Error al guardar recetas",
+                    description: errorMessage.length > 200 
+                      ? `${errorMessage.substring(0, 200)}...` 
+                      : errorMessage,
+                    variant: "destructive",
+                  });
+                  
                   setSaving(false);
                 }
               }}>{saving ? 'Guardando...' : 'Confirmar'}</Button>
@@ -2319,7 +2726,11 @@ const ConcreteMixCalculator = () => {
                 onClick={async () => {
                   try {
                     if (!currentPlant?.id) {
-                      alert('Por favor selecciona una planta antes de exportar');
+                      toast({
+                        title: "Planta no seleccionada",
+                        description: "Por favor selecciona una planta antes de exportar.",
+                        variant: "destructive",
+                      });
                       return;
                     }
                     const codesParam = successRecipeCodes.join(',');
@@ -2330,7 +2741,11 @@ const ConcreteMixCalculator = () => {
                     });
                     const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
                     if (!res.ok) {
-                      alert('Error al exportar ARKIK');
+                      toast({
+                        title: "Error al exportar ARKIK",
+                        description: error instanceof Error ? error.message : 'Error desconocido',
+                        variant: "destructive",
+                      });
                       return;
                     }
                     const blob = await res.blob();
@@ -2345,7 +2760,11 @@ const ConcreteMixCalculator = () => {
                     setSuccessOpen(false);
                   } catch (e) {
                     console.error('Export error:', e);
-                    alert('Error al exportar recetas');
+                    toast({
+                      title: "Error al exportar recetas",
+                      description: error instanceof Error ? error.message : 'Error desconocido',
+                      variant: "destructive",
+                    });
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700"
