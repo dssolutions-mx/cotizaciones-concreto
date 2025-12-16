@@ -119,6 +119,10 @@ export interface DesignParams {
   sandCombinationBomb: number[];
   gravelCombinationTD: number[];
   gravelCombinationBomb: number[];
+  mrFcrAdjustment?: {
+    subtractAmount: number;
+    divideAmount: number;
+  };
 }
 
 // New interface for water configuration that will define which recipes to generate

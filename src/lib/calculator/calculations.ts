@@ -45,15 +45,35 @@ export const calculateFcr = (
 };
 
 // Calculate water-cement ratio using resistance factors
-export const calculateACRatio = (fcr: number, factors?: ResistanceFactors): number => {
+export const calculateACRatio = (
+  fcr: number, 
+  factors?: ResistanceFactors,
+  designType?: DesignType,
+  mrFcrAdjustment?: { subtractAmount: number; divideAmount: number },
+  strength?: number // Optional strength value for MR adjustment calculation
+): number => {
+  // Apply FCR adjustment for MR recipes if adjustment parameters are provided
+  let adjustedFcr = fcr;
+  if (designType === 'MR' && mrFcrAdjustment && mrFcrAdjustment.divideAmount > 0) {
+    // For MR recipes, apply adjustment to the strength value directly (before stdDev calculation)
+    // Formula: adjustedFCR = (strength - subtractAmount) / divideAmount
+    // Then use this adjusted value for A/C calculation
+    const baseValue = strength !== undefined ? strength : fcr;
+    adjustedFcr = (baseValue - mrFcrAdjustment.subtractAmount) / mrFcrAdjustment.divideAmount;
+    // Debug log to verify adjustment is being applied
+    if (mrFcrAdjustment.subtractAmount !== 0 || mrFcrAdjustment.divideAmount !== 1) {
+      console.log(`[MR FCR Adjustment] Base Value: ${baseValue}, Adjusted FCR: ${adjustedFcr}, Subtract: ${mrFcrAdjustment.subtractAmount}, Divide: ${mrFcrAdjustment.divideAmount}`);
+    }
+  }
+  
   if (factors) {
-    // A/C = (factor1 / fcr)^(1/factor2)
-    const ratio = Math.pow(factors.factor1 / fcr, 1 / factors.factor2);
+    // A/C = (factor1 / adjustedFcr)^(1/factor2)
+    const ratio = Math.pow(factors.factor1 / adjustedFcr, 1 / factors.factor2);
     return Math.round(ratio * 1000) / 1000; // More precision for A/C ratio
   }
   
   // Fallback to old formula if no factors provided
-  const ratio = (-0.0021 * fcr + 0.8573);
+  const ratio = (-0.0021 * adjustedFcr + 0.8573);
   return Math.round(ratio * 100) / 100;
 };
 

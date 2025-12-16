@@ -69,6 +69,11 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   
   // Local state for standard deviation inputs to allow empty values while editing
   const [stdDevInputValues, setStdDevInputValues] = useState<Record<number, string>>({});
+  const [singleStdDevInput, setSingleStdDevInput] = useState<string>('');
+  
+  // Local state for MR FCR adjustment inputs to allow empty values while editing
+  const [mrFcrSubtractInput, setMrFcrSubtractInput] = useState<string>('');
+  const [mrFcrDivideInput, setMrFcrDivideInput] = useState<string>('');
 
   // Debounce validation errors - only show after user stops typing for 1.5 seconds
   useEffect(() => {
@@ -395,10 +400,10 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
               <p className="text-xs font-semibold mb-2">Vista Previa del Formato:</p>
               <p className="text-xs font-mono text-gray-700">
-                {concreteType}-XXX-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : '1')}-{typeCode || 'B'}-XX-XX-X-<span className="font-semibold text-blue-600">{numSeg || '2'}</span>-<span className="font-semibold text-blue-600">{enablePceAutoDetection ? 'PCE/000' : variante || '000'}</span>
+                {concreteType}-XXX-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : (recipeParams.aggregateSize >= 7 ? '1' : '0'))}-{typeCode || 'B'}-XX-XX-X-<span className="font-semibold text-blue-600">{numSeg || '2'}</span>-<span className="font-semibold text-blue-600">{enablePceAutoDetection ? 'PCE/000' : variante || '000'}</span>
               </p>
               <p className="text-xs text-gray-500 mt-2">
-                Ejemplo completo: <span className="font-mono">{concreteType}-250-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : '1')}-{typeCode || 'B'}-28-14-D-{numSeg || '2'}-{enablePceAutoDetection ? 'PCE' : variante || '000'}</span>
+                Ejemplo completo: <span className="font-mono">{concreteType}-250-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : (recipeParams.aggregateSize >= 7 ? '1' : '0'))}-{typeCode || 'B'}-28-14-D-{numSeg || '2'}-{enablePceAutoDetection ? 'PCE' : variante || '000'}</span>
               </p>
             </div>
           </div>
@@ -518,17 +523,40 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 <Label htmlFor="std-deviation">Desviación Estándar {designType === 'FC' ? 'FC' : 'MR'} (%)</Label>
                 <Input
                   id="std-deviation"
-                  type="number"
-                  value={designParams.standardDeviation || 23}
-                  onChange={(e) => onDesignParamsChange({ standardDeviation: parseFloat(e.target.value) || 23 })}
-                  min="10"
-                  max="50"
-                  step="0.1"
+                  type="text"
+                  inputMode="decimal"
+                  value={singleStdDevInput !== '' ? singleStdDevInput : (designParams.standardDeviation !== undefined ? designParams.standardDeviation.toString() : '')}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setSingleStdDevInput(newValue);
+                  }}
+                  onBlur={(e) => {
+                    const inputValue = e.target.value.trim();
+                    const numValue = parseFloat(inputValue);
+                    
+                    // Clear local state
+                    setSingleStdDevInput('');
+                    
+                    // Allow empty or 0, otherwise validate range
+                    if (inputValue === '') {
+                      // Keep current value if empty on blur
+                      return;
+                    } else if (!isNaN(numValue) && numValue >= 0 && numValue <= 50) {
+                      onDesignParamsChange({ standardDeviation: numValue });
+                    } else if (isNaN(numValue) || numValue < 0 || numValue > 50) {
+                      // Reset to default if invalid
+                      onDesignParamsChange({ standardDeviation: 23 });
+                    }
+                  }}
+                  onFocus={(e) => {
+                    const currentValue = designParams.standardDeviation !== undefined ? designParams.standardDeviation.toString() : '';
+                    setSingleStdDevInput(currentValue);
+                  }}
                   className="h-10"
                   placeholder="23"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Este valor se aplicará a todas las resistencias
+                  Este valor se aplicará a todas las resistencias (puede ser 0)
                 </p>
               </div>
             ) : (
@@ -586,21 +614,25 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                 return updated;
                               });
                               
-                              // If empty or invalid, reset to default (remove custom value)
-                              if (inputValue === '' || isNaN(numValue) || numValue < 10 || numValue > 50) {
-                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
-                                  ? {} 
-                                  : designParams.standardDeviation;
-                                const updated = { ...stdDevRecord };
-                                delete updated[strength];
-                                onDesignParamsChange({ standardDeviation: updated });
-                              } else {
-                                // Save valid value
+                              // Allow empty (keep current), 0, or valid range (0-50)
+                              if (inputValue === '') {
+                                // Keep current value if empty on blur
+                                return;
+                              } else if (!isNaN(numValue) && numValue >= 0 && numValue <= 50) {
+                                // Save valid value (including 0)
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
                                   : designParams.standardDeviation;
                                 const updated = { ...stdDevRecord };
                                 updated[strength] = numValue;
+                                onDesignParamsChange({ standardDeviation: updated });
+                              } else {
+                                // Invalid value - remove custom value
+                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                                  ? {} 
+                                  : designParams.standardDeviation;
+                                const updated = { ...stdDevRecord };
+                                delete updated[strength];
                                 onDesignParamsChange({ standardDeviation: updated });
                               }
                             }}
@@ -663,6 +695,133 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
               </div>
             )}
           </div>
+
+          {/* MR FCR Adjustment - Only visible for MR design type */}
+          {designType === 'MR' && (
+            <div className="mt-4 pt-4 border-t">
+              <h4 className="text-sm font-semibold mb-3">Ajuste de FCR para MR</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="fcr-subtract">Cantidad a Restar del FCR</Label>
+                  <Input
+                    id="fcr-subtract"
+                    type="text"
+                    inputMode="decimal"
+                    value={mrFcrSubtractInput !== '' ? mrFcrSubtractInput : (designParams.mrFcrAdjustment?.subtractAmount !== undefined ? designParams.mrFcrAdjustment.subtractAmount.toString() : '')}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setMrFcrSubtractInput(newValue);
+                    }}
+                    onBlur={(e) => {
+                      const inputValue = e.target.value.trim();
+                      const numValue = parseFloat(inputValue);
+                      
+                      // Clear local state
+                      setMrFcrSubtractInput('');
+                      
+                      // Allow empty or valid number
+                      if (inputValue === '') {
+                        // Keep current value if empty on blur
+                        return;
+                      } else if (!isNaN(numValue) && numValue >= -1000 && numValue <= 1000) {
+                        onDesignParamsChange({ 
+                          mrFcrAdjustment: {
+                            subtractAmount: numValue,
+                            divideAmount: designParams.mrFcrAdjustment?.divideAmount ?? 1
+                          }
+                        });
+                      } else {
+                        // Reset to 0 if invalid
+                        onDesignParamsChange({ 
+                          mrFcrAdjustment: {
+                            subtractAmount: 0,
+                            divideAmount: designParams.mrFcrAdjustment?.divideAmount ?? 1
+                          }
+                        });
+                      }
+                    }}
+                    onFocus={(e) => {
+                      const currentValue = designParams.mrFcrAdjustment?.subtractAmount !== undefined ? designParams.mrFcrAdjustment.subtractAmount.toString() : '';
+                      setMrFcrSubtractInput(currentValue);
+                    }}
+                    className="h-10"
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Valor que se resta del FCR antes de la división
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="fcr-divide">Cantidad Divisora</Label>
+                  <Input
+                    id="fcr-divide"
+                    type="text"
+                    inputMode="decimal"
+                    value={mrFcrDivideInput !== '' ? mrFcrDivideInput : (designParams.mrFcrAdjustment?.divideAmount !== undefined ? designParams.mrFcrAdjustment.divideAmount.toString() : '')}
+                    onChange={(e) => {
+                      const newValue = e.target.value;
+                      setMrFcrDivideInput(newValue);
+                    }}
+                    onBlur={(e) => {
+                      const inputValue = e.target.value.trim();
+                      const numValue = parseFloat(inputValue);
+                      
+                      // Clear local state
+                      setMrFcrDivideInput('');
+                      
+                      // Allow empty or valid number > 0
+                      if (inputValue === '') {
+                        // Keep current value if empty on blur
+                        return;
+                      } else if (!isNaN(numValue) && numValue > 0 && numValue <= 100) {
+                        onDesignParamsChange({ 
+                          mrFcrAdjustment: {
+                            subtractAmount: designParams.mrFcrAdjustment?.subtractAmount ?? 0,
+                            divideAmount: numValue
+                          }
+                        });
+                      } else {
+                        // Reset to 1 if invalid
+                        onDesignParamsChange({ 
+                          mrFcrAdjustment: {
+                            subtractAmount: designParams.mrFcrAdjustment?.subtractAmount ?? 0,
+                            divideAmount: 1
+                          }
+                        });
+                      }
+                    }}
+                    onFocus={(e) => {
+                      const currentValue = designParams.mrFcrAdjustment?.divideAmount !== undefined ? designParams.mrFcrAdjustment.divideAmount.toString() : '';
+                      setMrFcrDivideInput(currentValue);
+                    }}
+                    className="h-10"
+                    placeholder="1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Valor por el cual se divide el FCR ajustado (debe ser mayor a 0)
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-3 p-3 bg-green-50 rounded-lg">
+                <p className="text-xs text-green-800">
+                  💡 <strong>Fórmula de Ajuste:</strong> FCR Ajustado = (FCR - {designParams.mrFcrAdjustment?.subtractAmount || 0}) / {designParams.mrFcrAdjustment?.divideAmount || 1}
+                </p>
+                <p className="text-xs text-green-700 mt-2">
+                  El FCR ajustado se utiliza luego en el cálculo de la relación A/C: A/C = (Factor1 / FCR Ajustado)^(1/Factor2)
+                </p>
+              </div>
+
+              {designParams.mrFcrAdjustment?.divideAmount !== undefined && designParams.mrFcrAdjustment.divideAmount <= 0 && (
+                <div className="mt-2 p-3 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-xs text-red-800 font-medium">
+                    ⚠️ Error: La cantidad divisora debe ser mayor a 0 para evitar división por cero
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Resistance Factors */}
           <div className="grid grid-cols-2 gap-4">

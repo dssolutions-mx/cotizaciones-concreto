@@ -109,7 +109,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
     return (
       <div className="p-4 bg-white">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <div><span className="text-gray-500">F'cr:</span> <span className="font-mono font-semibold">{recipe.fcr}</span></div>
+          <div><span className="text-gray-500">F'cr:</span> <span className="font-mono font-semibold">{typeof recipe.fcr === 'number' ? recipe.fcr.toFixed(2) : recipe.fcr}</span></div>
           <div><span className="text-gray-500">A/C:</span> <span className="font-mono font-semibold">{recipe.acRatio.toFixed(2)}</span></div>
           <div><span className="text-gray-500">Agua SSS:</span> <span className="font-mono font-semibold">{sssWater} L</span></div>
           <div><span className="text-gray-500">Agua Seco:</span> <span className="font-mono font-semibold">{dryWater} L</span></div>
@@ -343,10 +343,32 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                 <React.Fragment key={`strength-${strength}`}>
                   {/* Strength Header Row */}
                   <TableRow className={`${resistanceColor} border-l-4`}>
-                  <TableCell colSpan={8 + 1 + materials.sands.length + materials.gravels.length + uniqueAdditives.length + (showDetails ? 4 : 0)}>
+                    <TableCell>
+                      <Checkbox
+                        checked={strengthRecipes.every(r => selectedRecipesForExport.has(r.code)) && strengthRecipes.length > 0}
+                        onCheckedChange={(checked) => {
+                          strengthRecipes.forEach(recipe => {
+                            if (checked) {
+                              if (!selectedRecipesForExport.has(recipe.code)) {
+                                onToggleRecipeSelection(recipe.code);
+                              }
+                            } else {
+                              if (selectedRecipesForExport.has(recipe.code)) {
+                                onToggleRecipeSelection(recipe.code);
+                              }
+                            }
+                          });
+                        }}
+                        className="cursor-pointer"
+                      />
+                    </TableCell>
+                    <TableCell colSpan={totalColumns - 1}>
                       <div className="flex items-center gap-2 py-1">
                         <div className="font-bold text-lg">F'c = {strength} kg/cm²</div>
                         <div className="text-sm text-gray-600">({strengthRecipes.length} receta{strengthRecipes.length > 1 ? 's' : ''})</div>
+                        <div className="text-xs text-gray-500 ml-2">
+                          ({strengthRecipes.filter(r => selectedRecipesForExport.has(r.code)).length} seleccionada{strengthRecipes.filter(r => selectedRecipesForExport.has(r.code)).length !== 1 ? 's' : ''})
+                        </div>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -432,7 +454,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                           ) : (
                             <div className="flex items-center justify-center gap-1">
                               <span className={fcrOverrides[recipe.code] ? 'font-bold text-blue-600' : ''}>
-                                {recipe.fcr}
+                                {typeof recipe.fcr === 'number' ? recipe.fcr.toFixed(2) : recipe.fcr}
                               </span>
                               <Button
                                 size="sm"

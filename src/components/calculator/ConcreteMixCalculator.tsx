@@ -155,7 +155,11 @@ const ConcreteMixCalculator = () => {
     sandCombinationTD: [],
     sandCombinationBomb: [],
     gravelCombinationTD: [],
-    gravelCombinationBomb: []
+    gravelCombinationBomb: [],
+    mrFcrAdjustment: {
+      subtractAmount: 0,
+      divideAmount: 1
+    }
   });
   
   // Recipe parameters
@@ -447,6 +451,17 @@ const ConcreteMixCalculator = () => {
     return calculatorMaterials;
   };
 
+  // Helper function to calculate adjusted FCR for MR recipes
+  // For MR, adjustment is applied to strength directly (before stdDev calculation)
+  const getAdjustedFcr = (originalFcr: number, strength?: number): number => {
+    if (designType === 'MR' && designParams.mrFcrAdjustment && designParams.mrFcrAdjustment.divideAmount > 0) {
+      // Use strength value directly for MR adjustment (not the calculated FCR with stdDev)
+      const baseValue = strength !== undefined ? strength : originalFcr;
+      return (baseValue - designParams.mrFcrAdjustment.subtractAmount) / designParams.mrFcrAdjustment.divideAmount;
+    }
+    return originalFcr;
+  };
+
   // Calculate single recipe with specific water amount (NEW METHOD)
   const calculateRecipeWithWater = (
     strength: number, 
@@ -456,12 +471,23 @@ const ConcreteMixCalculator = () => {
     water: number
   ): Recipe => {
     // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
-    const fcr = calculateFcr(strength, designParams.standardDeviation);
+    const originalFcr = calculateFcr(strength, designParams.standardDeviation);
     
-    // Step 2: Get water-cement ratio using resistance factors
-    const acRatio = calculateACRatio(fcr, designParams.resistanceFactors);
+    // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
+    // For MR recipes, pass strength value so adjustment is applied to strength directly (before stdDev)
+    const acRatio = calculateACRatio(
+      originalFcr, 
+      designParams.resistanceFactors,
+      designType,
+      designParams.mrFcrAdjustment,
+      strength // Pass strength for MR adjustment calculation
+    );
     
-    // Step 3: Use the provided water amount (no lookup needed)
+    // Step 3: Calculate adjusted FCR for MR recipes (for display only)
+    // For MR, use strength directly for adjustment calculation
+    const fcr = getAdjustedFcr(originalFcr, strength);
+    
+    // Step 4: Use the provided water amount (no lookup needed)
     // const water = [provided as parameter]
     
     // Step 4: Calculate cement quantity (rounded to nearest 5)
@@ -651,12 +677,23 @@ const ConcreteMixCalculator = () => {
     aggregateSize: number
   ): Recipe => {
     // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
-    const fcr = calculateFcr(strength, designParams.standardDeviation);
+    const originalFcr = calculateFcr(strength, designParams.standardDeviation);
     
-    // Step 2: Get water-cement ratio using resistance factors
-    const acRatio = calculateACRatio(fcr, designParams.resistanceFactors);
+    // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
+    // For MR recipes, pass strength value so adjustment is applied to strength directly (before stdDev)
+    const acRatio = calculateACRatio(
+      originalFcr, 
+      designParams.resistanceFactors,
+      designType,
+      designParams.mrFcrAdjustment,
+      strength // Pass strength for MR adjustment calculation
+    );
     
-    // Step 3: Determine water quantity
+    // Step 3: Calculate adjusted FCR for MR recipes (for display only)
+    // For MR, use strength directly for adjustment calculation
+    const fcr = getAdjustedFcr(originalFcr, strength);
+    
+    // Step 4: Determine water quantity
     const waterQuantities = placement === 'D' 
       ? recipeParams.waterQuantitiesTD 
       : recipeParams.waterQuantitiesBomb;
@@ -852,6 +889,7 @@ const ConcreteMixCalculator = () => {
   }, [
     materials,
     designParams,
+    designParams.mrFcrAdjustment, // Explicitly include MR FCR adjustment to trigger recalculation when it changes
     recipeParams,
     designType,
     enabledCombinations
@@ -993,8 +1031,19 @@ const ConcreteMixCalculator = () => {
     // Use the recipe's existing water value to maintain consistency
     const water = recipe.materialsSSS.water;
     
-    // Recalculate A/C ratio with new FCR
-    const newACRatio = calculateACRatio(newFCR, designParams.resistanceFactors);
+    // When user edits FCR, they're editing the already-adjusted FCR value (what's displayed)
+    // So we should use it directly for A/C calculation without applying adjustment again
+    const adjustedFcr = newFCR;
+    
+    // When user edits FCR, they're editing the already-adjusted FCR value
+    // Use it directly for A/C calculation without applying adjustment again
+    const newACRatio = calculateACRatio(
+      newFCR, 
+      designParams.resistanceFactors,
+      undefined, // Don't apply adjustment - value is already adjusted
+      undefined, // Don't apply adjustment - value is already adjusted
+      undefined  // Don't need strength for edited values
+    );
     
     // Recalculate cement quantity (rounded to nearest 5)
     const newCement = Math.round((water / newACRatio) / 5) * 5;
@@ -1131,7 +1180,7 @@ const ConcreteMixCalculator = () => {
 
     return {
       ...recipe,
-      fcr: newFCR,
+      fcr: adjustedFcr, // Store adjusted FCR for display
       acRatio: newACRatio,
       materialsSSS,
       materialsDry,
