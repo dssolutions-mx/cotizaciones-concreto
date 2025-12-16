@@ -94,6 +94,10 @@ const ConcreteMixCalculator = () => {
   const [concreteTypePerRecipe, setConcreteTypePerRecipe] = useState<ConcreteTypePerRecipe>({});
   // Type code (middle letter in ARKIK code, default 'B')
   const [typeCode, setTypeCode] = useState<string>('B');
+  // Recipe code suffix customization
+  const [numSeg, setNumSeg] = useState<string>('2');
+  const [variante, setVariante] = useState<string>('000');
+  const [enablePceAutoDetection, setEnablePceAutoDetection] = useState<boolean>(true);
   
   // Material selection state
   const [availableMaterials, setAvailableMaterials] = useState<{
@@ -868,6 +872,9 @@ const ConcreteMixCalculator = () => {
         const hasQuantity = additive.totalCC > 0;
         return hasPCE && hasQuantity;
       });
+      // Determine variante: use PCE if auto-detection enabled and detected, otherwise use state value
+      const finalVariante = enablePceAutoDetection && hasNonZeroPCE ? 'PCE' : variante;
+      
       const { longCode, shortCode } = computeArkikCodes({
         strength: r.strength,
         age: r.age,
@@ -877,8 +884,8 @@ const ConcreteMixCalculator = () => {
         placement: r.placement,
         recipeType: designType,
         typeCode: typeCode,
-        num: '2',
-        variante: '000',
+        num: numSeg,
+        variante: finalVariante,
         detectPCEFromAdditiveNames: detectNames,
         concreteTypeCode: recipeConcreteType,
         hasNonZeroPCEQuantity: hasNonZeroPCE
@@ -893,6 +900,9 @@ const ConcreteMixCalculator = () => {
     concreteTypePerRecipe,
     designType,
     typeCode,
+    numSeg,
+    variante,
+    enablePceAutoDetection,
     selectedMaterials.additives,
     availableMaterials.additives
   ]);
@@ -1931,6 +1941,9 @@ const ConcreteMixCalculator = () => {
               materials={materials}
               concreteType={concreteType}
               typeCode={typeCode}
+              numSeg={numSeg}
+              variante={variante}
+              enablePceAutoDetection={enablePceAutoDetection}
               onDesignTypeChange={handleDesignTypeChange}
               onDesignParamsChange={(params) => setDesignParams(prev => ({ ...prev, ...params }))}
               onRecipeParamsChange={(params) => setRecipeParams(prev => ({ ...prev, ...params }))}
@@ -1941,6 +1954,18 @@ const ConcreteMixCalculator = () => {
               onTypeCodeChange={(code) => {
                 setTypeCode(code);
                 // useEffect will automatically regenerate codes when typeCode changes
+              }}
+              onNumSegChange={(value) => {
+                setNumSeg(value || '2');
+                // useEffect will automatically regenerate codes when numSeg changes
+              }}
+              onVarianteChange={(value) => {
+                setVariante(value || '000');
+                // useEffect will automatically regenerate codes when variante changes
+              }}
+              onEnablePceAutoDetectionChange={(enabled) => {
+                setEnablePceAutoDetection(enabled);
+                // useEffect will automatically regenerate codes when enablePceAutoDetection changes
               }}
               onCombinationChange={handleCombinationChange}
               onWaterDefinitionChange={handleWaterDefinitionChange}
@@ -2614,6 +2639,22 @@ const ConcreteMixCalculator = () => {
                     gravelIds: selectedMaterials.gravels.map(id => String(id)),
                     additiveIds: selectedMaterials.additives.map(id => String(id))
                   };
+                  
+                  // Detect PCE from recipes if auto-detection is enabled
+                  let finalVariante = variante;
+                  if (enablePceAutoDetection) {
+                    const hasPCEInAnyRecipe = payload.some((r: any) => {
+                      return r.calculatedAdditives?.some((additive: any) => {
+                        const hasPCE = additive.name?.toUpperCase().includes('PCE');
+                        const hasQuantity = additive.totalCC > 0;
+                        return hasPCE && hasQuantity;
+                      });
+                    });
+                    if (hasPCEInAnyRecipe) {
+                      finalVariante = 'PCE';
+                    }
+                  }
+                  
                   await saveRecipesWithDecisions(
                     payload as unknown as CalculatorRecipe[],
                     decisions,
@@ -2622,8 +2663,8 @@ const ConcreteMixCalculator = () => {
                     selectionMap,
                     {
                       typeCode: typeCode || 'B',
-                      num: '2',
-                      variante: (arkikExportParams.aire && parseFloat(arkikExportParams.aire) > 0) ? 'PCE' : '000',
+                      num: numSeg,
+                      variante: finalVariante,
                       volumenConcreto: parseFloat(arkikExportParams.volumen) || 1000,
                       contenidoAire: parseFloat(arkikExportParams.aire) || 1.5,
                       factorG: arkikExportParams.factorG ? parseFloat(arkikExportParams.factorG) : null

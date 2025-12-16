@@ -19,11 +19,17 @@ interface DesignParametersProps {
   materials: Materials;
   concreteType: ConcreteTypeCode;
   typeCode: string;
+  numSeg: string;
+  variante: string;
+  enablePceAutoDetection: boolean;
   onDesignTypeChange: (type: DesignType) => void;
   onDesignParamsChange: (params: Partial<DesignParams>) => void;
   onRecipeParamsChange: (params: Partial<RecipeParams>) => void;
   onConcreteTypeChange: (type: ConcreteTypeCode) => void;
   onTypeCodeChange: (code: string) => void;
+  onNumSegChange: (value: string) => void;
+  onVarianteChange: (value: string) => void;
+  onEnablePceAutoDetectionChange: (enabled: boolean) => void;
   onCombinationChange: (index: number, value: string, type: string) => void;
   onWaterDefinitionChange: (index: number, field: string, value: any) => void;
   onAdditiveSystemConfigChange: (field: string, value: any) => void;
@@ -39,11 +45,17 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   materials,
   concreteType,
   typeCode,
+  numSeg,
+  variante,
+  enablePceAutoDetection,
   onDesignTypeChange,
   onDesignParamsChange,
   onRecipeParamsChange,
   onConcreteTypeChange,
   onTypeCodeChange,
+  onNumSegChange,
+  onVarianteChange,
+  onEnablePceAutoDetectionChange,
   onCombinationChange,
   onWaterDefinitionChange,
   onAdditiveSystemConfigChange,
@@ -291,6 +303,92 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <p className="text-xs text-gray-500 mt-1">
               Valor actual: <span className="font-mono font-semibold">{typeCode || 'B'}</span>
             </p>
+          </div>
+          
+          {/* Recipe Code Suffix Customization */}
+          <div className="mt-4 pt-4 border-t">
+            <h4 className="text-sm font-semibold mb-3">Personalización del Sufijo del Código</h4>
+            
+            {/* NumSeg Input */}
+            <div className="mb-4">
+              <Label htmlFor="numSeg" className="text-sm font-medium">
+                Número de Segmento (Sufijo)
+              </Label>
+              <div className="text-xs text-gray-600 mb-1">
+                Número que aparece antes de la variante en el código ARKIK (ej: en "5-100-2-B-28-10-D-<span className="font-semibold font-mono">2</span>-000", el{' '}
+                <span className="font-semibold">2</span> es el número de segmento)
+              </div>
+              <Input
+                id="numSeg"
+                type="text"
+                value={numSeg}
+                onChange={(e) => {
+                  // Allow alphanumeric, remove hyphens and spaces
+                  const value = e.target.value.replace(/[-\s]/g, '').slice(0, 10);
+                  onNumSegChange(value || '2');
+                }}
+                className="h-10 font-mono text-lg max-w-[120px]"
+                placeholder="2"
+                maxLength={10}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Valor actual: <span className="font-mono font-semibold">{numSeg || '2'}</span>
+              </p>
+            </div>
+            
+            {/* Variante Input */}
+            <div className="mb-4">
+              <Label htmlFor="variante" className="text-sm font-medium">
+                Variante (Sufijo)
+              </Label>
+              <div className="text-xs text-gray-600 mb-1">
+                Código que aparece al final del código ARKIK (ej: en "5-100-2-B-28-10-D-2-<span className="font-semibold font-mono">000</span>", la{' '}
+                <span className="font-semibold">000</span> es la variante)
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="variante"
+                  type="text"
+                  value={variante}
+                  onChange={(e) => {
+                    // Allow alphanumeric, remove hyphens and spaces, convert to uppercase
+                    const value = e.target.value.replace(/[-\s]/g, '').toUpperCase().slice(0, 10);
+                    onVarianteChange(value || '000');
+                  }}
+                  disabled={enablePceAutoDetection}
+                  className="h-10 font-mono text-lg max-w-[120px]"
+                  placeholder="000"
+                  maxLength={10}
+                />
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="enablePceAutoDetection"
+                    checked={enablePceAutoDetection}
+                    onCheckedChange={(checked) => onEnablePceAutoDetectionChange(checked === true)}
+                  />
+                  <Label htmlFor="enablePceAutoDetection" className="text-xs text-gray-600 cursor-pointer">
+                    Auto-detectar PCE
+                  </Label>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Valor actual: <span className="font-mono font-semibold">{variante || '000'}</span>
+                {enablePceAutoDetection && (
+                  <span className="text-blue-600 ml-2">(Auto-detección activa: se usará "PCE" si se detectan aditivos PCE)</span>
+                )}
+              </p>
+            </div>
+            
+            {/* Preview */}
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
+              <p className="text-xs font-semibold mb-2">Vista Previa del Formato:</p>
+              <p className="text-xs font-mono text-gray-700">
+                {concreteType}-XXX-{recipeParams.aggregateSize >= 40 ? '4' : '2'}-{typeCode || 'B'}-XX-XX-X-<span className="font-semibold text-blue-600">{numSeg || '2'}</span>-<span className="font-semibold text-blue-600">{enablePceAutoDetection ? 'PCE/000' : variante || '000'}</span>
+              </p>
+              <p className="text-xs text-gray-500 mt-2">
+                Ejemplo completo: <span className="font-mono">{concreteType}-250-2-{typeCode || 'B'}-28-14-D-{numSeg || '2'}-{enablePceAutoDetection ? 'PCE' : variante || '000'}</span>
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
