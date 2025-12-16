@@ -347,7 +347,7 @@ export default function VentasDashboard() {
     // debug removed
     
     setSummaryMetrics(metrics);
-  }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, tipoFilter]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, pricingMap]);
 
   // Calculate concrete by recipe using the utility
   useMemo(() => {
@@ -470,7 +470,7 @@ export default function VentasDashboard() {
       const mappedData: { name: string; value: number }[] = clientValues.map(summary => ({ name: summary.clientName, value: summary.volume }));
 
       return mappedData.sort((a, b) => b.value - a.value);
-  }, [filteredRemisionesWithVacioDeOlla, salesData]);
+  }, [filteredRemisionesWithVacioDeOlla]);
 
   // Enhanced client data with VAT support - shows amounts instead of just volume
   const clientAmountData = useMemo(() => {
@@ -521,7 +521,7 @@ export default function VentasDashboard() {
         volume: summary.volume 
       }))
       .sort((a, b) => b.value - a.value); // Sort by amount
-  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT, pricingMap]);
 
   // Chart Options
   const cashInvoiceChartOptions = useMemo(() => getCashInvoiceChartOptions(), []);

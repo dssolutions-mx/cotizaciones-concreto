@@ -10,7 +10,7 @@ interface SalesVATIndicatorsProps {
   layoutType: 'current' | 'powerbi';
   includeVAT: boolean;
   currentPlant: any;
-  clientFilter: string;
+  clientFilter: string[];  // Changed to array for multi-select
   clients: { id: string; name: string }[];
   filteredRemisionesWithVacioDeOlla: any[];
   summaryMetrics: {
@@ -42,9 +42,11 @@ export const SalesVATIndicators: React.FC<SalesVATIndicatorsProps> = ({
               <span className="font-medium">
                 📍 Planta: {currentPlant?.name || 'Todas'}
               </span>
-              {clientFilter !== 'all' && (
+              {clientFilter.length > 0 && (
                 <span>
-                  👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                  👤 Cliente{clientFilter.length > 1 ? 's' : ''}: {clientFilter.length === 1 
+                    ? clients.find(c => c.id === clientFilter[0])?.name || 'N/A'
+                    : `${clientFilter.length} seleccionados`}
                 </span>
               )}
               {includeVAT && (
@@ -94,9 +96,11 @@ export const SalesVATIndicators: React.FC<SalesVATIndicatorsProps> = ({
               <span className="text-xs font-medium">
                 📍 Planta: {currentPlant?.name || 'Todas'}
               </span>
-              {clientFilter !== 'all' && (
+              {clientFilter.length > 0 && (
                 <span className="text-xs">
-                  👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                  👤 Cliente{clientFilter.length > 1 ? 's' : ''}: {clientFilter.length === 1 
+                    ? clients.find(c => c.id === clientFilter[0])?.name || 'N/A'
+                    : `${clientFilter.length} seleccionados`}
                 </span>
               )}
               <span className="text-xs">
