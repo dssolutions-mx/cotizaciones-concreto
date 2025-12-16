@@ -61,7 +61,8 @@ import {
   getEnabledWaterCombinations,
   validateWaterDefinitions,
   validateAdditiveSystemConfig,
-  getCementRangeCompletionStatus
+  getCementRangeCompletionStatus,
+  roundToNearestMultipleOf5
 } from '@/lib/calculator/calculations';
 
 // Components
@@ -541,12 +542,12 @@ const ConcreteMixCalculator = () => {
     Object.keys(sandSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('sand', ''));
       const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeights[key] = Math.round(sandSSDWeights[key] / (1 + a));
+      sandDryWeights[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeights[key] / (1 + a)));
     });
     Object.keys(gravelSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('gravel', ''));
       const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeights[key] = Math.round(gravelSSDWeights[key] / (1 + a));
+      gravelDryWeights[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeights[key] / (1 + a)));
     });
     
     // Step 11: Calculate absorption water using SSD weights × absorption
@@ -748,12 +749,12 @@ const ConcreteMixCalculator = () => {
     Object.keys(sandSSDWeightsLegacy).forEach(key => {
       const idx = parseInt(key.replace('sand', ''));
       const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeightsLegacy[key] = Math.round(sandSSDWeightsLegacy[key] / (1 + a));
+      sandDryWeightsLegacy[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeightsLegacy[key] / (1 + a)));
     });
     Object.keys(gravelSSDWeightsLegacy).forEach(key => {
       const idx = parseInt(key.replace('gravel', ''));
       const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeightsLegacy[key] = Math.round(gravelSSDWeightsLegacy[key] / (1 + a));
+      gravelDryWeightsLegacy[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeightsLegacy[key] / (1 + a)));
     });
 
     // Step 10: Calculate absorption water using SSD weights × absorption
@@ -1095,12 +1096,12 @@ const ConcreteMixCalculator = () => {
     Object.keys(sandSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('sand', ''));
       const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeights[key] = Math.round(sandSSDWeights[key] / (1 + a));
+      sandDryWeights[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeights[key] / (1 + a)));
     });
     Object.keys(gravelSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('gravel', ''));
       const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeights[key] = Math.round(gravelSSDWeights[key] / (1 + a));
+      gravelDryWeights[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeights[key] / (1 + a)));
     });
     
     // Calculate absorption water using SSD weights × absorption

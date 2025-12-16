@@ -5,6 +5,7 @@ import { Material } from '@/types/material';
 import { Recipe as DatabaseRecipe, MaterialQuantity } from '@/types/recipes';
 import { CalculatorSaveDecision } from '@/types/masterRecipes';
 import { parseMasterAndVariantFromRecipeCode } from '@/lib/utils/masterRecipeUtils';
+import { roundToNearestMultipleOf5 } from '@/lib/calculator/calculations';
 
 // Calculator-specific interfaces (matching concrete-mix-calculator.tsx)
 export interface CalculatorMaterial {
@@ -271,7 +272,7 @@ export const calculatorService = {
               ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
               : undefined) || sands[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
-              dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
+              dryMaterials.push({ material_id: target.id, quantity: roundToNearestMultipleOf5(recipe.materialsDry[key]), unit: 'kg/m³' });
             }
           });
 
@@ -285,7 +286,7 @@ export const calculatorService = {
               ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
               : undefined) || gravels[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
-              dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
+              dryMaterials.push({ material_id: target.id, quantity: roundToNearestMultipleOf5(recipe.materialsDry[key]), unit: 'kg/m³' });
             }
           });
 
@@ -396,7 +397,7 @@ export const calculatorService = {
               const target = (selection?.sandIds && selection.sandIds[idx]
                 ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
                 : undefined) || sands[idx];
-              const val = recipe.materialsSSS[key];
+              const val = roundToNearestMultipleOf5(recipe.materialsSSS[key] || 0);
               if (target && val > 0) {
                 refRows.push({
                   recipe_version_id: versionId,
@@ -417,7 +418,7 @@ export const calculatorService = {
               const target = (selection?.gravelIds && selection.gravelIds[idx]
                 ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
                 : undefined) || gravels[idx];
-              const val = recipe.materialsSSS[key];
+              const val = roundToNearestMultipleOf5(recipe.materialsSSS[key] || 0);
               if (target && val > 0) {
                 refRows.push({
                   recipe_version_id: versionId,
@@ -599,8 +600,8 @@ function buildMaterialsForRecipe(
           if (selection.sandIds) {
             Object.entries(selection.sandIds).forEach(([idx, matId]) => {
               const key = `sand${idx}`;
-              const dryValue = r.materialsDry[key];
-        const sssValue = r.materialsSSS[key];
+              const dryValue = roundToNearestMultipleOf5(r.materialsDry[key] || 0);
+        const sssValue = roundToNearestMultipleOf5(r.materialsSSS[key] || 0);
         
               if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({
@@ -628,8 +629,8 @@ function buildMaterialsForRecipe(
           if (selection.gravelIds) {
             Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
               const key = `gravel${idx}`;
-              const dryValue = r.materialsDry[key];
-        const sssValue = r.materialsSSS[key];
+              const dryValue = roundToNearestMultipleOf5(r.materialsDry[key] || 0);
+        const sssValue = roundToNearestMultipleOf5(r.materialsSSS[key] || 0);
         
               if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({

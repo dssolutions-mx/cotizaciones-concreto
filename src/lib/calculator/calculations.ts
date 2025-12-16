@@ -221,6 +221,15 @@ export const calculateCosts = (
   };
 };
 
+/**
+ * Rounds a number up to the nearest multiple of 5
+ * Examples: 1037 → 1040, 1034 → 1035, 1031 → 1035
+ */
+export const roundToNearestMultipleOf5 = (value: number): number => {
+  if (value <= 0) return 0;
+  return Math.ceil(value / 5) * 5;
+};
+
 // Calculate sand weights from volume and combination percentages
 export const calculateSandWeights = (
   sandVolume: number,
@@ -250,7 +259,7 @@ export const calculateSandWeights = (
   
   materials.sands.forEach((sand, index) => {
     const pct = (sandCombination[index] || 0) / sumPercent;
-    sandWeights[`sand${index}`] = Math.round(totalSandWeight * pct);
+    sandWeights[`sand${index}`] = roundToNearestMultipleOf5(Math.round(totalSandWeight * pct));
   });
   
   return sandWeights;
@@ -284,7 +293,7 @@ export const calculateGravelWeights = (
   
   materials.gravels.forEach((gravel, index) => {
     const pct = (gravelCombination[index] || 0) / sumPercent;
-    gravelWeights[`gravel${index}`] = Math.round(totalGravelWeight * pct);
+    gravelWeights[`gravel${index}`] = roundToNearestMultipleOf5(Math.round(totalGravelWeight * pct));
   });
   
   return gravelWeights;
