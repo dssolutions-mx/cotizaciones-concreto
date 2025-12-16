@@ -2591,17 +2591,22 @@ const ConcreteMixCalculator = () => {
                   }
                   const decisions: CalculatorSaveDecision[] = payload.map((r) => {
                     const conf = conflicts.find(c => c.code === r.code)!;
+                    // CRITICAL: Always use overrideCode from dialog if available, otherwise use the final code from payload
+                    // The payload already has the correct code (conf.overrideCode || intendedCode), but we should use conf.overrideCode explicitly
+                    // to ensure we're using the user's final choice from the dialog
+                    const finalCode = conf.overrideCode || r.recipe_code;
+                    
                     if (conf.decision === 'updateVariant' && conf.selectedExistingId) {
-                      return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'updateVariant', existingRecipeId: conf.selectedExistingId };
+                      return { recipeCode: r.code, finalArkikCode: finalCode, action: 'updateVariant', existingRecipeId: conf.selectedExistingId };
                     }
                     if (conf.decision === 'createVariant') {
                       if ((!conf.masterMode || conf.masterMode === 'existing') && conf.selectedMasterId) {
-                        return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'createVariant', masterRecipeId: conf.selectedMasterId };
+                        return { recipeCode: r.code, finalArkikCode: finalCode, action: 'createVariant', masterRecipeId: conf.selectedMasterId };
                       }
-                      return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
+                      return { recipeCode: r.code, finalArkikCode: finalCode, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
                     }
                     // newMaster
-                    return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
+                    return { recipeCode: r.code, finalArkikCode: finalCode, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
                   });
                   const selectionMap = {
                     cementId: selectedMaterials.cement ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement) : undefined,
@@ -2626,14 +2631,24 @@ const ConcreteMixCalculator = () => {
                   );
                   
                   // Extract ARKIK codes from decisions for success modal
+                  // CRITICAL: Use finalArkikCode from decisions, which contains the codes that were actually saved
                   const createdCodes = decisions.map(d => d.finalArkikCode);
+                  
+                  console.log('[Save Success] Recipe codes saved:', {
+                    decisions: decisions.map(d => ({ 
+                      recipeCode: d.recipeCode, 
+                      finalArkikCode: d.finalArkikCode,
+                      action: d.action 
+                    })),
+                    createdCodes: createdCodes
+                  });
                   
                   // Close conflicts dialog and clear saving state first
                   setConflictsOpen(false);
                   setSaveOpen(false);
                   setSaving(false);
                   
-                  // Then show success modal
+                  // Then show success modal with the codes that were actually saved
                   setSuccessRecipeCodes(createdCodes);
                   setSuccessOpen(true);
                   
@@ -2734,7 +2749,15 @@ const ConcreteMixCalculator = () => {
                       });
                       return;
                     }
+                    // Use the codes that were actually saved (from successRecipeCodes)
                     const codesParam = successRecipeCodes.join(',');
+                    console.log('[Export] Exporting recipes with codes:', {
+                      codes: successRecipeCodes,
+                      codesParam: codesParam,
+                      exportType: exportType,
+                      plantId: currentPlant.id
+                    });
+                    
                     const params = new URLSearchParams({ 
                       recipe_codes: codesParam,
                       export_type: exportType,

@@ -79,9 +79,10 @@ export function PaymentDistributionChart({
               color: '#1d1d1f',
               label: 'Total',
               fontFamily: 'SF Pro Display, -apple-system, sans-serif',
-              formatter: function (w: any) {
-                const total = w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0);
-                return formatCurrency(total);
+              formatter: function () {
+                // Use the exact sum of the props to avoid rounding discrepancies
+                const exactTotal = cashAmount + invoiceAmount;
+                return formatCurrency(exactTotal);
               }
             }
           }

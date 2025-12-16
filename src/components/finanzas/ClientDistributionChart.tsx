@@ -25,18 +25,24 @@ export function ClientDistributionChart({
   includeVAT = false,
   loading = false
 }: ClientDistributionChartProps) {
+  // Ensure data is an array and filter out invalid entries
+  const validData = Array.isArray(data) 
+    ? data.filter(item => item && typeof item.value === 'number' && item.value > 0 && item.name)
+    : [];
+
   // Take top 6 clients and aggregate the rest as "Otros"
-  const topClients = data.slice(0, 6);
-  const othersValue = data.slice(6).reduce((sum, client) => sum + client.value, 0);
+  const topClients = validData.slice(0, 6);
+  const othersValue = validData.slice(6).reduce((sum, client) => sum + (client.value || 0), 0);
 
   const chartData = othersValue > 0
     ? [...topClients, { name: 'Otros', value: othersValue }]
     : topClients;
 
-  const hasData = chartData.length > 0 && chartData.some(c => c.value > 0);
+  const hasData = chartData.length > 0 && chartData.some(c => c && c.value > 0);
 
-  const chartSeries = chartData.map(c => c.value);
-  const chartLabels = chartData.map(c => c.name);
+  // Ensure we have valid series and labels
+  const chartSeries = chartData.map(c => c.value).filter(v => v > 0);
+  const chartLabels = chartData.map(c => c.name).filter(n => n);
 
   const chartOptions: ApexOptions = {
     chart: {
@@ -184,13 +190,16 @@ export function ClientDistributionChart({
           Distribución de Clientes
         </h3>
         <p className="text-callout text-label-secondary">
-          Top 6 clientes por {includeVAT ? 'ingresos' : 'volumen'}
+          {validData.length <= 6 
+            ? `${validData.length} cliente${validData.length !== 1 ? 's' : ''} por ${includeVAT ? 'ingresos' : 'volumen'}`
+            : `Top 6 clientes por ${includeVAT ? 'ingresos' : 'volumen'}`
+          }
         </p>
       </div>
 
       {/* Chart */}
       <div className="h-[380px]">
-        {hasData && typeof window !== 'undefined' ? (
+        {hasData && typeof window !== 'undefined' && chartSeries.length > 0 && chartLabels.length > 0 && chartSeries.length === chartLabels.length ? (
           <Chart
             options={chartOptions}
             series={chartSeries}
@@ -202,10 +211,14 @@ export function ClientDistributionChart({
             <div className="text-center">
               <Users className="h-12 w-12 text-label-tertiary mx-auto mb-4" />
               <h4 className="text-title-3 font-semibold text-label-primary mb-2">
-                No hay datos de clientes
+                {validData.length === 0 
+                  ? 'No hay datos de clientes'
+                  : 'No hay datos suficientes para mostrar el gráfico'}
               </h4>
               <p className="text-callout text-label-secondary">
-                Selecciona un período con datos de ventas
+                {validData.length === 0
+                  ? 'Selecciona un período con datos de ventas'
+                  : 'Los clientes seleccionados no tienen datos en el período seleccionado'}
               </p>
             </div>
           </div>
@@ -213,18 +226,18 @@ export function ClientDistributionChart({
       </div>
 
       {/* Summary Stats */}
-      {hasData && (
+      {hasData && validData.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-label-tertiary/10">
           <div className="text-center">
             <p className="text-caption text-label-tertiary mb-1">Total Clientes</p>
-            <p className="text-title-3 font-bold text-label-primary">{data.length}</p>
+            <p className="text-title-3 font-bold text-label-primary">{validData.length}</p>
           </div>
           <div className="text-center">
-            <p className="text-caption text-label-tertiary mb-1">Top 6</p>
+            <p className="text-caption text-label-tertiary mb-1">Top {Math.min(6, topClients.length)}</p>
             <p className="text-title-3 font-bold text-systemGreen">
               {includeVAT
-                ? formatCurrency(topClients.reduce((sum, c) => sum + c.value, 0))
-                : `${topClients.reduce((sum, c) => sum + c.value, 0).toFixed(1)} m³`
+                ? formatCurrency(topClients.reduce((sum, c) => sum + (c.value || 0), 0))
+                : `${topClients.reduce((sum, c) => sum + (c.value || 0), 0).toFixed(1)} m³`
               }
             </p>
           </div>

@@ -334,7 +334,14 @@ export default function VentasDashboard() {
 
   // Calculate summary metrics using the utility with sophisticated price matching
   // IMPORTANT: Calculate with combined remisiones (including vacío de olla)
-  useMemo(() => {
+  useEffect(() => {
+    // Skip calculation if we don't have the necessary data yet
+    // Wait for orderItems to be available if we have remisiones that need pricing
+    if (filteredRemisionesWithVacioDeOlla.length > 0 && (!orderItems || orderItems.length === 0)) {
+      // Don't calculate yet - wait for orderItems to load
+      return;
+    }
+    
     // Debug: Check what we're passing
     const virtualCount = filteredRemisionesWithVacioDeOlla.filter(r => r.isVirtualVacioDeOlla).length;
     const regularVacioCount = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'VACÍO DE OLLA' && !r.isVirtualVacioDeOlla).length;
@@ -342,15 +349,24 @@ export default function VentasDashboard() {
     
     // debug removed
     
-    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, pricingMap);
+    const metrics = SalesDataProcessor.calculateSummaryMetrics(
+      filteredRemisionesWithVacioDeOlla, 
+      salesData, 
+      clientFilter, 
+      orderItems || [], // Ensure we always pass an array
+      pricingMap
+    );
     
     // debug removed
     
-    setSummaryMetrics(metrics);
+    // Only update if we got meaningful results (avoid overwriting with zeros when data is still loading)
+    if (filteredRemisionesWithVacioDeOlla.length > 0 || metrics.totalAmount > 0 || metrics.totalVolume > 0) {
+      setSummaryMetrics(metrics);
+    }
   }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, pricingMap]);
 
   // Calculate concrete by recipe using the utility
-  useMemo(() => {
+  useEffect(() => {
     const concreteRemisiones = filteredRemisionesWithVacioDeOlla.filter(r =>
       r.tipo_remision === 'CONCRETO' ||
       (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
@@ -486,31 +502,42 @@ export default function VentasDashboard() {
       }
 
       const volume = remision.volumen_fabricado || 0;
+      if (volume <= 0) return acc; // Skip zero volume remisiones
+      
       const order = salesData.find(o => o.id === remision.order_id);
+      if (!order) return acc; // Skip if order not found
+      
       const recipeCode = remision.recipe?.recipe_code;
-
-      // Resolve price with shared logic for BOMBEo to avoid using concrete unit prices
-      let price = 0;
+      const recipeId = (remision as any).recipe_id ?? remision.recipe?.id;
       const remisionMasterRecipeId = (remision as any).master_recipe_id || (remision as any).recipe?.master_recipe_id;
+
+      // Use the same sophisticated price finding logic as metrics calculation
+      let price = 0;
+      let calculatedAmount = 0;
+
       if (remision.tipo_remision === 'BOMBEO') {
-        price = findProductPrice('SER002', remision.order_id, (remision as any).recipe?.id, order?.items || [], pricingMap, remision.id, remisionMasterRecipeId);
+        // Pump service - use SER002 code
+        price = findProductPrice('SER002', remision.order_id, recipeId, orderItems || [], pricingMap, remision.id, remisionMasterRecipeId);
+        calculatedAmount = price * volume;
+      } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+        // Empty truck charge - use SER001 code
+        const unitCount = volume || 1;
+        price = findProductPrice('SER001', remision.order_id, recipeId, orderItems || [], pricingMap, remision.id, remisionMasterRecipeId);
+        calculatedAmount = price * unitCount;
       } else {
-        // Keep existing behavior for non-pump items
-        const orderItem = (order?.items || []).find((item: any) =>
-          item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode)
-        );
-        price = orderItem?.unit_price || 0;
+        // Regular concrete - use recipe code for sophisticated matching
+        const productCode = recipeCode || 'PRODUCTO';
+        price = findProductPrice(productCode, remision.order_id, recipeId, orderItems || [], pricingMap, remision.id, remisionMasterRecipeId);
+        calculatedAmount = price * volume;
       }
 
-      let amount = price * volume;
-
       // Apply VAT if enabled and order requires invoice
-      if (includeVAT && order?.requires_invoice) {
-        amount *= (1 + VAT_RATE);
+      if (includeVAT && order.requires_invoice) {
+        calculatedAmount *= (1 + VAT_RATE);
       }
 
       acc[clientId].volume += volume;
-      acc[clientId].amount += amount;
+      acc[clientId].amount += calculatedAmount;
       return acc;
     }, {} as Record<string, { clientName: string; volume: number; amount: number }>);
 
@@ -521,7 +548,7 @@ export default function VentasDashboard() {
         volume: summary.volume 
       }))
       .sort((a, b) => b.value - a.value); // Sort by amount
-  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT, pricingMap]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT, pricingMap, orderItems]);
 
   // Chart Options
   const cashInvoiceChartOptions = useMemo(() => getCashInvoiceChartOptions(), []);
