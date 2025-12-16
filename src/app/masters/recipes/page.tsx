@@ -79,7 +79,7 @@ export default function MasterRecipesManagementPage() {
     setError(null);
     
     try {
-      // Load masters with variants and stats
+      // Step 1: Load masters with variants (already efficient - single query)
       const { data: masterRows, error: masterErr } = await supabase
         .from('master_recipes')
         .select(`
@@ -99,54 +99,100 @@ export default function MasterRecipesManagementPage() {
 
       if (masterErr) throw masterErr;
 
-      // Enrich with pricing and usage stats
-      const enriched = await Promise.all(
-        (masterRows || []).map(async (master: any) => {
-          const variantIds = (master.recipes || []).map((r: any) => r.id);
+      if (!masterRows || masterRows.length === 0) {
+        setMasters([]);
+        // Still load orphans even if no masters
+        const { data: orphanRows, error: orphanErr } = await supabase
+          .from('recipes')
+          .select('id, recipe_code, plant_id, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, created_at')
+          .eq('plant_id', plantId)
+          .is('master_recipe_id', null)
+          .order('recipe_code');
 
-          // Check for active master-level pricing
-          const { data: priceData } = await supabase
-            .from('product_prices')
-            .select('id')
-            .eq('master_recipe_id', master.id)
-            .eq('is_active', true)
-            .limit(1);
+        if (orphanErr) throw orphanErr;
+        setOrphans(orphanRows || []);
+        return;
+      }
 
-          // Count recent usage (remisiones in last 90 days)
-          const ninetyDaysAgo = new Date();
-          ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-          const { count } = await supabase
-            .from('remisiones')
-            .select('id', { count: 'exact', head: true })
-            .in('recipe_id', variantIds.length ? variantIds : ['00000000-0000-0000-0000-000000000000'])
-            .gte('fecha', ninetyDaysAgo.toISOString().split('T')[0]);
+      // Step 2: Batch fetch all active pricing for all masters in one query
+      const masterIds = masterRows.map((m: any) => m.id);
+      const { data: allPrices, error: pricesErr } = await supabase
+        .from('product_prices')
+        .select('master_recipe_id')
+        .in('master_recipe_id', masterIds)
+        .eq('is_active', true);
 
-          return {
-            id: master.id,
-            master_code: master.master_code,
-            plant_id: master.plant_id,
-            strength_fc: master.strength_fc,
-            age_days: master.age_days,
-            age_hours: master.age_hours,
-            placement_type: master.placement_type,
-            max_aggregate_size: master.max_aggregate_size,
-            slump: master.slump,
-            variant_count: (master.recipes || []).length,
-            variants: (master.recipes || []).map((r: any) => ({
-              id: r.id,
-              recipe_code: r.recipe_code,
-              variant_suffix: r.variant_suffix,
-              created_at: r.created_at
-            })),
-            has_active_price: (priceData || []).length > 0,
-            recent_usage_count: count || 0
-          };
-        })
+      if (pricesErr) throw pricesErr;
+
+      // Create a Set for O(1) lookup of masters with active pricing
+      const mastersWithActivePrice = new Set<string>(
+        (allPrices || []).map((p: any) => p.master_recipe_id).filter(Boolean)
       );
+
+      // Step 3: Batch fetch all usage counts for all variants in one query
+      const allVariantIds = masterRows.flatMap((m: any) => 
+        (m.recipes || []).map((r: any) => r.id)
+      );
+
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      const dateString = ninetyDaysAgo.toISOString().split('T')[0];
+
+      // Use placeholder UUID if no variants exist
+      const variantIdsForQuery = allVariantIds.length 
+        ? allVariantIds 
+        : ['00000000-0000-0000-0000-000000000000'];
+
+      const { data: usageData, error: usageErr } = await supabase
+        .from('remisiones')
+        .select('recipe_id')
+        .in('recipe_id', variantIdsForQuery)
+        .gte('fecha', dateString);
+
+      if (usageErr) throw usageErr;
+
+      // Aggregate usage counts by recipe_id
+      const usageByRecipeId = (usageData || []).reduce((acc: Record<string, number>, r: any) => {
+        if (r.recipe_id) {
+          acc[r.recipe_id] = (acc[r.recipe_id] || 0) + 1;
+        }
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Step 4: Enrich masters by mapping the batched data
+      const enriched = (masterRows || []).map((master: any) => {
+        const variantIds = (master.recipes || []).map((r: any) => r.id);
+        
+        // Sum usage counts for all variants of this master
+        const recentUsageCount = variantIds.reduce((sum: number, vid: string) => 
+          sum + (usageByRecipeId[vid] || 0), 0
+        );
+
+        return {
+          id: master.id,
+          master_code: master.master_code,
+          plant_id: master.plant_id,
+          strength_fc: master.strength_fc,
+          age_days: master.age_days,
+          age_hours: master.age_hours,
+          placement_type: master.placement_type,
+          max_aggregate_size: master.max_aggregate_size,
+          slump: master.slump,
+          variant_count: (master.recipes || []).length,
+          variants: (master.recipes || []).map((r: any) => ({
+            id: r.id,
+            recipe_code: r.recipe_code,
+            variant_suffix: r.variant_suffix,
+            created_at: r.created_at
+          })),
+          has_active_price: mastersWithActivePrice.has(master.id),
+          recent_usage_count: recentUsageCount
+        };
+      });
 
       setMasters(enriched);
 
-      // Load orphan recipes (no master assigned)
+      // Step 5: Load orphan recipes (no master assigned)
       const { data: orphanRows, error: orphanErr } = await supabase
         .from('recipes')
         .select('id, recipe_code, plant_id, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, created_at')
