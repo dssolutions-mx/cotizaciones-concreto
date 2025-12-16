@@ -2497,7 +2497,8 @@ const ConcreteMixCalculator = () => {
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <DialogFooter>
               <Button variant="secondary" onClick={() => setConflictsOpen(false)}>Cancelar</Button>

@@ -107,6 +107,21 @@ const loadCachedFilters = () => {
       parsed.selectedPlantIds = [];
     }
     
+    // Migrate clientFilter from string to array format
+    if (parsed && parsed.clientFilter) {
+      if (typeof parsed.clientFilter === 'string') {
+        if (parsed.clientFilter === 'all' || !parsed.clientFilter) {
+          parsed.clientFilter = [];
+        } else {
+          parsed.clientFilter = [parsed.clientFilter];
+        }
+      } else if (!Array.isArray(parsed.clientFilter)) {
+        parsed.clientFilter = [];
+      }
+    } else if (parsed) {
+      parsed.clientFilter = [];
+    }
+    
     return parsed;
   } catch (e) {
     console.error('Failed to load cached filters:', e);
@@ -139,7 +154,14 @@ export default function VentasDashboard() {
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [searchTerm, setSearchTerm] = useState('');
-  const [clientFilter, setClientFilter] = useState<string>(cachedFilters?.clientFilter || 'all');
+  // Convert clientFilter to array format (empty array = all clients)
+  const [clientFilter, setClientFilter] = useState<string[]>(
+    Array.isArray(cachedFilters?.clientFilter) 
+      ? cachedFilters.clientFilter 
+      : (cachedFilters?.clientFilter && cachedFilters.clientFilter !== 'all' 
+          ? [cachedFilters.clientFilter] 
+          : [])
+  );
   const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>(cachedFilters?.layoutType || 'powerbi');
 
   // PowerBI Filters with caching
@@ -226,9 +248,9 @@ export default function VentasDashboard() {
   const filteredRemisiones = useMemo(() => {
     let filtered = [...remisionesData];
     
-    // Apply client filter
-    if (clientFilter && clientFilter !== 'all') {
-      filtered = filtered.filter(r => r.order?.client_id === clientFilter);
+    // Apply client filter (multi-select array)
+    if (clientFilter && clientFilter.length > 0) {
+      filtered = filtered.filter(r => r.order?.client_id && clientFilter.includes(r.order.client_id));
     }
     
     // Apply search filter
@@ -589,8 +611,8 @@ export default function VentasDashboard() {
     return vol > 0 ? sum / vol : 0;
   }, [filteredRemisionesWithVacioDeOlla]);
 
-  const handleClientFilterChange = (value: string) => {
-    setClientFilter(value);
+  const handleClientFilterChange = (values: string[]) => {
+    setClientFilter(values);
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1368,9 +1390,11 @@ export default function VentasDashboard() {
                     <span className="text-caption font-medium text-label-secondary">
                       Planta: {selectedPlant?.name || 'Todas'}
                     </span>
-                    {clientFilter !== 'all' && (
+                    {clientFilter.length > 0 && (
                       <span className="text-xs">
-                        Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                        Cliente{clientFilter.length > 1 ? 's' : ''}: {clientFilter.length === 1 
+                          ? clients.find(c => c.id === clientFilter[0])?.name || 'N/A'
+                          : `${clientFilter.length} seleccionados`}
                       </span>
                     )}
                     <span className="text-caption text-label-tertiary">

@@ -537,7 +537,7 @@ export class SalesDataProcessor {
   static calculateSummaryMetrics(
     remisiones: Remision[],
     salesData: Order[],
-    clientFilter: string,
+    clientFilter: string | string[], // Support both string (legacy) and array (new multi-select) for backward compatibility
     allOrderItems?: any[], // Add order items parameter for sophisticated price matching
     pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }> // Pricing map from remisiones_with_pricing view
   ): SummaryMetrics {
@@ -704,7 +704,7 @@ export class SalesDataProcessor {
   static createVirtualVacioDeOllaRemisiones(
     salesData: Order[],
     remisionesData: Remision[],
-    clientFilter: string,
+    clientFilter: string | string[], // Support both string (legacy) and array (new multi-select) for backward compatibility
     searchTerm: string,
     layoutType: 'current' | 'powerbi',
     tipoFilter: string | string[], // Support both string and array for backward compatibility
@@ -713,9 +713,19 @@ export class SalesDataProcessor {
     // Get orders that match current filters
     let filteredOrders = [...salesData];
 
-    // Apply client filter to orders
-    if (clientFilter && clientFilter !== 'all') {
-      filteredOrders = filteredOrders.filter(order => order.client_id === clientFilter);
+    // Apply client filter to orders (handle both string and array formats)
+    if (clientFilter) {
+      if (Array.isArray(clientFilter)) {
+        // New multi-select format: array of client IDs
+        if (clientFilter.length > 0) {
+          filteredOrders = filteredOrders.filter(order => order.client_id && clientFilter.includes(order.client_id));
+        }
+      } else {
+        // Legacy format: single client ID string
+        if (clientFilter !== 'all') {
+          filteredOrders = filteredOrders.filter(order => order.client_id === clientFilter);
+        }
+      }
     }
 
     const virtualRemisiones: VirtualRemision[] = [];

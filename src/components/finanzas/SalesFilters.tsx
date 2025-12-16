@@ -282,11 +282,11 @@ interface SalesFiltersProps {
   onPlantsChange?: (plantIds: string[]) => void;
   startDate: Date | undefined;
   endDate: Date | undefined;
-  clientFilter: string;
+  clientFilter: string[];  // Changed to array for multi-select
   searchTerm: string;
   clients: { id: string; name: string }[];
   onDateRangeChange: (range: DateRange | undefined) => void;
-  onClientFilterChange: (value: string) => void;
+  onClientFilterChange: (values: string[]) => void;  // Changed signature for multi-select
   onSearchChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 
   // PowerBI Filters
@@ -345,6 +345,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
   // Safety checks: ensure arrays are always arrays
   const safeTipoFilter = Array.isArray(tipoFilter) ? tipoFilter : [];
   const safeCodigoProductoFilter = Array.isArray(codigoProductoFilter) ? codigoProductoFilter : [];
+  const safeClientFilter = Array.isArray(clientFilter) ? clientFilter : [];
   
   return (
       <div className="space-y-6">
@@ -381,22 +382,96 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
               />
             </div>
 
-            {/* Client Filter */}
+            {/* Client Filter - Multi-select */}
             <div className="flex flex-col flex-1">
-              <Label htmlFor="clientFilter" className="mb-1">Cliente</Label>
-              <Select value={clientFilter} onValueChange={onClientFilterChange}>
-                <SelectTrigger id="clientFilter" className="w-full">
-                  <SelectValue placeholder="Todos los clientes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los clientes</SelectItem>
-                  {clients.map((client, index) => (
-                    <SelectItem key={`${client.id}-${index}`} value={client.id}>
-                      {client.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="mb-1">Cliente</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-between text-sm font-normal"
+                  >
+                    {safeClientFilter.length === 0 ? (
+                      "Todos los clientes"
+                    ) : safeClientFilter.length === 1 ? (
+                      clients.find(c => c.id === safeClientFilter[0])?.name || "1 cliente seleccionado"
+                    ) : (
+                      `${safeClientFilter.length} clientes seleccionados`
+                    )}
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2 z-[9999]" align="start">
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <div className="flex items-center justify-between pb-2 border-b">
+                      <span className="text-xs font-semibold">Seleccionar Clientes</span>
+                      {safeClientFilter.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => onClientFilterChange([])}
+                        >
+                          Limpiar
+                        </Button>
+                      )}
+                    </div>
+                    {clients.map((client) => (
+                      <div key={client.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`client-${client.id}`}
+                          checked={safeClientFilter.includes(client.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              onClientFilterChange([...safeClientFilter, client.id]);
+                            } else {
+                              onClientFilterChange(
+                                safeClientFilter.filter((id) => id !== client.id)
+                              );
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`client-${client.id}`}
+                          className="text-xs cursor-pointer flex-1"
+                        >
+                          {client.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {safeClientFilter.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {safeClientFilter.slice(0, 3).map((clientId) => {
+                    const client = clients.find(c => c.id === clientId);
+                    if (!client) return null;
+                    return (
+                      <Badge
+                        key={clientId}
+                        variant="secondary"
+                        className="text-xs px-1.5 py-0 h-5"
+                      >
+                        {client.name}
+                        <X
+                          className="ml-1 h-3 w-3 cursor-pointer"
+                          onClick={() =>
+                            onClientFilterChange(
+                              safeClientFilter.filter((id) => id !== clientId)
+                            )
+                          }
+                        />
+                      </Badge>
+                    );
+                  })}
+                  {safeClientFilter.length > 3 && (
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+                      +{safeClientFilter.length - 3} más
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Search Input */}
@@ -502,22 +577,96 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
               </Select>
             </div>
 
-            {/* Cliente Filter */}
+            {/* Cliente Filter - Multi-select */}
             <div className="flex flex-col space-y-2">
-              <Label htmlFor="clientFilterPowerBI" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Cliente</Label>
-              <Select value={clientFilter} onValueChange={onClientFilterChange}>
-                <SelectTrigger id="clientFilterPowerBI" className="w-full h-8">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {clients.map((client, index) => (
-                    <SelectItem key={`${client.id}`} value={client.id}>
-                      {client.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Cliente</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="w-full h-8 justify-between text-xs font-normal"
+                  >
+                    {safeClientFilter.length === 0 ? (
+                      "Todos"
+                    ) : safeClientFilter.length === 1 ? (
+                      clients.find(c => c.id === safeClientFilter[0])?.name || "1 seleccionado"
+                    ) : (
+                      `${safeClientFilter.length} seleccionados`
+                    )}
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-2 z-[9999]" align="start">
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <div className="flex items-center justify-between pb-2 border-b">
+                      <span className="text-xs font-semibold">Seleccionar Clientes</span>
+                      {safeClientFilter.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => onClientFilterChange([])}
+                        >
+                          Limpiar
+                        </Button>
+                      )}
+                    </div>
+                    {clients.map((client) => (
+                      <div key={client.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`client-powerbi-${client.id}`}
+                          checked={safeClientFilter.includes(client.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              onClientFilterChange([...safeClientFilter, client.id]);
+                            } else {
+                              onClientFilterChange(
+                                safeClientFilter.filter((id) => id !== client.id)
+                              );
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`client-powerbi-${client.id}`}
+                          className="text-xs cursor-pointer flex-1"
+                        >
+                          {client.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              {safeClientFilter.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {safeClientFilter.slice(0, 3).map((clientId) => {
+                    const client = clients.find(c => c.id === clientId);
+                    if (!client) return null;
+                    return (
+                      <Badge
+                        key={clientId}
+                        variant="secondary"
+                        className="text-xs px-1.5 py-0 h-5"
+                      >
+                        {client.name}
+                        <X
+                          className="ml-1 h-3 w-3 cursor-pointer"
+                          onClick={() =>
+                            onClientFilterChange(
+                              safeClientFilter.filter((id) => id !== clientId)
+                            )
+                          }
+                        />
+                      </Badge>
+                    );
+                  })}
+                  {safeClientFilter.length > 3 && (
+                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
+                      +{safeClientFilter.length - 3} más
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Efectivo/Fiscal Filter */}
