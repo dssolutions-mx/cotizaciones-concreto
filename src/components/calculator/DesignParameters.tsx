@@ -323,16 +323,22 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 type="text"
                 value={numSeg}
                 onChange={(e) => {
-                  // Allow alphanumeric, remove hyphens and spaces
+                  // Allow alphanumeric, remove hyphens and spaces, allow empty for typing
                   const value = e.target.value.replace(/[-\s]/g, '').slice(0, 10);
-                  onNumSegChange(value || '2');
+                  onNumSegChange(value);
+                }}
+                onBlur={(e) => {
+                  // Set default only on blur if empty
+                  if (!e.target.value.trim()) {
+                    onNumSegChange('2');
+                  }
                 }}
                 className="h-10 font-mono text-lg max-w-[120px]"
                 placeholder="2"
                 maxLength={10}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Valor actual: <span className="font-mono font-semibold">{numSeg || '2'}</span>
+                Valor actual: <span className="font-mono font-semibold">{numSeg || '2'}</span> {!numSeg && <span className="text-gray-400">(por defecto)</span>}
               </p>
             </div>
             
@@ -351,9 +357,15 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                   type="text"
                   value={variante}
                   onChange={(e) => {
-                    // Allow alphanumeric, remove hyphens and spaces, convert to uppercase
+                    // Allow alphanumeric, remove hyphens and spaces, convert to uppercase, allow empty for typing
                     const value = e.target.value.replace(/[-\s]/g, '').toUpperCase().slice(0, 10);
-                    onVarianteChange(value || '000');
+                    onVarianteChange(value);
+                  }}
+                  onBlur={(e) => {
+                    // Set default only on blur if empty
+                    if (!e.target.value.trim()) {
+                      onVarianteChange('000');
+                    }
                   }}
                   disabled={enablePceAutoDetection}
                   className="h-10 font-mono text-lg max-w-[120px]"
@@ -372,7 +384,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 </div>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Valor actual: <span className="font-mono font-semibold">{variante || '000'}</span>
+                Valor actual: <span className="font-mono font-semibold">{variante || '000'}</span> {!variante && <span className="text-gray-400">(por defecto)</span>}
                 {enablePceAutoDetection && (
                   <span className="text-blue-600 ml-2">(Auto-detección activa: se usará "PCE" si se detectan aditivos PCE)</span>
                 )}
@@ -383,10 +395,10 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
               <p className="text-xs font-semibold mb-2">Vista Previa del Formato:</p>
               <p className="text-xs font-mono text-gray-700">
-                {concreteType}-XXX-{recipeParams.aggregateSize >= 40 ? '4' : '2'}-{typeCode || 'B'}-XX-XX-X-<span className="font-semibold text-blue-600">{numSeg || '2'}</span>-<span className="font-semibold text-blue-600">{enablePceAutoDetection ? 'PCE/000' : variante || '000'}</span>
+                {concreteType}-XXX-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : '1')}-{typeCode || 'B'}-XX-XX-X-<span className="font-semibold text-blue-600">{numSeg || '2'}</span>-<span className="font-semibold text-blue-600">{enablePceAutoDetection ? 'PCE/000' : variante || '000'}</span>
               </p>
               <p className="text-xs text-gray-500 mt-2">
-                Ejemplo completo: <span className="font-mono">{concreteType}-250-2-{typeCode || 'B'}-28-14-D-{numSeg || '2'}-{enablePceAutoDetection ? 'PCE' : variante || '000'}</span>
+                Ejemplo completo: <span className="font-mono">{concreteType}-250-{recipeParams.aggregateSize >= 40 ? '4' : (recipeParams.aggregateSize >= 20 ? '2' : '1')}-{typeCode || 'B'}-28-14-D-{numSeg || '2'}-{enablePceAutoDetection ? 'PCE' : variante || '000'}</span>
               </p>
             </div>
           </div>

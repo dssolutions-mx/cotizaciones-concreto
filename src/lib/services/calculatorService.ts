@@ -461,7 +461,8 @@ export const calculatorService = {
           const fcCode = String(recipe.strength).padStart(3, '0');
           const edadCode = String(recipe.age).padStart(2, '0');
           const revCode = String(recipe.slump).padStart(2, '0');
-          const tmaFactor = recipe.aggregateSize >= 40 ? '4' : '2';
+          // TMA Factor: < 20mm = '1', >= 20mm and < 40mm = '2', >= 40mm = '4'
+          const tmaFactor = recipe.aggregateSize >= 40 ? '4' : (recipe.aggregateSize >= 20 ? '2' : '1');
           const coloc = recipe.placement; // 'D' or 'B'
           const prefix = recipe.recipeType === 'MR' ? 'PAV' : '5';
           const typeCode = arkik?.typeCode || 'B';

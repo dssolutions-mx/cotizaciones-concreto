@@ -33,7 +33,8 @@ export function computeArkikCodes(input: {
   const fcCode = String(input.strength).padStart(3, '0');
   const edadCode = String(input.age).padStart(2, '0');
   const revCode = String(input.slump).padStart(2, '0');
-  const tmaFactor = input.aggregateSize >= 40 ? '4' : '2';
+  // TMA Factor: < 20mm = '1', >= 20mm and < 40mm = '2', >= 40mm = '4'
+  const tmaFactor = input.aggregateSize >= 40 ? '4' : (input.aggregateSize >= 20 ? '2' : '1');
   const coloc = input.placement; // 'D' or 'B'
   const prefix = input.concreteTypeCode || (input.recipeType === 'MR' ? 'P' : '6');
   const typeCode = input.typeCode || 'B';

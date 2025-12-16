@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info } from 'lucide-react';
+import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info, Plus, Minus } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase/client';
@@ -196,18 +196,19 @@ const ConcreteMixCalculator = () => {
   // Success modal after saving
   const [successOpen, setSuccessOpen] = useState(false);
   const [successRecipeCodes, setSuccessRecipeCodes] = useState<string[]>([]);
+  const [successDecisions, setSuccessDecisions] = useState<CalculatorSaveDecision[]>([]);
   const [exportType, setExportType] = useState<'new' | 'update'>('new');
   // Batch preflight for variant governance
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [conflicts, setConflicts] = useState<Array<{
-    code: string;
+    baseCode: string; // original recipe code from calculator
     strength: number;
     age: number;
     ageUnit: 'D' | 'H';
     slump: number;
     placement: string;
     aggregateSize: number;
-    intendedCode: string;
+    intendedCode: string; // base intended code
     sameSpecCandidates: Array<{ 
       id: string; 
       recipe_code: string | null; 
@@ -216,13 +217,15 @@ const ConcreteMixCalculator = () => {
       type?: 'recipe' | 'master';
     }>;
     codeCollision: boolean;
-    // decision UI
-    decision: 'updateVariant' | 'createVariant' | 'newMaster';
-    selectedExistingId?: string;
-    masterMode?: 'existing' | 'new';
-    selectedMasterId?: string;
-    newMasterCode?: string;
-    overrideCode: string;
+    variants: Array<{
+      id: string; // unique variant ID (e.g., 'variant-0', 'variant-1')
+      decision: 'updateVariant' | 'createVariant' | 'newMaster';
+      overrideCode: string;
+      selectedExistingId?: string;
+      masterMode?: 'existing' | 'new';
+      selectedMasterId?: string;
+      newMasterCode?: string;
+    }>;
   }>>([]);
 
   // Load available materials from database
@@ -873,7 +876,7 @@ const ConcreteMixCalculator = () => {
         return hasPCE && hasQuantity;
       });
       // Determine variante: use PCE if auto-detection enabled and detected, otherwise use state value
-      const finalVariante = enablePceAutoDetection && hasNonZeroPCE ? 'PCE' : variante;
+      const finalVariante = enablePceAutoDetection && hasNonZeroPCE ? 'PCE' : (variante || '000');
       
       const { longCode, shortCode } = computeArkikCodes({
         strength: r.strength,
@@ -884,7 +887,7 @@ const ConcreteMixCalculator = () => {
         placement: r.placement,
         recipeType: designType,
         typeCode: typeCode,
-        num: numSeg,
+        num: numSeg || '2',
         variante: finalVariante,
         detectPCEFromAdditiveNames: detectNames,
         concreteTypeCode: recipeConcreteType,
@@ -1590,8 +1593,9 @@ const ConcreteMixCalculator = () => {
         }
 
         // ALWAYS add to conflictRows for user confirmation (even if no conflicts detected)
+        // Initialize with one default variant
         conflictRows.push({
-          code: r.code,
+          baseCode: r.code,
           strength: r.strength,
           age: r.age,
           ageUnit: r.ageUnit,
@@ -1601,12 +1605,15 @@ const ConcreteMixCalculator = () => {
           intendedCode,
           sameSpecCandidates: allCandidates || [],
           codeCollision: Boolean(codeExists),
-          decision,
-          selectedExistingId,
-          masterMode,
-          selectedMasterId,
-          newMasterCode,
-          overrideCode: intendedCode
+          variants: [{
+            id: 'variant-0',
+            decision,
+            overrideCode: intendedCode,
+            selectedExistingId,
+            masterMode,
+            selectedMasterId,
+            newMasterCode
+          }]
         });
       }
 
@@ -1956,11 +1963,13 @@ const ConcreteMixCalculator = () => {
                 // useEffect will automatically regenerate codes when typeCode changes
               }}
               onNumSegChange={(value) => {
-                setNumSeg(value || '2');
+                // Allow empty string for typing, default will be applied in code generation
+                setNumSeg(value);
                 // useEffect will automatically regenerate codes when numSeg changes
               }}
               onVarianteChange={(value) => {
-                setVariante(value || '000');
+                // Allow empty string for typing, default will be applied in code generation
+                setVariante(value);
                 // useEffect will automatically regenerate codes when variante changes
               }}
               onEnablePceAutoDetectionChange={(enabled) => {
@@ -2138,18 +2147,21 @@ const ConcreteMixCalculator = () => {
             
             {/* Summary Bar */}
             {(() => {
-              const readyCount = conflicts.filter(c => {
-                if (c.decision === 'updateVariant') {
-                  return c.selectedExistingId && (!c.codeCollision || c.overrideCode !== c.intendedCode);
-                } else if (c.decision === 'createVariant') {
-                  const hasMaster = (c.masterMode === 'existing' && c.selectedMasterId) || c.masterMode === 'new';
-                  const codeOk = !c.codeCollision || c.overrideCode !== c.intendedCode;
-                  return hasMaster && codeOk;
-                } else {
-                  return !c.codeCollision || c.overrideCode !== c.intendedCode;
-                }
-              }).length;
-              const needsAttention = conflicts.length - readyCount;
+              const totalVariants = conflicts.reduce((sum, c) => sum + c.variants.length, 0);
+              const readyCount = conflicts.reduce((sum, c) => {
+                return sum + c.variants.filter(v => {
+                  if (v.decision === 'updateVariant') {
+                    return v.selectedExistingId && (!c.codeCollision || v.overrideCode !== c.intendedCode);
+                  } else if (v.decision === 'createVariant') {
+                    const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
+                    const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
+                    return hasMaster && codeOk;
+                  } else {
+                    return !c.codeCollision || v.overrideCode !== c.intendedCode;
+                  }
+                }).length;
+              }, 0);
+              const needsAttention = totalVariants - readyCount;
               
               return (
                 <div className="p-3 bg-gray-50 border rounded-lg mb-3">
@@ -2171,8 +2183,8 @@ const ConcreteMixCalculator = () => {
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {readyCount === conflicts.length ? (
-                        <span className="text-green-600 font-semibold">✓ Todo listo para guardar</span>
+                      {readyCount === totalVariants ? (
+                        <span className="text-green-600 font-semibold">✓ Todo listo para guardar ({totalVariants} variante{totalVariants !== 1 ? 's' : ''})</span>
                       ) : (
                         <span className="text-amber-600">Revisa los campos marcados</span>
                       )}
@@ -2182,344 +2194,472 @@ const ConcreteMixCalculator = () => {
               );
             })()}
             
-            <div className="max-h-[70vh] overflow-y-auto space-y-3 p-1">
-              {conflicts.map((c, idx) => {
-                // Calculate validation status for this recipe
-                const hasIssues = (() => {
-                  if (c.decision === 'updateVariant') {
-                    return !c.selectedExistingId || (c.codeCollision && c.overrideCode === c.intendedCode);
-                  } else if (c.decision === 'createVariant') {
-                    const missingMaster = (c.masterMode === 'existing' || !c.masterMode) && !c.selectedMasterId;
-                    const codeIssue = c.codeCollision && c.overrideCode === c.intendedCode;
-                    return missingMaster || codeIssue;
+            <div className="max-h-[70vh] overflow-y-auto space-y-4 p-1">
+              {conflicts.map((c, conflictIdx) => {
+                // Calculate overall validation status for this recipe (all variants must be valid)
+                const allVariantsValid = c.variants.every(v => {
+                  if (v.decision === 'updateVariant') {
+                    return v.selectedExistingId && (!c.codeCollision || v.overrideCode !== c.intendedCode);
+                  } else if (v.decision === 'createVariant') {
+                    const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
+                    const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
+                    return hasMaster && codeOk;
                   } else {
-                    return c.codeCollision && c.overrideCode === c.intendedCode;
+                    return !c.codeCollision || v.overrideCode !== c.intendedCode;
                   }
-                })();
+                });
                 
                 return (
-                <div key={c.code} className={`p-3 border-2 rounded-lg ${hasIssues ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
-                  <div className="flex items-start justify-between mb-3">
+                <div key={c.baseCode} className={`p-4 border-2 rounded-lg ${allVariantsValid ? 'border-gray-200 bg-white' : 'border-amber-300 bg-amber-50'}`}>
+                  {/* Recipe Header */}
+                  <div className="flex items-start justify-between mb-4 pb-3 border-b">
                     <div className="flex items-start gap-2 flex-1">
                       {/* Status Icon */}
-                      {hasIssues ? (
-                        <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                      ) : (
+                      {allVariantsValid ? (
                         <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                       )}
                       
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs text-gray-500">Receta #{idx + 1}</span>
-                          {/* Decision Badge */}
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                            c.decision === 'updateVariant' ? 'bg-blue-100 text-blue-700' :
-                            c.decision === 'createVariant' ? 'bg-purple-100 text-purple-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
-                            {c.decision === 'updateVariant' ? 'Actualizar' :
-                             c.decision === 'createVariant' ? 'Nueva Variante' :
-                             'Nuevo Maestro'}
+                          <span className="text-xs text-gray-500">Receta #{conflictIdx + 1}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-gray-100 text-gray-700">
+                            {c.variants.length} variante{c.variants.length !== 1 ? 's' : ''}
                           </span>
-                          {c.codeCollision && (
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                              c.overrideCode === c.intendedCode ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                            }`}>
-                              {c.overrideCode === c.intendedCode ? '⚠ Código duplicado' : '✓ Código corregido'}
-                            </span>
-                          )}
                         </div>
                         
                         <div className="font-mono text-sm font-semibold mt-1">
-                          {c.overrideCode !== c.intendedCode ? (
-                            <span>
-                              <span className="line-through text-gray-400">{c.intendedCode}</span>
-                              <span className="ml-2 text-blue-600">{c.overrideCode}</span>
-                            </span>
-                          ) : (
-                            c.intendedCode
-                          )}
+                          {c.intendedCode}
                         </div>
                         <div className="text-xs text-gray-600 mt-1">
                           F'c: {c.strength} kg/cm² | Rev: {c.slump}cm | Coloc: {c.placement} | Edad: {c.age}{c.ageUnit} | TMA: {c.aggregateSize}mm
                         </div>
                       </div>
                     </div>
+                    {/* Add Variant Button */}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const newVariantId = `variant-${Date.now()}`;
+                        const lastVariant = c.variants[c.variants.length - 1];
+                        setConflicts(prev => prev.map((conf, i) => 
+                          i === conflictIdx ? {
+                            ...conf,
+                            variants: [...conf.variants, {
+                              id: newVariantId,
+                              decision: lastVariant?.decision || 'createVariant',
+                              overrideCode: c.intendedCode,
+                              masterMode: lastVariant?.masterMode || 'existing',
+                              selectedMasterId: lastVariant?.selectedMasterId,
+                              newMasterCode: lastVariant?.newMasterCode
+                            }]
+                          } : conf
+                        ));
+                      }}
+                      className="flex items-center gap-1"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Agregar variante
+                    </Button>
                   </div>
                   
-                  {/* Issues Alert */}
-                  {hasIssues && (
-                    <Alert className="mb-3 bg-amber-50 border-amber-300">
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
-                      <AlertDescription className="text-sm text-amber-800">
-                        {c.decision === 'updateVariant' && !c.selectedExistingId && (
-                          <div>• Debes <strong>seleccionar una variante existente</strong> para actualizar</div>
-                        )}
-                        {c.decision === 'createVariant' && (c.masterMode === 'existing' || !c.masterMode) && !c.selectedMasterId && (
-                          <div>• Debes <strong>seleccionar un maestro</strong> o cambiar a "Nuevo maestro"</div>
-                        )}
-                        {c.codeCollision && c.overrideCode === c.intendedCode && (
-                          <div>• El código <strong className="font-mono">{c.overrideCode}</strong> ya existe. Cambia la última parte (ej: "000" → "001")</div>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  {c.sameSpecCandidates.length > 0 && (
-                    <div className="mt-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Info className="h-4 w-4 text-blue-600" />
-                        <div className="text-xs font-semibold text-gray-700">
-                          Recetas y maestros existentes con las mismas especificaciones ({c.sameSpecCandidates.length})
-                        </div>
-                      </div>
-                      <div className="rounded border border-blue-200 bg-blue-50 max-h-48 overflow-y-auto">
-                        <ul className="text-xs p-2 space-y-1">
-                          {c.sameSpecCandidates.map(s => {
-                            // Determine type: explicit type field, or infer from recipe_code presence
-                            const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
-                            return (
-                              <li key={s.id} className="font-mono break-words flex items-center gap-2">
-                                {isMaster ? (
-                                  <>
-                                    <span className="text-blue-600 font-semibold flex-shrink-0">📦</span>
-                                    <span className="text-blue-700">
-                                      <span className="font-semibold">MAESTRO:</span> {s.master_code || 'N/A'}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="text-gray-600 flex-shrink-0">🔧</span>
-                                    <span className="text-gray-700">
-                                      <span className="font-semibold">Variante:</span> {s.recipe_code || 'N/A'} 
-                                      {s.master_code && <span className="text-gray-600"> (Maestro: {s.master_code})</span>}
-                                    </span>
-                                  </>
+                  {/* Variants List */}
+                  <div className="space-y-4">
+                    {c.variants.map((v, variantIdx) => {
+                      // Calculate validation status for this variant
+                      const hasIssues = (() => {
+                        if (v.decision === 'updateVariant') {
+                          return !v.selectedExistingId || (c.codeCollision && v.overrideCode === c.intendedCode);
+                        } else if (v.decision === 'createVariant') {
+                          const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
+                          const codeIssue = c.codeCollision && v.overrideCode === c.intendedCode;
+                          return missingMaster || codeIssue;
+                        } else {
+                          return c.codeCollision && v.overrideCode === c.intendedCode;
+                        }
+                      })();
+                      
+                      return (
+                        <div key={v.id} className={`p-3 border rounded-lg ${hasIssues ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-gray-50'}`}>
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                v.decision === 'updateVariant' ? 'bg-blue-100 text-blue-700' :
+                                v.decision === 'createVariant' ? 'bg-purple-100 text-purple-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                Variante {variantIdx + 1}
+                              </span>
+                              {c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && (
+                                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                                  v.overrideCode === c.intendedCode ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {v.overrideCode === c.intendedCode ? '⚠ Código duplicado' : '✓ Código válido'}
+                                </span>
+                              )}
+                            </div>
+                            {/* Remove Variant Button (only if more than 1 variant) */}
+                            {c.variants.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  const variantIdToRemove = v.id;
+                                  setConflicts(prev => prev.map((conf, i) => 
+                                    i === conflictIdx ? {
+                                      ...conf,
+                                      variants: conf.variants.filter(variant => variant.id !== variantIdToRemove)
+                                    } : conf
+                                  ));
+                                }}
+                                className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Minus className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                          
+                          {/* Issues Alert */}
+                          {hasIssues && (
+                            <Alert className="mb-3 bg-red-50 border-red-300">
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                              <AlertDescription className="text-sm text-red-800">
+                                {v.decision === 'updateVariant' && !v.selectedExistingId && (
+                                  <div>• Debes <strong>seleccionar una variante existente</strong> para actualizar</div>
                                 )}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1 flex items-start gap-1">
-                        <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
-                        <span>Estos son registros existentes que coinciden con F'c, Rev, Colocación, TMA y Edad de tu receta.</span>
-                      </p>
-                    </div>
-                  )}
+                                {v.decision === 'createVariant' && (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId && (
+                                  <div>• Debes <strong>seleccionar un maestro</strong> o cambiar a "Nuevo maestro"</div>
+                                )}
+                                {c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && v.overrideCode === c.intendedCode && (
+                                  <div>• El código <strong className="font-mono">{v.overrideCode}</strong> ya existe. Cambia la última parte (ej: "000" → "001")</div>
+                                )}
+                              </AlertDescription>
+                            </Alert>
+                          )}
 
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs">Acción</Label>
-                      <select
-                        className="w-full border rounded px-2 py-1 text-sm"
-                        value={c.decision}
-                        onChange={(e) => setConflicts(prev => prev.map((x,i) => i===idx?{...x, decision: e.target.value as any}:x))}
-                      >
-                        <option value="updateVariant">Actualizar variante existente</option>
-                        <option value="createVariant">Crear nueva variante</option>
-                        <option value="newMaster">Crear nuevo maestro + 1ª variante</option>
-                      </select>
-                    </div>
-                    {c.decision === 'updateVariant' && (
-                      <div className="col-span-2">
-                        <Label className="text-xs flex items-center gap-1">
-                          Variante existente
-                          {!c.selectedExistingId && <span className="text-red-600">*</span>}
-                        </Label>
-                        <select 
-                          className={`w-full border rounded px-2 py-1 text-sm ${
-                            !c.selectedExistingId ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                          }`}
-                          value={c.selectedExistingId || ''} 
-                          onChange={(e) => setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedExistingId:e.target.value}:x))}
-                        >
-                          <option value="">⚠ Selecciona una variante…</option>
-                          {c.sameSpecCandidates
-                            .filter(s => {
-                              // Only show recipe variants, not standalone masters
-                              const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
-                              return !isMaster && s.recipe_code;
-                            })
-                            .map(s => (
-                              <option key={s.id} value={s.id}>{s.recipe_code}</option>
-                            ))}
-                        </select>
-                        {!c.selectedExistingId && (
-                          <p className="text-xs text-red-600 mt-1">
-                            Selecciona cuál variante actualizar
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {c.decision === 'createVariant' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <Label className="text-xs">Modo de maestro</Label>
-                          <select className="w-full border rounded px-2 py-1 text-sm" value={c.masterMode || 'existing'} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, masterMode: e.target.value as any}:x))}>
-                            <option value="existing">Maestro existente</option>
-                            <option value="new">Nuevo maestro</option>
-                          </select>
-                        </div>
-                        {(!c.masterMode || c.masterMode === 'existing') ? (
-                          <div>
-                            <Label className="text-xs flex items-center gap-1">
-                              Maestro
-                              {!c.selectedMasterId && <span className="text-red-600">*</span>}
-                            </Label>
-                            <select 
-                              className={`w-full border rounded px-2 py-1 text-sm ${
-                                !c.selectedMasterId ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                              }`}
-                              value={c.selectedMasterId || ''} 
-                              onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedMasterId: e.target.value}:x))}
-                            >
-                              <option value="">⚠ Selecciona un maestro…</option>
-                              {/* IMPROVED: Get unique masters - include both masters from variants AND standalone masters */}
-                              {(() => {
-                                const seenMasterIds = new Set<string>();
-                                const uniqueMasters: Array<{ id: string; master_code: string; type: string; variantCount: number }> = [];
-                                
-                                // First, collect masters from recipe variants and count variants
-                                const masterVariantCounts = new Map<string, number>();
-                                for (const candidate of c.sameSpecCandidates) {
-                                  if (candidate.master_recipe_id) {
-                                    const count = masterVariantCounts.get(candidate.master_recipe_id) || 0;
-                                    masterVariantCounts.set(candidate.master_recipe_id, count + 1);
-                                    
-                                    if (!seenMasterIds.has(candidate.master_recipe_id)) {
-                                      seenMasterIds.add(candidate.master_recipe_id);
-                                      uniqueMasters.push({
-                                        id: candidate.master_recipe_id,
-                                        master_code: candidate.master_code || 'N/A',
-                                        type: 'from_variant',
-                                        variantCount: 0 // Will update below
-                                      });
-                                    }
-                                  }
-                                }
-                                
-                                // Update variant counts
-                                uniqueMasters.forEach(m => {
-                                  m.variantCount = masterVariantCounts.get(m.id) || 0;
-                                });
-                                
-                                // Then, add standalone masters (type: 'master' or inferred from missing recipe_code)
-                                for (const candidate of c.sameSpecCandidates) {
-                                  const isStandaloneMaster = (candidate.type === 'master' || (!candidate.recipe_code && candidate.master_code));
-                                  if (isStandaloneMaster && candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
-                                    seenMasterIds.add(candidate.master_recipe_id);
-                                    uniqueMasters.push({
-                                      id: candidate.master_recipe_id,
-                                      master_code: candidate.master_code || 'N/A',
-                                      type: 'standalone',
-                                      variantCount: 0
-                                    });
-                                  }
-                                }
-                                
-                                // Sort: masters with more variants first, then standalone
-                                uniqueMasters.sort((a, b) => {
-                                  if (a.variantCount !== b.variantCount) {
-                                    return b.variantCount - a.variantCount; // More variants first
-                                  }
-                                  return a.type === 'standalone' ? 1 : -1; // Standalone last
-                                });
-                                
-                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`, {
-                                  masters: uniqueMasters.map(m => ({ id: m.id, code: m.master_code, type: m.type, variants: m.variantCount }))
-                                });
-                                
-                                // If no masters found but we have candidates, show warning
-                                if (uniqueMasters.length === 0 && c.sameSpecCandidates.length > 0) {
-                                  console.warn(`[Conflict Row ${idx}] WARNING: Found candidates but no masters detected!`, {
-                                    candidates: c.sameSpecCandidates.map(c => ({
-                                      type: c.type,
-                                      recipe_code: c.recipe_code,
-                                      master_id: c.master_recipe_id,
-                                      master_code: c.master_code
-                                    }))
-                                  });
-                                }
-                                
-                                return uniqueMasters.length > 0 ? (
-                                  uniqueMasters.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.master_code} {m.variantCount > 0 ? `(${m.variantCount} variantes)` : '(sin variantes)'}
-                                    </option>
-                                  ))
+                          {/* Show candidates only once per recipe (not per variant) */}
+                          {variantIdx === 0 && c.sameSpecCandidates.length > 0 && (
+                            <div className="mb-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Info className="h-4 w-4 text-blue-600" />
+                                <div className="text-xs font-semibold text-gray-700">
+                                  Recetas y maestros existentes con las mismas especificaciones ({c.sameSpecCandidates.length})
+                                </div>
+                              </div>
+                              <div className="rounded border border-blue-200 bg-blue-50 max-h-48 overflow-y-auto">
+                                <ul className="text-xs p-2 space-y-1">
+                                  {c.sameSpecCandidates.map(s => {
+                                    const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
+                                    return (
+                                      <li key={s.id} className="font-mono break-words flex items-center gap-2">
+                                        {isMaster ? (
+                                          <>
+                                            <span className="text-blue-600 font-semibold flex-shrink-0">📦</span>
+                                            <span className="text-blue-700">
+                                              <span className="font-semibold">MAESTRO:</span> {s.master_code || 'N/A'}
+                                            </span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <span className="text-gray-600 flex-shrink-0">🔧</span>
+                                            <span className="text-gray-700">
+                                              <span className="font-semibold">Variante:</span> {s.recipe_code || 'N/A'} 
+                                              {s.master_code && <span className="text-gray-600"> (Maestro: {s.master_code})</span>}
+                                            </span>
+                                          </>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              </div>
+                              <p className="text-xs text-gray-600 mt-1 flex items-start gap-1">
+                                <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                                <span>Estos son registros existentes que coinciden con F'c, Rev, Colocación, TMA y Edad de tu receta.</span>
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <Label className="text-xs">Acción</Label>
+                              <select
+                                className="w-full border rounded px-2 py-1 text-sm"
+                                value={v.decision}
+                                onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                  i === conflictIdx ? {
+                                    ...conf,
+                                    variants: conf.variants.map((variant, vi) => 
+                                      vi === variantIdx ? { ...variant, decision: e.target.value as any } : variant
+                                    )
+                                  } : conf
+                                ))}
+                              >
+                                <option value="updateVariant">Actualizar variante existente</option>
+                                <option value="createVariant">Crear nueva variante</option>
+                                <option value="newMaster">Crear nuevo maestro + 1ª variante</option>
+                              </select>
+                            </div>
+                            {v.decision === 'updateVariant' && (
+                              <div className="col-span-2">
+                                <Label className="text-xs flex items-center gap-1">
+                                  Variante existente
+                                  {!v.selectedExistingId && <span className="text-red-600">*</span>}
+                                </Label>
+                                <select 
+                                  className={`w-full border rounded px-2 py-1 text-sm ${
+                                    !v.selectedExistingId ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                                  }`}
+                                  value={v.selectedExistingId || ''} 
+                                  onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                    i === conflictIdx ? {
+                                      ...conf,
+                                      variants: conf.variants.map((variant, vi) => 
+                                        vi === variantIdx ? { ...variant, selectedExistingId: e.target.value } : variant
+                                      )
+                                    } : conf
+                                  ))}
+                                >
+                                  <option value="">⚠ Selecciona una variante…</option>
+                                  {c.sameSpecCandidates
+                                    .filter(s => {
+                                      const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
+                                      return !isMaster && s.recipe_code;
+                                    })
+                                    .map(s => (
+                                      <option key={s.id} value={s.id}>{s.recipe_code}</option>
+                                    ))}
+                                </select>
+                                {!v.selectedExistingId && (
+                                  <p className="text-xs text-red-600 mt-1">
+                                    Selecciona cuál variante actualizar
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {v.decision === 'createVariant' && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-xs">Modo de maestro</Label>
+                                  <select 
+                                    className="w-full border rounded px-2 py-1 text-sm" 
+                                    value={v.masterMode || 'existing'} 
+                                    onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                      i === conflictIdx ? {
+                                        ...conf,
+                                        variants: conf.variants.map((variant, vi) => 
+                                          vi === variantIdx ? { ...variant, masterMode: e.target.value as any } : variant
+                                        )
+                                      } : conf
+                                    ))}
+                                  >
+                                    <option value="existing">Maestro existente</option>
+                                    <option value="new">Nuevo maestro</option>
+                                  </select>
+                                </div>
+                                {(!v.masterMode || v.masterMode === 'existing') ? (
+                                  <div>
+                                    <Label className="text-xs flex items-center gap-1">
+                                      Maestro
+                                      {!v.selectedMasterId && <span className="text-red-600">*</span>}
+                                    </Label>
+                                    <select 
+                                      className={`w-full border rounded px-2 py-1 text-sm ${
+                                        !v.selectedMasterId ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                                      }`}
+                                      value={v.selectedMasterId || ''} 
+                                      onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                        i === conflictIdx ? {
+                                          ...conf,
+                                          variants: conf.variants.map((variant, vi) => 
+                                            vi === variantIdx ? { ...variant, selectedMasterId: e.target.value } : variant
+                                          )
+                                        } : conf
+                                      ))}
+                                    >
+                                      <option value="">⚠ Selecciona un maestro…</option>
+                                      {(() => {
+                                        const seenMasterIds = new Set<string>();
+                                        const uniqueMasters: Array<{ id: string; master_code: string; type: string; variantCount: number }> = [];
+                                        
+                                        const masterVariantCounts = new Map<string, number>();
+                                        for (const candidate of c.sameSpecCandidates) {
+                                          if (candidate.master_recipe_id) {
+                                            const count = masterVariantCounts.get(candidate.master_recipe_id) || 0;
+                                            masterVariantCounts.set(candidate.master_recipe_id, count + 1);
+                                            
+                                            if (!seenMasterIds.has(candidate.master_recipe_id)) {
+                                              seenMasterIds.add(candidate.master_recipe_id);
+                                              uniqueMasters.push({
+                                                id: candidate.master_recipe_id,
+                                                master_code: candidate.master_code || 'N/A',
+                                                type: 'from_variant',
+                                                variantCount: 0
+                                              });
+                                            }
+                                          }
+                                        }
+                                        
+                                        uniqueMasters.forEach(m => {
+                                          m.variantCount = masterVariantCounts.get(m.id) || 0;
+                                        });
+                                        
+                                        for (const candidate of c.sameSpecCandidates) {
+                                          const isStandaloneMaster = (candidate.type === 'master' || (!candidate.recipe_code && candidate.master_code));
+                                          if (isStandaloneMaster && candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
+                                            seenMasterIds.add(candidate.master_recipe_id);
+                                            uniqueMasters.push({
+                                              id: candidate.master_recipe_id,
+                                              master_code: candidate.master_code || 'N/A',
+                                              type: 'standalone',
+                                              variantCount: 0
+                                            });
+                                          }
+                                        }
+                                        
+                                        uniqueMasters.sort((a, b) => {
+                                          if (a.variantCount !== b.variantCount) {
+                                            return b.variantCount - a.variantCount;
+                                          }
+                                          return a.type === 'standalone' ? 1 : -1;
+                                        });
+                                        
+                                        return uniqueMasters.length > 0 ? (
+                                          uniqueMasters.map((m) => (
+                                            <option key={m.id} value={m.id}>
+                                              {m.master_code} {m.variantCount > 0 ? `(${m.variantCount} variantes)` : '(sin variantes)'}
+                                            </option>
+                                          ))
+                                        ) : (
+                                          <option value="" disabled>⚠ No se encontraron maestros con estas especificaciones</option>
+                                        );
+                                      })()}
+                                    </select>
+                                    {!v.selectedMasterId && (
+                                      <p className="text-xs text-red-600 mt-1">
+                                        Selecciona un maestro o cambia a "Nuevo maestro"
+                                      </p>
+                                    )}
+                                  </div>
                                 ) : (
-                                  <option value="" disabled>⚠ No se encontraron maestros con estas especificaciones</option>
+                                  <div>
+                                    <Label className="text-xs">Código maestro</Label>
+                                    <Input 
+                                      value={v.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} 
+                                      onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                        i === conflictIdx ? {
+                                          ...conf,
+                                          variants: conf.variants.map((variant, vi) => 
+                                            vi === variantIdx ? { ...variant, newMasterCode: e.target.value } : variant
+                                          )
+                                        } : conf
+                                      ))} 
+                                      className="font-mono" 
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {v.decision === 'newMaster' && (
+                              <div>
+                                <Label className="text-xs">Código maestro</Label>
+                                <Input 
+                                  value={v.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} 
+                                  onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                    i === conflictIdx ? {
+                                      ...conf,
+                                      variants: conf.variants.map((variant, vi) => 
+                                        vi === variantIdx ? { ...variant, newMasterCode: e.target.value } : variant
+                                      )
+                                    } : conf
+                                  ))} 
+                                  className="font-mono" 
+                                />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3">
+                            <Label className="text-xs">
+                              Código ARKIK {c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && (
+                                <span className="text-red-600 font-semibold">⚠️ Debe ser diferente</span>
+                              )}
+                            </Label>
+                            <Input 
+                              value={v.overrideCode} 
+                              onChange={(e) => {
+                                // Check for duplicates within same recipe's variants
+                                const newCode = e.target.value;
+                                const hasDuplicate = c.variants.some((otherV, otherIdx) => 
+                                  otherIdx !== variantIdx && otherV.overrideCode === newCode
                                 );
-                              })()}
-                            </select>
-                            {!c.selectedMasterId && (
-                              <p className="text-xs text-red-600 mt-1">
-                                Selecciona un maestro o cambia a "Nuevo maestro"
+                                
+                                setConflicts(prev => prev.map((conf, i) => 
+                                  i === conflictIdx ? {
+                                    ...conf,
+                                    variants: conf.variants.map((variant, vi) => 
+                                      vi === variantIdx ? { ...variant, overrideCode: newCode } : variant
+                                    )
+                                  } : conf
+                                ));
+                              }} 
+                              className={`font-mono text-sm w-full ${
+                                c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && 
+                                (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode))
+                                  ? 'border-red-500 bg-red-50' 
+                                  : c.variants.some((otherV, otherIdx) => 
+                                      otherIdx !== variantIdx && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                                    )
+                                  ? 'border-orange-500 bg-orange-50'
+                                  : ''
+                              }`}
+                              title={v.overrideCode}
+                              placeholder={c.intendedCode}
+                            />
+                            {c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && (
+                              <div className="mt-1 space-y-1">
+                                {v.overrideCode === c.intendedCode ? (
+                                  <>
+                                    <p className="text-xs text-red-600 font-semibold">
+                                      ⚠️ Este código ya existe. Debes cambiar el código para crear una nueva variante.
+                                    </p>
+                                    <p className="text-xs text-gray-600">
+                                      💡 Tip: Cambia la última sección del código (ej: cambia "000" por "001" o "PCE")
+                                    </p>
+                                  </>
+                                ) : c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode) ? (
+                                  <p className="text-xs text-red-600">
+                                    ⚠️ Este código ya existe en las variantes existentes. Usa un código diferente.
+                                  </p>
+                                ) : (
+                                  <p className="text-xs text-green-600">
+                                    ✓ Código válido (diferente al existente)
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            {c.variants.some((otherV, otherIdx) => 
+                              otherIdx !== variantIdx && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                            ) && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                ⚠️ Este código coincide con otra variante de la misma receta. Cada variante debe tener un código único.
+                              </p>
+                            )}
+                            {!c.codeCollision && !c.variants.some((otherV, otherIdx) => 
+                              otherIdx !== variantIdx && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                            ) && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                Puedes editar este código si necesitas cambiarlo
                               </p>
                             )}
                           </div>
-                        ) : (
-                          <div>
-                            <Label className="text-xs">Código maestro</Label>
-                            <Input value={c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, newMasterCode: e.target.value}:x))} className="font-mono" />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {c.decision === 'newMaster' && (
-                      <div>
-                        <Label className="text-xs">Código maestro</Label>
-                        <Input value={c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, newMasterCode: e.target.value}:x))} className="font-mono" />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-3">
-                    <Label className="text-xs">
-                      Código ARKIK {c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && (
-                        <span className="text-red-600 font-semibold">⚠️ Debe ser diferente</span>
-                      )}
-                    </Label>
-                    <Input 
-                      value={c.overrideCode} 
-                      onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, overrideCode:e.target.value}:x))} 
-                      className={`font-mono text-sm w-full ${
-                        c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && 
-                        (c.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode))
-                          ? 'border-red-500 bg-red-50' 
-                          : ''
-                      }`}
-                      title={c.overrideCode}
-                      placeholder={c.intendedCode}
-                    />
-                    {c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && (
-                      <div className="mt-1 space-y-1">
-                        {c.overrideCode === c.intendedCode ? (
-                          <>
-                            <p className="text-xs text-red-600 font-semibold">
-                              ⚠️ Este código ya existe. Debes cambiar el código para crear una nueva variante.
-                            </p>
-                            <p className="text-xs text-gray-600">
-                              💡 Tip: Cambia la última sección del código (ej: cambia "000" por "001" o "PCE")
-                            </p>
-                          </>
-                        ) : c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode) ? (
-                          <p className="text-xs text-red-600">
-                            ⚠️ Este código ya existe en las variantes existentes. Usa un código diferente.
-                          </p>
-                        ) : (
-                          <p className="text-xs text-green-600">
-                            ✓ Código válido (diferente al existente)
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {!c.codeCollision && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Puedes editar este código si necesitas cambiarlo
-                      </p>
-                    )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 );
@@ -2529,11 +2669,25 @@ const ConcreteMixCalculator = () => {
               <Button variant="secondary" onClick={() => setConflictsOpen(false)}>Cancelar</Button>
               <Button 
                 disabled={(() => {
-                  // Disable button if there's a code collision and user hasn't changed the code for new variants/masters
+                  // Disable button if any variant has issues
                   return conflicts.some(c => 
-                    c.codeCollision && 
-                    (c.decision === 'createVariant' || c.decision === 'newMaster') &&
-                    (c.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode))
+                    c.variants.some(v => {
+                      if (v.decision === 'updateVariant') {
+                        return !v.selectedExistingId || (c.codeCollision && v.overrideCode === c.intendedCode);
+                      } else if (v.decision === 'createVariant') {
+                        const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
+                        const codeIssue = c.codeCollision && (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode));
+                        return missingMaster || codeIssue;
+                      } else {
+                        return c.codeCollision && (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode));
+                      }
+                    }) ||
+                    // Also check for duplicate codes within same recipe
+                    c.variants.some((v, idx) => 
+                      c.variants.some((otherV, otherIdx) => 
+                        idx !== otherIdx && v.overrideCode === otherV.overrideCode && v.overrideCode !== ''
+                      )
+                    )
                   );
                 })()}
                 onClick={async () => {
@@ -2541,98 +2695,134 @@ const ConcreteMixCalculator = () => {
                   setSaving(true);
                   const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
                   const intents = selected.map(r => {
-                    // Use the current arkikCodes state which includes any user inline edits
                     const currentCode = arkikCodes?.[r.code]?.longCode;
                     if (!currentCode) {
                       throw new Error(`No ARKIK code found for recipe ${r.code}`);
                     }
                     return { r, intendedCode: currentCode };
                   });
-                  const payload = intents.map(({ r, intendedCode }) => {
-                    const conf = conflicts.find(c => c.code === r.code);
-                    const finalCode = conf ? (conf.overrideCode || intendedCode) : intendedCode;
-                    return { ...r, recipeType: designType, recipe_code: finalCode };
-                  });
-                  // Validate decisions completeness with detailed error messages
+                  
+                  // Build recipe map for quick lookup
+                  const recipeMap = new Map(selected.map(r => [r.code, r]));
+                  
+                  // Validate all variants with detailed error messages
                   for (const c of conflicts) {
-                    if (c.decision === 'updateVariant' && !c.selectedExistingId) {
-                      toast({
-                        title: "Validación fallida",
-                        description: `Receta ${c.code}: Debes seleccionar una variante existente para actualizar.`,
-                        variant: "destructive",
-                      });
-                      throw new Error(`Receta ${c.code}: Selecciona una variante existente para actualizar.`);
-                    }
-                    if (c.decision === 'createVariant' && ((!c.masterMode || c.masterMode === 'existing') && !c.selectedMasterId)) {
-                      toast({
-                        title: "Validación fallida",
-                        description: `Receta ${c.code}: Debes seleccionar un maestro existente o cambiar a "Nuevo maestro".`,
-                        variant: "destructive",
-                      });
-                      throw new Error(`Receta ${c.code}: Selecciona un maestro existente o cambia a Nuevo maestro.`);
-                    }
-                    if ((c.decision === 'createVariant' && c.masterMode === 'new') || c.decision === 'newMaster') {
-                      const code = c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-');
-                      if (!code || code.split('-').length < 6) {
+                    for (const v of c.variants) {
+                      if (v.decision === 'updateVariant' && !v.selectedExistingId) {
                         toast({
                           title: "Validación fallida",
-                          description: `Receta ${c.code}: Código maestro inválido. Debe tener al menos 6 secciones separadas por guiones.`,
+                          description: `Receta ${c.baseCode}, Variante: Debes seleccionar una variante existente para actualizar.`,
                           variant: "destructive",
                         });
-                        throw new Error(`Receta ${c.code}: Código maestro inválido.`);
+                        throw new Error(`Receta ${c.baseCode}: Selecciona una variante existente para actualizar.`);
                       }
-                    }
-                    // CRITICAL: For new variants and new masters, code MUST be different if there's a collision
-                    if ((c.decision === 'createVariant' || c.decision === 'newMaster') && c.codeCollision) {
-                      const finalArkikCode = c.overrideCode || c.intendedCode;
-                      
-                      // Check if code matches the original (collision)
-                      if (finalArkikCode === c.intendedCode) {
+                      if (v.decision === 'createVariant' && ((!v.masterMode || v.masterMode === 'existing') && !v.selectedMasterId)) {
+                        toast({
+                          title: "Validación fallida",
+                          description: `Receta ${c.baseCode}, Variante: Debes seleccionar un maestro existente o cambiar a "Nuevo maestro".`,
+                          variant: "destructive",
+                        });
+                        throw new Error(`Receta ${c.baseCode}: Selecciona un maestro existente o cambia a Nuevo maestro.`);
+                      }
+                      if ((v.decision === 'createVariant' && v.masterMode === 'new') || v.decision === 'newMaster') {
+                        const code = v.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-');
+                        if (!code || code.split('-').length < 6) {
+                          toast({
+                            title: "Validación fallida",
+                            description: `Receta ${c.baseCode}, Variante: Código maestro inválido. Debe tener al menos 6 secciones separadas por guiones.`,
+                            variant: "destructive",
+                          });
+                          throw new Error(`Receta ${c.baseCode}: Código maestro inválido.`);
+                        }
+                      }
+                      // Check for duplicate codes within same recipe
+                      const duplicateInRecipe = c.variants.some((otherV, otherIdx) => 
+                        otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                      );
+                      if (duplicateInRecipe) {
                         toast({
                           title: "Código duplicado",
-                          description: `Receta ${c.code}: El código "${finalArkikCode}" ya existe. Cambia la última sección del código (ej: "000" → "001").`,
+                          description: `Receta ${c.baseCode}: El código "${v.overrideCode}" está duplicado entre variantes. Cada variante debe tener un código único.`,
                           variant: "destructive",
                         });
-                        throw new Error(
-                          `Receta ${c.code}: El código ARKIK "${finalArkikCode}" ya existe. ` +
-                          `Debes cambiar el código para crear una nueva variante. ` +
-                          `Modifica el código en el campo "Código ARKIK" (generalmente la última sección del código).`
-                        );
+                        throw new Error(`Receta ${c.baseCode}: Código duplicado entre variantes.`);
                       }
-                      
-                      // Check if code matches any existing variant
-                      if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
-                        toast({
-                          title: "Código duplicado",
-                          description: `Receta ${c.code}: El código "${finalArkikCode}" ya existe en las variantes existentes. Usa un código diferente.`,
-                          variant: "destructive",
-                        });
-                        throw new Error(
-                          `Receta ${c.code}: El código ARKIK "${finalArkikCode}" ya existe en las variantes existentes. ` +
-                          `Usa un código diferente en el campo "Código ARKIK".`
-                        );
+                      // CRITICAL: For new variants and new masters, code MUST be different if there's a collision
+                      if ((v.decision === 'createVariant' || v.decision === 'newMaster') && c.codeCollision) {
+                        const finalArkikCode = v.overrideCode || c.intendedCode;
+                        
+                        if (finalArkikCode === c.intendedCode) {
+                          toast({
+                            title: "Código duplicado",
+                            description: `Receta ${c.baseCode}, Variante: El código "${finalArkikCode}" ya existe. Cambia la última sección del código (ej: "000" → "001").`,
+                            variant: "destructive",
+                          });
+                          throw new Error(
+                            `Receta ${c.baseCode}: El código ARKIK "${finalArkikCode}" ya existe. ` +
+                            `Debes cambiar el código para crear una nueva variante.`
+                          );
+                        }
+                        
+                        if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
+                          toast({
+                            title: "Código duplicado",
+                            description: `Receta ${c.baseCode}, Variante: El código "${finalArkikCode}" ya existe en las variantes existentes. Usa un código diferente.`,
+                            variant: "destructive",
+                          });
+                          throw new Error(
+                            `Receta ${c.baseCode}: El código ARKIK "${finalArkikCode}" ya existe en las variantes existentes.`
+                          );
+                        }
                       }
                     }
                   }
-                  const decisions: CalculatorSaveDecision[] = payload.map((r) => {
-                    const conf = conflicts.find(c => c.code === r.code)!;
-                    // CRITICAL: Always use overrideCode from dialog if available, otherwise use the final code from payload
-                    // The payload already has the correct code (conf.overrideCode || intendedCode), but we should use conf.overrideCode explicitly
-                    // to ensure we're using the user's final choice from the dialog
-                    const finalCode = conf.overrideCode || r.recipe_code;
+                  
+                  // Flatten variants: create one payload entry and decision per variant
+                  const payload: any[] = [];
+                  const decisions: CalculatorSaveDecision[] = [];
+                  
+                  for (const c of conflicts) {
+                    const baseRecipe = recipeMap.get(c.baseCode);
+                    if (!baseRecipe) continue;
                     
-                    if (conf.decision === 'updateVariant' && conf.selectedExistingId) {
-                      return { recipeCode: r.code, finalArkikCode: finalCode, action: 'updateVariant', existingRecipeId: conf.selectedExistingId };
-                    }
-                    if (conf.decision === 'createVariant') {
-                      if ((!conf.masterMode || conf.masterMode === 'existing') && conf.selectedMasterId) {
-                        return { recipeCode: r.code, finalArkikCode: finalCode, action: 'createVariant', masterRecipeId: conf.selectedMasterId };
+                    for (const v of c.variants) {
+                      const finalCode = v.overrideCode || c.intendedCode;
+                      payload.push({ ...baseRecipe, recipeType: designType, recipe_code: finalCode });
+                      
+                      if (v.decision === 'updateVariant' && v.selectedExistingId) {
+                        decisions.push({ 
+                          recipeCode: c.baseCode, 
+                          finalArkikCode: finalCode, 
+                          action: 'updateVariant', 
+                          existingRecipeId: v.selectedExistingId 
+                        });
+                      } else if (v.decision === 'createVariant') {
+                        if ((!v.masterMode || v.masterMode === 'existing') && v.selectedMasterId) {
+                          decisions.push({ 
+                            recipeCode: c.baseCode, 
+                            finalArkikCode: finalCode, 
+                            action: 'createVariant', 
+                            masterRecipeId: v.selectedMasterId 
+                          });
+                        } else {
+                          decisions.push({ 
+                            recipeCode: c.baseCode, 
+                            finalArkikCode: finalCode, 
+                            action: 'newMaster', 
+                            newMasterCode: v.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-') 
+                          });
+                        }
+                      } else {
+                        // newMaster
+                        decisions.push({ 
+                          recipeCode: c.baseCode, 
+                          finalArkikCode: finalCode, 
+                          action: 'newMaster', 
+                          newMasterCode: v.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-') 
+                        });
                       }
-                      return { recipeCode: r.code, finalArkikCode: finalCode, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
                     }
-                    // newMaster
-                    return { recipeCode: r.code, finalArkikCode: finalCode, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
-                  });
+                  }
                   const selectionMap = {
                     cementId: selectedMaterials.cement ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement) : undefined,
                     sandIds: selectedMaterials.sands.map(id => String(id)),
@@ -2653,6 +2843,10 @@ const ConcreteMixCalculator = () => {
                     if (hasPCEInAnyRecipe) {
                       finalVariante = 'PCE';
                     }
+                  }
+                  
+                  if (!profile?.id) {
+                    throw new Error('Usuario no autenticado');
                   }
                   
                   await saveRecipesWithDecisions(
@@ -2691,12 +2885,27 @@ const ConcreteMixCalculator = () => {
                   
                   // Then show success modal with the codes that were actually saved
                   setSuccessRecipeCodes(createdCodes);
+                  setSuccessDecisions(decisions);
                   setSuccessOpen(true);
+                  
+                  // Group codes by recipe for summary
+                  const codesByRecipe = new Map<string, string[]>();
+                  decisions.forEach(d => {
+                    if (!codesByRecipe.has(d.recipeCode)) {
+                      codesByRecipe.set(d.recipeCode, []);
+                    }
+                    codesByRecipe.get(d.recipeCode)!.push(d.finalArkikCode);
+                  });
+                  
+                  const totalRecipes = codesByRecipe.size;
+                  const totalVariants = createdCodes.length;
                   
                   // Show success toast
                   toast({
                     title: "Recetas guardadas exitosamente",
-                    description: `Se guardaron ${createdCodes.length} receta(s) correctamente.`,
+                    description: totalVariants === totalRecipes 
+                      ? `Se guardaron ${totalVariants} receta(s) correctamente.`
+                      : `Se guardaron ${totalRecipes} receta(s) con ${totalVariants} variante(s) correctamente.`,
                     variant: "default",
                   });
                 } catch (e) {
@@ -2733,21 +2942,58 @@ const ConcreteMixCalculator = () => {
 
             <div className="space-y-6">
               {/* Summary */}
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
-                  Se han creado <span className="font-bold">{successRecipeCodes.length}</span> receta(s) en el sistema.
-                </p>
-              </div>
+              {(() => {
+                const codesByRecipe = new Map<string, string[]>();
+                successDecisions.forEach(d => {
+                  if (!codesByRecipe.has(d.recipeCode)) {
+                    codesByRecipe.set(d.recipeCode, []);
+                  }
+                  codesByRecipe.get(d.recipeCode)!.push(d.finalArkikCode);
+                });
+                const totalRecipes = codesByRecipe.size;
+                const totalVariants = successRecipeCodes.length;
+                
+                return (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      {totalVariants === totalRecipes ? (
+                        <>Se han creado <span className="font-bold">{totalVariants}</span> receta(s) en el sistema.</>
+                      ) : (
+                        <>Se han creado <span className="font-bold">{totalRecipes}</span> receta(s) con <span className="font-bold">{totalVariants}</span> variante(s) en el sistema.</>
+                      )}
+                    </p>
+                  </div>
+                );
+              })()}
 
-              {/* List of created recipes */}
+              {/* List of created recipes - Grouped by base recipe */}
               <div>
                 <label className="text-sm font-semibold mb-3 block">Recetas Creadas</label>
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {successRecipeCodes.map((code, idx) => (
-                    <div key={idx} className="p-3 border rounded-lg bg-gray-50 font-mono text-sm">
-                      {code}
-                    </div>
-                  ))}
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {(() => {
+                    const codesByRecipe = new Map<string, string[]>();
+                    successDecisions.forEach(d => {
+                      if (!codesByRecipe.has(d.recipeCode)) {
+                        codesByRecipe.set(d.recipeCode, []);
+                      }
+                      codesByRecipe.get(d.recipeCode)!.push(d.finalArkikCode);
+                    });
+                    
+                    return Array.from(codesByRecipe.entries()).map(([baseCode, codes]) => (
+                      <div key={baseCode} className="border rounded-lg bg-gray-50 p-3">
+                        <div className="text-xs text-gray-600 mb-2 font-semibold">
+                          Receta base: {baseCode} {codes.length > 1 && `(${codes.length} variantes)`}
+                        </div>
+                        <div className="space-y-1">
+                          {codes.map((code, idx) => (
+                            <div key={idx} className="p-2 border rounded bg-white font-mono text-sm">
+                              {code}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
               </div>
 
@@ -2806,9 +3052,10 @@ const ConcreteMixCalculator = () => {
                     });
                     const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
                     if (!res.ok) {
+                      const errorText = await res.text();
                       toast({
                         title: "Error al exportar ARKIK",
-                        description: error instanceof Error ? error.message : 'Error desconocido',
+                        description: errorText || 'Error desconocido',
                         variant: "destructive",
                       });
                       return;
@@ -2827,7 +3074,7 @@ const ConcreteMixCalculator = () => {
                     console.error('Export error:', e);
                     toast({
                       title: "Error al exportar recetas",
-                      description: error instanceof Error ? error.message : 'Error desconocido',
+                      description: e instanceof Error ? e.message : 'Error desconocido',
                       variant: "destructive",
                     });
                   }
