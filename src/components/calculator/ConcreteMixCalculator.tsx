@@ -493,8 +493,8 @@ const ConcreteMixCalculator = () => {
     // Step 4: Use the provided water amount (no lookup needed)
     // const water = [provided as parameter]
     
-    // Step 4: Calculate cement quantity (rounded to nearest 5)
-    const cement = Math.round((water / acRatio) / 5) * 5;
+    // Step 4: Calculate cement quantity (rounded UP to nearest multiple of 5)
+    const cement = Math.ceil((water / acRatio) / 5) * 5;
     
     // Step 5: Get mortar volume
     const mortarVolume = getMortarVolume(designType, placement, slump, designParams.mortarVolumes);
@@ -702,8 +702,8 @@ const ConcreteMixCalculator = () => {
     const waterKey = getWaterKey(slump, placement);
     const water = waterQuantities[waterKey] || waterQuantities['14D'];
     
-    // Step 4: Calculate cement quantity (rounded to nearest 5)
-    const cement = Math.round((water / acRatio) / 5) * 5;
+    // Step 4: Calculate cement quantity (rounded UP to nearest multiple of 5)
+    const cement = Math.ceil((water / acRatio) / 5) * 5;
     
     // Step 5: Get mortar volume
     const mortarVolume = getMortarVolume(designType, placement, slump, designParams.mortarVolumes);
@@ -1053,8 +1053,8 @@ const ConcreteMixCalculator = () => {
       undefined  // Don't need strength for edited values
     );
     
-    // Recalculate cement quantity (rounded to nearest 5)
-    const newCement = Math.round((water / newACRatio) / 5) * 5;
+    // Recalculate cement quantity (rounded UP to nearest multiple of 5)
+    const newCement = Math.ceil((water / newACRatio) / 5) * 5;
     
     // Get mortar volume
     const mortarVolume = getMortarVolume(designType, recipe.placement, recipe.slump, designParams.mortarVolumes);
