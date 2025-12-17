@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info, Plus, Minus } from 'lucide-react';
+import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info, Plus, Minus, RefreshCw } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase/client';
@@ -177,6 +177,9 @@ const ConcreteMixCalculator = () => {
   // Generated recipes
   const [generatedRecipes, setGeneratedRecipes] = useState<Recipe[]>([]);
   const [fcrOverrides, setFcrOverrides] = useState<FCROverrides>({});
+  
+  // Force recalculation trigger
+  const [recalculationTrigger, setRecalculationTrigger] = useState(0);
   
   // Export selection
   const [selectedRecipesForExport, setSelectedRecipesForExport] = useState<Set<string>>(new Set());
@@ -453,12 +456,12 @@ const ConcreteMixCalculator = () => {
   };
 
   // Helper function to calculate adjusted FCR for MR recipes
-  // For MR, adjustment is applied to strength directly (before stdDev calculation)
-  const getAdjustedFcr = (originalFcr: number, strength?: number): number => {
+  // For MR, standard deviation is applied FIRST, then MR adjustment is applied to the FCR
+  const getAdjustedFcr = (originalFcr: number): number => {
     if (designType === 'MR' && designParams.mrFcrAdjustment && designParams.mrFcrAdjustment.divideAmount > 0) {
-      // Use strength value directly for MR adjustment (not the calculated FCR with stdDev)
-      const baseValue = strength !== undefined ? strength : originalFcr;
-      return (baseValue - designParams.mrFcrAdjustment.subtractAmount) / designParams.mrFcrAdjustment.divideAmount;
+      // Apply MR adjustment to the FCR that already includes standard deviation
+      // The originalFcr already has standard deviation applied, so use it directly
+      return (originalFcr - designParams.mrFcrAdjustment.subtractAmount) / designParams.mrFcrAdjustment.divideAmount;
     }
     return originalFcr;
   };
@@ -475,18 +478,17 @@ const ConcreteMixCalculator = () => {
     const originalFcr = calculateFcr(strength, designParams.standardDeviation);
     
     // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
-    // For MR recipes, pass strength value so adjustment is applied to strength directly (before stdDev)
+    // For MR recipes, the originalFcr already includes standard deviation, and MR adjustment is applied to it
     const acRatio = calculateACRatio(
       originalFcr, 
       designParams.resistanceFactors,
       designType,
-      designParams.mrFcrAdjustment,
-      strength // Pass strength for MR adjustment calculation
+      designParams.mrFcrAdjustment
     );
     
     // Step 3: Calculate adjusted FCR for MR recipes (for display only)
-    // For MR, use strength directly for adjustment calculation
-    const fcr = getAdjustedFcr(originalFcr, strength);
+    // For MR, standard deviation is already in originalFcr, then MR adjustment is applied
+    const fcr = getAdjustedFcr(originalFcr);
     
     // Step 4: Use the provided water amount (no lookup needed)
     // const water = [provided as parameter]
@@ -681,18 +683,17 @@ const ConcreteMixCalculator = () => {
     const originalFcr = calculateFcr(strength, designParams.standardDeviation);
     
     // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
-    // For MR recipes, pass strength value so adjustment is applied to strength directly (before stdDev)
+    // For MR recipes, the originalFcr already includes standard deviation, and MR adjustment is applied to it
     const acRatio = calculateACRatio(
       originalFcr, 
       designParams.resistanceFactors,
       designType,
-      designParams.mrFcrAdjustment,
-      strength // Pass strength for MR adjustment calculation
+      designParams.mrFcrAdjustment
     );
     
     // Step 3: Calculate adjusted FCR for MR recipes (for display only)
-    // For MR, use strength directly for adjustment calculation
-    const fcr = getAdjustedFcr(originalFcr, strength);
+    // For MR, standard deviation is already in originalFcr, then MR adjustment is applied
+    const fcr = getAdjustedFcr(originalFcr);
     
     // Step 4: Determine water quantity
     const waterQuantities = placement === 'D' 
@@ -890,11 +891,16 @@ const ConcreteMixCalculator = () => {
   }, [
     materials,
     designParams,
-    designParams.standardDeviation, // Explicitly include standardDeviation to trigger recalculation when it changes
+    // Use JSON.stringify for standardDeviation to ensure deep comparison detects changes
+    // This is important because React's shallow comparison might miss nested object changes
+    typeof designParams.standardDeviation === 'number' 
+      ? designParams.standardDeviation 
+      : JSON.stringify(designParams.standardDeviation),
     designParams.mrFcrAdjustment, // Explicitly include MR FCR adjustment to trigger recalculation when it changes
     recipeParams,
     designType,
-    enabledCombinations
+    enabledCombinations,
+    recalculationTrigger // Include recalculation trigger to allow manual recalculation
   ]);
 
   // Memoize ARKIK code generation - depends on generated recipes and concrete type settings
@@ -2038,6 +2044,32 @@ const ConcreteMixCalculator = () => {
 
           <TabsContent value="recipes" className="mt-6">
             <div className="space-y-4">
+              {/* Manual Recalculation Button */}
+              <div className="flex items-center justify-between mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => {
+                      console.log('[Recalc] Manual recalculation triggered');
+                      console.log('[Recalc] Current standardDeviation:', designParams.standardDeviation);
+                      setRecalculationTrigger(prev => prev + 1);
+                      toast({
+                        title: "Recalculando recetas",
+                        description: "Las recetas se están recalculando con los parámetros actuales.",
+                        variant: "default",
+                      });
+                    }}
+                    variant="secondary"
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Recalcular Recetas
+                  </Button>
+                  <p className="text-sm text-gray-600">
+                    Usa este botón para recalcular manualmente las recetas con los parámetros actuales
+                  </p>
+                </div>
+              </div>
+              
               {/* Recipe Table */}
               <RecipeTable
                 recipes={generatedRecipes}

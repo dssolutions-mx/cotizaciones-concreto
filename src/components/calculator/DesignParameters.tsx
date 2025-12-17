@@ -571,9 +571,11 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                       return;
                     } else if (numValue >= 0 && numValue <= 50) {
                       // Save valid value (including 0) - create new object reference to ensure React detects change
+                      console.log(`[StdDev] Saving single value ${numValue}`);
                       onDesignParamsChange({ standardDeviation: numValue });
                     } else {
                       // Reset to default if invalid
+                      console.log(`[StdDev] Invalid value, resetting to default 23`);
                       onDesignParamsChange({ standardDeviation: 23 });
                     }
                   }}
@@ -653,8 +655,23 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
                                   : { ...designParams.standardDeviation }; // Spread to create new reference
-                                const updated = { ...stdDevRecord }; // Create new object
+                                // Create new object with the updated value
+                                // Ensure numeric keys are used (not string keys)
+                                const updated: Record<number, number> = {};
+                                // Copy existing values
+                                Object.keys(stdDevRecord).forEach(key => {
+                                  updated[Number(key)] = stdDevRecord[Number(key)];
+                                });
+                                // Set the new value with numeric key
                                 updated[strength] = numValue;
+                                console.log(`[StdDev] Saving value ${numValue} for strength ${strength}`, {
+                                  updated,
+                                  keys: Object.keys(updated),
+                                  strength,
+                                  strengthType: typeof strength,
+                                  numValue,
+                                  numValueType: typeof numValue
+                                });
                                 onDesignParamsChange({ standardDeviation: updated });
                               } else {
                                 // Invalid value - remove custom value

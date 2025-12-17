@@ -30,12 +30,41 @@ export const getStandardDeviationForStrength = (
   
   if (typeof standardDeviation === 'number') {
     stdDevValue = standardDeviation;
+    console.log(`[StdDev] Using single value ${stdDevValue} for all strengths`);
   } else {
-    stdDevValue = standardDeviation[strength] ?? defaultStdDev;
+    // Check if the strength exists in the record (including 0 and lower values)
+    // JavaScript object keys are strings, so we need to check both numeric and string keys
+    // Try direct numeric access first, then string key access
+    const hasNumericKey = strength in standardDeviation;
+    const hasStringKey = strength.toString() in standardDeviation;
+    
+    if (hasNumericKey || hasStringKey) {
+      // Prefer numeric key, fallback to string key
+      stdDevValue = standardDeviation[strength] !== undefined 
+        ? standardDeviation[strength]
+        : (standardDeviation as any)[strength.toString()];
+      
+      // Debug log to verify values are being read correctly (always log, not just when different from default)
+      console.log(`[StdDev] Found custom value ${stdDevValue} for strength ${strength} (default: ${defaultStdDev})`, {
+        hasNumericKey,
+        hasStringKey,
+        numericValue: standardDeviation[strength],
+        stringValue: (standardDeviation as any)[strength.toString()],
+        allKeys: Object.keys(standardDeviation)
+      });
+    } else {
+      console.log(`[StdDev] No custom value for strength ${strength}, using default ${defaultStdDev}`, {
+        availableKeys: Object.keys(standardDeviation),
+        strength,
+        strengthStr: strength.toString()
+      });
+      stdDevValue = defaultStdDev;
+    }
   }
   
   // Validate that the value is a valid number
   // Handle edge cases: NaN, Infinity, or invalid values
+  // Note: 0 is a valid value and should be preserved
   if (typeof stdDevValue !== 'number' || isNaN(stdDevValue) || !isFinite(stdDevValue)) {
     console.warn(`Invalid standard deviation value for strength ${strength}: ${stdDevValue}, using default ${defaultStdDev}`);
     return defaultStdDev;
@@ -43,6 +72,7 @@ export const getStandardDeviationForStrength = (
   
   // Round to 6 decimal places to avoid floating point precision issues
   // This preserves enough precision for calculations while avoiding issues
+  // Note: Lower values (including 0) are valid and will be returned as-is
   return Math.round(stdDevValue * 1000000) / 1000000;
 };
 
@@ -64,20 +94,19 @@ export const calculateACRatio = (
   fcr: number, 
   factors?: ResistanceFactors,
   designType?: DesignType,
-  mrFcrAdjustment?: { subtractAmount: number; divideAmount: number },
-  strength?: number // Optional strength value for MR adjustment calculation
+  mrFcrAdjustment?: { subtractAmount: number; divideAmount: number }
 ): number => {
   // Apply FCR adjustment for MR recipes if adjustment parameters are provided
+  // IMPORTANT: The fcr parameter already includes standard deviation, so we apply MR adjustment to it
   let adjustedFcr = fcr;
   if (designType === 'MR' && mrFcrAdjustment && mrFcrAdjustment.divideAmount > 0) {
-    // For MR recipes, apply adjustment to the strength value directly (before stdDev calculation)
-    // Formula: adjustedFCR = (strength - subtractAmount) / divideAmount
-    // Then use this adjusted value for A/C calculation
-    const baseValue = strength !== undefined ? strength : fcr;
-    adjustedFcr = (baseValue - mrFcrAdjustment.subtractAmount) / mrFcrAdjustment.divideAmount;
+    // For MR recipes, apply adjustment to the FCR that already includes standard deviation
+    // Formula: adjustedFCR = (fcr - subtractAmount) / divideAmount
+    // The fcr parameter already has standard deviation applied, so use it directly
+    adjustedFcr = (fcr - mrFcrAdjustment.subtractAmount) / mrFcrAdjustment.divideAmount;
     // Debug log to verify adjustment is being applied
     if (mrFcrAdjustment.subtractAmount !== 0 || mrFcrAdjustment.divideAmount !== 1) {
-      console.log(`[MR FCR Adjustment] Base Value: ${baseValue}, Adjusted FCR: ${adjustedFcr}, Subtract: ${mrFcrAdjustment.subtractAmount}, Divide: ${mrFcrAdjustment.divideAmount}`);
+      console.log(`[MR FCR Adjustment] FCR (with stdDev): ${fcr}, Adjusted FCR: ${adjustedFcr}, Subtract: ${mrFcrAdjustment.subtractAmount}, Divide: ${mrFcrAdjustment.divideAmount}`);
     }
   }
   
