@@ -101,6 +101,34 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   const handleUserInteraction = () => {
     setShowValidationErrors(false);
   };
+
+  // Helper function to parse decimal values with proper precision handling
+  // Handles many decimal places correctly and rounds to reasonable precision (6 decimal places)
+  // to avoid floating point issues while preserving precision for calculations
+  const parseDecimalValue = (inputValue: string): number | null => {
+    const trimmed = inputValue.trim();
+    
+    // Allow empty string
+    if (trimmed === '') {
+      return null;
+    }
+    
+    // Remove any non-numeric characters except decimal point and minus sign
+    // Allow scientific notation for very large/small numbers
+    const cleaned = trimmed.replace(/[^\d.eE+-]/g, '');
+    
+    // Try to parse the value
+    const parsed = Number(cleaned);
+    
+    // Check if it's a valid number
+    if (isNaN(parsed) || !isFinite(parsed)) {
+      return null;
+    }
+    
+    // Round to 6 decimal places to avoid floating point precision issues
+    // This preserves enough precision for calculations while avoiding issues
+    return Math.round(parsed * 1000000) / 1000000;
+  };
   const renderWaterQuantityInputs = (quantities: WaterQuantities, type: 'TD' | 'BOMB') => {
     const slumps = designType === 'FC' ? ['10', '14', '18'] : ['8', '10', '14'];
     
@@ -532,18 +560,19 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                   }}
                   onBlur={(e) => {
                     const inputValue = e.target.value.trim();
-                    const numValue = parseFloat(inputValue);
+                    const numValue = parseDecimalValue(inputValue);
                     
                     // Clear local state
                     setSingleStdDevInput('');
                     
-                    // Allow empty or 0, otherwise validate range
-                    if (inputValue === '') {
+                    // Allow empty (keep current), 0, or valid range (0-50)
+                    if (inputValue === '' || numValue === null) {
                       // Keep current value if empty on blur
                       return;
-                    } else if (!isNaN(numValue) && numValue >= 0 && numValue <= 50) {
+                    } else if (numValue >= 0 && numValue <= 50) {
+                      // Save valid value (including 0) - create new object reference to ensure React detects change
                       onDesignParamsChange({ standardDeviation: numValue });
-                    } else if (isNaN(numValue) || numValue < 0 || numValue > 50) {
+                    } else {
                       // Reset to default if invalid
                       onDesignParamsChange({ standardDeviation: 23 });
                     }
@@ -605,7 +634,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                             }}
                             onBlur={(e) => {
                               const inputValue = e.target.value.trim();
-                              const numValue = parseFloat(inputValue);
+                              const numValue = parseDecimalValue(inputValue);
                               
                               // Clear local state
                               setStdDevInputValues((prev: Record<number, string>) => {
@@ -615,23 +644,25 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                               });
                               
                               // Allow empty (keep current), 0, or valid range (0-50)
-                              if (inputValue === '') {
+                              if (inputValue === '' || numValue === null) {
                                 // Keep current value if empty on blur
                                 return;
-                              } else if (!isNaN(numValue) && numValue >= 0 && numValue <= 50) {
+                              } else if (numValue >= 0 && numValue <= 50) {
                                 // Save valid value (including 0)
+                                // Create new object reference to ensure React detects change
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
-                                  : designParams.standardDeviation;
-                                const updated = { ...stdDevRecord };
+                                  : { ...designParams.standardDeviation }; // Spread to create new reference
+                                const updated = { ...stdDevRecord }; // Create new object
                                 updated[strength] = numValue;
                                 onDesignParamsChange({ standardDeviation: updated });
                               } else {
                                 // Invalid value - remove custom value
+                                // Create new object reference to ensure React detects change
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
-                                  : designParams.standardDeviation;
-                                const updated = { ...stdDevRecord };
+                                  : { ...designParams.standardDeviation }; // Spread to create new reference
+                                const updated = { ...stdDevRecord }; // Create new object
                                 delete updated[strength];
                                 onDesignParamsChange({ standardDeviation: updated });
                               }
@@ -666,10 +697,11 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                   return updated;
                                 });
                                 
+                                // Create new object reference to ensure React detects change
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
-                                  : designParams.standardDeviation;
-                                const updated = { ...stdDevRecord };
+                                  : { ...designParams.standardDeviation }; // Spread to create new reference
+                                const updated = { ...stdDevRecord }; // Create new object
                                 if (isCustom) {
                                   delete updated[strength];
                                 } else {

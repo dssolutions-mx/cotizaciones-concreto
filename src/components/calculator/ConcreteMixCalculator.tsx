@@ -890,6 +890,7 @@ const ConcreteMixCalculator = () => {
   }, [
     materials,
     designParams,
+    designParams.standardDeviation, // Explicitly include standardDeviation to trigger recalculation when it changes
     designParams.mrFcrAdjustment, // Explicitly include MR FCR adjustment to trigger recalculation when it changes
     recipeParams,
     designType,

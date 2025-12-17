@@ -25,10 +25,25 @@ export const getStandardDeviationForStrength = (
   if (!standardDeviation) {
     return defaultStdDev;
   }
+  
+  let stdDevValue: number;
+  
   if (typeof standardDeviation === 'number') {
-    return standardDeviation;
+    stdDevValue = standardDeviation;
+  } else {
+    stdDevValue = standardDeviation[strength] ?? defaultStdDev;
   }
-  return standardDeviation[strength] ?? defaultStdDev;
+  
+  // Validate that the value is a valid number
+  // Handle edge cases: NaN, Infinity, or invalid values
+  if (typeof stdDevValue !== 'number' || isNaN(stdDevValue) || !isFinite(stdDevValue)) {
+    console.warn(`Invalid standard deviation value for strength ${strength}: ${stdDevValue}, using default ${defaultStdDev}`);
+    return defaultStdDev;
+  }
+  
+  // Round to 6 decimal places to avoid floating point precision issues
+  // This preserves enough precision for calculations while avoiding issues
+  return Math.round(stdDevValue * 1000000) / 1000000;
 };
 
 // Calculate critical strength (fcr) using standard deviation percentage
