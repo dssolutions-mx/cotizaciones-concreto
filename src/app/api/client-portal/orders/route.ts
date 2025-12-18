@@ -342,6 +342,41 @@ export async function POST(request: Request) {
       }
     }
 
+    // Copy additional products from quote if quote_id provided
+    if (created?.id && quote_id) {
+      // Fetch additional products from the quote
+      const { data: quoteAdditionalProducts, error: additionalError } = await supabase
+        .from('quote_additional_products')
+        .select('*')
+        .eq('quote_id', quote_id);
+
+      if (additionalError) {
+        console.error('Error fetching quote additional products:', additionalError);
+      } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
+        // Prepare order additional products
+        const orderAdditionalProducts = quoteAdditionalProducts.map(product => ({
+          order_id: created.id,
+          quote_additional_product_id: product.id,
+          additional_product_id: product.additional_product_id,
+          quantity: product.quantity,
+          unit_price: product.unit_price,
+          total_price: product.total_price,
+          notes: product.notes
+        }));
+
+        // Insert into order_additional_products
+        const { error: insertAdditionalError } = await supabase
+          .from('order_additional_products')
+          .insert(orderAdditionalProducts);
+
+        if (insertAdditionalError) {
+          console.error('Error inserting order additional products:', insertAdditionalError);
+        } else {
+          console.log(`Copied ${quoteAdditionalProducts.length} additional products to order ${created.id}`);
+        }
+      }
+    }
+
     return NextResponse.json({ id: created?.id }, { status: 201 });
   } catch (error) {
     console.error('Orders API POST error:', error);

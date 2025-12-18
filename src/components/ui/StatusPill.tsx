@@ -42,6 +42,11 @@ const statusColors: Record<string, { bg: string; text: string; glow: string }> =
     text: 'text-systemOrange dark:text-systemOrange/80',
     glow: 'shadow-systemOrange/50'
   },
+  pending_approval: {
+    bg: 'bg-systemOrange/20',
+    text: 'text-systemOrange dark:text-systemOrange/80',
+    glow: 'shadow-systemOrange/50'
+  },
   approved: {
     bg: 'bg-systemGreen/20',
     text: 'text-systemGreen dark:text-systemGreen/80',
@@ -74,6 +79,7 @@ const translateStatus = (status: string): string => {
     'completed': 'Completada',
     'cancelled': 'Cancelada',
     'pending': 'Pendiente',
+    'pending_approval': 'Pendiente de Aprobación',
     'approved': 'Aprobado',
     'rejected': 'Rechazado',
     'rejected_by_validator': 'Rechazado por Validador'

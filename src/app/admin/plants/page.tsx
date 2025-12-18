@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import CoordinateInput from '@/components/ui/CoordinateInput';
 
 interface EditingItem {
   type: 'plant' | 'business_unit';
@@ -236,7 +237,7 @@ export default function PlantsManagementPage() {
     }
   };
 
-  const updateEditingData = (field: string, value: string | boolean) => {
+  const updateEditingData = (field: string, value: string | boolean | number | null) => {
     if (!editing || !editing.data) return;
     setEditing({
       ...editing,
@@ -465,6 +466,28 @@ export default function PlantsManagementPage() {
                         value={(editing.data as Partial<Plant>).location || ''}
                         onChange={(e) => updateEditingData('location', e.target.value)}
                         className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label>Coordenadas (para cálculo de distancia)</Label>
+                      <CoordinateInput
+                        latitude={String((editing.data as any).latitude || '')}
+                        longitude={String((editing.data as any).longitude || '')}
+                        onLatitudeChange={(value) => updateEditingData('latitude', parseFloat(value) || null)}
+                        onLongitudeChange={(value) => updateEditingData('longitude', parseFloat(value) || null)}
+                        showMap={true}
+                        showTips={true}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="plant-address">Dirección</Label>
+                      <Input
+                        id="plant-address"
+                        value={(editing.data as any).address || ''}
+                        onChange={(e) => updateEditingData('address', e.target.value)}
+                        className="mt-1"
+                        placeholder="Dirección física de la planta"
                       />
                     </div>
                     <div>

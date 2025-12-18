@@ -551,12 +551,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       console.log(`Fetching active prices for Client: ${order.client_id}, Site: ${order.construction_site}, Plant: ${plantId}`);
       
       // 1. Find the active product prices (master-first with recipe fallback)
-      const { data: activePrices, error: activePriceError } = await supabase
+      // IMPORTANT: Filter by plant_id to ensure we only get prices from the order's plant
+      let activePricesQuery = supabase
         .from('product_prices')
-        .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id')
+        .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id, plant_id')
         .eq('client_id', order.client_id)
         .eq('construction_site', order.construction_site)
-        .eq('is_active', true)
+        .eq('is_active', true);
+      
+      // Add plant_id filter if available
+      if (plantId) {
+        activePricesQuery = activePricesQuery.eq('plant_id', plantId);
+      }
+      
+      const { data: activePrices, error: activePriceError } = await activePricesQuery
         .order('updated_at', { ascending: false });
       
       if (activePriceError) {
@@ -583,14 +591,25 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       }
       
       // Build active quote-master combinations from both master-level and recipe-mapped prices
+      // IMPORTANT: Only include the MOST RECENT quote for each product (by updated_at)
       const activeQuoteMasterCombos = new Set<string>();
       
-      // Direct master prices
+      // Direct master prices - only keep the most recent quote per master_recipe_id
+      const masterPricesMap = new Map<string, any>();
       trulyActivePrices
         .filter((price: any) => price.quote_id && price.master_recipe_id)
         .forEach((price: any) => {
-          activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+          const key = price.master_recipe_id;
+          // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+          if (!masterPricesMap.has(key)) {
+            masterPricesMap.set(key, price);
+          }
         });
+      
+      // Add only the most recent quote for each master
+      masterPricesMap.forEach((price: any) => {
+        activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+      });
       
       // Recipe-level prices mapped to masters
       const recipeIdsNeedingMaster = Array.from(
@@ -616,27 +635,54 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         }
       }
       
+      // Add combos for recipe-based prices that have a master mapping - only most recent per master
+      const recipeMappedMasterPricesMap = new Map<string, any>();
       trulyActivePrices
         .filter((price: any) => price.quote_id && price.recipe_id && recipeIdToMasterId[price.recipe_id])
         .forEach((price: any) => {
           const masterId = recipeIdToMasterId[price.recipe_id];
-          activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+          // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+          if (!recipeMappedMasterPricesMap.has(masterId)) {
+            recipeMappedMasterPricesMap.set(masterId, price);
+          }
         });
       
-      // Build recipe fallback pairs for recipes without master
+      // Add only the most recent quote for each master (from recipe-mapped prices)
+      recipeMappedMasterPricesMap.forEach((price: any) => {
+        const masterId = recipeIdToMasterId[price.recipe_id];
+        activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+      });
+      
+      // Build recipe fallback pairs for recipes without master - only most recent per recipe
       const activeQuoteRecipeFallbackCombos = new Set<string>();
+      const recipeFallbackPricesMap = new Map<string, any>();
       trulyActivePrices
         .filter((price: any) => price.quote_id && price.recipe_id && !recipeIdToMasterId[price.recipe_id] && !price.master_recipe_id)
         .forEach((price: any) => {
-          activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+          const key = price.recipe_id;
+          // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+          if (!recipeFallbackPricesMap.has(key)) {
+            recipeFallbackPricesMap.set(key, price);
+          }
         });
+      
+      // Add only the most recent quote for each recipe (fallback)
+      recipeFallbackPricesMap.forEach((price: any) => {
+        activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+      });
       
       console.log('Active quote-master combinations:', Array.from(activeQuoteMasterCombos));
       console.log('Active quote-recipe FALLBACK combinations:', Array.from(activeQuoteRecipeFallbackCombos));
       
-      // Get unique quote IDs
-      const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
-      console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
+      // Get unique quote IDs from the most recent prices only (not all active prices)
+      const mostRecentQuoteIds = new Set<string>();
+      masterPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+      recipeMappedMasterPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+      recipeFallbackPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+      
+      const uniqueQuoteIds = Array.from(mostRecentQuoteIds).filter(Boolean);
+      console.log('Most recent quote IDs from filtered prices:', Array.from(mostRecentQuoteIds));
+      console.log('Unique quote IDs (most recent only):', uniqueQuoteIds);
       
       // Check if the order's quote_id is in the list (important for debugging)
       if ((order as any)?.quote_id && !uniqueQuoteIds.includes((order as any).quote_id)) {
@@ -2136,33 +2182,81 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             </TableRow>
                           );
                         })
-                      : order.products.map((product) => (
-                        <TableRow key={product.id}>
-                          <TableCell className="font-medium">
-                            {product.product_type === 'SERVICIO DE BOMBEO' ? (
-                              <span className="text-blue-600 font-semibold">
-                                {product.product_type} (Global)
-                              </span>
-                            ) : (
-                              product.product_type
-                            )}
-                          </TableCell>
-                          <TableCell>{product.volume} m³</TableCell>
-                          <TableCell>
-                            {product.product_type === 'SERVICIO DE BOMBEO' ? (
-                              <span className="text-blue-600">Global</span>
-                            ) : product.has_pump_service ? 
-                              `Sí - ${product.pump_volume} m³` : 
-                              'No'}
-                          </TableCell>
-                          {shouldShowFinancialInfo() && (
-                            <>
-                              <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product))}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product) * product.volume)}</TableCell>
-                            </>
-                          )}
-                        </TableRow>
-                      ))}
+                      : order.products.map((product) => {
+                          const isAdditionalProduct = product.product_type?.startsWith('PRODUCTO ADICIONAL:');
+                          const isPumpService = product.product_type === 'SERVICIO DE BOMBEO';
+                          
+                          // For additional products, extract the name from product_type
+                          // Format: "PRODUCTO ADICIONAL: Name (Code)"
+                          let displayName = product.product_type || '';
+                          if (isAdditionalProduct) {
+                            displayName = product.product_type.replace('PRODUCTO ADICIONAL: ', '');
+                          }
+                          
+                          // Calculate concrete volume delivered for additional products multiplier
+                          const concreteDelivered = order.products
+                            ?.filter((p: any) => 
+                              !p.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+                              p.product_type !== 'SERVICIO DE BOMBEO' &&
+                              p.product_type !== 'VACÍO DE OLLA'
+                            )
+                            .reduce((sum: number, p: any) => sum + ((p as any).concrete_volume_delivered || p.volume || 0), 0) || 0;
+                          
+                          // For additional products, volume is the multiplier (quantity per m³)
+                          // Total = multiplier × concrete_delivered × unit_price
+                          const additionalProductTotal = isAdditionalProduct && concreteDelivered > 0
+                            ? product.volume * concreteDelivered * (product.unit_price || 0)
+                            : (product.unit_price || 0) * product.volume;
+                          
+                          return (
+                            <TableRow key={product.id}>
+                              <TableCell className="font-medium">
+                                {isPumpService ? (
+                                  <span className="text-blue-600 font-semibold">
+                                    {product.product_type} (Global)
+                                  </span>
+                                ) : isAdditionalProduct ? (
+                                  <span className="text-purple-600 font-semibold">
+                                    {displayName}
+                                    <span className="text-xs text-gray-500 ml-2">
+                                      (Multiplicador: {product.volume} por m³)
+                                    </span>
+                                  </span>
+                                ) : (
+                                  product.product_type
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {isAdditionalProduct ? (
+                                  <span>
+                                    {product.volume} × {concreteDelivered.toFixed(2)} m³ = {(product.volume * concreteDelivered).toFixed(2)}
+                                  </span>
+                                ) : (
+                                  `${product.volume} m³`
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {isPumpService ? (
+                                  <span className="text-blue-600">Global</span>
+                                ) : isAdditionalProduct ? (
+                                  <span className="text-purple-600">Producto Adicional</span>
+                                ) : product.has_pump_service ? 
+                                  `Sí - ${product.pump_volume} m³` : 
+                                  'No'}
+                              </TableCell>
+                              {shouldShowFinancialInfo() && (
+                                <>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(isAdditionalProduct ? (product.unit_price || 0) : getProductUnitPrice(product))}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(isAdditionalProduct ? additionalProductTotal : (getProductUnitPrice(product) * product.volume))}
+                                  </TableCell>
+                                </>
+                              )}
+                            </TableRow>
+                          );
+                        })}
                     </TableBody>
                   </Table>
                 </div>

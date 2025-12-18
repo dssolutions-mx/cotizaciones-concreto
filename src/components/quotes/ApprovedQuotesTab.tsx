@@ -141,6 +141,19 @@ export interface ApprovedQuote {
     } | null;
     master_code?: string | null;
   }>;
+  quote_additional_products: Array<{
+    id: string;
+    quantity: number;
+    base_price: number;
+    margin_percentage: number;
+    unit_price: number;
+    total_price: number;
+    additional_products: {
+      name: string;
+      code: string;
+      unit: string;
+    } | null;
+  }>;
 }
 
 export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFilter }: ApprovedQuotesTabProps) {
@@ -211,6 +224,20 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
             ),
             master_recipes (
               master_code
+            )
+          ),
+          quote_additional_products (
+            id,
+            additional_product_id,
+            quantity,
+            base_price,
+            margin_percentage,
+            unit_price,
+            total_price,
+            additional_products (
+              name,
+              code,
+              unit
             )
           )
         `, { count: 'exact' })
@@ -305,9 +332,11 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
             client_code: clientData.client_code
           } : null,
           quote_details: quoteDetailsData,
+          quote_additional_products: quote.quote_additional_products || [],
           creator_initials: initials || 'XX',
           approver_name: approverFullName,
-          total_amount: quoteDetailsData.reduce((sum: number, detail: {final_price: number, volume: number}) => sum + (detail.final_price * detail.volume), 0)
+          total_amount: quoteDetailsData.reduce((sum: number, detail: {final_price: number, volume: number}) => sum + (detail.final_price * detail.volume), 0) + 
+            ((quote.quote_additional_products || []).reduce((sum: number, prod: any) => sum + (prod.total_price || 0), 0))
         };
       });
 
@@ -625,9 +654,21 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
 
   // Modificar el render para mostrar total actualizado en edición
   const calculateTotal = () => {
-    if (!editingQuoteDetails.length) return 0;
-    return editingQuoteDetails.reduce((sum: number, detail: {final_price: number, volume: number}) => 
-      sum + (detail.final_price * detail.volume), 0);
+    let total = 0;
+    
+    // Add quote details total
+    if (editingQuoteDetails.length > 0) {
+      total += editingQuoteDetails.reduce((sum: number, detail: {final_price: number, volume: number}) => 
+        sum + (detail.final_price * detail.volume), 0);
+    }
+    
+    // Add additional products total
+    if (selectedQuote?.quote_additional_products && selectedQuote.quote_additional_products.length > 0) {
+      total += selectedQuote.quote_additional_products.reduce((sum: number, prod: {total_price: number}) => 
+        sum + (prod.total_price || 0), 0);
+    }
+    
+    return total;
   };
 
   // Filter quotes based on date range - memoized for performance
@@ -907,6 +948,42 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 </div>
               </div>
 
+              {/* Distance Information */}
+              {(selectedQuote as any).distance_km && (
+                <div className="mb-8 p-5 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                    </svg>
+                    Información de Distancia
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Distancia</p>
+                      <p className="text-lg font-bold text-indigo-700">{(selectedQuote as any).distance_km?.toFixed(2) || 'N/A'} km</p>
+                    </div>
+                    {(selectedQuote as any).distance_range_code && (
+                      <div>
+                        <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Rango</p>
+                        <p className="text-lg font-bold text-indigo-700">{(selectedQuote as any).distance_range_code}</p>
+                      </div>
+                    )}
+                    {(selectedQuote as any).transport_cost_per_m3 && (
+                      <div>
+                        <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Transporte/m³</p>
+                        <p className="text-lg font-bold text-indigo-700">${((selectedQuote as any).transport_cost_per_m3 || 0).toFixed(2)}</p>
+                      </div>
+                    )}
+                    {(selectedQuote as any).auto_approved && (
+                      <div>
+                        <p className="text-xs text-gray-600 uppercase font-semibold mb-1">Estado</p>
+                        <p className="text-lg font-bold text-green-600">Auto-aprobada</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Items Table with Master/Variant Indicators */}
               <div className="mb-8 bg-white/60 rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
                 <div className="px-6 py-4 border-b border-gray-200/50 bg-gray-50/50 flex justify-between items-center">
@@ -1000,6 +1077,46 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                   </table>
                 </div>
               </div>
+
+              {/* Additional Products Table */}
+              {selectedQuote?.quote_additional_products && selectedQuote.quote_additional_products.length > 0 && (
+                <div className="mb-6 bg-white/60 rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
+                  <div className="px-6 py-4 border-b border-gray-200/50 bg-gray-50/50">
+                    <h3 className="text-lg font-bold text-gray-900">Productos Adicionales / Especiales</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gradient-to-r from-gray-100 to-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold text-gray-700">Producto</th>
+                          <th className="px-4 py-3 font-semibold text-gray-700">Cantidad</th>
+                          <th className="px-4 py-3 font-semibold text-gray-700">Precio Base</th>
+                          <th className="px-4 py-3 font-semibold text-gray-700">Margen</th>
+                          <th className="px-4 py-3 font-semibold text-gray-700 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedQuote.quote_additional_products.map((prod) => (
+                          <tr key={prod.id} className="hover:bg-blue-50/30 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-gray-900">
+                                {prod.additional_products?.name || 'Producto desconocido'}
+                              </div>
+                              <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
+                            </td>
+                            <td className="px-4 py-3">{prod.quantity} {prod.additional_products?.unit}</td>
+                            <td className="px-4 py-3">${prod.base_price.toFixed(2)}</td>
+                            <td className="px-4 py-3">{prod.margin_percentage.toFixed(1)}%</td>
+                            <td className="px-4 py-3 text-right font-bold text-gray-900">
+                              ${prod.total_price.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Pump Service Section */}
               {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (

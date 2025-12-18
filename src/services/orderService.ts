@@ -45,6 +45,8 @@ export interface OrderCreationParams {
     volume: number;
     pump_volume?: number | null;
   }>;
+  // Optional: If provided, only copy these additional products. Otherwise, copy all from quote.
+  selected_additional_product_ids?: string[];
 }
 
 export async function createOrder(orderData: OrderCreationParams, emptyTruckData?: EmptyTruckDetails | null, pumpServiceData?: PumpServiceDetails | null) {
@@ -293,6 +295,97 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         });
 
       if (pumpServiceError) throw pumpServiceError;
+    }
+
+    // Copy additional products from quotes as order_items
+    // If specific IDs are provided, fetch those directly (can be from multiple quotes)
+    // Otherwise, if quote_id is provided, fetch all from that quote
+    if (order.id && (orderData.selected_additional_product_ids?.length > 0 || orderData.quote_id)) {
+      try {
+        let query = supabase
+          .from('quote_additional_products')
+          .select(`
+            *,
+            additional_products (
+              id,
+              name,
+              code,
+              unit
+            )
+          `);
+        
+        if (orderData.selected_additional_product_ids && orderData.selected_additional_product_ids.length > 0) {
+          // Fetch selected additional products by ID (can be from multiple quotes)
+          query = query.in('id', orderData.selected_additional_product_ids);
+        } else if (orderData.quote_id) {
+          // Fallback: fetch all from the primary quote
+          query = query.eq('quote_id', orderData.quote_id);
+        } else {
+          return order; // No additional products to copy
+        }
+        
+        const { data: quoteAdditionalProducts, error: additionalError } = await query;
+
+        if (additionalError) {
+          console.error('Error fetching quote additional products:', additionalError);
+        } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
+          // Calculate total concrete volume from order items for multiplier
+          const { data: concreteItems } = await supabase
+            .from('order_items')
+            .select('volume')
+            .eq('order_id', order.id)
+            .neq('product_type', 'SERVICIO DE BOMBEO')
+            .neq('product_type', 'VACÍO DE OLLA');
+          
+          const totalConcreteVolume = concreteItems?.reduce((sum, item) => sum + (item.volume || 0), 0) || 0;
+          
+          // Create order_items for additional products
+          // Additional products are multiplied by concrete volume, so we use quantity as the multiplier
+          const additionalProductItems = quoteAdditionalProducts.map((product: any) => {
+            const additionalProduct = product.additional_products;
+            const productName = additionalProduct?.name || 'Producto Adicional';
+            const productCode = additionalProduct?.code || 'ADDL';
+            
+            // Calculate volume: quantity (per m³) × total concrete volume
+            // For initial creation, use scheduled volume; will be recalculated with delivered volume
+            const itemVolume = product.quantity; // This is the multiplier per m³
+            const unitPrice = product.unit_price;
+            // Initial total will be recalculated based on delivered volume
+            const initialTotal = product.quantity * totalConcreteVolume * unitPrice;
+            
+            return {
+              order_id: order.id,
+              quote_detail_id: null, // Additional products don't have quote_detail_id
+              recipe_id: null,
+              master_recipe_id: null,
+              product_type: `PRODUCTO ADICIONAL: ${productName} (${productCode})`,
+              volume: itemVolume, // Store the multiplier (quantity per m³)
+              unit_price: unitPrice,
+              total_price: initialTotal, // Will be recalculated with delivered volume
+              has_pump_service: false,
+              pump_price: null,
+              pump_volume: null,
+              // Store additional product info in a way we can retrieve it
+              // We'll use product_type to identify these items
+            };
+          });
+
+          // Insert into order_items
+          const { error: insertAdditionalError } = await supabase
+            .from('order_items')
+            .insert(additionalProductItems);
+
+          if (insertAdditionalError) {
+            console.error('Error inserting additional products as order_items:', insertAdditionalError);
+            // Don't throw - order is already created, just log the error
+          } else {
+            console.log(`Created ${quoteAdditionalProducts.length} additional products as order_items for order ${order.id}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error copying additional products:', error);
+        // Don't throw - order is already created, just log the error
+      }
     }
 
     return order;
@@ -1487,11 +1580,12 @@ export async function recalculateOrderAmount(orderId: string) {
     
     if (updatedItemsError) throw updatedItemsError;
     
-    // Calculate concrete amount (excluding empty truck charges)
+    // Calculate concrete amount (excluding empty truck charges and additional products)
     const concreteAmount = updatedItems
       ?.filter(item => 
         item.product_type !== 'VACÍO DE OLLA' && 
         item.product_type !== 'SERVICIO DE BOMBEO' &&
+        !item.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
         !item.has_empty_truck_charge
       )
       .reduce((sum, item) => sum + ((item.unit_price || 0) * (item.concrete_volume_delivered || 0)), 0) || 0;
@@ -1522,15 +1616,26 @@ export async function recalculateOrderAmount(orderId: string) {
       : 0;
     
     // Calculate additional products amount
-    const { data: additionalProducts, error: additionalError } = await supabase
-      .from('remision_productos_adicionales')
-      .select('cantidad, precio_unitario')
-      .in('remision_id', (remisiones || []).map(r => r.id));
+    // Additional products are now stored as order_items with product_type starting with "PRODUCTO ADICIONAL:"
+    // Get total delivered concrete volume (excluding additional products themselves)
+    const totalConcreteDelivered = updatedItems
+      ?.filter(item => 
+        item.product_type !== 'VACÍO DE OLLA' && 
+        item.product_type !== 'SERVICIO DE BOMBEO' &&
+        !item.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+        !item.has_empty_truck_charge
+      )
+      .reduce((sum, item) => sum + (item.concrete_volume_delivered || 0), 0) || 0;
     
-    if (additionalError) throw additionalError;
-    
-    const additionalAmount = additionalProducts?.reduce((sum, product) => 
-      sum + ((product.cantidad || 0) * (product.precio_unitario || 0)), 0) || 0;
+    // Calculate additional products amount: volume (multiplier per m³) × delivered volume × unit_price
+    const additionalAmount = updatedItems
+      ?.filter(item => item.product_type?.startsWith('PRODUCTO ADICIONAL:'))
+      .reduce((sum, item) => {
+        const multiplier = item.volume || 0; // This is the quantity per m³
+        const unitPrice = item.unit_price || 0;
+        // Multiply multiplier (rate per m³) by delivered concrete volume and unit price
+        return sum + (multiplier * totalConcreteDelivered * unitPrice);
+      }, 0) || 0;
     
     // Calculate total final amount with plant-specific VAT rate
     const finalAmount = concreteAmount + pumpAmount + emptyTruckAmount + additionalAmount;

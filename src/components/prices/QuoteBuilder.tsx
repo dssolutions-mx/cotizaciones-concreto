@@ -10,15 +10,23 @@ import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
 import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
+import { calculateDistanceInfo } from '@/lib/services/distanceService';
+import { getAvailableProducts, getQuoteAdditionalProducts, addProductToQuote as addAdditionalProductToQuote, removeProductFromQuote } from '@/lib/services/additionalProductsService';
+import { DistanceAnalysisPanel } from '@/components/quotes/DistanceAnalysisPanel';
+import { RangeBreakdown } from '@/components/quotes/RangeBreakdown';
+import { AdditionalProductsSelector } from '@/components/quotes/AdditionalProductsSelector';
+import { BasePriceBreakdownDialog } from '@/components/quotes/BasePriceBreakdownDialog';
+import type { DistanceCalculation } from '@/types/distance';
+import type { AdditionalProduct, QuoteAdditionalProduct } from '@/types/additionalProducts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { Disclosure } from '@headlessui/react';
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import * as Popover from '@radix-ui/react-popover';
-import { CalendarIcon, AlertCircle, Search, Plus, Trash2, MapPin, Building2, User, Loader2 } from 'lucide-react';
+import { CalendarIcon, AlertCircle, Search, Plus, Trash2, MapPin, Building2, User, Loader2, Info, Check } from 'lucide-react';
 import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback, useDebounce } from 'use-debounce';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
@@ -128,6 +136,14 @@ export default function QuoteBuilder() {
   const [debouncedRecipeSearch] = useDebounce(recipeSearch, 300);
   const [clientSearch, setClientSearch] = useState<string>('');
   const [debouncedClientSearch] = useDebounce(clientSearch, 300);
+  
+  // New state for distance and additional products
+  const [distanceInfo, setDistanceInfo] = useState<DistanceCalculation | null>(null);
+  const [isCalculatingDistance, setIsCalculatingDistance] = useState(false);
+  const [distanceRanges, setDistanceRanges] = useState<any[]>([]);
+  const [availableAdditionalProducts, setAvailableAdditionalProducts] = useState<AdditionalProduct[]>([]);
+  const [quoteAdditionalProducts, setQuoteAdditionalProducts] = useState<QuoteAdditionalProduct[]>([]);
+  const [currentQuoteId, setCurrentQuoteId] = useState<string | undefined>(undefined);
   
   // Load master recipes when feature flag is enabled
   useEffect(() => {
@@ -248,12 +264,15 @@ export default function QuoteBuilder() {
       }
 
       if (basePrice == null) {
-        const { data: recipeDetails } = await recipeService.getRecipeById(chosenVariant.id);
-        const materials = recipeDetails?.recipe_versions[0]?.materials || [];
-        basePrice = await calculateBasePrice(chosenVariant.id, materials);
+        // Calculate base price using latest variant materials
+        basePrice = await calculateBasePrice(chosenVariant.id);
       }
 
-      const finalPrice = Math.ceil((basePrice * 1.04) / 5) * 5;
+      // Add transport cost if distance info is available
+      const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
+      const basePriceWithTransport = basePrice + transportCostPerM3;
+
+      const finalPrice = Math.ceil((basePriceWithTransport * 1.04) / 5) * 5;
 
       const newProduct: QuoteProduct = {
         recipe: {
@@ -265,7 +284,7 @@ export default function QuoteBuilder() {
           max_aggregate_size: master.max_aggregate_size,
           plant_id: master.plant_id,
         },
-        basePrice: basePrice,
+        basePrice: basePriceWithTransport,
         volume: 1,
         profitMargin: 0.04,
         finalPrice: finalPrice,
@@ -283,6 +302,7 @@ export default function QuoteBuilder() {
   // New state variables for client and site creation
   const [showCreateClientDialog, setShowCreateClientDialog] = useState(false);
   const [showCreateSiteDialog, setShowCreateSiteDialog] = useState(false);
+  const [breakdownDialogProductIndex, setBreakdownDialogProductIndex] = useState<number | null>(null);
   const [clientSites, setClientSites] = useState<any[]>([]);
   const [enableMapForSite, setEnableMapForSite] = useState(false);
   const [siteCoordinates, setSiteCoordinates] = useState<{lat: number | null, lng: number | null}>({
@@ -477,11 +497,14 @@ export default function QuoteBuilder() {
         return;
       }
 
-      // Get recipe details for price calculation
-      const { data: recipeDetails } = await recipeService.getRecipeById(recipeId);
-      const materials = recipeDetails?.recipe_versions[0]?.materials || [];
-
-      const basePrice = await calculateBasePrice(recipeId, materials);
+      // Calculate base price using latest variant materials
+      // calculateBasePrice will fetch the latest variant automatically if materials not provided
+      let basePriceWithoutTransport = await calculateBasePrice(recipeId);
+      
+      // Add transport cost if distance info is available
+      const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
+      const basePrice = basePriceWithoutTransport + transportCostPerM3;
+      
       const newProduct: QuoteProduct = {
         recipe,
         basePrice,
@@ -630,19 +653,38 @@ export default function QuoteBuilder() {
       const currentYear = new Date().getFullYear();
       const quoteNumberPrefix = `COT-${currentYear}`;
 
-      // Create quote
+      // Calculate distance if we have plant and construction site
+      let distanceCalculation: DistanceCalculation | undefined = undefined;
+      if (quotePlantId && selectedSite) {
+        try {
+          setIsCalculatingDistance(true);
+          distanceCalculation = await calculateDistanceInfo(quotePlantId, selectedSite);
+          setDistanceInfo(distanceCalculation);
+        } catch (error) {
+          console.warn('Error calculating distance, continuing without distance info:', error);
+          toast.warning('No se pudo calcular la distancia. La cotización se creará sin información de distancia.');
+        } finally {
+          setIsCalculatingDistance(false);
+        }
+      }
+
+      // Create quote with distance info
       const quoteData = {
         client_id: selectedClient,
         construction_site: constructionSite,
         location: location,
         validity_date: validityDate,
-        status: 'DRAFT',
-        quote_number: `${quoteNumberPrefix}-${Math.floor(Math.random() * 9000) + 1000}`, // Generate 4-digit random number
-        plant_id: quotePlantId, // Include plant_id from recipes
-        details: [] // Adding empty details array to match CreateQuoteData interface
+        plant_id: quotePlantId, // Required for distance calculation
+        construction_site_id: selectedSite || undefined,
+        distance_info: distanceCalculation,
+        details: [], // Will be populated below
+        margin_percentage: quoteProducts.length > 0 
+          ? quoteProducts.reduce((sum, p) => sum + p.profitMargin, 0) / quoteProducts.length * 100
+          : 0
       };
 
       const createdQuote = await createQuote(quoteData);
+      setCurrentQuoteId(createdQuote.id);
 
       // Preparar detalles de la cotización de forma más eficiente, sin múltiples llamadas anidadas a la API
       // Mapear todos los productos a detalles para una sola operación de inserción
@@ -699,8 +741,45 @@ export default function QuoteBuilder() {
         throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
       }
 
-      // Mostrar mensaje de éxito
-      toast.success(`Cotización ${createdQuote.quote_number} guardada exitosamente`);
+      // Add additional products if any
+      if (quoteAdditionalProducts.length > 0 && createdQuote.id) {
+        console.log(`Adding ${quoteAdditionalProducts.length} additional products to quote ${createdQuote.id}`);
+        try {
+          const addedProducts = [];
+          for (const product of quoteAdditionalProducts) {
+            console.log('Adding product:', {
+              quoteId: createdQuote.id,
+              productId: product.additional_product_id,
+              quantity: product.quantity,
+              margin: product.margin_percentage
+            });
+            const added = await addAdditionalProductToQuote(
+              createdQuote.id,
+              product.additional_product_id,
+              product.quantity,
+              product.margin_percentage
+            );
+            addedProducts.push(added);
+          }
+          console.log(`Successfully added ${addedProducts.length} additional products`);
+          if (addedProducts.length > 0) {
+            toast.success(`${addedProducts.length} producto(s) especial(es) agregado(s) a la cotización`);
+          }
+        } catch (error) {
+          console.error('Error adding additional products:', error);
+          toast.error(`Error al agregar productos especiales: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+        }
+      } else if (quoteAdditionalProducts.length > 0) {
+        console.warn('Cannot add additional products: quote ID is missing', { quoteId: createdQuote.id, productsCount: quoteAdditionalProducts.length });
+      }
+
+      // Check if auto-approved
+      const isAutoApproved = createdQuote.auto_approved || false;
+      const statusMessage = isAutoApproved 
+        ? `Cotización ${createdQuote.quote_number} creada y auto-aprobada (margen >= 8%)`
+        : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación (margen < 8%)`;
+
+      toast.success(statusMessage);
       
       // Limpiar formulario
       setSelectedClient('');
@@ -711,6 +790,9 @@ export default function QuoteBuilder() {
       setClientHistory([]);
       setIncludePumpService(false);
       setIncludesVAT(false);
+      setDistanceInfo(null);
+      setQuoteAdditionalProducts([]);
+      setCurrentQuoteId(undefined);
 
       // Clear draft from sessionStorage after successful save
       sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY);
@@ -815,6 +897,107 @@ export default function QuoteBuilder() {
 
     loadClientSites();
   }, [selectedClient]);
+
+  // Calculate distance when plant and construction site are selected
+  useEffect(() => {
+    const calculateDistance = async () => {
+      if (currentPlant?.id && selectedSite) {
+        try {
+          setIsCalculatingDistance(true);
+          const info = await calculateDistanceInfo(currentPlant.id, selectedSite);
+          setDistanceInfo(info);
+          
+          // Load distance ranges for the plant
+          const { data: ranges } = await supabase
+            .from('distance_range_configs')
+            .select('*')
+            .eq('plant_id', currentPlant.id)
+            .eq('is_active', true)
+            .order('min_distance_km', { ascending: true });
+          setDistanceRanges(ranges || []);
+        } catch (error) {
+          console.error('Error calculating distance:', error);
+          setDistanceInfo(null);
+        } finally {
+          setIsCalculatingDistance(false);
+        }
+      } else {
+        setDistanceInfo(null);
+        setDistanceRanges([]);
+      }
+    };
+
+    calculateDistance();
+  }, [currentPlant?.id, selectedSite]);
+
+  // Update product base prices when distance/transport cost changes
+  useEffect(() => {
+    const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
+    
+    if (quoteProducts.length > 0) {
+      // Recalculate base prices for all products when transport cost changes
+      const updateProductPrices = async () => {
+        const updatedProducts = await Promise.all(
+          quoteProducts.map(async (product) => {
+            try {
+              // Get base price without transport
+              const basePriceWithoutTransport = await calculateBasePrice(product.recipe.id || '');
+              const basePriceWithTransport = basePriceWithoutTransport + transportCostPerM3;
+              
+              // Recalculate final price with new base price
+              const finalPrice = Math.ceil((basePriceWithTransport * (1 + product.profitMargin)) / 5) * 5;
+              
+              return {
+                ...product,
+                basePrice: basePriceWithTransport,
+                finalPrice: finalPrice,
+              };
+            } catch (error) {
+              console.error(`Error updating price for product ${product.recipe.recipe_code}:`, error);
+              return product; // Keep original if error
+            }
+          })
+        );
+        
+        setQuoteProducts(updatedProducts);
+      };
+      
+      updateProductPrices();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distanceInfo?.transport_cost_per_m3, distanceInfo?.distance_km]); // Update when transport cost or distance changes
+
+  // Load available additional products
+  useEffect(() => {
+    const loadProducts = async () => {
+      if (currentPlant?.id) {
+        try {
+          const products = await getAvailableProducts(currentPlant.id);
+          setAvailableAdditionalProducts(products);
+        } catch (error) {
+          console.error('Error loading additional products:', error);
+        }
+      }
+    };
+
+    loadProducts();
+  }, [currentPlant?.id]);
+
+  // Load quote additional products if quote ID exists
+  useEffect(() => {
+    const loadQuoteProducts = async () => {
+      if (currentQuoteId) {
+        try {
+          const products = await getQuoteAdditionalProducts(currentQuoteId);
+          setQuoteAdditionalProducts(products);
+        } catch (error) {
+          console.error('Error loading quote additional products:', error);
+        }
+      }
+    };
+
+    loadQuoteProducts();
+  }, [currentQuoteId]);
 
   // Handle new client creation
   const handleClientCreated = (clientId: string, clientName: string) => {
@@ -960,7 +1143,7 @@ export default function QuoteBuilder() {
                                   <p className="text-xs text-gray-500">{Object.keys(slumpGroups).length} variantes de revenimiento</p>
                                 </div>
                               </div>
-                              <ChevronDownIcon className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isStrengthExpanded ? 'rotate-180 text-blue-500' : ''}`} />
+                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isStrengthExpanded ? 'rotate-180 text-blue-500' : ''}`} />
                             </button>
                             {isStrengthExpanded && (
                               <div className="p-5 pt-0 space-y-6 animate-in slide-in-from-top-2">
@@ -1033,7 +1216,7 @@ export default function QuoteBuilder() {
                           className="w-full p-5 flex justify-between items-center hover:bg-white/80 transition-colors"
                         >
                           <h3 className="font-bold text-gray-800 text-lg">{typeName}</h3>
-                          <ChevronDownIcon className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isTypeExpanded ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isTypeExpanded ? 'rotate-180' : ''}`} />
                         </button>
                         
                         {isTypeExpanded && (
@@ -1052,7 +1235,7 @@ export default function QuoteBuilder() {
                                       className="w-full py-3 flex justify-between items-center text-left hover:text-blue-600 transition-colors"
                                     >
                                       <h4 className="font-medium text-gray-700 text-base">{strengthLabel}: {strength} kg/cm²</h4>
-                                      <ChevronDownIcon className={`w-4 h-4 text-gray-400 transition-transform ${isStrengthExpanded ? 'rotate-180' : ''}`} />
+                                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isStrengthExpanded ? 'rotate-180' : ''}`} />
                                     </button>
                                     
                                     {isStrengthExpanded && (
@@ -1250,6 +1433,90 @@ export default function QuoteBuilder() {
               </Popover.Root>
             </div>
 
+            {/* Distance Analysis */}
+            {selectedSite && currentPlant && (
+              <div className="pt-4 border-t border-gray-100">
+                <DistanceAnalysisPanel 
+                  distanceInfo={distanceInfo} 
+                  isLoading={isCalculatingDistance}
+                />
+              </div>
+            )}
+
+            {/* Range Breakdown */}
+            {distanceRanges.length > 0 && (
+              <div className="pt-4">
+                <RangeBreakdown 
+                  ranges={distanceRanges}
+                  currentRangeCode={distanceInfo?.range_code}
+                  currentDistance={distanceInfo?.distance_km}
+                />
+              </div>
+            )}
+
+            {/* Additional Products */}
+            {currentPlant && (
+              <div className="pt-4 border-t border-gray-100">
+                <Disclosure>
+                  {({ open }) => (
+                    <div>
+                      <Disclosure.Button className="flex w-full justify-between rounded-lg bg-gray-50 px-4 py-2 text-left text-sm font-medium text-gray-900 hover:bg-gray-100 focus:outline-none focus-visible:ring focus-visible:ring-blue-500 focus-visible:ring-opacity-75">
+                        <span>Productos Especiales / Adicionales</span>
+                        {open ? (
+                          <ChevronUp className="h-5 w-5 text-gray-500" />
+                        ) : (
+                          <ChevronDown className="h-5 w-5 text-gray-500" />
+                        )}
+                      </Disclosure.Button>
+                      <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-gray-500">
+                        <AdditionalProductsSelector
+                          quoteId={currentQuoteId}
+                          plantId={currentPlant.id}
+                          products={quoteAdditionalProducts}
+                          availableProducts={availableAdditionalProducts}
+                          onAddProduct={async (productId, quantity, marginPercentage) => {
+                            if (currentQuoteId) {
+                              await addAdditionalProductToQuote(currentQuoteId, productId, quantity, marginPercentage);
+                              const updated = await getQuoteAdditionalProducts(currentQuoteId);
+                              setQuoteAdditionalProducts(updated);
+                            } else {
+                              // For new quotes, store in state until quote is created
+                              const product = availableAdditionalProducts.find(p => p.id === productId);
+                              if (product) {
+                                const unitPrice = product.base_price * (1 + marginPercentage / 100);
+                                const newProduct: QuoteAdditionalProduct = {
+                                  id: `temp-${Date.now()}`,
+                                  quote_id: '',
+                                  additional_product_id: productId,
+                                  quantity,
+                                  base_price: product.base_price,
+                                  margin_percentage: marginPercentage,
+                                  unit_price: unitPrice,
+                                  total_price: quantity * unitPrice,
+                                  product,
+                                };
+                                setQuoteAdditionalProducts([...quoteAdditionalProducts, newProduct]);
+                              }
+                            }
+                          }}
+                          onRemoveProduct={async (productId) => {
+                            if (currentQuoteId) {
+                              await removeProductFromQuote(currentQuoteId, productId);
+                              const updated = await getQuoteAdditionalProducts(currentQuoteId);
+                              setQuoteAdditionalProducts(updated);
+                            } else {
+                              setQuoteAdditionalProducts(quoteAdditionalProducts.filter(p => p.additional_product_id !== productId));
+                            }
+                          }}
+                          isLoading={isLoading}
+                        />
+                      </Disclosure.Panel>
+                    </div>
+                  )}
+                </Disclosure>
+              </div>
+            )}
+
             {/* Toggles */}
             <div className="space-y-3 pt-4 border-t border-gray-100">
               <div className="flex items-center space-x-3">
@@ -1260,7 +1527,7 @@ export default function QuoteBuilder() {
                   className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
                 >
                   <Checkbox.Indicator>
-                    <CheckIcon className="h-3.5 w-3.5" />
+                    <Check className="h-3.5 w-3.5" />
                   </Checkbox.Indicator>
                 </Checkbox.Root>
                 <label htmlFor="includePumpService" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
@@ -1276,7 +1543,7 @@ export default function QuoteBuilder() {
                   className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
                 >
                   <Checkbox.Indicator>
-                    <CheckIcon className="h-3.5 w-3.5" />
+                    <Check className="h-3.5 w-3.5" />
                   </Checkbox.Indicator>
                 </Checkbox.Root>
                 <label htmlFor="includesVAT" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
@@ -1355,10 +1622,10 @@ export default function QuoteBuilder() {
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Button variant="secondary" onClick={clearDraft} disabled={isLoading}>
-                Limpiar borrador
+                Limpiar formulario
               </Button>
-              <Button onClick={saveQuote} disabled={isLoading} loading={isLoading}>
-                Guardar cotización
+              <Button onClick={saveQuote} disabled={isLoading || isCalculatingDistance} loading={isLoading || isCalculatingDistance}>
+                Enviar cotización
               </Button>
             </div>
           </Card>
@@ -1377,51 +1644,63 @@ export default function QuoteBuilder() {
           
           <div className="space-y-4">
             {quoteProducts.map((product, index) => (
-              <div key={index} className="bg-white/60 rounded-xl p-4 border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                <div className="md:col-span-3">
-                  <p className="font-bold text-gray-900 text-sm">
+              <div key={index} className="bg-white/60 rounded-xl p-4 border border-gray-100 shadow-sm grid grid-cols-2 xl:grid-cols-12 gap-4 items-end">
+                <div className="col-span-2 xl:col-span-3">
+                  <p className="font-bold text-gray-900 text-sm break-words">
                     {features.masterPricingEnabled && product.master_code ? product.master_code : product.recipe.recipe_code}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">{product.recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</p>
                 </div>
                 
-                <div className="md:col-span-2">
+                <div className="col-span-1 xl:col-span-1">
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Volumen (m³)</label>
                   <Input 
                     type="number" 
                     value={product.volume}
                     onChange={(e) => updateProductDetails(index, { volume: parseFloat(e.target.value) || 0 })}
-                    className="bg-white h-9"
+                    className="bg-white h-9 w-full min-w-[80px]"
                   />
                 </div>
                 
-                <div className="md:col-span-2">
+                <div className="col-span-2 xl:col-span-3">
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Base</label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    <Input 
-                      type="number"
-                      value={product.basePrice}
-                      onChange={(e) => updateProductDetails(index, { basePrice: parseFloat(e.target.value) || 0 })}
-                      className="bg-white pl-5 h-9"
-                    />
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1 min-w-[100px]">
+                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <Input 
+                        type="number"
+                        value={product.basePrice}
+                        onChange={(e) => updateProductDetails(index, { basePrice: parseFloat(e.target.value) || 0 })}
+                        className="bg-white pl-5 h-9 w-full"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setBreakdownDialogProductIndex(index)}
+                      className="h-9 w-9 shrink-0 border-gray-300 text-blue-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-400"
+                      title="Ver desglose del precio base"
+                    >
+                      <Info className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
                 
-                <div className="md:col-span-2">
+                <div className="col-span-1 xl:col-span-2">
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Margen (%)</label>
                   <div className="relative">
                     <Input 
                       type="number"
                       value={(product.profitMargin * 100).toFixed(2)}
                       onChange={(e) => updateProductDetails(index, { profitMargin: (parseFloat(e.target.value) || 0) / 100 })}
-                      className="bg-white pr-6 h-9"
+                      className="bg-white pr-6 h-9 w-full min-w-[80px]"
                     />
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
                   </div>
                 </div>
                 
-                <div className="md:col-span-2">
+                <div className="col-span-1 xl:col-span-2">
                   <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Final</label>
                   <div className="relative">
                     <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
@@ -1429,15 +1708,20 @@ export default function QuoteBuilder() {
                       type="number"
                       value={product.finalPrice}
                       onChange={(e) => updateProductDetails(index, { finalPrice: parseFloat(e.target.value) || 0 })}
-                      className="bg-white pl-5 h-9 font-bold text-green-700"
+                      className="bg-white pl-5 h-9 font-bold text-green-700 w-full min-w-[80px]"
                     />
                   </div>
                 </div>
                 
-                <div className="md:col-span-1 flex justify-end">
-                  <Button variant="destructive" size="icon" onClick={() => removeProductFromQuote(index)} className="h-9 w-9">
+                <div className="col-span-2 xl:col-span-1 flex justify-end xl:justify-center">
+                  <button
+                    type="button"
+                    onClick={() => removeProductFromQuote(index)} 
+                    className="inline-flex items-center justify-center h-9 w-9 bg-red-600 hover:bg-red-700 text-white rounded-lg border-0 shadow-sm shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                    title="Eliminar producto"
+                  >
                     <Trash2 className="w-4 h-4" />
-                  </Button>
+                  </button>
                 </div>
               </div>
             ))}
@@ -1511,6 +1795,24 @@ export default function QuoteBuilder() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Base Price Breakdown Dialog */}
+      {breakdownDialogProductIndex !== null && quoteProducts[breakdownDialogProductIndex] && (
+        <BasePriceBreakdownDialog
+          open={breakdownDialogProductIndex !== null}
+          onOpenChange={(open) => {
+            if (!open) setBreakdownDialogProductIndex(null);
+          }}
+          recipeId={quoteProducts[breakdownDialogProductIndex].recipe.id || ''}
+          recipeCode={
+            features.masterPricingEnabled && quoteProducts[breakdownDialogProductIndex].master_code
+              ? quoteProducts[breakdownDialogProductIndex].master_code || ''
+              : quoteProducts[breakdownDialogProductIndex].recipe.recipe_code
+          }
+          basePrice={quoteProducts[breakdownDialogProductIndex].basePrice}
+          distanceInfo={distanceInfo}
+        />
+      )}
     </div>
   );
 }

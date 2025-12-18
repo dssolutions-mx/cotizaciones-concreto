@@ -67,6 +67,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
         effectiveDate: new Date().toISOString().split('T')[0]
       });
 
+      // Trigger refresh callback
       onCostSaved?.();
 
       setTimeout(() => setSuccess(false), 3000);

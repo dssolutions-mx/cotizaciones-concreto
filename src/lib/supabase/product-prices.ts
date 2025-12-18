@@ -87,7 +87,10 @@ export const productPriceService = {
 
     const { error } = await supabase
       .from('product_prices')
-      .update({ is_active: false })
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString() // Update timestamp for audit trail
+      })
       .match(updateConditions);
 
     if (error) throw new Error(`Error deactivating existing prices: ${error.message}`);
@@ -108,7 +111,10 @@ export const productPriceService = {
 
     const { error } = await supabase
       .from('product_prices')
-      .update({ is_active: false })
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString() // Update timestamp for audit trail
+      })
       .match(updateConditions);
 
     if (error) throw new Error(`Error deactivating existing master prices: ${error.message}`);
@@ -295,8 +301,10 @@ export const productPriceService = {
             const plantId = detail.recipes.plant_id || quote.plant_id;
             
             // Deactivate existing prices based on whether it's recipe-based or master-based
+            // IMPORTANT: Deactivate both types if both exist, and also handle prices that might have both fields
             if (detail.recipe_id) {
               // Recipe-based: deactivate existing recipe-level prices
+              // This will also catch prices that have both recipe_id and master_recipe_id set
               await productPriceService.deactivateExistingPrices(
                 quote.client_id, 
                 detail.recipe_id, 
@@ -307,6 +315,7 @@ export const productPriceService = {
             
             if (detail.master_recipe_id) {
               // Master-based: deactivate existing master-level prices
+              // This will also catch prices that have both recipe_id and master_recipe_id set
               await productPriceService.deactivateExistingMasterPrices(
                 quote.client_id, 
                 detail.master_recipe_id, 
@@ -314,11 +323,42 @@ export const productPriceService = {
                 plantId
               );
             }
+            
+            // CRITICAL: Also deactivate any prices that have BOTH recipe_id and master_recipe_id set
+            // This handles edge cases where old prices might have both fields
+            if (detail.recipe_id && detail.master_recipe_id) {
+              const { error: deactivateBothError } = await supabase
+                .from('product_prices')
+                .update({ 
+                  is_active: false,
+                  updated_at: new Date().toISOString()
+                })
+                .match({
+                  client_id: quote.client_id,
+                  construction_site: quote.construction_site,
+                  recipe_id: detail.recipe_id,
+                  master_recipe_id: detail.master_recipe_id,
+                  plant_id: plantId,
+                  is_active: true
+                });
+              
+              if (deactivateBothError) {
+                console.warn('Error deactivating prices with both recipe_id and master_recipe_id:', deactivateBothError);
+                // Don't throw - this is a cleanup operation, not critical
+              }
+            }
 
             // Create new price record with plant_id
-            const codePrefix = detail.recipe_id 
-              ? detail.recipes.recipe_code 
-              : detail.recipes.master_code || 'MASTER';
+            // PRIORITY: If master_recipe_id exists, create master-level price (applies to all variants)
+            // Otherwise, create recipe-level price (specific variant)
+            const codePrefix = detail.master_recipe_id
+              ? (detail.recipes.master_code || 'MASTER')
+              : (detail.recipe_id ? detail.recipes.recipe_code : 'UNKNOWN');
+            
+            // Determine which fields to set based on priority
+            // Master-level prices should have master_recipe_id set and recipe_id = null
+            // Recipe-level prices should have recipe_id set and master_recipe_id = null
+            const isMasterLevel = !!detail.master_recipe_id;
                
             const priceData: ProductPriceData = {
               code: `${quote.quote_number}-${codePrefix}`,
@@ -330,8 +370,10 @@ export const productPriceService = {
               max_aggregate_size: detail.recipes.max_aggregate_size,
               slump: detail.recipes.slump,
               base_price: detail.final_price,
-              recipe_id: detail.recipe_id || null, // Set to null for master-recipe quotes
-              master_recipe_id: detail.master_recipe_id || null, // Set to null for recipe-based quotes
+              // CRITICAL: Only set one of recipe_id or master_recipe_id, never both
+              // Master-level prices take precedence (they apply to all variants)
+              recipe_id: isMasterLevel ? null : (detail.recipe_id || null),
+              master_recipe_id: isMasterLevel ? (detail.master_recipe_id || null) : null,
               client_id: quote.client_id,
               construction_site: quote.construction_site,
               quote_id: quote.id, // Link to quote for traceability

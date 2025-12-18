@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { supabase } from '@/lib/supabase'
 import { handleError } from '@/utils/errorHandler';
+import { calculateDistanceInfo } from '@/lib/services/distanceService';
+import type { DistanceCalculation } from '@/types/distance';
 
 export interface Client {
   id: string;
@@ -14,11 +16,21 @@ export interface Quote {
   client_id: string
   construction_site: string
   location: string
-  status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' // Removed DRAFT and SENT - quotes go directly to PENDING_APPROVAL or APPROVED
   validity_date: string
   created_by: string
   created_at: string
   updated_at: string
+  plant_id?: string
+  // New distance-related fields
+  distance_km?: number
+  distance_range_code?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'
+  bloque_number?: 2 | 3 | 4 | 5 | 6 | 7 | 8
+  transport_cost_per_m3?: number
+  total_per_trip?: number
+  construction_site_id?: string
+  auto_approved?: boolean
+  margin_percentage?: number
   // Campos relacionados con joins
   client?: Client
   details?: QuoteDetail[]
@@ -42,9 +54,12 @@ export interface CreateQuoteData {
   construction_site: string;
   location: string;
   validity_date: string;
-  plant_id?: string;
+  plant_id: string; // Required for distance calculation
+  construction_site_id?: string;
   details: Array<{
-    product_id: string;
+    product_id?: string;
+    recipe_id?: string;
+    master_recipe_id?: string;
     volume: number;
     base_price: number;
     profit_margin: number;
@@ -53,6 +68,10 @@ export interface CreateQuoteData {
     pump_price?: number;
     includes_vat: boolean;
   }>;
+  // Distance calculation will be done automatically if plant_id and construction_site_id are provided
+  // Or can be provided directly
+  distance_info?: DistanceCalculation;
+  margin_percentage?: number; // Overall margin for the quote
 }
 
 export const QuotesService = {
@@ -92,7 +111,7 @@ export const QuotesService = {
 
   async updateStatus(
     id: string, 
-    status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED', 
+    status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED', 
     additionalData: { 
       rejection_reason?: string, 
       approval_date?: string, 
@@ -164,14 +183,14 @@ export const QuotesService = {
       
       // Simulate RLS policy check
       const canUpdate = 
-        // Created by user and is draft
-        (quoteData.created_by === authData.user.id && quoteData.status === 'DRAFT') ||
+        // Created by user and is SENT or PENDING_APPROVAL
+        (quoteData.created_by === authData.user.id && quoteData.status === 'PENDING_APPROVAL') ||
         // Or is manager/executive
         (userProfile.role === 'PLANT_MANAGER' || userProfile.role === 'EXECUTIVE');
         
       if (!canUpdate) {
         console.error('User does not have permission to update this quote');
-        throw new Error('No tiene permiso para actualizar esta cotización. Solo el creador puede modificar borradores, y solo gerentes pueden modificar otras cotizaciones.');
+        throw new Error('No tiene permiso para actualizar esta cotización. Solo el creador puede modificar cotizaciones enviadas o pendientes, y solo gerentes pueden modificar otras cotizaciones.');
       }
 
       const { data, error } = await supabase
@@ -255,6 +274,15 @@ export const QuotesService = {
   }
 }
 
+/**
+ * Generate quote number with range code: COT-{YEAR}-{RANGE_CODE}-{SEQUENCE}
+ */
+function generateQuoteNumber(rangeCode: string): string {
+  const currentYear = new Date().getFullYear();
+  const randomSequence = Math.floor(Math.random() * 9000) + 1000; // 4-digit random number
+  return `COT-${currentYear}-${rangeCode}-${randomSequence}`;
+}
+
 export const createQuote = async (quoteData: CreateQuoteData) => {
   try {
     // Get current user's ID from the auth session
@@ -264,18 +292,89 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear cotizaciones.');
     }
     
+    if (!quoteData.plant_id) {
+      throw new Error('plant_id es requerido para calcular la distancia');
+    }
+
+    // Calculate distance if not provided
+    let distanceInfo: DistanceCalculation | undefined = quoteData.distance_info;
+    
+    if (!distanceInfo && quoteData.construction_site_id && quoteData.plant_id) {
+      try {
+        distanceInfo = await calculateDistanceInfo(quoteData.plant_id, quoteData.construction_site_id);
+      } catch (distanceError) {
+        console.warn('Error calculating distance, continuing without distance info:', distanceError);
+        // Continue without distance info - will need to be calculated later
+      }
+    }
+
+    // Calculate margin percentage if not provided
+    // Margin is calculated from total before margin
+    let marginPercentage = quoteData.margin_percentage || 0;
+    
+    // Calculate totals for margin calculation
+    const concreteSubtotal = quoteData.details.reduce((sum, detail) => {
+      const transportCost = distanceInfo?.transport_cost_per_m3 || 0;
+      const pricePerM3 = detail.base_price + transportCost;
+      return sum + (pricePerM3 * detail.volume);
+    }, 0);
+
+    // Get special products subtotal (will be calculated separately if products are added)
+    // For now, assume 0 if not provided in quoteData
+    const specialProductsSubtotal = 0; // TODO: Calculate from quote_additional_products
+    
+    const totalPerTrip = distanceInfo?.total_per_trip || 0;
+    const totalBeforeMargin = concreteSubtotal + specialProductsSubtotal + totalPerTrip;
+
+    // If margin not provided, calculate from profit_margin in details
+    if (!quoteData.margin_percentage && quoteData.details.length > 0) {
+      // Use average margin from details as overall margin
+      const avgMargin = quoteData.details.reduce((sum, d) => sum + d.profit_margin, 0) / quoteData.details.length;
+      marginPercentage = avgMargin;
+    }
+
+    // Check if should auto-approve (margin >= 8%)
+    const shouldAutoApprove = marginPercentage >= 8.0;
+    const initialStatus = shouldAutoApprove ? 'APPROVED' : 'PENDING_APPROVAL';
+
+    // Generate quote number with range code
+    const rangeCode = distanceInfo?.range_code || 'G'; // Default to G if no distance info
+    const quoteNumber = generateQuoteNumber(rangeCode);
+
     // Extract the details array from quoteData
-    const { details, ...quoteMainData } = quoteData;
+    const { details, distance_info, margin_percentage, ...quoteMainData } = quoteData;
     
-    // Begin by creating the quote
-    const quoteInsertData = {
+    // Begin by creating the quote with distance and pricing information
+    const quoteInsertData: any = {
       ...quoteMainData,
-      created_by: authData.session.user.id
+      created_by: authData.session.user.id,
+      status: initialStatus,
+      quote_number: quoteNumber,
+      plant_id: quoteData.plant_id,
     };
-    
-    // Add plant_id if provided
-    if (quoteData.plant_id) {
-      quoteInsertData.plant_id = quoteData.plant_id;
+
+    // Add distance-related fields
+    if (distanceInfo) {
+      quoteInsertData.distance_km = distanceInfo.distance_km;
+      quoteInsertData.distance_range_code = distanceInfo.range_code;
+      quoteInsertData.bloque_number = distanceInfo.bloque_number;
+      quoteInsertData.transport_cost_per_m3 = distanceInfo.transport_cost_per_m3;
+      quoteInsertData.total_per_trip = distanceInfo.total_per_trip;
+    }
+
+    // Add construction_site_id if provided
+    if (quoteData.construction_site_id) {
+      quoteInsertData.construction_site_id = quoteData.construction_site_id;
+    }
+
+    // Add margin and auto-approval info
+    quoteInsertData.margin_percentage = marginPercentage;
+    quoteInsertData.auto_approved = shouldAutoApprove;
+
+    // Add approval info if auto-approved
+    if (shouldAutoApprove) {
+      quoteInsertData.approval_date = new Date().toISOString();
+      quoteInsertData.approved_by = authData.session.user.id;
     }
     
     const { data: quote, error: quoteError } = await supabase
@@ -291,13 +390,26 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     }
     
     // Now insert the details with the quote_id
-    const detailsWithQuoteId = details.map(detail => ({
-      ...detail,
-      quote_id: quote.id,
-      // Ensure pump_price is only included when pump_service is true
-      pump_price: detail.pump_service ? detail.pump_price : null,
-      total_amount: detail.final_price * detail.volume
-    }));
+    // Include transport cost in final_price calculation
+    const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
+    
+    const detailsWithQuoteId = details.map(detail => {
+      // Price per m³ = base_price + transport_cost_per_m3
+      const pricePerM3 = detail.base_price + transportCostPerM3;
+      // Final price includes margin
+      const finalPriceWithTransport = pricePerM3 * (1 + detail.profit_margin / 100);
+      const totalAmount = finalPriceWithTransport * detail.volume;
+
+      return {
+        ...detail,
+        quote_id: quote.id,
+        base_price: detail.base_price, // Keep original base price
+        final_price: finalPriceWithTransport, // Include transport cost
+        // Ensure pump_price is only included when pump_service is true
+        pump_price: detail.pump_service ? detail.pump_price : null,
+        total_amount: totalAmount
+      };
+    });
     
     const { error: detailsError } = await supabase
       .from('quote_details')
@@ -307,6 +419,20 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       const errorMessage = handleError(detailsError, 'createQuoteDetails');
       console.error(errorMessage);
       throw new Error(errorMessage);
+    }
+    
+    // If quote is auto-approved, create product_prices entries
+    if (shouldAutoApprove) {
+      try {
+        const { productPriceService } = await import('@/lib/supabase/product-prices');
+        console.log(`Auto-approved quote ${quote.id}, creating product_prices entries...`);
+        await productPriceService.handleQuoteApproval(quote.id);
+        console.log(`Successfully created product_prices for auto-approved quote ${quote.id}`);
+      } catch (approvalError) {
+        console.error('Error creating product_prices for auto-approved quote:', approvalError);
+        // Don't throw - quote is already created, just log the error
+        // The quote can still be manually approved later to create product_prices
+      }
     }
     
     return quote;

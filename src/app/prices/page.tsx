@@ -129,6 +129,7 @@ export default function PricesPage() {
             <AdminCostList 
               key={`admin-${refreshTrigger}`} 
               hasEditPermission={canEditAdminCosts}
+              onRefresh={handleDataSaved}
             />
           </div>
         </div>

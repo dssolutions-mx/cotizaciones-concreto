@@ -54,6 +54,19 @@ interface PendingQuote {
     } | null;
     master_code: string | null;
   }>;
+  quote_additional_products: Array<{
+    id: string;
+    quantity: number;
+    base_price: number;
+    margin_percentage: number;
+    unit_price: number;
+    total_price: number;
+    additional_products: {
+      name: string;
+      code: string;
+      unit: string;
+    } | null;
+  }>;
 }
 
 interface SupabaseQuoteDetail {
@@ -151,6 +164,20 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             master_recipes (
               master_code
             )
+          ),
+          quote_additional_products (
+            id,
+            additional_product_id,
+            quantity,
+            base_price,
+            margin_percentage,
+            unit_price,
+            total_price,
+            additional_products (
+              name,
+              code,
+              unit
+            )
           )
         `, { count: 'exact' })
         .eq('status', 'PENDING_APPROVAL');
@@ -186,7 +213,8 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             const detailTotal = detail.final_price * detail.volume;
             const pumpTotal = detail.pump_service && detail.pump_price ? detail.pump_price * detail.volume : 0;
             return sum + detailTotal + pumpTotal;
-          }, 0),
+          }, 0) + (quote.quote_additional_products?.reduce((sum: number, prod: any) => sum + (prod.total_price || 0), 0) || 0),
+          quote_additional_products: quote.quote_additional_products || [],
           quote_details: quote.quote_details.map((detail: SupabaseQuoteDetail) => {
             const recipeData = Array.isArray(detail.recipes) ? detail.recipes[0] : detail.recipes;
             const masterData = Array.isArray(detail.master_recipes) ? detail.master_recipes[0] : detail.master_recipes;
@@ -629,6 +657,50 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                     </tbody>
                   </table>
                 </div>
+              </Card>
+
+              {/* Additional Products Table */}
+              <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6 mt-6">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  <h3 className="font-semibold text-gray-700">Productos Adicionales / Especiales</h3>
+                </div>
+                {selectedQuote?.quote_additional_products && selectedQuote.quote_additional_products.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 text-gray-700">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold">Producto</th>
+                          <th className="px-4 py-3 text-left font-semibold">Cantidad</th>
+                          <th className="px-4 py-3 text-left font-semibold">Precio Base</th>
+                          <th className="px-4 py-3 text-left font-semibold">Margen</th>
+                          <th className="px-4 py-3 text-right font-semibold">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {selectedQuote.quote_additional_products.map((prod) => (
+                          <tr key={prod.id} className="hover:bg-blue-50/30 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-gray-900">
+                                {prod.additional_products?.name || 'Producto desconocido'}
+                              </div>
+                              <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
+                            </td>
+                            <td className="px-4 py-3">{prod.quantity} {prod.additional_products?.unit}</td>
+                            <td className="px-4 py-3">${prod.base_price.toFixed(2)}</td>
+                            <td className="px-4 py-3">{prod.margin_percentage.toFixed(1)}%</td>
+                            <td className="px-4 py-3 text-right font-bold text-gray-900">
+                              ${prod.total_price.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="px-4 py-6 text-center text-sm text-gray-500">
+                    No hay productos adicionales en esta cotización
+                  </div>
+                )}
               </Card>
 
               {/* Pump Service & VAT */}

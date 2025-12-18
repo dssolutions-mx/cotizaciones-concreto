@@ -89,12 +89,9 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
       if (error) throw error;
 
       if (recipe) {
-        // Calcular precio base usando los materiales de la versión actual
-        const currentVersion = recipe.recipe_versions[0];
-        const basePrice = await calculateBasePrice(
-          recipeId, 
-          currentVersion.materials || []
-        );
+        // Calcular precio base usando los materiales de la última variante
+        // calculateBasePrice will fetch the latest variant automatically
+        const basePrice = await calculateBasePrice(recipeId);
 
         setFormData(prev => ({
           ...prev,

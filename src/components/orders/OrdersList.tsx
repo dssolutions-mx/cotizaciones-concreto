@@ -211,7 +211,8 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
           const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
             productType.toLowerCase().includes('bombeo') ||
             productType.toLowerCase().includes('pump');
-          return !isEmptyTruckCharge && !isPumpService && productType.trim().length > 0;
+          const isAdditionalProduct = productType.startsWith('PRODUCTO ADICIONAL:');
+          return !isEmptyTruckCharge && !isPumpService && !isAdditionalProduct && productType.trim().length > 0;
         })
         .map((item: any) => (item.product_type || '').toString().trim())
     )
@@ -462,8 +463,9 @@ export default function OrdersList({
               const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
                 productType.toLowerCase().includes('bombeo') ||
                 productType.toLowerCase().includes('pump');
+              const isAdditionalProduct = productType?.startsWith('PRODUCTO ADICIONAL:');
 
-              if (!isEmptyTruckCharge && !isPumpService) {
+              if (!isEmptyTruckCharge && !isPumpService && !isAdditionalProduct) {
                 concreteVolumePlanned += volume;
                 if (concreteDelivered > 0) {
                   concreteVolumeDelivered += concreteDelivered;
@@ -777,14 +779,15 @@ export default function OrdersList({
             const unitPrice = item.unit_price != null ? Number(item.unit_price) : undefined;
             const pumpPrice = item.pump_price != null ? Number(item.pump_price) : undefined;
 
-            const isEmptyTruckCharge = item.has_empty_truck_charge ||
-              productType === 'VACÍO DE OLLA' ||
-              productType === 'EMPTY_TRUCK_CHARGE';
-            const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
-              productType.toLowerCase().includes('bombeo') ||
-              productType.toLowerCase().includes('pump');
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                productType === 'VACÍO DE OLLA' ||
+                productType === 'EMPTY_TRUCK_CHARGE';
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                productType.toLowerCase().includes('bombeo') ||
+                productType.toLowerCase().includes('pump');
+              const isAdditionalProduct = productType?.startsWith('PRODUCTO ADICIONAL:');
 
-            if (!isEmptyTruckCharge && !isPumpService) {
+              if (!isEmptyTruckCharge && !isPumpService && !isAdditionalProduct) {
               concreteVolumePlanned += volume;
               if (concreteDelivered > 0) {
                 concreteVolumeDelivered += concreteDelivered;

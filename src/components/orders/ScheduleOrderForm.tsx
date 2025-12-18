@@ -45,11 +45,25 @@ interface Product {
   hasWaterproofing?: boolean;
 }
 
+interface AdditionalProduct {
+  id: string;
+  quoteAdditionalProductId: string;
+  additionalProductId: string;
+  name: string;
+  code: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  quoteId: string;
+}
+
 interface Quote {
   id: string;
   quoteNumber: string;
   totalAmount: number;
   products: Product[];
+  additionalProducts: AdditionalProduct[];
 }
 
 interface ScheduleOrderFormProps {
@@ -190,6 +204,9 @@ export default function ScheduleOrderForm({
     slump?: number;
   }[]>([]);
   
+  // Additional products
+  const [selectedAdditionalProducts, setSelectedAdditionalProducts] = useState<Set<string>>(new Set());
+  
   // Filtering for products
   const [strengthFilter, setStrengthFilter] = useState<number | ''>('');
   const [placementTypeFilter, setPlacementTypeFilter] = useState<string>('');
@@ -302,11 +319,12 @@ export default function ScheduleOrderForm({
   
   // Load approved quotes when client and site are selected
   useEffect(() => {
-    if (!selectedClientId || !selectedConstructionSiteId || !selectedConstructionSite?.name) {
-      setAvailableQuotes([]); // Clear quotes if client or site changes
-      setSelectedProducts([]);
-      return;
-    }
+        if (!selectedClientId || !selectedConstructionSiteId || !selectedConstructionSite?.name) {
+          setAvailableQuotes([]); // Clear quotes if client or site changes
+          setSelectedProducts([]);
+          setSelectedAdditionalProducts(new Set()); // Clear selected additional products
+          return;
+        }
     
     const loadActiveQuote = async () => {
       try {
@@ -321,12 +339,20 @@ export default function ScheduleOrderForm({
         }
         
         // 1. Find the active master-level product prices for this client and site (master-first)
-        const { data: activePrices, error: activePriceError } = await supabase
+        // IMPORTANT: Filter by plant_id to ensure we only get prices from the current plant
+        let activePricesQuery = supabase
           .from('product_prices')
-          .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id')
+          .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id, plant_id')
           .eq('client_id', selectedClientId)
           .eq('construction_site', selectedConstructionSite.name)
-          .eq('is_active', true)
+          .eq('is_active', true);
+        
+        // Add plant_id filter if currentPlant is available
+        if (currentPlant?.id) {
+          activePricesQuery = activePricesQuery.eq('plant_id', currentPlant.id);
+        }
+        
+        const { data: activePrices, error: activePriceError } = await activePricesQuery
           .order('updated_at', { ascending: false });
           
         if (activePriceError) {
@@ -393,35 +419,32 @@ export default function ScheduleOrderForm({
         );
         console.log('Standalone pumping quote IDs:', Array.from(standalonePumpingQuoteIds));
         
-        // Get unique quote IDs from both active prices and standalone pumping quotes
-        const recipeBasedQuoteIds = Array.from(new Set(trulyActivePrices.filter((p: any) => p.quote_id).map(price => price.quote_id)));
-        const standalonePumpingQuoteIdsArray = Array.from(standalonePumpingQuoteIds);
-        const uniqueQuoteIds = Array.from(new Set([...recipeBasedQuoteIds, ...standalonePumpingQuoteIdsArray])).filter(Boolean);
-        console.log('Unique quote IDs from active prices:', recipeBasedQuoteIds);
-        console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
-        console.log('All unique quote IDs:', uniqueQuoteIds);
-        
-        if (uniqueQuoteIds.length === 0) {
-          console.log('No quotes found with active recipe prices or standalone pumping services.');
-          setAvailableQuotes([]);
-          setSelectedProducts([]);
-          setIsLoading(false);
-          return;
-        }
-        
         // Create a set of active quote-recipe combinations
         // This ensures we only display recipes that are active for a specific quote
         // Build active quote-master combinations from both master-level prices and
         // recipe-level prices that map to a master via recipes.master_recipe_id
+        // IMPORTANT: Only include the MOST RECENT quote for each product (by updated_at)
         const activeQuoteMasterCombos = new Set<string>();
 
-        // 1) Direct master-level prices
+        // 1) Direct master-level prices - only keep the most recent quote per master_recipe_id
+        const masterPricesMap = new Map<string, any>();
         trulyActivePrices
           .filter((price: any) => price.quote_id && price.master_recipe_id)
           .forEach((price: any) => {
-            console.log('Adding direct master combo:', `${price.quote_id}:${price.master_recipe_id}`);
-            activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+            const key = price.master_recipe_id;
+            // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+            if (!masterPricesMap.has(key)) {
+              masterPricesMap.set(key, price);
+              console.log('Adding direct master combo (most recent):', `${price.quote_id}:${price.master_recipe_id}`, `updated_at: ${price.updated_at}`);
+            } else {
+              console.log('Skipping older master combo:', `${price.quote_id}:${price.master_recipe_id}`, `updated_at: ${price.updated_at}`);
+            }
           });
+        
+        // Add only the most recent quote for each master
+        masterPricesMap.forEach((price: any) => {
+          activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+        });
 
         // 2) Recipe-level prices → map to masters
         const recipeIdsNeedingMaster = Array.from(
@@ -451,26 +474,127 @@ export default function ScheduleOrderForm({
           }
         }
 
-        // Add combos for recipe-based prices that have a master mapping
+        // Add combos for recipe-based prices that have a master mapping - only most recent per master
+        const recipeMappedMasterPricesMap = new Map<string, any>();
         trulyActivePrices
           .filter((price: any) => price.quote_id && price.recipe_id && recipeIdToMasterId[price.recipe_id])
           .forEach((price: any) => {
             const masterId = recipeIdToMasterId[price.recipe_id];
-            console.log('Adding recipe-mapped master combo:', `${price.quote_id}:${masterId}`);
-            activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+            // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+            if (!recipeMappedMasterPricesMap.has(masterId)) {
+              recipeMappedMasterPricesMap.set(masterId, price);
+              console.log('Adding recipe-mapped master combo (most recent):', `${price.quote_id}:${masterId}`, `updated_at: ${price.updated_at}`);
+            } else {
+              console.log('Skipping older recipe-mapped master combo:', `${price.quote_id}:${masterId}`, `updated_at: ${price.updated_at}`);
+            }
           });
+        
+        // Add only the most recent quote for each master (from recipe-mapped prices)
+        recipeMappedMasterPricesMap.forEach((price: any) => {
+          const masterId = recipeIdToMasterId[price.recipe_id];
+          activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+        });
 
-        // Build fallback quote-recipe combinations for recipes WITHOUT master linkage
+        // Build fallback quote-recipe combinations for recipes WITHOUT master linkage - only most recent per recipe
         const activeQuoteRecipeFallbackCombos = new Set<string>();
+        const recipeFallbackPricesMap = new Map<string, any>();
         trulyActivePrices
           .filter((price: any) => price.quote_id && price.recipe_id && !recipeIdToMasterId[price.recipe_id] && !price.master_recipe_id)
           .forEach((price: any) => {
-            console.log('Adding recipe fallback combo:', `${price.quote_id}:${price.recipe_id}`);
-            activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+            const key = price.recipe_id;
+            // Since trulyActivePrices is already ordered by updated_at DESC, first occurrence is most recent
+            if (!recipeFallbackPricesMap.has(key)) {
+              recipeFallbackPricesMap.set(key, price);
+              console.log('Adding recipe fallback combo (most recent):', `${price.quote_id}:${price.recipe_id}`, `updated_at: ${price.updated_at}`);
+            } else {
+              console.log('Skipping older recipe fallback combo:', `${price.quote_id}:${price.recipe_id}`, `updated_at: ${price.updated_at}`);
+            }
           });
+        
+        // Add only the most recent quote for each recipe (fallback)
+        recipeFallbackPricesMap.forEach((price: any) => {
+          activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+        });
 
         console.log('Active quote-master combinations:', Array.from(activeQuoteMasterCombos));
         console.log('Active quote-recipe FALLBACK combinations:', Array.from(activeQuoteRecipeFallbackCombos));
+        
+        // Get unique quote IDs from the most recent prices only (not all active prices)
+        const mostRecentQuoteIds = new Set<string>();
+        masterPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+        recipeMappedMasterPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+        recipeFallbackPricesMap.forEach((price: any) => mostRecentQuoteIds.add(price.quote_id));
+        
+        const standalonePumpingQuoteIdsArray = Array.from(standalonePumpingQuoteIds);
+        const uniqueQuoteIds = Array.from(new Set([...Array.from(mostRecentQuoteIds), ...standalonePumpingQuoteIdsArray])).filter(Boolean);
+        console.log('Most recent quote IDs from filtered prices:', Array.from(mostRecentQuoteIds));
+        console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
+        console.log('All unique quote IDs (most recent only):', uniqueQuoteIds);
+        
+        // 1.5. Fetch additional products from most recent approved quotes for this client/site
+        // Get all approved quotes for this client/site, ordered by created_at DESC
+        const { data: allApprovedQuotes, error: approvedQuotesError } = await supabase
+          .from('quotes')
+          .select('id, quote_number, created_at')
+          .eq('client_id', selectedClientId)
+          .eq('construction_site', selectedConstructionSite.name)
+          .eq('status', 'APPROVED')
+          .order('created_at', { ascending: false });
+        
+        if (approvedQuotesError) {
+          console.error('Error fetching approved quotes for additional products:', approvedQuotesError);
+        }
+        
+        // Fetch additional products from these quotes, keeping only the most recent for each product
+        let latestAdditionalProducts: Map<string, any> = new Map(); // key: additional_product_id, value: quote_additional_product
+        
+        if (allApprovedQuotes && allApprovedQuotes.length > 0) {
+          const quoteIdsForAdditional = allApprovedQuotes.map(q => q.id);
+          
+          const { data: allAdditionalProducts, error: additionalProductsError } = await supabase
+            .from('quote_additional_products')
+            .select(`
+              id,
+              quote_id,
+              additional_product_id,
+              quantity,
+              base_price,
+              margin_percentage,
+              unit_price,
+              total_price,
+              notes,
+              additional_products (
+                id,
+                name,
+                code,
+                unit
+              )
+            `)
+            .in('quote_id', quoteIdsForAdditional)
+            .order('quote_id', { ascending: false }); // Order by quote_id to process newest quotes first
+          
+          if (additionalProductsError) {
+            console.error('Error fetching additional products:', additionalProductsError);
+          } else if (allAdditionalProducts) {
+            // Process in order (newest quotes first) and keep only the first occurrence of each additional_product_id
+            for (const ap of allAdditionalProducts) {
+              const productId = ap.additional_product_id;
+              if (!latestAdditionalProducts.has(productId)) {
+                latestAdditionalProducts.set(productId, ap);
+              }
+            }
+            console.log(`Found ${latestAdditionalProducts.size} unique additional products from ${allAdditionalProducts.length} total entries`);
+          }
+        }
+        
+        if (uniqueQuoteIds.length === 0) {
+          console.log('No quotes found with active recipe prices or standalone pumping services.');
+          setAvailableQuotes([]);
+          setSelectedProducts([]);
+          setSelectedAdditionalProducts(new Set());
+          setIsLoading(false);
+          return;
+        }
         
         // 2. Fetch all quotes linked to active prices
         const { data: quotesData, error: quotesError } = await supabase
@@ -522,6 +646,20 @@ export default function ScheduleOrderForm({
                 description,
                 type
               )
+            ),
+            quote_additional_products (
+              id,
+              additional_product_id,
+              quantity,
+              base_price,
+              margin_percentage,
+              unit_price,
+              total_price,
+              additional_products (
+                name,
+                code,
+                unit
+              )
             )
           `)
           .in('id', uniqueQuoteIds)
@@ -536,6 +674,7 @@ export default function ScheduleOrderForm({
           console.log('No approved quotes found for the active prices.');
           setAvailableQuotes([]);
           setSelectedProducts([]);
+          setSelectedAdditionalProducts(new Set());
           setIsLoading(false);
           return;
         }
@@ -566,10 +705,15 @@ export default function ScheduleOrderForm({
           
           console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
           
+          // Additional products are now handled separately from latest approved quotes
+          // This will be populated below from latestAdditionalProducts
+          const additionalProducts: AdditionalProduct[] = [];
+
           const formattedQuote: Quote = {
             id: quoteData.id,
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
+            additionalProducts: additionalProducts,
             products: activeDetails.map((detail: any) => {
               // Handle master-based or recipe→master-mapped quote details (concrete products)
               if ((detail.master_recipe_id && detail.master_recipes) || (detail.recipes && detail.recipes.master_recipes)) {
@@ -691,8 +835,28 @@ export default function ScheduleOrderForm({
         const nonEmptyQuotes = formattedQuotes.filter(quote => quote.products.length > 0);
         console.log(`Filtered out ${formattedQuotes.length - nonEmptyQuotes.length} empty quotes`);
         
+        // Add latest additional products to all quotes (they're shared across quotes for the client/site)
+        const latestAdditionalProductsArray: AdditionalProduct[] = Array.from(latestAdditionalProducts.values()).map((ap: any) => ({
+          id: ap.id,
+          quoteAdditionalProductId: ap.id,
+          additionalProductId: ap.additional_product_id,
+          name: ap.additional_products?.name || 'Unknown',
+          code: ap.additional_products?.code || 'Unknown',
+          unit: ap.additional_products?.unit || 'unit',
+          quantity: ap.quantity, // This is the multiplier per m³
+          unitPrice: ap.unit_price,
+          totalPrice: ap.total_price, // This is the quoted total, but will be recalculated based on delivered volume
+          quoteId: ap.quote_id
+        }));
+        
+        // Add additional products to all quotes (they're available for any quote from this client/site)
+        nonEmptyQuotes.forEach(quote => {
+          quote.additionalProducts = latestAdditionalProductsArray;
+        });
+        
         setAvailableQuotes(nonEmptyQuotes);
         console.log('Set available quotes:', nonEmptyQuotes);
+        console.log('Latest additional products:', latestAdditionalProductsArray);
         
         // Detect service types available
         const allProducts = nonEmptyQuotes.flatMap(quote => quote.products);
@@ -774,6 +938,7 @@ export default function ScheduleOrderForm({
         setError('No se pudo cargar la cotización activa. Verifique los precios o intente nuevamente.');
         setAvailableQuotes([]);
         setSelectedProducts([]);
+        setSelectedAdditionalProducts(new Set());
       } finally {
         setIsLoading(false);
       }
@@ -943,6 +1108,7 @@ export default function ScheduleOrderForm({
     setSelectedConstructionSiteId(''); // Reset site selection
     setAvailableQuotes([]); // Reset quotes
     setSelectedProducts([]); // Reset selected products
+    setSelectedAdditionalProducts(new Set()); // Reset selected additional products
     nextStep();
   };
   
@@ -992,6 +1158,11 @@ export default function ScheduleOrderForm({
   };
   
   // Calculate total order amount
+  // Get all additional products from available quotes
+  const getAllAdditionalProducts = (): AdditionalProduct[] => {
+    return availableQuotes.flatMap(quote => quote.additionalProducts || []);
+  };
+
   const calculateTotalAmount = () => {
     let total = selectedProducts.reduce(
       (sum, product) => sum + product.scheduledVolume * product.unitPrice, 
@@ -1007,6 +1178,21 @@ export default function ScheduleOrderForm({
     if (hasEmptyTruckCharge) {
       total += emptyTruckVolume * emptyTruckPrice;
     }
+    
+    // Add selected additional products
+    // Additional products are multiplied by delivered concrete volume
+    // For preliminary calculation, use scheduled concrete volume
+    const allAdditionalProducts = getAllAdditionalProducts();
+    const totalConcreteVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+    
+    selectedAdditionalProducts.forEach(apId => {
+      const ap = allAdditionalProducts.find(a => a.quoteAdditionalProductId === apId);
+      if (ap) {
+        // Multiply quantity (rate per m³) by concrete volume and unit price
+        // quantity is the multiplier per m³, so: quantity * volume * unit_price
+        total += ap.quantity * totalConcreteVolume * ap.unitPrice;
+      }
+    });
     
     return total;
   };
@@ -1235,7 +1421,9 @@ export default function ScheduleOrderForm({
           : selectedProducts.map(p => ({
               quote_detail_id: p.quoteDetailId,
               volume: p.scheduledVolume
-            }))
+            })),
+        // Add selected additional product IDs
+        selected_additional_product_ids: Array.from(selectedAdditionalProducts)
       };
       
       // Prepare pump service data separately
@@ -1490,6 +1678,7 @@ export default function ScheduleOrderForm({
                     onChange={(e) => {
                       setOrderType(e.target.checked ? 'pumping' : 'concrete');
                       setSelectedProducts([]); // Clear selection when switching
+                      setSelectedAdditionalProducts(new Set()); // Clear additional products when switching
                       // Reset pump service when switching back to concrete mode
                       if (!e.target.checked) {
                         setHasPumpService(false);
@@ -1937,6 +2126,95 @@ export default function ScheduleOrderForm({
                       className="w-full rounded-md border border-gray-300 px-3 py-2"
                     />
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Additional Products Section */}
+          {getAllAdditionalProducts().length > 0 && (
+            <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 mt-4">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Productos Adicionales</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Seleccione los productos adicionales que desea incluir en esta orden. Estos productos se multiplicarán por los metros cúbicos de concreto entregados.
+              </p>
+              
+              <div className="mb-3 p-2 bg-purple-100 rounded-md">
+                <p className="text-xs text-purple-800">
+                  <strong>Nota:</strong> El cálculo final se realizará multiplicando la cantidad por los m³ de concreto entregados. 
+                  El total mostrado aquí es una estimación basada en el volumen programado.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                {getAllAdditionalProducts().map((ap) => {
+                  const isSelected = selectedAdditionalProducts.has(ap.quoteAdditionalProductId);
+                  const totalConcreteVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+                  const estimatedTotal = isSelected ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0;
+                  
+                  return (
+                    <div
+                      key={ap.quoteAdditionalProductId}
+                      className={`flex items-center justify-between p-3 rounded-md border ${
+                        isSelected ? 'bg-purple-100 border-purple-400' : 'bg-white border-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedAdditionalProducts);
+                            if (e.target.checked) {
+                              newSelected.add(ap.quoteAdditionalProductId);
+                            } else {
+                              newSelected.delete(ap.quoteAdditionalProductId);
+                            }
+                            setSelectedAdditionalProducts(newSelected);
+                          }}
+                          className="h-5 w-5 text-purple-600 rounded border-gray-300"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <span className="font-medium text-gray-800">{ap.name}</span>
+                            <span className="text-xs text-gray-500">({ap.code})</span>
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">
+                            <span className="font-medium">Cantidad por m³:</span> {ap.quantity} {ap.unit} • 
+                            <span className="font-medium ml-2">Precio unitario:</span> ${ap.unitPrice.toFixed(2)}
+                          </div>
+                          {isSelected && totalConcreteVolume > 0 && (
+                            <div className="text-sm text-purple-700 mt-1 font-medium">
+                              Estimado: {ap.quantity} × {totalConcreteVolume.toFixed(2)} m³ × ${ap.unitPrice.toFixed(2)} = ${estimatedTotal.toFixed(2)}
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-500 mt-1">
+                            Precio más reciente de cotización: {availableQuotes.find(q => q.id === ap.quoteId)?.quoteNumber || 'N/A'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {selectedAdditionalProducts.size > 0 && (
+                <div className="mt-4 pt-3 border-t border-purple-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700">
+                      Total productos adicionales (estimado basado en volumen programado):
+                    </span>
+                    <span className="text-lg font-semibold text-purple-700">
+                      ${Array.from(selectedAdditionalProducts).reduce((sum, apId) => {
+                        const ap = getAllAdditionalProducts().find(a => a.quoteAdditionalProductId === apId);
+                        const totalConcreteVolume = selectedProducts.reduce((s, p) => s + p.scheduledVolume, 0);
+                        return sum + (ap ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0);
+                      }, 0).toFixed(2)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    El cálculo final se realizará con los m³ de concreto realmente entregados.
+                  </p>
                 </div>
               )}
             </div>

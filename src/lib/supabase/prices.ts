@@ -100,6 +100,15 @@ export const priceService = {
       });
   },
 
+  async deleteAdminCost(costId: string) {
+    // Soft delete by setting end_date
+    return await supabase
+      .from('administrative_costs')
+      .update({ end_date: new Date().toISOString() })
+      .eq('id', costId)
+      .is('end_date', null); // Only update if not already deleted
+  },
+
   // Precios de productos
   async saveProductPrice(productData: {
     code: string;
