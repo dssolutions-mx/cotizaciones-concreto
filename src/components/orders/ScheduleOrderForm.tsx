@@ -551,6 +551,10 @@ export default function ScheduleOrderForm({
         if (allApprovedQuotes && allApprovedQuotes.length > 0) {
           const quoteIdsForAdditional = allApprovedQuotes.map(q => q.id);
           
+          // Create a map of quote_id to quote order (0 = newest, 1 = second newest, etc.)
+          // This preserves the created_at ordering from allApprovedQuotes
+          const quoteOrderMap = new Map(quoteIdsForAdditional.map((id, index) => [id, index]));
+          
           const { data: allAdditionalProducts, error: additionalProductsError } = await supabase
             .from('quote_additional_products')
             .select(`
@@ -570,20 +574,32 @@ export default function ScheduleOrderForm({
                 unit
               )
             `)
-            .in('quote_id', quoteIdsForAdditional)
-            .order('quote_id', { ascending: false }); // Order by quote_id to process newest quotes first
+            .in('quote_id', quoteIdsForAdditional);
           
           if (additionalProductsError) {
             console.error('Error fetching additional products:', additionalProductsError);
           } else if (allAdditionalProducts) {
+            // Sort by quote order (newest first) based on the created_at ordering from allApprovedQuotes
+            const sortedProducts = allAdditionalProducts.sort((a, b) => {
+              const orderA = quoteOrderMap.get(a.quote_id) ?? 999999;
+              const orderB = quoteOrderMap.get(b.quote_id) ?? 999999;
+              return orderA - orderB;
+            });
+            
             // Process in order (newest quotes first) and keep only the first occurrence of each additional_product_id
-            for (const ap of allAdditionalProducts) {
+            for (const ap of sortedProducts) {
               const productId = ap.additional_product_id;
               if (!latestAdditionalProducts.has(productId)) {
                 latestAdditionalProducts.set(productId, ap);
               }
             }
             console.log(`Found ${latestAdditionalProducts.size} unique additional products from ${allAdditionalProducts.length} total entries`);
+            
+            // Log which quote each additional product came from for debugging
+            latestAdditionalProducts.forEach((ap, productId) => {
+              const quoteIndex = quoteOrderMap.get(ap.quote_id);
+              console.log(`Additional product ${ap.additional_products?.name}: Using price $${ap.unit_price} from quote ${ap.quote_id} (index: ${quoteIndex}, newest: ${quoteIndex === 0 ? 'YES' : 'NO'})`);
+            });
           }
         }
         
@@ -1159,8 +1175,17 @@ export default function ScheduleOrderForm({
   
   // Calculate total order amount
   // Get all additional products from available quotes
+  // Deduplicate by quoteAdditionalProductId since products are added to all quotes
   const getAllAdditionalProducts = (): AdditionalProduct[] => {
-    return availableQuotes.flatMap(quote => quote.additionalProducts || []);
+    const allProducts = availableQuotes.flatMap(quote => quote.additionalProducts || []);
+    // Deduplicate by quoteAdditionalProductId to avoid duplicates
+    const uniqueProductsMap = new Map<string, AdditionalProduct>();
+    allProducts.forEach(ap => {
+      if (!uniqueProductsMap.has(ap.quoteAdditionalProductId)) {
+        uniqueProductsMap.set(ap.quoteAdditionalProductId, ap);
+      }
+    });
+    return Array.from(uniqueProductsMap.values());
   };
 
   const calculateTotalAmount = () => {

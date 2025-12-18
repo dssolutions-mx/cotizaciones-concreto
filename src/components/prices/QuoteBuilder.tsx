@@ -853,7 +853,8 @@ export default function QuoteBuilder() {
         throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
       }
 
-      // Add additional products if any
+      // IMPORTANT: Add additional products BEFORE creating product_prices
+      // This ensures all products (concrete + additional) are included when creating product_prices
       if (quoteAdditionalProducts.length > 0 && createdQuote.id) {
         console.log(`Adding ${quoteAdditionalProducts.length} additional products to quote ${createdQuote.id}`);
         try {
@@ -883,6 +884,19 @@ export default function QuoteBuilder() {
         }
       } else if (quoteAdditionalProducts.length > 0) {
         console.warn('Cannot add additional products: quote ID is missing', { quoteId: createdQuote.id, productsCount: quoteAdditionalProducts.length });
+      }
+
+      // NOW create product_prices for auto-approved quotes (AFTER all products are added)
+      if (createdQuote.auto_approved) {
+        try {
+          const { productPriceService } = await import('@/lib/supabase/product-prices');
+          console.log(`Auto-approved quote ${createdQuote.id}, creating product_prices entries...`);
+          await productPriceService.handleQuoteApproval(createdQuote.id);
+          console.log(`Successfully created product_prices for auto-approved quote ${createdQuote.id}`);
+        } catch (approvalError) {
+          console.error('Error creating product_prices for auto-approved quote:', approvalError);
+          // Don't throw - quote is already created, just log the error
+        }
       }
 
       // Check if auto-approved

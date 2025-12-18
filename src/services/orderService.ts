@@ -315,8 +315,10 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           `);
         
         if (orderData.selected_additional_product_ids && orderData.selected_additional_product_ids.length > 0) {
+          // Remove duplicates from selected IDs (defensive programming)
+          const uniqueIds = Array.from(new Set(orderData.selected_additional_product_ids));
           // Fetch selected additional products by ID (can be from multiple quotes)
-          query = query.in('id', orderData.selected_additional_product_ids);
+          query = query.in('id', uniqueIds);
         } else if (orderData.quote_id) {
           // Fallback: fetch all from the primary quote
           query = query.eq('quote_id', orderData.quote_id);
@@ -329,6 +331,15 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         if (additionalError) {
           console.error('Error fetching quote additional products:', additionalError);
         } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
+          // Deduplicate products by ID to avoid inserting duplicates
+          const uniqueProductsMap = new Map<string, any>();
+          quoteAdditionalProducts.forEach((product: any) => {
+            if (!uniqueProductsMap.has(product.id)) {
+              uniqueProductsMap.set(product.id, product);
+            }
+          });
+          const uniqueProducts = Array.from(uniqueProductsMap.values());
+          
           // Calculate total concrete volume from order items for multiplier
           const { data: concreteItems } = await supabase
             .from('order_items')
@@ -341,7 +352,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           
           // Create order_items for additional products
           // Additional products are multiplied by concrete volume, so we use quantity as the multiplier
-          const additionalProductItems = quoteAdditionalProducts.map((product: any) => {
+          const additionalProductItems = uniqueProducts.map((product: any) => {
             const additionalProduct = product.additional_products;
             const productName = additionalProduct?.name || 'Producto Adicional';
             const productCode = additionalProduct?.code || 'ADDL';
@@ -379,7 +390,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
             console.error('Error inserting additional products as order_items:', insertAdditionalError);
             // Don't throw - order is already created, just log the error
           } else {
-            console.log(`Created ${quoteAdditionalProducts.length} additional products as order_items for order ${order.id}`);
+            console.log(`Created ${uniqueProducts.length} additional products as order_items for order ${order.id}`);
           }
         }
       } catch (error) {

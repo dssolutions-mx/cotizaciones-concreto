@@ -421,19 +421,9 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       throw new Error(errorMessage);
     }
     
-    // If quote is auto-approved, create product_prices entries
-    if (shouldAutoApprove) {
-      try {
-        const { productPriceService } = await import('@/lib/supabase/product-prices');
-        console.log(`Auto-approved quote ${quote.id}, creating product_prices entries...`);
-        await productPriceService.handleQuoteApproval(quote.id);
-        console.log(`Successfully created product_prices for auto-approved quote ${quote.id}`);
-      } catch (approvalError) {
-        console.error('Error creating product_prices for auto-approved quote:', approvalError);
-        // Don't throw - quote is already created, just log the error
-        // The quote can still be manually approved later to create product_prices
-      }
-    }
+    // NOTE: Auto-approval product_prices creation is now handled by the caller
+    // (QuoteBuilder) after all details and additional products are inserted
+    // This ensures the quote is complete before trying to create product_prices
     
     return quote;
   } catch (error) {
