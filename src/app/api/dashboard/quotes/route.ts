@@ -36,7 +36,6 @@ export async function GET(request: Request) {
     quotes?.forEach(quote => {
       switch (quote.status) {
         case 'PENDING_APPROVAL':
-        case 'DRAFT':
           statusCounts['Pendiente']++;
           break;
         case 'APPROVED':
@@ -70,7 +69,7 @@ export async function GET(request: Request) {
           total_amount
         )
       `)
-      .in('status', ['DRAFT', 'PENDING_APPROVAL'])
+      .eq('status', 'PENDING_APPROVAL')
       .order('created_at', { ascending: false })
       .limit(10);
     

@@ -3,7 +3,6 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import QuoteBuilder from '@/components/prices/QuoteBuilder';
-import DraftQuotesTab from '@/components/quotes/DraftQuotesTab';
 import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
 import ApprovedQuotesTab from '@/components/quotes/ApprovedQuotesTab';
 import RoleGuard from '@/components/auth/RoleGuard';
@@ -18,7 +17,7 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { Search } from 'lucide-react';
 
 // Define tab types
-type TabId = 'draft' | 'pending' | 'approved' | 'create';
+type TabId = 'pending' | 'approved' | 'create';
 
 // Common props type that all components might receive
 interface TabComponentProps {
@@ -41,8 +40,8 @@ function QuotesContent() {
   const router = useRouter();
   const pathname = usePathname();
   
-  // Get the active tab from URL or default to 'draft'
-  const activeTab = (searchParams.get('tab') as TabId) || 'draft';
+  // Get the active tab from URL or default to 'pending'
+  const activeTab = (searchParams.get('tab') as TabId) || 'pending';
   
   // Get filters from URL params
   const statusFilter = searchParams.get('status') || 'todos';
@@ -55,23 +54,23 @@ function QuotesContent() {
     // Initialize empty tabs array - will be populated based on role
     let roleTabs: TabDefinition[] = [];
     
-    // SALES_AGENT can see draft quotes, approved quotes, and create quotes
+    // SALES_AGENT can see pending quotes, approved quotes, and create quotes
     if (hasRole(['SALES_AGENT', 'EXTERNAL_SALES_AGENT'])) {
       roleTabs = [
-        { 
-          id: 'draft', 
-          name: 'Borradores', 
-          component: DraftQuotesTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-          </svg>
-        },
         { 
           id: 'create', 
           name: 'Crear Cotización', 
           component: QuoteBuilder,
           icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+        },
+        { 
+          id: 'pending', 
+          name: 'Pendientes', 
+          component: PendingApprovalTab,
+          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
           </svg>
         },
         { 
@@ -88,14 +87,6 @@ function QuotesContent() {
     // PLANT_MANAGER and EXECUTIVE can see all tabs
     if (hasRole(['PLANT_MANAGER', 'EXECUTIVE'])) {
       roleTabs = [
-        { 
-          id: 'draft', 
-          name: 'Borradores', 
-          component: DraftQuotesTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-          </svg>
-        },
         { 
           id: 'create', 
           name: 'Crear Cotización', 
@@ -247,7 +238,6 @@ function QuotesContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Estado: Todos</SelectItem>
-                      <SelectItem value="borrador">Estado: Borrador</SelectItem>
                       <SelectItem value="pendiente">Estado: Pendiente</SelectItem>
                       <SelectItem value="aprobada">Estado: Aprobada</SelectItem>
                       <SelectItem value="rechazada">Estado: Rechazada</SelectItem>
