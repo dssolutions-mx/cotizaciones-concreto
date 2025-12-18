@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { clientService } from '@/lib/supabase/clients';
 import { recipeService } from '@/lib/supabase/recipes';
 import { priceService } from '@/lib/supabase/prices';
@@ -81,6 +81,8 @@ interface QuoteProduct {
   // Pump service is now handled at the quote level, not per product
   master_recipe_id?: string; // When selecting by master
   master_code?: string; // Display name for master-first mode
+  basePriceManuallyEdited?: boolean; // Track if base price was manually edited
+  finalPriceManuallyEdited?: boolean; // Track if final price was manually edited
 }
 
 interface PumpServiceProduct {
@@ -120,6 +122,7 @@ export default function QuoteBuilder() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [masters, setMasters] = useState<MasterRecipe[]>([]);
   const [quoteProducts, setQuoteProducts] = useState<QuoteProduct[]>([]);
+  const quoteProductsRef = useRef<QuoteProduct[]>([]); // Ref to track latest quoteProducts for useEffects
   const [plantValidationError, setPlantValidationError] = useState<string | null>(null);
   const [clientHistory, setClientHistory] = useState<any[]>([]);
   const [selectedSite, setSelectedSite] = useState<string>('');
@@ -163,6 +166,9 @@ export default function QuoteBuilder() {
   }, [currentPlant?.id]);
 
   const resolveMasterPrice = async (masterId: string): Promise<number | null> => {
+    // NOTE: This function is NOT used for quote creation
+    // Quote builder always calculates fresh prices from materials
+    // This is kept for backwards compatibility but should not be called
     try {
       // IMPORTANT: PostgREST does not support `eq.null` filters (it must be `is.null`).
       // Also, avoid querying client/site scoped prices until the user has those selected.
@@ -257,22 +263,33 @@ export default function QuoteBuilder() {
         return;
       }
 
-      // Try to resolve a master price; fallback to cost-based calculation using chosen variant
-      let basePrice: number | null = null;
-      if (features.masterPricingEnabled) {
-        basePrice = await resolveMasterPrice(masterId);
-      }
-
-      if (basePrice == null) {
-        // Calculate base price using latest variant materials
-        basePrice = await calculateBasePrice(chosenVariant.id);
-      }
+      // IMPORTANT: Quote builder always calculates fresh prices from materials
+      // product_prices table is ONLY for storing approved prices after a quote is approved
+      // It should NOT be used when creating new quotes
+      
+      // Always calculate base price using latest variant materials
+      // This ensures: materials × current prices + admin costs (NO transport)
+      const basePrice = await calculateBasePrice(chosenVariant.id);
 
       // Add transport cost if distance info is available
+      // IMPORTANT: Use current distanceInfo, not stale data
+      // Master price should NOT include transport - it's added here
       const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
       const basePriceWithTransport = basePrice + transportCostPerM3;
 
+      // Validate: base price should be reasonable
+      if (basePriceWithTransport > 10000) {
+        console.warn(`[Add Master] Unusually high base price calculated: ${basePriceWithTransport.toFixed(2)} for master ${master.master_code}`);
+      }
+
       const finalPrice = Math.ceil((basePriceWithTransport * 1.04) / 5) * 5;
+
+      console.log(`[Add Master] Added ${master.master_code}:`, {
+        basePriceWithoutTransport: basePrice.toFixed(2),
+        transportCostPerM3: transportCostPerM3.toFixed(2),
+        basePriceWithTransport: basePriceWithTransport.toFixed(2),
+        finalPrice: finalPrice.toFixed(2),
+      });
 
       const newProduct: QuoteProduct = {
         recipe: {
@@ -290,9 +307,13 @@ export default function QuoteBuilder() {
         finalPrice: finalPrice,
         master_recipe_id: masterId,
         master_code: master.master_code,
+        basePriceManuallyEdited: false, // Not manually edited initially
+        finalPriceManuallyEdited: false, // Not manually edited initially
       };
 
-      setQuoteProducts([...quoteProducts, newProduct]);
+      const updated = [...quoteProducts, newProduct];
+      setQuoteProducts(updated);
+      quoteProductsRef.current = updated;
     } catch (error) {
       console.error('Error adding master product:', error);
       toast.error('No se pudo agregar el maestro. Verifique los datos.');
@@ -378,14 +399,28 @@ export default function QuoteBuilder() {
     loadClientHistory();
   }, [selectedClient]);
 
+  // Track if we're loading from sessionStorage to avoid saving during load
+  const isLoadingFromStorageRef = useRef(false);
+
   // Load draft from sessionStorage on mount
   useEffect(() => {
     const savedDraft = sessionStorage.getItem(DRAFT_QUOTE_STORAGE_KEY);
     if (savedDraft) {
       try {
+        isLoadingFromStorageRef.current = true;
         const draftData: DraftQuoteData = JSON.parse(savedDraft);
         setSelectedClient(draftData.selectedClient || '');
-        setQuoteProducts(draftData.quoteProducts || []);
+        
+        // Load products but mark them as needing recalculation
+        // Base prices from storage might be stale (calculated with old transport costs)
+        const loadedProducts = (draftData.quoteProducts || []).map(product => ({
+          ...product,
+          basePriceManuallyEdited: false, // Reset manual edit flags - we'll recalculate
+          finalPriceManuallyEdited: false, // Reset manual edit flags - we'll recalculate
+        }));
+        
+        setQuoteProducts(loadedProducts);
+        quoteProductsRef.current = loadedProducts;
         setSelectedSite(draftData.selectedSite || '');
         setConstructionSite(draftData.constructionSite || '');
         setLocation(draftData.location || '');
@@ -399,19 +434,40 @@ export default function QuoteBuilder() {
           price: draftData.pumpServiceProduct?.price || 0,
           description: draftData.pumpServiceProduct?.description || 'Servicio de Bombeo'
         });
-        console.log('Draft quote loaded from sessionStorage.');
+        console.log('Draft quote loaded from sessionStorage. Products will be recalculated when distance info is available.');
+        
+        // Reset the flag after a short delay to allow state to settle
+        setTimeout(() => {
+          isLoadingFromStorageRef.current = false;
+        }, 1000);
       } catch (error) {
         console.error('Error parsing draft quote from sessionStorage:', error);
         sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY); // Clear corrupted data
+        isLoadingFromStorageRef.current = false;
       }
+    } else {
+      isLoadingFromStorageRef.current = false;
     }
   }, []);
 
   // Debounced save draft to sessionStorage
   const debouncedSaveDraft = useDebouncedCallback(() => {
+    // Validate products before saving - check for obviously incorrect base prices
+    const validProducts = quoteProducts.map(product => {
+      // Base price should never exceed final price (unless manually edited)
+      if (product.basePrice > product.finalPrice && !product.finalPriceManuallyEdited) {
+        console.warn(`[Save Draft] Product ${product.recipe.recipe_code} has base price (${product.basePrice.toFixed(2)}) > final price (${product.finalPrice.toFixed(2)}). This might be stale data.`);
+      }
+      // Base price should be reasonable (not extremely high)
+      if (product.basePrice > 10000) {
+        console.warn(`[Save Draft] Product ${product.recipe.recipe_code} has unusually high base price: ${product.basePrice.toFixed(2)}`);
+      }
+      return product;
+    });
+
     const draftData: DraftQuoteData = {
       selectedClient,
-      quoteProducts,
+      quoteProducts: validProducts,
       selectedSite,
       constructionSite,
       location,
@@ -422,11 +478,16 @@ export default function QuoteBuilder() {
       pumpServiceProduct,
     };
     sessionStorage.setItem(DRAFT_QUOTE_STORAGE_KEY, JSON.stringify(draftData));
-    console.log('Draft quote saved to sessionStorage.');
+    console.log(`[Save Draft] Saved ${validProducts.length} products to sessionStorage.`);
   }, 500);
 
   // Trigger save draft on state change
   useEffect(() => {
+    // Don't save if we're currently loading from storage
+    if (isLoadingFromStorageRef.current) {
+      return;
+    }
+
     // Don't save immediately on mount if loading from storage
     // Only save after initial load and subsequent user interactions
     const timeoutId = setTimeout(() => {
@@ -499,22 +560,43 @@ export default function QuoteBuilder() {
 
       // Calculate base price using latest variant materials
       // calculateBasePrice will fetch the latest variant automatically if materials not provided
+      // IMPORTANT: Always calculate fresh, don't use any cached/stale values
       let basePriceWithoutTransport = await calculateBasePrice(recipeId);
       
       // Add transport cost if distance info is available
+      // Use current distanceInfo, not stale data
       const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
       const basePrice = basePriceWithoutTransport + transportCostPerM3;
+      
+      // Validate: base price should be reasonable (materials + admin + transport)
+      // Log for debugging if something seems off
+      if (basePrice > 10000) {
+        console.warn(`[Add Product] Unusually high base price calculated: ${basePrice.toFixed(2)} for recipe ${recipe.recipe_code}`);
+      }
+      
+      const finalPrice = Math.ceil((basePrice * 1.04) / 5) * 5;
+      
+      console.log(`[Add Product] Added ${recipe.recipe_code}:`, {
+        basePriceWithoutTransport: basePriceWithoutTransport.toFixed(2),
+        transportCostPerM3: transportCostPerM3.toFixed(2),
+        basePrice: basePrice.toFixed(2),
+        finalPrice: finalPrice.toFixed(2),
+      });
       
       const newProduct: QuoteProduct = {
         recipe,
         basePrice,
         volume: 1,
         profitMargin: 0.04, // Minimum 4% margin
-        finalPrice: Math.ceil((basePrice * 1.04) / 5) * 5 // Initial calculation: round to nearest 5
+        finalPrice: finalPrice,
+        basePriceManuallyEdited: false, // Not manually edited initially
+        finalPriceManuallyEdited: false, // Not manually edited initially
         // Pump service is now handled at the quote level, not per product
       };
 
-      setQuoteProducts([...quoteProducts, newProduct]);
+      const updated = [...quoteProducts, newProduct];
+      setQuoteProducts(updated);
+      quoteProductsRef.current = updated;
     } catch (error) {
       console.error('Error adding product:', error);
       toast.error('No se pudo agregar el producto. Verifique la información de la receta.');
@@ -530,8 +612,25 @@ export default function QuoteBuilder() {
     
     // Handle different update scenarios
     if ('basePrice' in updates) {
+      // If base price is updated manually, mark it as manually edited
+      if (updates.basePrice !== undefined && updates.basePrice !== currentProduct.basePrice) {
+        newProduct.basePriceManuallyEdited = true;
+        // Clear finalPriceManuallyEdited since we're recalculating finalPrice from basePrice
+        newProduct.finalPriceManuallyEdited = false;
+      }
+      
       // If base price is updated, recalculate final price based on current margin
-      const basePrice = updates.basePrice ?? currentProduct.basePrice;
+      let basePrice = updates.basePrice ?? currentProduct.basePrice;
+      
+      // Validation: basePrice should never exceed finalPrice (which includes margin)
+      // If user enters a value that seems to include margin, warn them
+      if (basePrice > currentProduct.finalPrice) {
+        console.warn(`[Base Price Validation] Base price (${basePrice.toFixed(2)}) exceeds final price (${currentProduct.finalPrice.toFixed(2)}). This might indicate an error.`);
+        // Don't prevent the update, but log it for debugging
+      }
+      
+      // Validation: basePrice should never be less than materials + admin costs (without transport)
+      // We can't easily check this here without recalculating, but we'll log if it seems wrong
       const profitMargin = currentProduct.profitMargin;
       
       // Calculate final price: round up to nearest 5 after applying profit margin
@@ -548,9 +647,19 @@ export default function QuoteBuilder() {
       
       newProduct.finalPrice = finalPrice;
     } else if ('finalPrice' in updates) {
+      // If final price is updated manually, mark it as manually edited
+      if (updates.finalPrice !== undefined && updates.finalPrice !== currentProduct.finalPrice) {
+        newProduct.finalPriceManuallyEdited = true;
+      }
+      
       // If final price is updated, recalculate margin
       const basePrice = currentProduct.basePrice;
       const finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
+      
+      // Validation: final price should be >= base price
+      if (finalPrice < basePrice) {
+        console.warn(`[Final Price Validation] Final price (${finalPrice.toFixed(2)}) is less than base price (${basePrice.toFixed(2)}). This might indicate an error.`);
+      }
       
       // Calculate new margin based on final price (no rounding - use exact price)
       const newMargin = (finalPrice / basePrice) - 1;
@@ -561,10 +670,13 @@ export default function QuoteBuilder() {
     
     updatedProducts[index] = newProduct;
     setQuoteProducts(updatedProducts);
+    quoteProductsRef.current = updatedProducts;
   };
 
-  const removeProductFromQuote = (index: number) => {
-    setQuoteProducts(quoteProducts.filter((_, i) => i !== index));
+  const removeProductFromQuoteProducts = (index: number) => {
+    const filtered = quoteProducts.filter((_, i) => i !== index);
+    setQuoteProducts(filtered);
+    quoteProductsRef.current = filtered;
   };
 
   // Simple function to update pumping service details
@@ -784,6 +896,7 @@ export default function QuoteBuilder() {
       // Limpiar formulario
       setSelectedClient('');
       setQuoteProducts([]);
+      quoteProductsRef.current = [];
       setConstructionSite('');
       setLocation('');
       setValidityDate('');
@@ -861,6 +974,7 @@ export default function QuoteBuilder() {
   const clearDraft = () => {
     setSelectedClient('');
     setQuoteProducts([]);
+    quoteProductsRef.current = [];
     setConstructionSite('');
     setLocation('');
     setValidityDate('');
@@ -930,27 +1044,95 @@ export default function QuoteBuilder() {
     calculateDistance();
   }, [currentPlant?.id, selectedSite]);
 
+  // Update quoteProductsRef whenever quoteProducts changes
+  useEffect(() => {
+    quoteProductsRef.current = quoteProducts;
+  }, [quoteProducts]);
+
+  // Track previous transport cost to only update when it actually changes
+  const previousTransportCostRef = useRef<number | null>(null);
+
   // Update product base prices when distance/transport cost changes
   useEffect(() => {
     const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
     
-    if (quoteProducts.length > 0) {
-      // Recalculate base prices for all products when transport cost changes
-      const updateProductPrices = async () => {
+    // Only update if transport cost actually changed
+    if (previousTransportCostRef.current === transportCostPerM3) {
+      return; // No change, skip update
+    }
+    
+    const currentProducts = quoteProductsRef.current;
+    if (currentProducts.length === 0) {
+      previousTransportCostRef.current = transportCostPerM3;
+      return; // No products to update
+    }
+
+    // Recalculate base prices for all products when transport cost changes
+    const updateProductPrices = async () => {
+      try {
+        // Use ref to get latest products, avoiding stale closure
+        const productsToUpdate = quoteProductsRef.current;
+        
         const updatedProducts = await Promise.all(
-          quoteProducts.map(async (product) => {
+          productsToUpdate.map(async (product) => {
             try {
-              // Get base price without transport
+              // Get base price without transport (fresh calculation)
               const basePriceWithoutTransport = await calculateBasePrice(product.recipe.id || '');
               const basePriceWithTransport = basePriceWithoutTransport + transportCostPerM3;
               
-              // Recalculate final price with new base price
-              const finalPrice = Math.ceil((basePriceWithTransport * (1 + product.profitMargin)) / 5) * 5;
+              // Only update base price if it wasn't manually edited
+              // If base price was manually edited, preserve it but warn if it seems wrong
+              let newBasePrice = product.basePrice;
+              if (!product.basePriceManuallyEdited) {
+                newBasePrice = basePriceWithTransport;
+              } else {
+                // Base price was manually edited, but validate it
+                const expectedBasePrice = basePriceWithoutTransport + transportCostPerM3;
+                if (Math.abs(product.basePrice - expectedBasePrice) > 0.01) {
+                  console.warn(`[Manual Base Price] Product ${product.recipe.recipe_code} has manually edited base price (${product.basePrice.toFixed(2)}) that differs from calculated (${expectedBasePrice.toFixed(2)})`);
+                }
+              }
+              
+              // Only recalculate final price if it wasn't manually edited
+              let newFinalPrice = product.finalPrice;
+              if (!product.finalPriceManuallyEdited) {
+                // Recalculate final price with new base price
+                newFinalPrice = Math.ceil((newBasePrice * (1 + product.profitMargin)) / 5) * 5;
+              }
+              
+              // Validate: basePrice should never exceed finalPrice (unless finalPrice was manually edited lower)
+              // This is a real error - base price should always be less than final price (which includes margin)
+              if (newBasePrice > newFinalPrice) {
+                if (product.finalPriceManuallyEdited) {
+                  // Final price was manually edited to be lower than base price - this is unusual but allowed
+                  console.warn(`[Price Warning] Product ${product.recipe.recipe_code}: Final price (${newFinalPrice.toFixed(2)}) was manually edited to be lower than base price (${newBasePrice.toFixed(2)}). This is unusual.`);
+                } else {
+                  // This is a real error - base price shouldn't exceed final price
+                  console.error(`[Price Error] Base price (${newBasePrice.toFixed(2)}) exceeds final price (${newFinalPrice.toFixed(2)}) for product ${product.recipe.recipe_code}. Base price should be less than final price (which includes margin).`);
+                }
+              }
+              
+              // Log for debugging - only log if values seem incorrect
+              const expectedBasePrice = basePriceWithoutTransport + transportCostPerM3;
+              if (Math.abs(product.basePrice - expectedBasePrice) > 0.01 && !product.basePriceManuallyEdited) {
+                console.warn(`[Price Mismatch] Product ${product.recipe.recipe_code}:`, {
+                  currentBasePrice: product.basePrice.toFixed(2),
+                  calculatedBasePriceWithoutTransport: basePriceWithoutTransport.toFixed(2),
+                  transportCostPerM3: transportCostPerM3.toFixed(2),
+                  expectedBasePriceWithTransport: expectedBasePrice.toFixed(2),
+                  newBasePriceWithTransport: basePriceWithTransport.toFixed(2),
+                  profitMargin: (product.profitMargin * 100).toFixed(2) + '%',
+                  currentFinalPrice: product.finalPrice.toFixed(2),
+                  newFinalPrice: newFinalPrice.toFixed(2),
+                  basePriceManuallyEdited: product.basePriceManuallyEdited || false,
+                  finalPriceManuallyEdited: product.finalPriceManuallyEdited || false,
+                });
+              }
               
               return {
                 ...product,
-                basePrice: basePriceWithTransport,
-                finalPrice: finalPrice,
+                basePrice: newBasePrice,
+                finalPrice: newFinalPrice,
               };
             } catch (error) {
               console.error(`Error updating price for product ${product.recipe.recipe_code}:`, error);
@@ -960,12 +1142,15 @@ export default function QuoteBuilder() {
         );
         
         setQuoteProducts(updatedProducts);
-      };
-      
-      updateProductPrices();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [distanceInfo?.transport_cost_per_m3, distanceInfo?.distance_km]); // Update when transport cost or distance changes
+        quoteProductsRef.current = updatedProducts;
+        previousTransportCostRef.current = transportCostPerM3;
+      } catch (error) {
+        console.error('Error updating product prices:', error);
+      }
+    };
+    
+    updateProductPrices();
+  }, [distanceInfo?.transport_cost_per_m3, distanceInfo?.distance_km]); // Only depend on transport cost
 
   // Load available additional products
   useEffect(() => {
@@ -1676,7 +1861,7 @@ export default function QuoteBuilder() {
                     </div>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="secondary"
                       size="icon"
                       onClick={() => setBreakdownDialogProductIndex(index)}
                       className="h-9 w-9 shrink-0 border-gray-300 text-blue-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-400"
@@ -1716,7 +1901,7 @@ export default function QuoteBuilder() {
                 <div className="col-span-2 xl:col-span-1 flex justify-end xl:justify-center">
                   <button
                     type="button"
-                    onClick={() => removeProductFromQuote(index)} 
+                    onClick={() => removeProductFromQuoteProducts(index)} 
                     className="inline-flex items-center justify-center h-9 w-9 bg-red-600 hover:bg-red-700 text-white rounded-lg border-0 shadow-sm shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                     title="Eliminar producto"
                   >

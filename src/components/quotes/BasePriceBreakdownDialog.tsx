@@ -56,6 +56,21 @@ export function BasePriceBreakdownDialog({
   // breakdown.total = materials + administrative costs (without transport)
   // basePrice = materials + administrative + transport
   const basePriceWithoutTransport = breakdown ? breakdown.total : Math.max(0, basePrice - transportCostPerM3);
+  const expectedBasePrice = breakdown ? breakdown.total + transportCostPerM3 : basePrice;
+  
+  // Validation: Check if the basePrice seems incorrect
+  // Base price should equal materials + admin costs + transport
+  if (breakdown && Math.abs(basePrice - expectedBasePrice) > 0.01) {
+    console.error(`[Base Price Mismatch] Expected base price: ${expectedBasePrice.toFixed(2)}, but received: ${basePrice.toFixed(2)}`, {
+      materialCost: breakdown.materialCost.toFixed(2),
+      administrativeCosts: breakdown.administrativeCosts.toFixed(2),
+      transportCostPerM3: transportCostPerM3.toFixed(2),
+      expectedTotal: expectedBasePrice.toFixed(2),
+      actualBasePrice: basePrice.toFixed(2),
+      difference: (basePrice - expectedBasePrice).toFixed(2),
+    });
+  }
+  
   const totalBasePrice = basePrice; // basePrice already includes transport
 
   return (
