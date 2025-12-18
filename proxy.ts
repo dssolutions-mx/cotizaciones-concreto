@@ -19,7 +19,133 @@ function getCSPHeader(nonce: string) {
 
 // Removed sessionRefreshes map and MIN_REFRESH_INTERVAL as helper handles refresh
 
+// Define malicious path patterns to block
+const MALICIOUS_PATTERNS = [
+  // Environment and config files
+  '/.env',
+  '/.env.local',
+  '/.env.production',
+  '/.env.development',
+  '/.env.test',
+  '/.env.*',
+  '/config.php',
+  '/configuration.php',
+  '/wp-config.php',
+  
+  // Git repository files
+  '/.git',
+  '/.git/config',
+  '/.git/HEAD',
+  '/.gitignore',
+  '/.gitattributes',
+  
+  // Laravel-specific exploit attempts (even though this is Next.js, block them)
+  '/_ignition/execute-solution',
+  '/public/_ignition/execute-solution',
+  '/vendor/laravel-filemanager',
+  '/public/vendor/laravel-filemanager',
+  '/vendor/phpunit',
+  '/public/vendor/phpunit',
+  '/vendor/autoload.php',
+  '/composer.json',
+  '/composer.lock',
+  
+  // Common exploit paths
+  '/.htaccess',
+  '/.htpasswd',
+  '/web.config',
+  '/phpinfo.php',
+  '/info.php',
+  '/test.php',
+  '/admin.php',
+  '/wp-admin',
+  '/wp-login.php',
+  '/.well-known',
+  '/.DS_Store',
+  '/Thumbs.db',
+  
+  // Backup and temporary files
+  '/backup',
+  '/backups',
+  '/tmp',
+  '/temp',
+  '/.bak',
+  '/.old',
+  '/.orig',
+  
+  // Database files
+  '/database.sql',
+  '/dump.sql',
+  '/*.sql',
+  
+  // Sensitive directories
+  '/includes',
+  '/includes/config.php',
+  '/private',
+  '/secure',
+];
+
+function isMaliciousPath(pathname: string): boolean {
+  const lowerPath = pathname.toLowerCase();
+  
+  // Check exact matches
+  if (MALICIOUS_PATTERNS.some(pattern => lowerPath === pattern.toLowerCase())) {
+    return true;
+  }
+  
+  // Check if path starts with any malicious pattern
+  if (MALICIOUS_PATTERNS.some(pattern => lowerPath.startsWith(pattern.toLowerCase()))) {
+    return true;
+  }
+  
+  // Check for file extensions that shouldn't be accessed
+  const dangerousExtensions = ['.env', '.git', '.sql', '.bak', '.old', '.orig', '.log'];
+  if (dangerousExtensions.some(ext => lowerPath.includes(ext))) {
+    return true;
+  }
+  
+  // Check for common exploit patterns
+  const exploitPatterns = [
+    'laravel',
+    'phpunit',
+    'phpinfo',
+    'wp-',
+    'wordpress',
+    'ignition',
+    'filemanager',
+  ];
+  
+  if (exploitPatterns.some(pattern => lowerPath.includes(pattern))) {
+    return true;
+  }
+  
+  return false;
+}
+
 export async function proxy(request: NextRequest) {
+  // Extract pathname early for security checks
+  const url = request.nextUrl.clone();
+  const { pathname } = url;
+  const clientIP = request.headers.get('x-forwarded-for') || 'unknown';
+  
+  // SECURITY: Block malicious access attempts immediately
+  if (isMaliciousPath(pathname)) {
+    console.warn(`🚨 BLOCKED malicious access attempt: ${pathname} from IP: ${clientIP}`);
+    return new NextResponse(
+      JSON.stringify({ 
+        error: 'Access denied',
+        message: 'Invalid request path'
+      }),
+      { 
+        status: 403,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Blocked-Reason': 'Malicious path pattern detected'
+        }
+      }
+    );
+  }
+
   // Generate a nonce for CSP
   const nonce = generateNonce();
   // console.log(`Generated nonce for CSP: ${nonce.substring(0, 10)}...`);
@@ -38,11 +164,6 @@ export async function proxy(request: NextRequest) {
 
   // Create Supabase client configured for middleware
   const supabase = createMiddlewareClient({ req: request, res: response });
-
-  // Extract pathname for logic
-  const url = request.nextUrl.clone();
-  const { pathname } = url;
-  const clientIP = request.headers.get('x-forwarded-for') || 'unknown';
 
   // Logging for significant paths
   const isSignificantPath = 

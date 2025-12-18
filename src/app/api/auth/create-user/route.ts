@@ -2,9 +2,18 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkBotId } from 'botid/server';
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify the request is not from a bot using BotID
+    const verification = await checkBotId();
+    if (verification.isBot) {
+      return NextResponse.json(
+        { error: 'Access denied: Bot detected' },
+        { status: 403 }
+      );
+    }
     // Create a Supabase client with the URL and anon key from env vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

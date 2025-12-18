@@ -49,6 +49,7 @@
     "@vercel/analytics": "^1.5.0",
     "antd": "^5.24.8",
     "apexcharts": "^4.7.0",
+    "botid": "^1.5.10",
     "chart.js": "^4.4.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

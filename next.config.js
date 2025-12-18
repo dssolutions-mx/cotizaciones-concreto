@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const { withBotId } = require('botid/next/config');
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 let supabaseHost;
 try {
@@ -40,4 +42,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig; 
+module.exports = withBotId(nextConfig); 

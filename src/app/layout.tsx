@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils';
 import AuthInitializer from '@/components/auth/auth-initializer';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { BotIdClient } from 'botid/client';
 
 
 // Define navigation items for different roles
@@ -1217,6 +1218,31 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// Define protected routes for BotID
+const protectedRoutes = [
+  // Auth routes
+  { path: '/api/auth/create-user', method: 'POST' },
+  { path: '/api/auth/invite-user', method: 'POST' },
+  { path: '/api/auth/reset-password', method: 'POST' },
+  { path: '/api/auth/update-password', method: 'POST' },
+  // Client portal routes
+  { path: '/api/client-portal/orders', method: 'POST' },
+  { path: '/api/client-portal/team', method: 'POST' },
+  // Order and quote routes
+  { path: '/api/quotes', method: 'POST' },
+  { path: '/api/orders', method: 'POST' },
+  // Credit and payment routes
+  { path: '/api/credit-actions', method: 'POST' },
+  { path: '/api/credit-terms', method: 'POST' },
+  // Inventory routes
+  { path: '/api/inventory', method: 'POST' },
+  { path: '/api/inventory/entries', method: 'POST' },
+  // Quality routes
+  { path: '/api/quality', method: 'POST' },
+  // Arkik integration routes
+  { path: '/api/arkik/process', method: 'POST' },
+];
+
 // Componente principal
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   // Use system fonts via global CSS; no extra class needed
@@ -1231,6 +1257,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="description" content="Sistema de manejo integral de plantas de concreto - DC Concretos" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
+        <BotIdClient protect={protectedRoutes} />
       </head>
       {/* Body doesn't need conditional class anymore based on route */}
       <body className="bg-gray-100" suppressHydrationWarning>
