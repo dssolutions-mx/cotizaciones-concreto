@@ -976,7 +976,7 @@ export default function ScheduleOrderForm({
         console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
         // PRIORITY 1: Look for standalone pumping services first (product_id IS NOT NULL, recipe_id IS NULL, master_recipe_id IS NULL)
-        const { data: standalonePumpData, error: standalonePumpError } = await supabase
+        let { data: standalonePumpData, error: standalonePumpError } = await supabase
           .from('quote_details')
           .select(`
             pump_price,
@@ -999,11 +999,21 @@ export default function ScheduleOrderForm({
           .not('product_id', 'is', null)
           .is('recipe_id', null)
           .is('master_recipe_id', null)
-          .order('created_at', { ascending: false, foreignTable: 'quotes' })
-          .limit(1);
+          .order('created_at', { ascending: false, foreignTable: 'quotes' });
           
         if (standalonePumpError) {
           console.error("Error fetching standalone pump service pricing:", standalonePumpError);
+        } else if (standalonePumpData && standalonePumpData.length > 0) {
+          // Sort by quote created_at to ensure we get the truly most recent
+          const sortedByDate = standalonePumpData.sort((a: any, b: any) => {
+            const dateA = new Date(a.quotes.created_at).getTime();
+            const dateB = new Date(b.quotes.created_at).getTime();
+            return dateB - dateA; // Descending order (newest first)
+          });
+          
+          // Take only the first (most recent) one
+          standalonePumpData = [sortedByDate[0]];
+          console.log(`Found ${standalonePumpData.length} standalone pumping records, using most recent from quote created at: ${sortedByDate[0].quotes.created_at}`);
         }
         
         // PRIORITY 2: If no standalone pumping found, fall back to concrete products with pump service
@@ -1027,13 +1037,22 @@ export default function ScheduleOrderForm({
             .eq('quotes.client_id', selectedClientId)
             .eq('quotes.construction_site', selectedConstructionSite.name)
             .eq('quotes.status', 'APPROVED')
-            .order('created_at', { ascending: false, foreignTable: 'quotes' })
-            .limit(1);
+            .order('created_at', { ascending: false, foreignTable: 'quotes' });
             
           if (concretePumpError) {
             console.error("Error fetching concrete pump service pricing:", concretePumpError);
-          } else {
-            pumpServiceData = concretePumpData;
+          } else if (concretePumpData && concretePumpData.length > 0) {
+            // Sort by quote created_at to ensure we get the truly most recent
+            // (Multiple quote_details can exist per quote, so we need to sort in JS)
+            const sortedByDate = concretePumpData.sort((a: any, b: any) => {
+              const dateA = new Date(a.quotes.created_at).getTime();
+              const dateB = new Date(b.quotes.created_at).getTime();
+              return dateB - dateA; // Descending order (newest first)
+            });
+            
+            // Take only the first (most recent) one
+            pumpServiceData = [sortedByDate[0]];
+            console.log(`Sorted ${concretePumpData.length} pump service records, using most recent from quote created at: ${sortedByDate[0].quotes.created_at}`);
           }
         }
         
