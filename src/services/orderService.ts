@@ -1452,7 +1452,7 @@ export async function recalculateOrderAmount(orderId: string) {
     // First, check if there are any remisiones for this order
     const { data: remisiones, error: remisionesError } = await supabase
       .from('remisiones')
-      .select('id, volumen_fabricado, tipo_remision')
+      .select('id, volumen_fabricado, tipo_remision, recipe_id, master_recipe_id, remision_number')
       .eq('order_id', orderId);
     
     if (remisionesError) throw remisionesError;
@@ -1505,28 +1505,56 @@ export async function recalculateOrderAmount(orderId: string) {
     
     // Step 2: Update delivered volumes based on remisiones
     if (remisiones && remisiones.length > 0) {
-      // Calculate concrete volume delivered
+      // Match concrete remisiones to specific order items by recipe/master_recipe
       const concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
-      const totalConcreteDelivered = concreteRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
       
-      // Update concrete items with proportional delivery
+      // Get concrete items (exclude additional products, pump service, and empty trucks)
       const concreteItems = orderItems?.filter(item => 
         item.product_type !== 'SERVICIO DE BOMBEO' && 
         item.product_type !== 'VACÍO DE OLLA' &&
+        !item.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
         !item.has_empty_truck_charge
       ) || [];
       
-      if (concreteItems.length > 0 && totalConcreteDelivered > 0) {
-        const totalConcreteOrdered = concreteItems.reduce((sum, item) => sum + (item.volume || 0), 0);
-        const deliveryRatio = totalConcreteOrdered > 0 ? totalConcreteDelivered / totalConcreteOrdered : 0;
+      // Track delivered volume per order item
+      const deliveredVolumeByItem = new Map<string, number>();
+      
+      // Match each remision to its corresponding order item
+      for (const remision of concreteRemisiones) {
+        const volumeFabricado = remision.volumen_fabricado || 0;
         
-        for (const item of concreteItems) {
-          const deliveredVolume = (item.volume || 0) * deliveryRatio;
-          await supabase
-            .from('order_items')
-            .update({ concrete_volume_delivered: deliveredVolume })
-            .eq('id', item.id);
+        // Try to match by master_recipe_id first (most common)
+        let matchedItem = concreteItems.find(item => 
+          remision.master_recipe_id && item.master_recipe_id === remision.master_recipe_id
+        );
+        
+        // If no master match, try recipe_id as fallback
+        if (!matchedItem && remision.recipe_id) {
+          matchedItem = concreteItems.find(item => 
+            item.recipe_id === remision.recipe_id
+          );
         }
+        
+        if (matchedItem) {
+          // Accumulate delivered volume for this order item
+          const currentDelivered = deliveredVolumeByItem.get(matchedItem.id) || 0;
+          deliveredVolumeByItem.set(matchedItem.id, currentDelivered + volumeFabricado);
+          console.log(`Matched CONCRETO remision ${remision.remision_number} (${volumeFabricado}m³) to order item ${matchedItem.product_type}`);
+        } else {
+          // Only warn if remision has recipe/master info but couldn't match
+          if (remision.recipe_id || remision.master_recipe_id) {
+            console.warn(`Could not match CONCRETO remision ${remision.remision_number} (recipe: ${remision.recipe_id}, master: ${remision.master_recipe_id}) to any order item`);
+          }
+        }
+      }
+      
+      // Update each matched order item with its delivered volume
+      for (const [itemId, deliveredVolume] of deliveredVolumeByItem.entries()) {
+        await supabase
+          .from('order_items')
+          .update({ concrete_volume_delivered: deliveredVolume })
+          .eq('id', itemId);
+        console.log(`Updated order item ${itemId} with delivered volume: ${deliveredVolume}m³`);
       }
       
       // Handle pump volume delivered - both from remisiones and global pump service
