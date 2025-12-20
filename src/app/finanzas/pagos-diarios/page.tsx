@@ -8,6 +8,7 @@ import KPICard from '@/components/finanzas/KPICard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashboardSkeleton';
 import { CreditCard, Calculator, Ban, Wallet, CalendarIcon } from 'lucide-react';
+import { DailyPaymentsManageButton } from '@/components/finanzas/DailyPaymentsManageButton';
 
 // Re-enable ISR (build-time prerender + periodic revalidation)
 export const dynamic = 'force-dynamic';
@@ -417,6 +418,7 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                   <TableHead>Método</TableHead>
                   <TableHead>Referencia</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -428,6 +430,12 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                     <TableCell>{payment.payment_method}</TableCell>
                     <TableCell>{payment.reference_number || 'N/A'}</TableCell>
                     <TableCell className="text-right">{payment.formattedAmount}</TableCell>
+                    <TableCell className="text-right">
+                      <DailyPaymentsManageButton
+                        clientId={payment.client_id}
+                        clientName={payment.clients?.business_name}
+                      />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -444,6 +452,7 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                   <TableHead>Obra</TableHead>
                   <TableHead>Referencia</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -459,6 +468,12 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                       <TableCell>{payment.construction_site || 'N/A'}</TableCell>
                       <TableCell>{payment.reference_number || 'N/A'}</TableCell>
                       <TableCell className="text-right">{payment.formattedAmount}</TableCell>
+                      <TableCell className="text-right">
+                        <DailyPaymentsManageButton
+                          clientId={payment.client_id}
+                          clientName={payment.clients?.business_name}
+                        />
+                      </TableCell>
                     </TableRow>
                   ))
                 }
@@ -476,6 +491,7 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                   <TableHead>Obra</TableHead>
                   <TableHead>Referencia</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -491,6 +507,12 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                       <TableCell>{payment.construction_site || 'N/A'}</TableCell>
                       <TableCell>{payment.reference_number || 'N/A'}</TableCell>
                       <TableCell className="text-right">{payment.formattedAmount}</TableCell>
+                      <TableCell className="text-right">
+                        <DailyPaymentsManageButton
+                          clientId={payment.client_id}
+                          clientName={payment.clients?.business_name}
+                        />
+                      </TableCell>
                     </TableRow>
                   ))
                 }
@@ -508,6 +530,7 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                   <TableHead>Obra</TableHead>
                   <TableHead>Referencia</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -523,6 +546,12 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
                       <TableCell>{payment.construction_site || 'N/A'}</TableCell>
                       <TableCell>{payment.reference_number || 'N/A'}</TableCell>
                       <TableCell className="text-right">{payment.formattedAmount}</TableCell>
+                      <TableCell className="text-right">
+                        <DailyPaymentsManageButton
+                          clientId={payment.client_id}
+                          clientName={payment.clients?.business_name}
+                        />
+                      </TableCell>
                     </TableRow>
                   ))
                 }

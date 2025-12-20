@@ -55,7 +55,7 @@ export default function QuickAddPaymentButton() {
     <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
       <DialogTrigger asChild>
         <Button 
-          className="bg-green-600 hover:bg-green-700 text-white" 
+          variant="primary"
           onClick={() => setIsDialogOpen(true)}
         >
           <PlusCircle className="mr-2 h-4 w-4" />
@@ -83,7 +83,7 @@ export default function QuickAddPaymentButton() {
               showSites={true}
             />
             <div className="flex justify-end mt-4">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+              <Button variant="secondary" onClick={() => setIsDialogOpen(false)}>
                 Cancelar
               </Button>
             </div>

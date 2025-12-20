@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Calendar, DollarSign, Truck, AlertTriangle, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import {
   Collapsible,
   CollapsibleContent,
@@ -505,9 +506,14 @@ export default function ClientBalancesDashboard({
                           </Button>
                           {/* Payment registration only for financial roles */}
                           {profile && (profile.role === 'EXECUTIVE' || profile.role === 'PLANT_MANAGER' || profile.role === 'CREDIT_VALIDATOR') && (
-                            <Button variant="outline" size="sm" className="w-full">
-                              Registrar Pago
-                            </Button>
+                            <ClientPaymentManagerModal
+                              clientId={client.client_id}
+                              clientName={client.business_name}
+                              triggerLabel="Gestionar Pagos"
+                              triggerVariant="secondary"
+                              triggerSize="sm"
+                              triggerClassName="w-full"
+                            />
                           )}
                         </div>
                       </div>

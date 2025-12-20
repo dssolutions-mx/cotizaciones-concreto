@@ -45,6 +45,7 @@ import { authService } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
+import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -677,7 +678,8 @@ function ClientBalanceBreakdown({
         }
 
         const collectedIds = new Set<string>();
-        for (const [index, chunk] of chunks.entries()) {
+        for (let index = 0; index < chunks.length; index++) {
+          const chunk = chunks[index];
           const { data, error } = await supabase
             .from('remisiones')
             .select('order_id')
@@ -770,7 +772,8 @@ function ClientBalanceBreakdown({
         }
 
         const rows: any[] = [];
-        for (const [index, chunk] of chunks.entries()) {
+        for (let index = 0; index < chunks.length; index++) {
+          const chunk = chunks[index];
           const { data: orderRows, error: ordersErr } = await supabase
             .from('orders')
             .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id')
@@ -1300,7 +1303,7 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
             </span>
             <div className="flex gap-2">
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 size="sm"
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
@@ -1308,7 +1311,7 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
                 Anterior
               </Button>
               <Button 
-                variant="outline" 
+                variant="secondary" 
                 size="sm"
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages}
@@ -1382,7 +1385,7 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
       {hasCoordinates && (
         <div className="mt-2">
           <Button 
-            variant="outline" 
+            variant="secondary" 
             size="sm"
             onClick={openMapDialog}
             className="flex items-center gap-1 text-xs"
@@ -1744,8 +1747,8 @@ function OrderDetailModal({
             )}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={onClose}>Cerrar</Button>
-              <Button asChild variant="default">
+              <Button variant="secondary" onClick={onClose}>Cerrar</Button>
+              <Button asChild variant="primary">
                 <Link href={`/orders/${orderId}`} target="_blank">Ver Completo</Link>
               </Button>
             </div>
@@ -2090,7 +2093,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <Button variant="outline" onClick={() => setIsEditClientOpen(false)} disabled={savingClient}>Cancelar</Button>
+                <Button variant="secondary" onClick={() => setIsEditClientOpen(false)} disabled={savingClient}>Cancelar</Button>
                 <Button onClick={handleSaveClient} disabled={savingClient}>
                   {savingClient ? 'Guardando...' : 'Guardar Cambios'}
                 </Button>
@@ -2125,6 +2128,15 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             </TabsList>
             
             <TabsContent value="payments">
+              <div className="flex justify-end mb-3">
+                <ClientPaymentManagerModal
+                  clientId={clientId}
+                  clientName={client?.business_name}
+                  sites={sites}
+                  triggerLabel="Editar / Eliminar pagos"
+                  onMutated={loadData}
+                />
+              </div>
               <ClientPaymentsList payments={payments} />
             </TabsContent>
             
@@ -2319,7 +2331,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                     <TableCell>{order.final_amount ? formatCurrency(order.final_amount) : '-'}</TableCell>
                     <TableCell className="text-right">
                       <Button 
-                        variant="outline" 
+                        variant="secondary" 
                         size="sm" 
                         onClick={() => handleViewOrderDetails(order.id)}
                       >
@@ -2335,7 +2347,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           )}
           <div className="mt-4">
             <Link href={`/orders/create?clientId=${clientId}`}>
-              <Button variant="default">Crear Nuevo Pedido</Button>
+              <Button variant="primary">Crear Nuevo Pedido</Button>
             </Link>
           </div>
         </CardContent>
@@ -2360,7 +2372,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button 
-              variant="outline" 
+              variant="secondary" 
               onClick={() => setSiteToDelete(null)}
               disabled={isDeletingSite}
               className="flex items-center gap-1"

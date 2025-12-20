@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { clientService } from '@/lib/supabase/clients'; // Assuming clientService is correctly typed and available
 import { ConstructionSite } from '@/types/client';
 import { formatCurrency } from '@/lib/utils'; // Import formatter
 import { Button } from "@/components/ui/button";
@@ -17,6 +16,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For confirmation view
 import { Badge } from "@/components/ui/badge"; // For confirmation view
+import { toast } from "sonner";
 
 // Define the component props interface
 export interface PaymentFormProps {
@@ -40,11 +40,17 @@ export default function PaymentForm({
 }: PaymentFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false); // State for confirmation step
+  const toLocalISODate = (d: Date) => {
+    const off = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - off * 60_000);
+    return local.toISOString().slice(0, 10);
+  };
   const [paymentData, setPaymentData] = useState({
     amount: '',
     payment_method: 'TRANSFER',
     reference_number: '',
     notes: '',
+    payment_date: toLocalISODate(new Date()),
     // Initialize with default if provided, otherwise "general" for General Payment
     construction_site: defaultConstructionSite || 'general', 
   });
@@ -81,7 +87,11 @@ export default function PaymentForm({
   // Refactored submit logic for confirmation
   const handleAttemptSubmit = async () => {
     if (!paymentData.amount || parseFloat(paymentData.amount) <= 0) {
-      alert('El monto del pago debe ser mayor a cero');
+      toast.error('El monto del pago debe ser mayor a cero');
+      return;
+    }
+    if (!paymentData.payment_date) {
+      toast.error('La fecha del pago es obligatoria');
       return;
     }
     // If amount is valid, move to confirmation step
@@ -93,23 +103,32 @@ export default function PaymentForm({
     setIsConfirming(false); // Move back from confirmation view immediately
     try {
       const amount = parseFloat(paymentData.amount);
-      const paymentToSubmit = {
-        amount,
-        payment_method: paymentData.payment_method,
-        reference_number: paymentData.reference_number,
-        notes: paymentData.notes,
-        // Ensure null is sent if construction_site is 'general'
-        construction_site: paymentData.construction_site === 'general' ? null : paymentData.construction_site, 
-        payment_date: new Date().toISOString() 
-      };
-      
-      await clientService.createPayment(clientId, paymentToSubmit); 
+      const res = await fetch('/api/finanzas/client-payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          amount,
+          payment_method: paymentData.payment_method,
+          reference_number: paymentData.reference_number || null,
+          notes: paymentData.notes || null,
+          construction_site: paymentData.construction_site === 'general' ? 'general' : paymentData.construction_site,
+          // Let the API normalize YYYY-MM-DD to a safe timestamp
+          payment_date: paymentData.payment_date,
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Error al registrar el pago');
+      }
+
       onSuccess(); // Call success callback (closes modal, refetches)
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al registrar el pago';
       console.error("Payment Error:", error);
-      alert(errorMessage); 
+      toast.error(errorMessage);
       // Keep modal open on error to allow correction?
     } finally {
       setIsSubmitting(false);
@@ -138,6 +157,10 @@ export default function PaymentForm({
              <Label className="text-gray-500">Monto</Label>
              <p className="font-semibold text-lg">{formatCurrency(parseFloat(paymentData.amount))}</p>
           </div>
+          <div>
+             <Label className="text-gray-500">Fecha</Label>
+             <p className="font-medium">{paymentData.payment_date}</p>
+          </div>
            <div>
              <Label className="text-gray-500">Método</Label>
              <p className="font-medium">{paymentData.payment_method}</p>
@@ -158,7 +181,7 @@ export default function PaymentForm({
            )}
         </div>
         <div className="flex justify-end gap-3 pt-4 border-t">
-          <Button variant="outline" onClick={handleEdit} disabled={isSubmitting}>
+          <Button variant="secondary" onClick={handleEdit} disabled={isSubmitting}>
             Editar
           </Button>
           <Button onClick={handleConfirmSubmit} disabled={isSubmitting}>
@@ -195,7 +218,7 @@ export default function PaymentForm({
            {currentBalance && currentBalance > 0 && (
              <Button 
                 type="button" // Prevent form submission
-                variant="link"
+                variant="ghost"
                 size="sm"
                 className="p-0 h-auto text-xs text-blue-600 hover:text-blue-800"
                 onClick={handleSetFullBalance}
@@ -203,6 +226,19 @@ export default function PaymentForm({
                Pagar Saldo Total: {formatCurrency(currentBalance)}
              </Button>
            )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="payment_date">Fecha del Pago *</Label>
+          <Input
+            id="payment_date"
+            name="payment_date"
+            type="date"
+            value={paymentData.payment_date}
+            onChange={handleChange}
+            required
+            disabled={isSubmitting}
+          />
         </div>
         
         <div className="space-y-2">
@@ -275,7 +311,7 @@ export default function PaymentForm({
       
       {/* Submit/Cancel Buttons should be in the DialogFooter of the parent component */}
       <div className="flex justify-end gap-3 pt-4 border-t">
-         <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
+         <Button type="button" variant="secondary" onClick={onCancel} disabled={isSubmitting}>
            Cancelar
          </Button>
          {/* This button now triggers the confirmation step, not the final submit */}

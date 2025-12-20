@@ -193,6 +193,34 @@ export const financialService = {
       if (!paymentData.amount || paymentData.amount <= 0) {
         return { success: false, message: 'El monto del pago debe ser mayor que cero' };
       }
+
+      // Prefer server-controlled API route in the browser for governance/permissions
+      if (typeof window !== 'undefined') {
+        const res = await fetch('/api/finanzas/client-payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_id: paymentData.client_id,
+            amount: paymentData.amount,
+            payment_date: paymentData.payment_date,
+            payment_method: paymentData.payment_method,
+            reference_number: paymentData.reference_number ?? null,
+            notes: paymentData.notes ?? null,
+            construction_site: paymentData.construction_site ?? 'general',
+          }),
+        });
+
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { success: false, message: payload?.error || 'Error al registrar el pago' };
+        }
+
+        return {
+          success: true,
+          message: 'Pago registrado exitosamente',
+          data: payload?.payment,
+        };
+      }
       
       // Get user ID for audit
       const { data: { user } } = await supabase.auth.getUser();

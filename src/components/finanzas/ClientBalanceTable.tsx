@@ -24,6 +24,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { financialService } from '@/lib/supabase/financial';
+import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import {
   Tooltip,
   TooltipContent,
@@ -285,19 +286,21 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
     setIsBalanceAdjustmentModalOpen(true);
   };
   
-  // Handle balance adjustment completion
-  const handleBalanceAdjustmentComplete = async () => {
-    setIsBalanceAdjustmentModalOpen(false);
-    
-    // Update balance data
+  const refreshBalances = async (successMessage: string = 'Balances actualizados exitosamente') => {
     try {
       const updatedBalances = await financialService.getClientBalancesForTable();
       setClientBalances(updatedBalances);
-      toast.success('Balances actualizados exitosamente');
+      toast.success(successMessage);
     } catch (error) {
-      console.error('Error updating balances after adjustment:', error);
+      console.error('Error refreshing balances:', error);
       toast.error('No se pudieron actualizar los balances. Recargue la página.');
     }
+  };
+
+  // Handle balance adjustment completion
+  const handleBalanceAdjustmentComplete = async () => {
+    setIsBalanceAdjustmentModalOpen(false);
+    await refreshBalances();
   };
 
   if (isLoading) {
@@ -461,26 +464,32 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                   <TableCell>
                     <div className="flex space-x-2">
                       <Button 
-                        variant="outline" 
+                        variant="secondary" 
                         size="sm" 
                         onClick={() => openSummaryModal(client)}
-                        className="h-8 px-2 text-blue-600"
+                        className="h-8 px-2"
                       >
                         <Eye className="h-4 w-4 mr-1" /> Resumen
                       </Button>
                       <Button 
-                        variant="outline" 
+                        variant="secondary" 
                         size="sm" 
                         onClick={() => openPaymentModal(client)}
-                        className="h-8 px-2 text-green-600"
+                        className="h-8 px-2"
                       >
                         <DollarSign className="h-4 w-4 mr-1" /> Pago
                       </Button>
+                      <ClientPaymentManagerModal
+                        clientId={client.client_id}
+                        clientName={client.business_name}
+                        triggerLabel="Pagos"
+                        onMutated={() => refreshBalances('Balances actualizados')}
+                      />
                       <Button 
-                        variant="outline" 
+                        variant="secondary" 
                         size="sm" 
                         onClick={() => openBalanceAdjustmentModal(client)}
-                        className="h-8 px-2 text-amber-600"
+                        className="h-8 px-2"
                       >
                         <Edit3 className="h-4 w-4 mr-1" /> Ajustar
                       </Button>
@@ -550,7 +559,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
           
           <DialogFooter className="sm:justify-between">
             <Button 
-              variant="outline" 
+              variant="secondary" 
               onClick={() => setIsSummaryModalOpen(false)}
             >
               Cerrar
@@ -589,7 +598,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                     {selectedClient && selectedClient.current_balance > 0 && (
                       <Button 
                         type="button" 
-                        variant="link"
+                        variant="ghost"
                         size="sm"
                         className="p-0 h-auto text-xs text-blue-600 hover:text-blue-800"
                         onClick={handleSetFullBalance}
@@ -668,7 +677,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
               
               <DialogFooter className="pt-4">
                 <Button 
-                  variant="outline" 
+                  variant="secondary" 
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
                 >
