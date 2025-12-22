@@ -38,7 +38,8 @@ import {
   BarChart3,
   Truck,
   Clock,
-  Layers
+  Layers,
+  GitBranch
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -188,6 +189,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
+  { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
   { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
   { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
@@ -210,6 +212,7 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
+  { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
   { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
   { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
