@@ -87,8 +87,10 @@ export async function POST(request: NextRequest) {
       return res;
     }
 
-    // Optional: keep external clients out of internal HR tooling
-    if (profile?.role === 'EXTERNAL_CLIENT') {
+    // Only allow internal roles (exclude external client portal users)
+    // Allowed roles: ADMINISTRATIVE, ADMIN_OPERATIONS, CREDIT_VALIDATOR, DOSIFICADOR, 
+    // EXECUTIVE, PLANT_MANAGER, QUALITY_TEAM, SALES_AGENT, EXTERNAL_SALES_AGENT
+    if (!profile || profile.role === 'EXTERNAL_CLIENT') {
       const res = NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c.name, c.value, c));
       return res;
