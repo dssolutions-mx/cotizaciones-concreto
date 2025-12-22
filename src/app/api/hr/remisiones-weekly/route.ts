@@ -126,7 +126,13 @@ export async function POST(request: NextRequest) {
     // Default to CONCRETO for “trips” unless caller requests otherwise
     const includeTypes = (body.includeTypes?.length ? body.includeTypes : ['CONCRETO']).map(String);
 
+    // Use service client to bypass RLS - this ensures ADMIN_OPERATIONS and ADMINISTRATIVE can access remisiones
     const service = createServiceClient();
+    
+    // Verify service client is properly configured (service role key bypasses all RLS)
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('[HR API] SUPABASE_SERVICE_ROLE_KEY is not set - RLS bypass may not work correctly');
+    }
 
     let q = service
       .from('remisiones')
@@ -169,7 +175,17 @@ export async function POST(request: NextRequest) {
     }
 
     const { data, error } = await q.order('fecha', { ascending: true });
-    if (error) return NextResponse.json({ error: 'Failed to fetch remisiones' }, { status: 500 });
+    if (error) {
+      console.error('Error fetching remisiones:', error);
+      console.error('User role:', profile?.role);
+      console.error('Date range:', { startDate, endDate });
+      return NextResponse.json({ error: 'Failed to fetch remisiones', details: error.message }, { status: 500 });
+    }
+
+    // Log for debugging ADMIN_OPERATIONS access issues
+    if (profile?.role === 'ADMIN_OPERATIONS' || profile?.role === 'ADMINISTRATIVE') {
+      console.log(`[HR API] ${profile.role} user query: ${data?.length ?? 0} remisiones found for range ${startDate} to ${endDate}`);
+    }
 
     const all = ((data ?? []) as RemisionRow[]).filter(r => {
       const driverKey = normalizeKey(r.conductor);
