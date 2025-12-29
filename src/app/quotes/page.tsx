@@ -153,9 +153,6 @@ function QuotesContent() {
     if (statusFilter) {
       params.set('status', statusFilter);
     }
-    if (clientFilter) {
-      params.set('cliente', clientFilter);
-    }
     
     router.push(`${pathname}?${params.toString()}`);
   };
@@ -164,7 +161,6 @@ function QuotesContent() {
   const resetFilters = () => {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('status');
-    params.delete('cliente');
     params.set('tab', activeTab);
     router.push(`${pathname}?${params.toString()}`);
   };
