@@ -254,7 +254,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       }
 
       const { data, count, error } = await query
-        .order('approval_date', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 

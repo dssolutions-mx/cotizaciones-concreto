@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import QuoteBuilder from '@/components/prices/QuoteBuilder';
 import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
@@ -48,6 +48,8 @@ function QuotesContent() {
   const clientFilter = searchParams.get('cliente') || '';
   
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  // Local state for search input (debounced)
+  const [searchInput, setSearchInput] = useState(clientFilter);
 
   // Role-based tabs configuration with icons
   const getRoleTabs = (): TabDefinition[] => {
@@ -129,6 +131,22 @@ function QuotesContent() {
     }
   }, [profile, TABS, activeTab, pathname, router, searchParams]);
 
+  // Sync searchInput with clientFilter when it changes externally (e.g., clear button, URL change)
+  useEffect(() => {
+    setSearchInput(clientFilter);
+  }, [clientFilter]);
+
+  // Debounce search input - update URL param after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== clientFilter) {
+        handleFilterChange('cliente', searchInput);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchInput, clientFilter, handleFilterChange]);
+
   const handleDataSaved = () => {
     setRefreshTrigger(prev => prev + 1);
   };
@@ -152,12 +170,12 @@ function QuotesContent() {
   };
 
   // Handle filter changes
-  const handleFilterChange = (filterType: string, value: string) => {
+  const handleFilterChange = useCallback((filterType: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set(filterType, value);
     params.set('tab', activeTab);
     router.push(`${pathname}?${params.toString()}`);
-  };
+  }, [searchParams, activeTab, pathname, router]);
 
   // Reset all filters
   const resetFilters = () => {
@@ -252,14 +270,14 @@ function QuotesContent() {
                   </div>
                   <Input
                     type="text"
-                    value={clientFilter}
-                    onChange={(e) => handleFilterChange('cliente', e.target.value)}
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
                     placeholder="Buscar por cliente..."
                     className="pl-9 h-9 bg-white/50 border-0 focus:ring-1 focus:ring-green-500/30 text-sm w-full"
                   />
-                  {clientFilter && (
+                  {searchInput && (
                     <button
-                      onClick={() => handleFilterChange('cliente', '')}
+                      onClick={() => setSearchInput('')}
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
