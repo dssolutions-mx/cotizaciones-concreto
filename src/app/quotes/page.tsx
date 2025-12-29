@@ -45,11 +45,7 @@ function QuotesContent() {
   
   // Get filters from URL params
   const statusFilter = searchParams.get('status') || 'todos';
-  const clientFilter = searchParams.get('cliente') || '';
-  
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  // Local state for search input (debounced)
-  const [searchInput, setSearchInput] = useState(clientFilter);
 
   // Role-based tabs configuration with icons
   const getRoleTabs = (): TabDefinition[] => {
@@ -122,6 +118,17 @@ function QuotesContent() {
   // Get tabs based on user role
   const TABS = getRoleTabs();
 
+  // Handle filter changes (only for status - client filter is managed by child components)
+  const handleFilterChange = useCallback((filterType: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set(filterType, value);
+    params.set('tab', activeTab);
+    // Don't sync clientFilter to URL - it causes lag
+    if (filterType !== 'cliente') {
+      router.push(`${pathname}?${params.toString()}`);
+    }
+  }, [searchParams, activeTab, pathname, router]);
+
   // If the active tab is not available for the current role, redirect to the first available tab
   useEffect(() => {
     if (TABS.length > 0 && !TABS.some(tab => tab.id === activeTab)) {
@@ -130,22 +137,6 @@ function QuotesContent() {
       router.push(`${pathname}?${params.toString()}`);
     }
   }, [profile, TABS, activeTab, pathname, router, searchParams]);
-
-  // Sync searchInput with clientFilter when it changes externally (e.g., clear button, URL change)
-  useEffect(() => {
-    setSearchInput(clientFilter);
-  }, [clientFilter]);
-
-  // Debounce search input - update URL param after user stops typing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== clientFilter) {
-        handleFilterChange('cliente', searchInput);
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [searchInput, clientFilter, handleFilterChange]);
 
   const handleDataSaved = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -168,14 +159,6 @@ function QuotesContent() {
     
     router.push(`${pathname}?${params.toString()}`);
   };
-
-  // Handle filter changes
-  const handleFilterChange = useCallback((filterType: string, value: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set(filterType, value);
-    params.set('tab', activeTab);
-    router.push(`${pathname}?${params.toString()}`);
-  }, [searchParams, activeTab, pathname, router]);
 
   // Reset all filters
   const resetFilters = () => {
@@ -263,32 +246,8 @@ function QuotesContent() {
                   </Select>
                 </div>
 
-                {/* Client Filter */}
-                <div className="relative w-full sm:w-64">
-                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400">
-                    <Search className="h-4 w-4" />
-                  </div>
-                  <Input
-                    type="text"
-                    value={searchInput}
-                    onChange={(e) => setSearchInput(e.target.value)}
-                    placeholder="Buscar por cliente..."
-                    className="pl-9 h-9 bg-white/50 border-0 focus:ring-1 focus:ring-green-500/30 text-sm w-full"
-                  />
-                  {searchInput && (
-                    <button
-                      onClick={() => setSearchInput('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-
                 {/* Clear Filters */}
-                {(statusFilter !== 'todos' || clientFilter) && (
+                {statusFilter !== 'todos' && (
                   <button
                     onClick={resetFilters}
                     className="text-xs font-medium text-gray-500 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors whitespace-nowrap"
@@ -307,7 +266,7 @@ function QuotesContent() {
                 key={`${activeTab}-${refreshTrigger}`} 
                 onDataSaved={handleDataSaved}
                 statusFilter={activeTab !== 'create' ? statusFilter : undefined}
-                clientFilter={activeTab !== 'create' ? clientFilter : undefined}
+                clientFilter={undefined}
               />
             </div>
           </TabsContent>

@@ -157,11 +157,10 @@ export interface ApprovedQuote {
 }
 
 export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFilter }: ApprovedQuotesTabProps) {
-  const [quotes, setQuotes] = useState<ApprovedQuote[]>([]);
+  const [allQuotes, setAllQuotes] = useState<ApprovedQuote[]>([]); // Store all quotes
   const [isLoading, setIsLoading] = useState(true);
   const [selectedQuote, setSelectedQuote] = useState<ApprovedQuote | null>(null);
   const [page, setPage] = useState(1);
-  const [totalQuotes, setTotalQuotes] = useState(0);
   const [vatToggles, setVatToggles] = useState<Record<string, boolean>>({});
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -170,6 +169,8 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  // Simple local search - exactly like OrdersList (no props, no debounce, no complexity)
+  const [searchQuery, setSearchQuery] = useState('');
   const quotesPerPage = 10;
   const router = useRouter();
 
@@ -177,7 +178,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
     try {
       setIsLoading(true);
       
-      let query = supabase
+      // Always fetch all approved quotes (no pagination at DB level)
+      // We'll handle filtering and pagination client-side for better performance
+      const { data, error } = await supabase
         .from('quotes')
         .select(`
           id, 
@@ -240,20 +243,8 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               unit
             )
           )
-        `, { count: 'exact' })
-        .eq('status', 'APPROVED');
-
-      // Apply client filter if provided
-      if (clientFilter && clientFilter.trim()) {
-        // When filtering, we need to fetch all data to handle pagination correctly
-        // We'll apply the filter after fetching and then handle pagination client-side
-        console.log('Client filter applied, fetching all data for proper pagination');
-      } else {
-        // Only apply pagination when not filtering
-        query = query.range((page - 1) * quotesPerPage, page * quotesPerPage - 1);
-      }
-
-      const { data, count, error } = await query
+        `)
+        .eq('status', 'APPROVED')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -340,54 +331,79 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         };
       });
 
-      // Apply client-side filtering if clientFilter is provided
-      if (clientFilter && clientFilter.trim()) {
-        const filterLower = clientFilter.toLowerCase();
-        transformedQuotes = transformedQuotes.filter(quote => 
-          quote.client?.business_name?.toLowerCase().includes(filterLower) ||
-          quote.client?.client_code?.toLowerCase().includes(filterLower)
-        );
-        
-        // Handle pagination for filtered results
-        const startIndex = (page - 1) * quotesPerPage;
-        const endIndex = startIndex + quotesPerPage;
-        transformedQuotes = transformedQuotes.slice(startIndex, endIndex);
-        
-        // Set total count to the total filtered results (before pagination)
-        const totalFiltered = (data || []).filter(quote => {
-          const clientData = Array.isArray(quote.clients) ? quote.clients[0] : quote.clients;
-          return clientData && (
-            clientData.business_name?.toLowerCase().includes(filterLower) ||
-            clientData.client_code?.toLowerCase().includes(filterLower)
-          );
-        }).length;
-        setTotalQuotes(totalFiltered);
-      } else {
-        setTotalQuotes(count || 0);
-      }
-
-      setQuotes(transformedQuotes);
+      // Store all quotes (no filtering/pagination here - done client-side)
+      setAllQuotes(transformedQuotes);
     } catch (error) {
       console.error('Error fetching approved quotes:', error);
       toast.error('No se pudieron cargar las cotizaciones aprobadas');
     } finally {
       setIsLoading(false);
     }
-  }, [page, clientFilter]);
+  }, []); // Only fetch once on mount, or when onDataSaved triggers refresh
 
   useEffect(() => {
     fetchApprovedQuotes();
   }, [fetchApprovedQuotes]);
 
+  // Reset page when filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterDateFrom, filterDateTo]);
+
+  // Client-side filtering - simple and direct like OrdersList
+  const filteredQuotes = useMemo(() => {
+    let result = [...allQuotes];
+
+    // Apply search filter
+    if (searchQuery && searchQuery.trim()) {
+      const searchLower = searchQuery.toLowerCase();
+      result = result.filter(quote => 
+        quote.client?.business_name?.toLowerCase().includes(searchLower) ||
+        quote.client?.client_code?.toLowerCase().includes(searchLower) ||
+        quote.quote_number?.toLowerCase().includes(searchLower) ||
+        quote.construction_site?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Apply date filters
+    if (filterDateFrom) {
+      const fromDate = new Date(filterDateFrom);
+      result = result.filter(quote => {
+        const quoteDate = new Date(quote.approval_date);
+        return quoteDate >= fromDate;
+      });
+    }
+
+    if (filterDateTo) {
+      const toDate = new Date(filterDateTo);
+      toDate.setHours(23, 59, 59, 999);
+      result = result.filter(quote => {
+        const quoteDate = new Date(quote.approval_date);
+        return quoteDate <= toDate;
+      });
+    }
+
+    return result;
+  }, [allQuotes, searchQuery, filterDateFrom, filterDateTo]);
+
+  // Paginated quotes
+  const paginatedQuotes = useMemo(() => {
+    const startIndex = (page - 1) * quotesPerPage;
+    const endIndex = startIndex + quotesPerPage;
+    return filteredQuotes.slice(startIndex, endIndex);
+  }, [filteredQuotes, page, quotesPerPage]);
+
+  const totalQuotes = filteredQuotes.length;
+
   useEffect(() => {
     const initialVatToggles: Record<string, boolean> = {};
-    quotes.forEach(quote => {
+    paginatedQuotes.forEach(quote => {
       // If any quote detail has includes_vat=true, initialize the toggle as true
       const hasVAT = quote.quote_details.some(detail => detail.includes_vat);
       initialVatToggles[quote.id] = hasVAT;
     });
     setVatToggles(initialVatToggles);
-  }, [quotes]);
+  }, [paginatedQuotes]);
 
   const openQuoteDetails = (quote: ApprovedQuote) => {
     // Create a deep copy of quote details for editing
@@ -671,26 +687,6 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
     return total;
   };
 
-  // Filter quotes based on date range - memoized for performance
-  const filteredQuotes = useMemo(() => {
-    return quotes.filter(quote => {
-      // Apply date filters if set
-      if (filterDateFrom) {
-        const quoteDate = new Date(quote.approval_date);
-        const fromDate = new Date(filterDateFrom);
-        if (quoteDate < fromDate) return false;
-      }
-
-      if (filterDateTo) {
-        const quoteDate = new Date(quote.approval_date);
-        const toDate = new Date(filterDateTo);
-        toDate.setHours(23, 59, 59, 999);
-        if (quoteDate > toDate) return false;
-      }
-
-      return true;
-    });
-  }, [quotes, filterDateFrom, filterDateTo]);
 
   return (
     <div className="space-y-6">
@@ -698,14 +694,38 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
         </div>
-      ) : filteredQuotes.length === 0 ? (
+      ) : paginatedQuotes.length === 0 ? (
         <div className="flex justify-center items-center h-64">
           <p>{filterDateFrom || filterDateTo ? 'No se encontraron cotizaciones con los filtros aplicados' : 'No hay cotizaciones aprobadas'}</p>
         </div>
       ) : (
         <>
-          {/* Date Range Filter Only */}
+          {/* Search and Filters */}
           <div className="space-y-4">
+            {/* Simple Search Input */}
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar por cliente, número de cotización u obra..."
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
             <div className="flex flex-col gap-3">
               {/* Filter Toggle Button */}
               <div className="flex flex-wrap gap-2 items-center">
@@ -777,9 +797,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               )}
 
               {/* Results Counter */}
-              {(filterDateFrom || filterDateTo) && (
+              {(filterDateFrom || filterDateTo || searchQuery) && (
                 <div className="text-sm text-gray-600 bg-blue-50 px-4 py-3 rounded-lg border border-blue-200 font-medium">
-                  Se encontraron <span className="font-bold text-blue-700">{filteredQuotes.length}</span> cotizaciones
+                  Se encontraron <span className="font-bold text-blue-700">{totalQuotes}</span> cotizaciones
                 </div>
               )}
             </div>
@@ -800,7 +820,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredQuotes.map((quote) => (
+                {paginatedQuotes.map((quote) => (
                   <tr key={quote.id} className="hover:bg-blue-50 transition-colors">
                     <td className="px-4 py-3">{quote.quote_number}</td>
                     <td className="px-4 py-3">
