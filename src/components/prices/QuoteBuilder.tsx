@@ -890,12 +890,25 @@ export default function QuoteBuilder() {
       if (createdQuote.auto_approved) {
         try {
           const { productPriceService } = await import('@/lib/supabase/product-prices');
-          console.log(`Auto-approved quote ${createdQuote.id}, creating product_prices entries...`);
+          console.log(`[QuoteBuilder] Auto-approved quote ${createdQuote.id}, creating product_prices entries...`);
           await productPriceService.handleQuoteApproval(createdQuote.id);
-          console.log(`Successfully created product_prices for auto-approved quote ${createdQuote.id}`);
-        } catch (approvalError) {
-          console.error('Error creating product_prices for auto-approved quote:', approvalError);
-          // Don't throw - quote is already created, just log the error
+          console.log(`[QuoteBuilder] Successfully created product_prices for auto-approved quote ${createdQuote.id}`);
+        } catch (approvalError: any) {
+          const errorMessage = approvalError?.message || 'Unknown error creating product prices';
+          console.error('[QuoteBuilder] Error creating product_prices for auto-approved quote:', {
+            quote_id: createdQuote.id,
+            quote_number: createdQuote.quote_number,
+            error: errorMessage,
+            full_error: approvalError
+          });
+          
+          // Show error toast to user so they know product_prices creation failed
+          toast.error(`Cotización ${createdQuote.quote_number} fue auto-aprobada, pero hubo un error al crear los precios de productos. Por favor, contacte al administrador.`);
+          
+          // Note: We don't revert the quote status here because:
+          // 1. The quote is already created and approved
+          // 2. The user can manually trigger product_prices creation later if needed
+          // 3. Reverting might cause confusion if the quote was already saved
         }
       }
 
