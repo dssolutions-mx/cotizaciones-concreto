@@ -131,7 +131,69 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      console.error('Failed to create payment:', error);
       return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
+    }
+
+    // ============================================================
+    // AUTO-CREATE DISTRIBUTION
+    // The update_client_balance function uses distributions to calculate balances.
+    // If distributions exist globally, payments without distributions are NOT counted.
+    // ============================================================
+    
+    let distributionSite: string | null = normalizedSite;
+    
+    // If it's a general payment (no specific site), determine where to distribute
+    if (!normalizedSite) {
+      // Get all sites with orders for this client
+      const { data: clientSites } = await supabase
+        .from('orders')
+        .select('construction_site')
+        .eq('client_id', client_id)
+        .not('construction_site', 'is', null)
+        .not('order_status', 'eq', 'cancelled');
+      
+      const uniqueSites = [...new Set((clientSites || []).map(o => o.construction_site).filter(Boolean))];
+      
+      // If client has exactly 1 site, distribute to that site
+      // Otherwise, leave as null (general distribution)
+      if (uniqueSites.length === 1) {
+        distributionSite = uniqueSites[0];
+      }
+    }
+
+    // Create the distribution record
+    const { error: distError } = await supabase
+      .from('client_payment_distributions')
+      .insert({
+        payment_id: payment.id,
+        construction_site: distributionSite,
+        amount: amount,
+      });
+
+    if (distError) {
+      console.error('Failed to create payment distribution:', distError);
+      // Payment was created but distribution failed - log but don't fail the request
+      // The payment exists, just the distribution is missing
+    }
+
+    // Trigger balance recalculation
+    try {
+      // Update balance for the specific site if applicable
+      if (distributionSite) {
+        await supabase.rpc('update_client_balance', { 
+          p_client_id: client_id, 
+          p_site_name: distributionSite 
+        });
+      }
+      // Always update the general balance
+      await supabase.rpc('update_client_balance', { 
+        p_client_id: client_id, 
+        p_site_name: null 
+      });
+    } catch (balanceErr) {
+      console.error('Balance update error:', balanceErr);
+      // Don't fail the request - payment was created successfully
     }
 
     return NextResponse.json({ payment });
