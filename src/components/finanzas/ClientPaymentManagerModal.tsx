@@ -114,7 +114,17 @@ export function ClientPaymentManagerModal({
     if (open) fetchPayments();
   }, [open, fetchPayments]);
 
+  // Debug: Log when editing state changes
+  React.useEffect(() => {
+    if (editing) {
+      console.log('Editing state set to:', editing.id);
+    } else {
+      console.log('Editing state cleared');
+    }
+  }, [editing]);
+
   const startEdit = (p: ClientPayment) => {
+    console.log('startEdit called with payment:', p);
     setEditing(p);
     setEditForm({
       amount: String(p.amount ?? ''),
@@ -125,6 +135,21 @@ export function ClientPaymentManagerModal({
       construction_site: p.construction_site ? p.construction_site : 'general',
       reason: '',
     });
+    toast.info('Formulario de edición abierto. Desplázate hacia abajo para verlo.');
+    // Scroll to edit form after a brief delay to ensure it's rendered
+    setTimeout(() => {
+      const editSection = document.getElementById('edit-payment-section');
+      if (editSection) {
+        editSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // Highlight the section briefly
+        editSection.classList.add('ring-2', 'ring-primary', 'ring-offset-2');
+        setTimeout(() => {
+          editSection.classList.remove('ring-2', 'ring-primary', 'ring-offset-2');
+        }, 2000);
+      } else {
+        console.warn('Edit section not found in DOM');
+      }
+    }, 150);
   };
 
   const saveEdit = async () => {
@@ -259,7 +284,16 @@ export function ClientPaymentManagerModal({
                   <TableCell className="text-right font-medium">{formatCurrency(p.amount)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => startEdit(p)}>
+                      <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('Edit button clicked for payment:', p.id);
+                          startEdit(p);
+                        }}
+                      >
                         <Pencil className="h-4 w-4 mr-1" />
                         Editar
                       </Button>
@@ -290,7 +324,7 @@ export function ClientPaymentManagerModal({
         </div>
 
         {editing && (
-          <div className="mt-6 rounded-md border p-4 space-y-4">
+          <div id="edit-payment-section" className="mt-6 rounded-md border p-4 space-y-4 bg-muted/30">
             <div className="flex items-center justify-between">
               <div className="font-semibold text-sm">Editar pago</div>
               <Button variant="secondary" size="sm" onClick={() => setEditing(null)} disabled={saving}>
