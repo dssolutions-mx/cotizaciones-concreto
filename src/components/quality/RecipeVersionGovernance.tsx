@@ -153,84 +153,68 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
 
   // Filter and sort masters/variants by priority (errors first, then warnings)
   const filteredMasters = useMemo(() => {
-    let filtered = masters;
-
-    // Apply search filter
-    if (searchTerm.trim()) {
-      const searchLower = searchTerm.toLowerCase();
-      filtered = filtered
-        .map(master => {
-          const filteredVariants = master.variants.filter(variant =>
+    // Start with all masters
+    let filtered = masters.map(master => {
+      // Filter variants based on all active filters
+      const filteredVariants = master.variants.filter(variant => {
+        // 1. Search filter
+        if (searchTerm.trim()) {
+          const searchLower = searchTerm.toLowerCase();
+          const matchesSearch = 
             variant.recipeCode.toLowerCase().includes(searchLower) ||
-            master.masterCode.toLowerCase().includes(searchLower)
-          );
+            master.masterCode.toLowerCase().includes(searchLower);
+          if (!matchesSearch) {
+            return false;
+          }
+        }
 
-          if (filteredVariants.length === 0 && !master.masterCode.toLowerCase().includes(searchLower)) {
-            return null;
+        // 2. Status filter (if any status is selected)
+        if (statusFilter.size > 0 && !statusFilter.has(variant.status)) {
+          return false;
+        }
+
+        // 3. Validation filters (severity and issue type)
+        const hasSeverityFilter = severityFilter !== 'all';
+        const hasIssueTypeFilter = issueTypeFilters.size > 0;
+        
+        if (hasSeverityFilter || hasIssueTypeFilter) {
+          // Variant must have validation issues if severity/type filters are active
+          if (!variant.validationIssues || variant.validationIssues.length === 0) {
+            return false;
           }
 
-          return {
-            ...master,
-            variants: filteredVariants,
-          };
-        })
-        .filter((m): m is MasterGovernanceData => m !== null);
-    }
-
-    // Apply validation filters
-    const hasActiveFilters = severityFilter !== 'all' || issueTypeFilters.size > 0 || statusFilter.size > 0;
-    
-    if (hasActiveFilters) {
-      filtered = filtered
-        .map(master => {
-          const filteredVariants = master.variants.filter(variant => {
-            // Status filter
-            if (statusFilter.size > 0 && !statusFilter.has(variant.status)) {
+          // Check severity filter
+          if (hasSeverityFilter) {
+            const hasMatchingSeverity = variant.validationIssues.some(
+              issue => issue.severity === severityFilter
+            );
+            if (!hasMatchingSeverity) {
               return false;
             }
-
-            // Validation issues filter
-            if (variant.validationIssues && variant.validationIssues.length > 0) {
-              // Severity filter
-              if (severityFilter !== 'all') {
-                const hasMatchingSeverity = variant.validationIssues.some(
-                  issue => issue.severity === severityFilter
-                );
-                if (!hasMatchingSeverity) {
-                  return false;
-                }
-              }
-
-              // Issue type filter
-              if (issueTypeFilters.size > 0) {
-                const hasMatchingType = variant.validationIssues.some(
-                  issue => issueTypeFilters.has(issue.type)
-                );
-                if (!hasMatchingType) {
-                  return false;
-                }
-              }
-            } else {
-              // If no validation issues but filters require them, exclude
-              if (severityFilter !== 'all' || issueTypeFilters.size > 0) {
-                return false;
-              }
-            }
-
-            return true;
-          });
-
-          if (filteredVariants.length === 0) {
-            return null;
           }
 
-          return {
-            ...master,
-            variants: filteredVariants,
-          };
-        })
-        .filter((m): m is MasterGovernanceData => m !== null);
-    }
+          // Check issue type filter (must match at least one selected type)
+          if (hasIssueTypeFilter) {
+            const hasMatchingType = variant.validationIssues.some(
+              issue => issueTypeFilters.has(issue.type)
+            );
+            if (!hasMatchingType) {
+              return false;
+            }
+          }
+        }
+
+        return true;
+      });
+
+      return {
+        ...master,
+        variants: filteredVariants,
+      };
+    });
+
+    // Remove masters with no variants after filtering
+    filtered = filtered.filter(master => master.variants.length > 0);
 
     // Sort by priority: masters with errors first, then warnings, then healthy
     filtered = filtered
