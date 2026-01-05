@@ -139,16 +139,16 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
         : 'El cemento es obligatorio en todas las recetas',
     });
   } else {
-    // Check cement quantity (only error if < 0)
+    // Check cement quantity (only error if <= 0)
     const cementQty = cementMaterial.quantity || 0;
-    if (cementQty < 0) {
+    if (cementQty <= 0) {
       issues.push({
         type: 'invalid_quantities',
         severity: getSeverity(true),
         message: `Cantidad de cemento inválida: ${cementQty.toFixed(2)} kg/m³`,
         details: isQuoteBuilderVariant
-          ? `El cemento no puede tener cantidad negativa. Valor actual: ${cementQty.toFixed(2)} kg/m³. Esta variante se usa en QuoteBuilder.`
-          : `El cemento no puede tener cantidad negativa. Valor actual: ${cementQty.toFixed(2)} kg/m³`,
+          ? `El cemento debe tener una cantidad mayor a 0. Valor actual: ${cementQty.toFixed(2)} kg/m³. Esta variante se usa en QuoteBuilder.`
+          : `El cemento debe tener una cantidad mayor a 0. Valor actual: ${cementQty.toFixed(2)} kg/m³`,
       });
     }
   }
