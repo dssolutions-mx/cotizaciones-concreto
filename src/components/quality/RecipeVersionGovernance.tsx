@@ -870,7 +870,14 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right text-sm text-gray-600">
-                          <div>{master.summary.totalVariants} variantes</div>
+                          <div>
+                            {master.variants.length} variante{master.variants.length !== 1 ? 's' : ''}
+                            {master.variants.length !== master.summary.totalVariants && (
+                              <span className="text-gray-400 ml-1" title={`${master.summary.totalVariants} variantes totales, ${master.summary.totalVariants - master.variants.length} ocultas por filtros`}>
+                                (de {master.summary.totalVariants})
+                              </span>
+                            )}
+                          </div>
                           <div className="flex gap-2 mt-1 flex-wrap justify-end">
                             <span className="text-green-600">{master.summary.upToDateCount} ✓</span>
                             <span className="text-yellow-600">{master.summary.outdatedCount} ⚠</span>
@@ -901,9 +908,29 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                   <CardContent className="pt-0">
                     <div className="space-y-3 mt-4">
                       {master.variants.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-4">
-                          No hay variantes para este maestro.
-                        </p>
+                        <div className="text-sm text-center py-4">
+                          <p className="text-gray-500">
+                            {master.summary.totalVariants > 0 
+                              ? `${master.summary.totalVariants} variante${master.summary.totalVariants !== 1 ? 's' : ''} oculta${master.summary.totalVariants !== 1 ? 's' : ''} por los filtros activos.`
+                              : 'No hay variantes para este maestro.'
+                            }
+                          </p>
+                          {master.summary.totalVariants > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSeverityFilter('all');
+                                setIssueTypeFilters(new Set());
+                                setStatusFilter(new Set());
+                              }}
+                            >
+                              Limpiar filtros
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         master.variants.map((variant) => {
                           const isVariantExpanded = expandedVariants.has(variant.variantId);

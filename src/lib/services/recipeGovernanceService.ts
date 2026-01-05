@@ -139,23 +139,16 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
         : 'El cemento es obligatorio en todas las recetas',
     });
   } else {
-    // Check cement quantity (minimum 200 kg/m³)
+    // Check cement quantity (only error if < 0)
     const cementQty = cementMaterial.quantity || 0;
-    if (cementQty < 200) {
+    if (cementQty < 0) {
       issues.push({
-        type: 'low_cement',
+        type: 'invalid_quantities',
         severity: getSeverity(true),
-        message: `Cantidad de cemento muy baja: ${cementQty.toFixed(2)} kg/m³`,
+        message: `Cantidad de cemento inválida: ${cementQty.toFixed(2)} kg/m³`,
         details: isQuoteBuilderVariant
-          ? `El cemento debe ser al menos 200 kg/m³. Valor actual: ${cementQty.toFixed(2)} kg/m³. Esta variante se usa en QuoteBuilder.`
-          : `El cemento debe ser al menos 200 kg/m³. Valor actual: ${cementQty.toFixed(2)} kg/m³`,
-      });
-    } else if (cementQty < 250) {
-      issues.push({
-        type: 'low_cement',
-        severity: 'warning',
-        message: `Cantidad de cemento baja: ${cementQty.toFixed(2)} kg/m³`,
-        details: `Se recomienda al menos 250 kg/m³ para la mayoría de aplicaciones`,
+          ? `El cemento no puede tener cantidad negativa. Valor actual: ${cementQty.toFixed(2)} kg/m³. Esta variante se usa en QuoteBuilder.`
+          : `El cemento no puede tener cantidad negativa. Valor actual: ${cementQty.toFixed(2)} kg/m³`,
       });
     }
   }
@@ -436,6 +429,7 @@ export const recipeGovernanceService = {
         // QuoteBuilder uses the variant with the most recent version (by created_at)
         let quoteBuilderVariantId: string | null = null;
         let quoteBuilderVersionCreatedAt: Date | null = null;
+        let quoteBuilderVariantCode: string | null = null;
         
         recipeVariants.forEach((r: any) => {
           const variantLatestVersion = latestVersionMap.get(r.id);
@@ -444,9 +438,17 @@ export const recipeGovernanceService = {
             if (!quoteBuilderVersionCreatedAt || versionDate > quoteBuilderVersionCreatedAt) {
               quoteBuilderVersionCreatedAt = versionDate;
               quoteBuilderVariantId = r.id;
+              quoteBuilderVariantCode = r.recipe_code;
             }
           }
         });
+        
+        // Debug logging for QuoteBuilder variant identification
+        if (quoteBuilderVariantId) {
+          console.log(`[RecipeGovernance] Master ${m.master_code}: QuoteBuilder variant = ${quoteBuilderVariantCode} (ID: ${quoteBuilderVariantId}, latest version date: ${quoteBuilderVersionCreatedAt?.toISOString()})`);
+        } else {
+          console.warn(`[RecipeGovernance] Master ${m.master_code}: No QuoteBuilder variant found (no versions)`);
+        }
         
         const variants: VariantVersionStatus[] = recipeVariants.map((r: any) => {
           const latestVersion = latestVersionMap.get(r.id);
