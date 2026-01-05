@@ -333,8 +333,14 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       marginPercentage = avgMargin;
     }
 
-    // Check if should auto-approve (margin >= 8%)
-    const shouldAutoApprove = marginPercentage >= 8.0;
+    // Determine IVA status from details
+    const requiresIVA = quoteData.details.length > 0 && quoteData.details.every(d => d.includes_vat);
+
+    // Conditional auto-approval threshold based on IVA status
+    // With IVA (requires receipt): 8% margin
+    // Without IVA (no receipt): 14% margin
+    const autoApprovalThreshold = requiresIVA ? 8.0 : 14.0;
+    const shouldAutoApprove = marginPercentage >= autoApprovalThreshold;
     const initialStatus = shouldAutoApprove ? 'APPROVED' : 'PENDING_APPROVAL';
 
     // Generate quote number with range code

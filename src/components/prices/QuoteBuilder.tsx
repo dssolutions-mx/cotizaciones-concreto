@@ -914,9 +914,10 @@ export default function QuoteBuilder() {
 
       // Check if auto-approved
       const isAutoApproved = createdQuote.auto_approved || false;
+      const thresholdUsed = includesVAT ? 8 : 14;
       const statusMessage = isAutoApproved 
-        ? `Cotización ${createdQuote.quote_number} creada y auto-aprobada (margen >= 8%)`
-        : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación (margen < 8%)`;
+        ? `Cotización ${createdQuote.quote_number} creada y auto-aprobada (margen >= ${thresholdUsed}%)`
+        : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación (margen < ${thresholdUsed}%)`;
 
       toast.success(statusMessage);
       
@@ -1747,20 +1748,38 @@ export default function QuoteBuilder() {
                 </label>
               </div>
 
-              <div className="flex items-center space-x-3">
-                <Checkbox.Root
-                  id="includesVAT"
-                  checked={includesVAT}
-                  onCheckedChange={(checked) => setIncludesVAT(checked === true)}
-                  className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
-                >
-                  <Checkbox.Indicator>
-                    <Check className="h-3.5 w-3.5" />
-                  </Checkbox.Indicator>
-                </Checkbox.Root>
-                <label htmlFor="includesVAT" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
-                  Incluir IVA
-                </label>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-3">
+                  <Checkbox.Root
+                    id="includesVAT"
+                    checked={includesVAT}
+                    onCheckedChange={(checked) => setIncludesVAT(checked === true)}
+                    className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
+                  >
+                    <Checkbox.Indicator>
+                      <Check className="h-3.5 w-3.5" />
+                    </Checkbox.Indicator>
+                  </Checkbox.Root>
+                  <label htmlFor="includesVAT" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                    Incluir IVA
+                  </label>
+                </div>
+                
+                {/* IVA Auto-Approval Guidance */}
+                <div className="ml-8 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                    <div className="text-xs text-blue-900">
+                      <p className="font-medium mb-1">Umbral de Auto-Aprobación</p>
+                      <p className="text-blue-700">
+                        {includesVAT 
+                          ? "Con IVA (requiere factura): Auto-aprobación al 8% de margen"
+                          : "Sin IVA (sin factura): Auto-aprobación al 14% de margen"
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1853,6 +1872,69 @@ export default function QuoteBuilder() {
               Detalle de la Cotización
             </h2>
           </div>
+
+          {/* Margin Status Indicator */}
+          {quoteProducts.length > 0 && (() => {
+            const avgMargin = quoteProducts.reduce((sum, p) => sum + p.profitMargin, 0) / quoteProducts.length * 100;
+            const threshold = includesVAT ? 8 : 14;
+            const meetsThreshold = avgMargin >= threshold;
+            const isClose = !meetsThreshold && avgMargin >= threshold - 2; // Within 2% of threshold
+            
+            return (
+              <div className={`mb-4 p-4 rounded-lg border-2 ${
+                meetsThreshold 
+                  ? 'bg-green-50 border-green-200' 
+                  : isClose 
+                    ? 'bg-amber-50 border-amber-200' 
+                    : 'bg-red-50 border-red-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-full ${
+                      meetsThreshold 
+                        ? 'bg-green-100' 
+                        : isClose 
+                          ? 'bg-amber-100' 
+                          : 'bg-red-100'
+                    }`}>
+                      {meetsThreshold ? (
+                        <Check className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertCircle className={`h-5 w-5 ${isClose ? 'text-amber-600' : 'text-red-600'}`} />
+                      )}
+                    </div>
+                    <div>
+                      <p className={`font-semibold text-sm ${
+                        meetsThreshold 
+                          ? 'text-green-900' 
+                          : isClose 
+                            ? 'text-amber-900' 
+                            : 'text-red-900'
+                      }`}>
+                        {meetsThreshold 
+                          ? 'Esta cotización será auto-aprobada' 
+                          : isClose 
+                            ? 'Cerca del umbral de auto-aprobación' 
+                            : 'Requiere aprobación manual'
+                        }
+                      </p>
+                      <p className={`text-xs mt-0.5 ${
+                        meetsThreshold 
+                          ? 'text-green-700' 
+                          : isClose 
+                            ? 'text-amber-700' 
+                            : 'text-red-700'
+                      }`}>
+                        Margen promedio: <span className="font-bold">{avgMargin.toFixed(1)}%</span> | 
+                        Umbral requerido: <span className="font-bold">{threshold}%</span>
+                        {!meetsThreshold && ` (faltan ${(threshold - avgMargin).toFixed(1)}%)`}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           
           <div className="space-y-4">
             {quoteProducts.map((product, index) => (
