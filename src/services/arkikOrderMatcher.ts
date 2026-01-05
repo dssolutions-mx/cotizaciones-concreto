@@ -242,18 +242,7 @@ export class ArkikOrderMatcher {
       .in('order_status', ['created', 'validated', 'scheduled']) // Only orders that can be updated
       .eq('plant_id', this.plantId); // Scope to current plant to ensure visibility
     
-    // Apply client filter if provided
-    if (criteria.client_id) {
-      query = query.eq('client_id', criteria.client_id);
-    }
-    // Apply site filter if provided
-    if (criteria.construction_site_id) {
-      query = query.eq('construction_site_id', criteria.construction_site_id);
-    }
-    
-    query = query.limit(50);
-
-    // Apply client filter if we have a specific client_id
+    // Apply client filter if provided (required for matching)
     if (criteria.client_id) {
       query = query.eq('client_id', criteria.client_id);
     } else if (criteria.client_name) {
@@ -262,13 +251,16 @@ export class ArkikOrderMatcher {
       console.log(`[ArkikOrderMatcher] Using flexible client matching for: "${criteria.client_name}"`);
     }
 
-    // Apply construction site filter if we have specific criteria
-    if (criteria.construction_site_id) {
-      query = query.eq('construction_site_id', criteria.construction_site_id);
-    } else if (criteria.construction_site_name) {
-      // Use broader search for flexible matching
+    // RELAXED: Don't filter by construction_site_id strictly - let scoring handle site matching
+    // This allows orders with different construction site IDs but same client/date to be considered
+    // The scoring logic will handle construction site matching more leniently
+    if (criteria.construction_site_name && !criteria.construction_site_id) {
+      // Only use name-based search if we don't have an ID (to avoid too many results)
       query = query.ilike('construction_site', `%${criteria.construction_site_name}%`);
     }
+    // Note: We intentionally don't filter by construction_site_id to allow relaxed matching
+    
+    query = query.limit(50);
 
     const { data, error } = await query;
 
@@ -391,11 +383,33 @@ export class ArkikOrderMatcher {
       matchReasons.push('Cliente parcialmente similar');
     }
 
-    // Construction site matching (using similarity like validation does)
+    // Pre-calculate values used in multiple places
+    const orderItems = (order as any).order_items || [];
+    const orderYmd = this.extractYmdString((order as any).delivery_date);
+    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
+    const hasExactDateMatch = orderYmd === remisionYmd;
+    
+    // Calculate recipe match percentage (used for both recipe scoring and construction site relaxation)
+    let recipeMatchScore = 0;
+    for (const remision of remisiones) {
+      if (hasStrictRecipeMatch(orderItems as any, remision)) {
+        recipeMatchScore += 1;
+      }
+    }
+    const recipeMatchPercentage = remisiones.length > 0 ? recipeMatchScore / remisiones.length : 0;
+    const hasStrongRecipeMatch = recipeMatchPercentage >= 0.8;
+
+    // Construction site matching (relaxed - give points even if names differ if client/date/recipe match)
     const siteSimilarity = this.calculateSiteSimilarity(
       firstRemision.obra_name || '',
       order.construction_site || ''
     );
+    
+    // Check if we have strong matches on critical criteria (client, date, recipe)
+    const hasExactClientMatch = order.client_id === firstRemision.client_id;
+    
+    // If critical criteria match (client, date, recipe), be more lenient with construction site
+    const hasStrongCriticalMatches = hasExactClientMatch && hasExactDateMatch && hasStrongRecipeMatch;
     
     if (order.construction_site_id === firstRemision.construction_site_id) {
       score += 2;
@@ -409,12 +423,14 @@ export class ArkikOrderMatcher {
     } else if (siteSimilarity > 0.4) {
       score += 1;
       matchReasons.push('Obra parcialmente similar');
+    } else if (hasStrongCriticalMatches) {
+      // Relaxed: If client, date, and recipe match strongly, give points even if construction site name differs
+      score += 1;
+      matchReasons.push('Obra diferente (cliente/fecha/receta coinciden)');
     }
 
     // Date proximity (string-based equality preferred, no TZ conversion)
-    const orderYmd = this.extractYmdString((order as any).delivery_date);
-    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
-    if (orderYmd === remisionYmd) {
+    if (hasExactDateMatch) {
       score += 3; // Strongly prefer exact same day
       matchReasons.push('Fecha exacta');
     } else {
@@ -432,21 +448,7 @@ export class ArkikOrderMatcher {
     }
 
     // Recipe/Product match (check order items with strict matching)
-    const orderItems = (order as any).order_items || [];
-    let recipeMatchScore = 0;
     let recipeMatchReason = '';
-    
-    // Check each remision against order items for strict recipe matching
-    for (const remision of remisiones) {
-      const hasMatchingRecipe = hasStrictRecipeMatch(orderItems as any, remision);
-      
-      if (hasMatchingRecipe) {
-        recipeMatchScore += 1;
-      }
-    }
-    
-    // Calculate recipe match percentage
-    const recipeMatchPercentage = remisiones.length > 0 ? recipeMatchScore / remisiones.length : 0;
     
     if (recipeMatchPercentage === 1.0) {
       score += 3; // Perfect recipe match
