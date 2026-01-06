@@ -72,7 +72,9 @@ const determineProductType = (): ProductType => {
 };
 
 export const productPriceService = {
-  async deactivateExistingPrices(clientId: string, recipeId: string, constructionSite: string, plantId?: string) {
+  async deactivateExistingPrices(clientId: string, recipeId: string, constructionSite: string, plantId?: string, supabaseClient?: any) {
+    const client = supabaseClient || supabase;
+    
     const updateConditions: any = { 
       client_id: clientId,
       recipe_id: recipeId,
@@ -85,7 +87,7 @@ export const productPriceService = {
       updateConditions.plant_id = plantId;
     }
 
-    const { error } = await supabase
+    const { error } = await client
       .from('product_prices')
       .update({ 
         is_active: false,
@@ -96,7 +98,9 @@ export const productPriceService = {
     if (error) throw new Error(`Error deactivating existing prices: ${error.message}`);
   },
 
-  async deactivateExistingMasterPrices(clientId: string, masterRecipeId: string, constructionSite: string, plantId?: string) {
+  async deactivateExistingMasterPrices(clientId: string, masterRecipeId: string, constructionSite: string, plantId?: string, supabaseClient?: any) {
+    const client = supabaseClient || supabase;
+    
     const updateConditions: any = { 
       client_id: clientId,
       master_recipe_id: masterRecipeId,
@@ -109,7 +113,7 @@ export const productPriceService = {
       updateConditions.plant_id = plantId;
     }
 
-    const { error } = await supabase
+    const { error } = await client
       .from('product_prices')
       .update({ 
         is_active: false,
@@ -120,17 +124,20 @@ export const productPriceService = {
     if (error) throw new Error(`Error deactivating existing master prices: ${error.message}`);
   },
 
-  async createNewPrice(priceData: ProductPriceData) {
+  async createNewPrice(priceData: ProductPriceData, supabaseClient?: any) {
+    const client = supabaseClient || supabase;
+    
     // Log the data being inserted
-    console.log('Creating new price with data:', {
+    console.log('[createNewPrice] Creating new price with data:', {
       code: priceData.code,
       type: priceData.type,
       fc_mr_value: priceData.fc_mr_value,
       construction_site: priceData.construction_site,
-      plant_id: priceData.plant_id
+      plant_id: priceData.plant_id,
+      using_admin_client: !!supabaseClient
     });
 
-    const { error } = await supabase
+    const { error } = await client
       .from('product_prices')
       .insert({
         ...priceData,
@@ -138,9 +145,11 @@ export const productPriceService = {
       });
 
     if (error) {
-      console.error('Error details:', error);
+      console.error('[createNewPrice] Error details:', error);
       throw new Error(`Error creating new price: ${error.message}`);
     }
+    
+    console.log('[createNewPrice] Successfully created product_price:', priceData.code);
   },
 
   async handleQuoteApproval(quoteId: string, supabaseClient?: any) {
@@ -480,7 +489,8 @@ export const productPriceService = {
                 quote.client_id, 
                 detail.recipe_id, 
                 quote.construction_site,
-                plantId
+                plantId,
+                client
               );
             }
             
@@ -492,7 +502,8 @@ export const productPriceService = {
                 quote.client_id, 
                 detail.master_recipe_id, 
                 quote.construction_site,
-                plantId
+                plantId,
+                client
               );
             }
             
@@ -564,7 +575,7 @@ export const productPriceService = {
               base_price: priceData.base_price
             });
 
-            await productPriceService.createNewPrice(priceData);
+            await productPriceService.createNewPrice(priceData, client);
             console.log(`[handleQuoteApproval] Successfully created product_price for detail ${detail.id}`);
           }
           

@@ -887,12 +887,26 @@ export default function QuoteBuilder() {
       }
 
       // NOW create product_prices for auto-approved quotes (AFTER all products are added)
+      // Use API route to ensure server-side execution and bypass RLS issues
       if (createdQuote.auto_approved) {
         try {
-          const { productPriceService } = await import('@/lib/supabase/product-prices');
-          console.log(`[QuoteBuilder] Auto-approved quote ${createdQuote.id}, creating product_prices entries...`);
-          await productPriceService.handleQuoteApproval(createdQuote.id);
-          console.log(`[QuoteBuilder] Successfully created product_prices for auto-approved quote ${createdQuote.id}`);
+          console.log(`[QuoteBuilder] Auto-approved quote ${createdQuote.id}, creating product_prices entries via API...`);
+          
+          const response = await fetch('/api/quotes/approve', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ quoteId: createdQuote.id }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+          console.log(`[QuoteBuilder] Successfully created ${result.pricesCreated} product_prices for auto-approved quote ${createdQuote.id}`);
         } catch (approvalError: any) {
           const errorMessage = approvalError?.message || 'Unknown error creating product prices';
           console.error('[QuoteBuilder] Error creating product_prices for auto-approved quote:', {
