@@ -296,15 +296,17 @@ export default function ScheduleOrderForm({
         
         if (error) throw error;
         
-        setConstructionSites(data.map(site => ({
+        const mappedSites = data.map(site => ({
           id: site.id,
           name: site.name,
           location: site.location
-        })));
+        }));
+        setConstructionSites(mappedSites);
         
         // If only one construction site exists, select it automatically
-        if (data.length === 1) {
-          setSelectedConstructionSiteId(data[0].id);
+        if (mappedSites.length === 1) {
+          setSelectedConstructionSiteId(mappedSites[0].id);
+          setSelectedConstructionSite(mappedSites[0]); // CRITICAL: Also set the site object so the useEffect can access .name
         }
       } catch (err) {
         console.error('Error loading construction sites:', err);
@@ -699,15 +701,16 @@ export default function ScheduleOrderForm({
         
         // 3. Format the quotes for the form, filtering out quote details that don't have active prices
         const formattedQuotes: Quote[] = quotesData.map(quoteData => {
-          // Filter quote details to include both active master-based and standalone pumping service combinations
+          // Filter quote details to include ONLY those with active prices from the MOST RECENT quote
           const activeDetails = quoteData.quote_details.filter((detail: any) => {
-            // Check if this specific quote-master combination is in our active set
+            // Check if this specific quote-master combination is in our active set (MOST RECENT only)
             let hasActiveMaster = false;
             if (detail.master_recipe_id) {
-              // Check active combos first, then fall back to allowing any master_recipe_id from approved quotes
-              // (this handles cases where the master price exists in the quote but not explicitly in active_prices)
-              hasActiveMaster = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`) || !!detail.master_recipes;
+              // STRICT: Only allow if this exact quote-master combo is in our active set
+              // This ensures we only show prices from the most recent quote per master
+              hasActiveMaster = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
             } else if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
+              // Recipe with master linkage - check if this quote-master combo is active
               hasActiveMaster = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
             }
             // Check recipe-level fallback (no master linkage anywhere)

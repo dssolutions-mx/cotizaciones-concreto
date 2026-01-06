@@ -124,6 +124,62 @@ export const productPriceService = {
     if (error) throw new Error(`Error deactivating existing master prices: ${error.message}`);
   },
 
+  /**
+   * Deactivates recipe-based prices that map to a given master_recipe_id.
+   * This is CRITICAL when creating a new master-level price - we need to also
+   * deactivate any old recipe-level prices whose recipe.master_recipe_id matches.
+   */
+  async deactivateRecipePricesForMaster(clientId: string, masterRecipeId: string, constructionSite: string, plantId?: string, supabaseClient?: any) {
+    const client = supabaseClient || supabase;
+    
+    console.log(`[deactivateRecipePricesForMaster] Finding recipe-based prices that map to master ${masterRecipeId}`);
+    
+    // First, find all recipes that belong to this master
+    const { data: recipes, error: recipesError } = await client
+      .from('recipes')
+      .select('id')
+      .eq('master_recipe_id', masterRecipeId);
+    
+    if (recipesError) {
+      console.error(`[deactivateRecipePricesForMaster] Error fetching recipes for master ${masterRecipeId}:`, recipesError);
+      throw new Error(`Error fetching recipes for master: ${recipesError.message}`);
+    }
+    
+    if (!recipes || recipes.length === 0) {
+      console.log(`[deactivateRecipePricesForMaster] No recipes found for master ${masterRecipeId}`);
+      return;
+    }
+    
+    const recipeIds = recipes.map((r: any) => r.id);
+    console.log(`[deactivateRecipePricesForMaster] Found ${recipeIds.length} recipes for master ${masterRecipeId}:`, recipeIds);
+    
+    // Now deactivate all product_prices that have these recipe_ids
+    let updateQuery = client
+      .from('product_prices')
+      .update({ 
+        is_active: false,
+        updated_at: new Date().toISOString()
+      })
+      .eq('client_id', clientId)
+      .eq('construction_site', constructionSite)
+      .eq('is_active', true)
+      .in('recipe_id', recipeIds);
+    
+    // Add plant_id filter if provided
+    if (plantId) {
+      updateQuery = updateQuery.eq('plant_id', plantId);
+    }
+    
+    const { error, count } = await updateQuery;
+    
+    if (error) {
+      console.error(`[deactivateRecipePricesForMaster] Error deactivating recipe-based prices:`, error);
+      throw new Error(`Error deactivating recipe-based prices for master: ${error.message}`);
+    }
+    
+    console.log(`[deactivateRecipePricesForMaster] Deactivated recipe-based prices for master ${masterRecipeId}, affected: ${count ?? 'unknown'}`);
+  },
+
   async createNewPrice(priceData: ProductPriceData, supabaseClient?: any) {
     const client = supabaseClient || supabase;
     
@@ -501,6 +557,18 @@ export const productPriceService = {
               await productPriceService.deactivateExistingMasterPrices(
                 quote.client_id, 
                 detail.master_recipe_id, 
+                quote.construction_site,
+                plantId,
+                client
+              );
+              
+              // CRITICAL: Also deactivate recipe-based prices that map to this master
+              // This ensures that when a new master-level price is created, all old
+              // recipe-variant prices for the same master are also deactivated
+              console.log(`[handleQuoteApproval] Deactivating recipe-based prices that map to master for detail ${detail.id}`);
+              await productPriceService.deactivateRecipePricesForMaster(
+                quote.client_id,
+                detail.master_recipe_id,
                 quote.construction_site,
                 plantId,
                 client

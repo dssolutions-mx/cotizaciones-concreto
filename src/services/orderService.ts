@@ -176,6 +176,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     // If orderData.order_items are provided, insert them
     if (orderData.order_items && orderData.order_items.length > 0) {
       // Fetch the quote details to get product information
+      // Quote details should always have master_recipe_id set for concrete products
       const { data: quoteDetails, error: quoteDetailsError } = await supabase
         .from('quote_details')
         .select(`
@@ -184,11 +185,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           pump_service,
           pump_price,
           product_id,
-          recipe_id,
           master_recipe_id,
-          recipes:recipe_id (
-            recipe_code
-          ),
           master_recipes:master_recipe_id (
             master_code
           )
@@ -197,47 +194,22 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
 
       if (quoteDetailsError) throw quoteDetailsError;
 
-      // Insert order items
+      // Simple mapping - quote_details should have master_recipe_id from the master-level quote
       const orderItems = orderData.order_items.map((item: any) => {
         const quoteDetail = quoteDetails.find(qd => qd.id === item.quote_detail_id);
 
-        console.log('Processing order item:', {
-          quoteDetailId: item.quote_detail_id,
-          quoteDetail: quoteDetail,
-          pumpService: quoteDetail?.pump_service,
-          productId: quoteDetail?.product_id,
-          recipeId: quoteDetail?.recipe_id,
-          masterRecipeId: quoteDetail?.master_recipe_id,
-          recipes: quoteDetail?.recipes,
-          masterRecipes: quoteDetail?.master_recipes
-        });
-
-        // Determine product type based on quote detail type
-        // PRIORITY: Master-first, then recipe, then pumping-only, then unknown
+        // Determine product type from quote detail
         let productType = 'Unknown';
         if (quoteDetail?.master_recipe_id && quoteDetail?.master_recipes) {
-          // Master-based concrete product
-          productType = quoteDetail.master_recipes.master_code || 'Unknown';
-          console.log('Identified as master-based concrete product:', productType);
-        } else if (quoteDetail?.recipe_id && quoteDetail?.recipes) {
-          // Recipe-based concrete product (fallback when no master)
-          productType = quoteDetail.recipes.recipe_code || 'Unknown';
-          console.log('Identified as recipe-based concrete product:', productType);
+          productType = quoteDetail.master_recipes.master_code || 'CONCRETO';
         } else if (quoteDetail?.pump_service && quoteDetail?.product_id) {
-          // This is a standalone pumping service
           productType = 'SERVICIO DE BOMBEO';
-          console.log('Identified as standalone pumping service');
-        } else {
-          console.log('Could not determine product type, using Unknown');
         }
 
-        // No longer include pump_volume field for individual items (legacy approach removed)
-        // CRITICAL: When master_recipe_id exists, recipe_id must be NULL (master-level item)
-        // This matches the pattern used in Arkik order creator and client portal
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
-          recipe_id: quoteDetail?.master_recipe_id ? null : (quoteDetail?.recipe_id || null),
+          recipe_id: null, // Always null - we use master_recipe_id
           master_recipe_id: quoteDetail?.master_recipe_id || null,
           product_type: productType,
           volume: item.volume,
@@ -245,7 +217,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           total_price: (quoteDetail?.final_price || 0) * item.volume,
           has_pump_service: quoteDetail?.pump_service || false,
           pump_price: quoteDetail?.pump_service ? quoteDetail?.final_price : null,
-          pump_volume: null // Always null for individual items in new approach
+          pump_volume: null
         };
       });
 

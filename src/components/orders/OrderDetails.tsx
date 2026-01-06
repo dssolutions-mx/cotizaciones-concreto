@@ -761,21 +761,21 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       quotesData.forEach(quoteData => {
         const activeDetails = quoteData.quote_details.filter((detail: any) => {
-          // Master-based: check plant and active pair, with fallback to include if master exists in quote_detail
+          // Master-based: STRICT - only allow if this exact quote-master combo is in our active set
+          // This ensures we only show prices from the MOST RECENT quote per master
           if (detail.master_recipe_id && detail.master_recipes) {
             const hasActivePrice = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
-            const masterExists = !!detail.master_recipes;
             const plantMatches = detail.master_recipes.plant_id === plantId;
-            // Include if: (has active price AND plant matches) OR (master exists in quote AND plant matches)
-            return plantMatches && (hasActivePrice || masterExists);
+            // STRICT: Only include if this exact quote-master combo has an active price
+            return plantMatches && hasActivePrice;
           }
-          // Recipe-mapped to master: check plant and active pair, with fallback
+          // Recipe-mapped to master: STRICT - only allow if this exact quote-master combo is active
           if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
             const hasActivePrice = detail.recipes.master_recipes && 
                                    activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
-            const masterExists = !!detail.recipes.master_recipes;
             const plantMatches = detail.recipes.master_recipes?.plant_id === plantId;
-            return plantMatches && (hasActivePrice || masterExists);
+            // STRICT: Only include if this exact quote-master combo has an active price
+            return plantMatches && hasActivePrice;
           }
           // Recipe fallback: check plant and fallback pair
           if (detail.recipe_id && detail.recipes && !detail.recipes.master_recipe_id) {
