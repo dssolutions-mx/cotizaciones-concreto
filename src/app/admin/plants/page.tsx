@@ -183,7 +183,13 @@ export default function PlantsManagementPage() {
       });
     } catch (err) {
       console.error('Error saving:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error al guardar';
+      let errorMessage = err instanceof Error ? err.message : 'Error al guardar';
+      
+      // Provide better error messages for common issues
+      if (errorMessage.includes('duplicate') || errorMessage.includes('unique') || errorMessage.includes('plants_code_key')) {
+        errorMessage = `El código "${(editing.data as any).code}" ya existe. Por favor usa un código diferente (Ej: ${(editing.data as any).code}P, ${(editing.data as any).code}B, etc.).`;
+      }
+      
       setError(errorMessage);
       toast({
         title: 'Error',
@@ -444,10 +450,14 @@ export default function PlantsManagementPage() {
                       <Input
                         id="plant-code"
                         value={(editing.data as Partial<Plant>).code || ''}
-                        onChange={(e) => updateEditingData('code', e.target.value)}
+                        onChange={(e) => updateEditingData('code', e.target.value.toUpperCase())}
                         className="mt-1"
+                        placeholder="Ej: P004P, P005, DIACE"
                         required
                       />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Código único de la planta. Puede incluir letras y números (Ej: P004P, P004B, DIACE).
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="plant-name">Nombre *</Label>
@@ -456,6 +466,7 @@ export default function PlantsManagementPage() {
                         value={(editing.data as Partial<Plant>).name || ''}
                         onChange={(e) => updateEditingData('name', e.target.value)}
                         className="mt-1"
+                        placeholder="Ej: Planta 4 - Bajio"
                         required
                       />
                     </div>
@@ -491,23 +502,31 @@ export default function PlantsManagementPage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="plant-bu">Unidad de Negocio</Label>
+                      <Label htmlFor="plant-bu">Unidad de Negocio *</Label>
                       <Select
                         value={(editing.data as Partial<Plant>).business_unit_id || ''}
                         onValueChange={(value) => updateEditingData('business_unit_id', value)}
                       >
                         <SelectTrigger id="plant-bu" className="mt-1">
-                          <SelectValue placeholder="Seleccionar unidad" />
+                          <SelectValue placeholder="Seleccionar unidad de negocio" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Ninguna</SelectItem>
-                          {Array.isArray(businessUnits) && businessUnits.map((bu) => (
-                            <SelectItem key={bu?.id} value={bu?.id}>
-                              {bu?.name}
+                          {Array.isArray(businessUnits) && businessUnits.length > 0 ? (
+                            businessUnits.map((bu) => (
+                              <SelectItem key={bu?.id} value={bu?.id}>
+                                {bu?.code} - {bu?.name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <SelectItem value="" disabled>
+                              No hay unidades disponibles
                             </SelectItem>
-                          ))}
+                          )}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Asigna la planta a una unidad de negocio (requerido).
+                      </p>
                     </div>
                   </>
                 )}
