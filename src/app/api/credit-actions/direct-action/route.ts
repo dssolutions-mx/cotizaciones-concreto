@@ -42,7 +42,7 @@ export async function GET(request: Request) {
         
       if (orderError) {
         console.error('[direct-action] Order not found:', orderError);
-        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=order_not_found`);
+        return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=order_not_found`);
       }
       
       console.log('[direct-action] Order found:', orderData);
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
           if (token) {
             console.log('[direct-action] Using token from loose match');
             return NextResponse.redirect(
-              `${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/api/credit-actions/process?token=${token}`
+              `${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/api/credit-actions/process?token=${token}`
             );
           }
         } else {
@@ -90,18 +90,27 @@ export async function GET(request: Request) {
         }
       }
       
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=token_not_found`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=token_not_found`);
     }
 
     if (!tokenRecord) {
       console.error('[direct-action] Token not found for order/email');
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=no_token_record`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=no_token_record`);
     }
     
     console.log('[direct-action] Token found:', { 
       hasApproveToken: !!tokenRecord.approve_token,
-      hasRejectToken: !!tokenRecord.reject_token
+      hasRejectToken: !!tokenRecord.reject_token,
+      expiresAt: tokenRecord.expires_at
     });
+
+    // Check DB expiry BEFORE processing
+    if (tokenRecord.expires_at && new Date(tokenRecord.expires_at) < new Date()) {
+      console.error('[direct-action] Token expired:', tokenRecord.expires_at);
+      return NextResponse.redirect(
+        `${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=token_expired`
+      );
+    }
 
     // Get the appropriate token based on the action
     const token = action === 'approve' ? tokenRecord.approve_token : 
@@ -109,14 +118,14 @@ export async function GET(request: Request) {
 
     if (!token) {
       console.error('[direct-action] Token not available for action:', action);
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=invalid_action`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=invalid_action`);
     }
 
     console.log('[direct-action] Redirecting to process endpoint with token');
     
     // Redirect to the process endpoint with the token
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/api/credit-actions/process?token=${token}`
+      `${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/api/credit-actions/process?token=${token}`
     );
   } catch (error) {
     console.error('[direct-action] Unexpected error:', error);
@@ -129,6 +138,6 @@ export async function GET(request: Request) {
       console.error('[direct-action] Could not extract orderId from URL:', e);
     }
     
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${fallbackOrderId}?action=error&reason=unexpected_error`);
+    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${fallbackOrderId}?action=error&reason=unexpected_error`);
   }
 } 

@@ -145,6 +145,17 @@ export async function GET(request: Request) {
     
     console.log('[process] Token record found in database');
 
+    // Get the actual token record (prefer exact match, fallback to alternative)
+    const activeTokenRecord = tokenRecord || (alternativeTokens ? alternativeTokens[0] : null);
+
+    // Dual expiry validation: Check DB expiry in addition to JWT expiry
+    if (activeTokenRecord?.expires_at && new Date(activeTokenRecord.expires_at) < new Date()) {
+      console.error('[process] Token expired in database:', activeTokenRecord.expires_at);
+      return NextResponse.redirect(
+        `${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=token_expired`
+      );
+    }
+
     // Verify if this specific token is valid
     // Note: We should store JWT tokens in the database rather than our old tokens
     // This is a transitional approach that validates both
@@ -223,26 +234,33 @@ export async function GET(request: Request) {
       
       console.log('[process] Credit approved successfully');
 
-      // Log the action
-      await supabase.from('order_logs').insert({
-        order_id: orderId,
-        action: 'CREDIT_APPROVED',
-        performed_by: validatorId,
-        action_method: 'EMAIL_TOKEN'
-      });
-      
-      console.log('[process] Action logged');
+      // Log the action (wrapped in try-catch to prevent silent failures)
+      try {
+        await supabase.from('order_logs').insert({
+          order_id: orderId,
+          action: 'CREDIT_APPROVED',
+          performed_by: validatorId,
+          action_method: 'EMAIL_TOKEN',
+          details: { email: recipientEmail }
+        });
+        console.log('[process] Action logged');
+      } catch (logError) {
+        console.error('[process] Error logging action (non-fatal):', logError);
+      }
 
-      // Delete used tokens
-      await supabase
-        .from('credit_action_tokens')
-        .delete()
-        .eq('order_id', orderId);
-      
-      console.log('[process] Tokens deleted');
+      // Delete used tokens (wrapped in try-catch)
+      try {
+        await supabase
+          .from('credit_action_tokens')
+          .delete()
+          .eq('order_id', orderId);
+        console.log('[process] Tokens deleted');
+      } catch (deleteError) {
+        console.error('[process] Error deleting tokens (non-fatal):', deleteError);
+      }
 
       // Redirect to success page
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=approved`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=approved`);
     } 
     
     if (isRejectAction) {
@@ -293,15 +311,19 @@ export async function GET(request: Request) {
       
       console.log('[process] Credit rejection processed successfully');
 
-      // Log the action
-      await supabase.from('order_logs').insert({
-        order_id: orderId,
-        action: newStatus === 'rejected_by_validator' ? 'CREDIT_REJECTED_BY_VALIDATOR' : 'CREDIT_REJECTED',
-        performed_by: validatorId,
-        action_method: 'EMAIL_TOKEN'
-      });
-      
-      console.log('[process] Action logged');
+      // Log the action (wrapped in try-catch to prevent silent failures)
+      try {
+        await supabase.from('order_logs').insert({
+          order_id: orderId,
+          action: newStatus === 'rejected_by_validator' ? 'CREDIT_REJECTED_BY_VALIDATOR' : 'CREDIT_REJECTED',
+          performed_by: validatorId,
+          action_method: 'EMAIL_TOKEN',
+          details: { email: recipientEmail, reason: rejectionReason }
+        });
+        console.log('[process] Action logged');
+      } catch (logError) {
+        console.error('[process] Error logging action (non-fatal):', logError);
+      }
 
       // If this is a rejection by validator, trigger notification to managers
       if (newStatus === 'rejected_by_validator') {
@@ -322,16 +344,19 @@ export async function GET(request: Request) {
         }
       }
 
-      // Delete used tokens
-      await supabase
-        .from('credit_action_tokens')
-        .delete()
-        .eq('order_id', orderId);
-      
-      console.log('[process] Tokens deleted');
+      // Delete used tokens (wrapped in try-catch)
+      try {
+        await supabase
+          .from('credit_action_tokens')
+          .delete()
+          .eq('order_id', orderId);
+        console.log('[process] Tokens deleted');
+      } catch (deleteError) {
+        console.error('[process] Error deleting tokens (non-fatal):', deleteError);
+      }
 
       // Redirect to success page
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=rejected`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=rejected`);
     }
 
     // Should never reach here
@@ -360,6 +385,6 @@ export async function GET(request: Request) {
       console.error('[process] Error extracting orderId from token:', e);
     }
     
-    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=server_error`);
+    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com'}/orders/${orderId}?action=error&reason=server_error`);
   }
 } 
