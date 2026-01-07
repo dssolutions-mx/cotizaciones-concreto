@@ -92,7 +92,7 @@ serve(async (req)=>{
   // Determine the notification type (new_order or rejected_by_validator)
   const notificationType = type || 'new_order';
   
-  // Get order details with more financial and delivery information
+  // Get order details with plant and business unit information
   const { data: order, error: orderError } = await supabase
     .from('orders')
     .select(`
@@ -104,6 +104,8 @@ serve(async (req)=>{
       rejection_reason, 
       client_id, 
       created_by,
+      plant_id,
+      plants!inner(business_unit_id),
       delivery_date,
       delivery_time,
       preliminary_amount,
@@ -208,10 +210,29 @@ serve(async (req)=>{
   }
   
   // Get email recipients with their roles
-  const { data: recipients, error: recipientsError } = await supabase
+  let recipientsQuery = supabase
     .from('user_profiles')
-    .select('email, first_name, last_name, role')
+    .select('email, first_name, last_name, role, business_unit_id, plant_id')
     .in('role', recipientRoles);
+  
+  // For rejected orders, filter by assignment hierarchy:
+  // 1. No assignment (both NULL) → receives ALL orders
+  // 2. Business Unit assigned → receives orders from ANY plant in that BU
+  // 3. Single plant assigned → receives ONLY orders from that specific plant
+  if (notificationType === 'rejected_by_validator' && order.plants?.business_unit_id) {
+    const businessUnitId = order.plants.business_unit_id;
+    const plantId = order.plant_id;
+    
+    // Complex filter:
+    // - User has specific plant assigned AND it matches the order's plant, OR
+    // - User has BU assigned (no plant) AND BU matches the order's plant's BU, OR
+    // - User has no assignments (both NULL) - gets everything
+    recipientsQuery = recipientsQuery.or(
+      `plant_id.eq.${plantId},and(business_unit_id.eq.${businessUnitId},plant_id.is.null),and(business_unit_id.is.null,plant_id.is.null)`
+    );
+  }
+  
+  const { data: recipients, error: recipientsError } = await recipientsQuery;
     
   if (recipientsError) {
     console.error('Error fetching recipients:', recipientsError);
