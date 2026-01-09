@@ -797,6 +797,7 @@ export default function QuoteBuilder() {
 
       const createdQuote = await createQuote(quoteData);
       setCurrentQuoteId(createdQuote.id);
+      console.log('[QuoteBuilder] ✓ Quote created:', createdQuote.id, createdQuote.quote_number);
 
       // Preparar detalles de la cotización de forma más eficiente, sin múltiples llamadas anidadas a la API
       // Mapear todos los productos a detalles para una sola operación de inserción
@@ -852,43 +853,72 @@ export default function QuoteBuilder() {
         console.error('Error inserting quote details:', detailsError);
         throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
       }
+      console.log('[QuoteBuilder] ✓ Concrete details inserted:', quoteDetailsData.length);
 
       // IMPORTANT: Add additional products BEFORE creating product_prices
       // This ensures all products (concrete + additional) are included when creating product_prices
+      // CHANGED: Removed try-catch so errors propagate and fail the entire quote creation
       if (quoteAdditionalProducts.length > 0 && createdQuote.id) {
-        console.log(`Adding ${quoteAdditionalProducts.length} additional products to quote ${createdQuote.id}`);
-        try {
-          const addedProducts = [];
-          for (const product of quoteAdditionalProducts) {
-            console.log('Adding product:', {
-              quoteId: createdQuote.id,
-              productId: product.additional_product_id,
-              quantity: product.quantity,
-              margin: product.margin_percentage
-            });
-            const added = await addAdditionalProductToQuote(
-              createdQuote.id,
-              product.additional_product_id,
-              product.quantity,
-              product.margin_percentage
-            );
-            addedProducts.push(added);
-          }
-          console.log(`Successfully added ${addedProducts.length} additional products`);
-          if (addedProducts.length > 0) {
-            toast.success(`${addedProducts.length} producto(s) especial(es) agregado(s) a la cotización`);
-          }
-        } catch (error) {
-          console.error('Error adding additional products:', error);
-          toast.error(`Error al agregar productos especiales: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+        console.log(`[QuoteBuilder] Adding ${quoteAdditionalProducts.length} special products to quote ${createdQuote.id}`);
+        console.log('[QuoteBuilder] Products:', quoteAdditionalProducts.map(p => ({
+          id: p.additional_product_id, 
+          name: p.product?.name,
+          qty: p.quantity,
+          margin: p.margin_percentage
+        })));
+        
+        const addedProducts = [];
+        for (const product of quoteAdditionalProducts) {
+          console.log('[QuoteBuilder] Adding product:', {
+            quoteId: createdQuote.id,
+            productId: product.additional_product_id,
+            quantity: product.quantity,
+            margin: product.margin_percentage
+          });
+          
+          const added = await addAdditionalProductToQuote(
+            createdQuote.id,
+            product.additional_product_id,
+            product.quantity,
+            product.margin_percentage
+          );
+          
+          console.log('[QuoteBuilder] Product added:', added.id);
+          addedProducts.push(added);
         }
+        
+        console.log(`[QuoteBuilder] ✓ Successfully added ${addedProducts.length} special products`);
+        toast.success(`${addedProducts.length} producto(s) especial(es) agregado(s) a la cotización`);
       } else if (quoteAdditionalProducts.length > 0) {
-        console.warn('Cannot add additional products: quote ID is missing', { quoteId: createdQuote.id, productsCount: quoteAdditionalProducts.length });
+        console.warn('[QuoteBuilder] Cannot add special products: quote ID is missing', { 
+          quoteId: createdQuote.id, 
+          productsCount: quoteAdditionalProducts.length 
+        });
       }
 
       // NOW create product_prices for auto-approved quotes (AFTER all products are added)
       // Use API route to ensure server-side execution and bypass RLS issues
       if (createdQuote.auto_approved) {
+        // ADDED: Verify special products were saved if we expected them
+        if (quoteAdditionalProducts.length > 0) {
+          console.log(`[QuoteBuilder] Verifying ${quoteAdditionalProducts.length} special products were saved...`);
+          
+          const { data: savedProducts, error: verifyError } = await supabase
+            .from('quote_additional_products')
+            .select('id')
+            .eq('quote_id', createdQuote.id);
+          
+          if (verifyError) {
+            throw new Error(`Error verificando productos especiales: ${verifyError.message}`);
+          }
+          
+          if (!savedProducts || savedProducts.length !== quoteAdditionalProducts.length) {
+            throw new Error(`Solo se guardaron ${savedProducts?.length || 0} de ${quoteAdditionalProducts.length} productos especiales`);
+          }
+          
+          console.log(`[QuoteBuilder] ✓ Verified ${savedProducts.length} special products saved`);
+        }
+        
         try {
           console.log(`[QuoteBuilder] Auto-approved quote ${createdQuote.id}, creating product_prices entries via API...`);
           
@@ -906,7 +936,7 @@ export default function QuoteBuilder() {
           }
 
           const result = await response.json();
-          console.log(`[QuoteBuilder] Successfully created ${result.pricesCreated} product_prices for auto-approved quote ${createdQuote.id}`);
+          console.log(`[QuoteBuilder] ✓ Successfully created ${result.pricesCreated} product_prices for auto-approved quote ${createdQuote.id}`);
         } catch (approvalError: any) {
           const errorMessage = approvalError?.message || 'Unknown error creating product prices';
           console.error('[QuoteBuilder] Error creating product_prices for auto-approved quote:', {

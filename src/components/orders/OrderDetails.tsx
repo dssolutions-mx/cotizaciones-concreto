@@ -172,6 +172,23 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [emptyTruckVolumeDraft, setEmptyTruckVolumeDraft] = useState<number>(1);
   const [emptyTruckPriceDraft, setEmptyTruckPriceDraft] = useState<number>(0);
   
+  // Additional products state
+  interface AdditionalProduct {
+    id: string;
+    quoteAdditionalProductId: string;
+    additionalProductId: string;
+    name: string;
+    code: string;
+    unit: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    quoteId: string;
+  }
+  const [availableAdditionalProducts, setAvailableAdditionalProducts] = useState<AdditionalProduct[]>([]);
+  const [selectedAdditionalProducts, setSelectedAdditionalProducts] = useState<Set<string>>(new Set());
+  const [loadingAdditionalProducts, setLoadingAdditionalProducts] = useState(false);
+  
   // Per-row recipe editor toggle (collapsed by default)
   const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
   const isEditingRecipe = useCallback((id: string) => !!editingRecipeMap[id], [editingRecipeMap]);
@@ -500,7 +517,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
-  const handleEditClick = () => {
+  const handleEditClick = async () => {
     if (!canEditOrder || !order) {
       return;
     }
@@ -533,6 +550,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     // Load available recipes when entering edit mode
     loadAvailableRecipes();
+    // Load available additional products
+    await loadAvailableAdditionalProducts();
+    
+    // Initialize selected additional products from existing order items
+    const existingAdditionalProducts = order.products.filter(p => 
+      p.product_type?.startsWith('PRODUCTO ADICIONAL:')
+    );
+    
+    // Match existing products to available products by name/code
+    // We'll need to match them after loading, so we'll do this in a useEffect
+    // For now, set empty and let the useEffect handle matching
+    setSelectedAdditionalProducts(new Set());
+    
     // Reset filters when starting to edit
     resetFilters();
   };
@@ -887,9 +917,175 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   };
 
+  // Function to load available additional products
+  const loadAvailableAdditionalProducts = async () => {
+    try {
+      setLoadingAdditionalProducts(true);
+      
+      if (!order?.client_id || !order?.construction_site) {
+        console.log('Cannot load additional products: missing client_id or construction_site');
+        setAvailableAdditionalProducts([]);
+        return;
+      }
+      
+      console.log(`Loading additional products for Client: ${order.client_id}, Site: ${order.construction_site}`);
+      
+      // 1. First, check if the order has a specific quote_id and fetch it
+      const orderQuoteId = (order as any)?.quote_id;
+      let orderQuote: any = null;
+      
+      if (orderQuoteId) {
+        console.log(`Order has quote_id: ${orderQuoteId}, fetching that quote first`);
+        const { data: orderQuoteData, error: orderQuoteError } = await supabase
+          .from('quotes')
+          .select('id, quote_number, created_at, status')
+          .eq('id', orderQuoteId)
+          .single();
+        
+        if (!orderQuoteError && orderQuoteData) {
+          orderQuote = orderQuoteData;
+          console.log(`Found order's quote: ${orderQuote.quote_number}, status: ${orderQuote.status}`);
+        }
+      }
+      
+      // 2. Fetch all approved quotes for this client/site, ordered by created_at DESC
+      const { data: allApprovedQuotes, error: approvedQuotesError } = await supabase
+        .from('quotes')
+        .select('id, quote_number, created_at, status')
+        .eq('client_id', order.client_id)
+        .eq('construction_site', order.construction_site)
+        .eq('status', 'APPROVED')
+        .order('created_at', { ascending: false });
+      
+      if (approvedQuotesError) {
+        console.error('Error fetching approved quotes for additional products:', approvedQuotesError);
+      }
+      
+      // 3. Combine quotes: order's quote first (if exists and not already in approved list), then approved quotes
+      const allQuotes: any[] = [];
+      const quoteIdSet = new Set<string>();
+      
+      // Add order's quote first if it exists and has additional products
+      if (orderQuote && !quoteIdSet.has(orderQuote.id)) {
+        allQuotes.push(orderQuote);
+        quoteIdSet.add(orderQuote.id);
+        console.log(`Added order's quote ${orderQuote.quote_number} to quote list`);
+      }
+      
+      // Add approved quotes (excluding order's quote if it was already added)
+      if (allApprovedQuotes) {
+        allApprovedQuotes.forEach(q => {
+          if (!quoteIdSet.has(q.id)) {
+            allQuotes.push(q);
+            quoteIdSet.add(q.id);
+          }
+        });
+      }
+      
+      if (allQuotes.length === 0) {
+        console.log('No quotes found for additional products');
+        setAvailableAdditionalProducts([]);
+        return;
+      }
+      
+      console.log(`Found ${allQuotes.length} quotes to check for additional products (order's quote + approved quotes)`);
+      
+      // 4. Fetch additional products from these quotes
+      const quoteIdsForAdditional = allQuotes.map(q => q.id);
+      
+      // Create a map of quote_id to quote order (0 = order's quote if exists, then newest approved, etc.)
+      // Order's quote gets priority (index 0) if it exists
+      const quoteOrderMap = new Map(quoteIdsForAdditional.map((id, index) => [id, index]));
+      
+      const { data: allAdditionalProducts, error: additionalProductsError } = await supabase
+        .from('quote_additional_products')
+        .select(`
+          id,
+          quote_id,
+          additional_product_id,
+          quantity,
+          base_price,
+          margin_percentage,
+          unit_price,
+          total_price,
+          notes,
+          additional_products (
+            id,
+            name,
+            code,
+            unit
+          )
+        `)
+        .in('quote_id', quoteIdsForAdditional);
+      
+      if (additionalProductsError) {
+        console.error('Error fetching additional products:', additionalProductsError);
+        setAvailableAdditionalProducts([]);
+        return;
+      }
+      
+      if (!allAdditionalProducts || allAdditionalProducts.length === 0) {
+        console.log('No additional products found in approved quotes');
+        setAvailableAdditionalProducts([]);
+        return;
+      }
+      
+      // 3. Keep only the most recent price per additional_product_id
+      // Sort by quote order (newest first) based on the created_at ordering from allApprovedQuotes
+      const sortedProducts = allAdditionalProducts.sort((a, b) => {
+        const orderA = quoteOrderMap.get(a.quote_id) ?? 999999;
+        const orderB = quoteOrderMap.get(b.quote_id) ?? 999999;
+        return orderA - orderB;
+      });
+      
+      // Process in order (newest quotes first) and keep only the first occurrence of each additional_product_id
+      const latestAdditionalProducts: Map<string, any> = new Map();
+      for (const ap of sortedProducts) {
+        const productId = ap.additional_product_id;
+        if (!latestAdditionalProducts.has(productId)) {
+          latestAdditionalProducts.set(productId, ap);
+        }
+      }
+      
+      console.log(`Found ${latestAdditionalProducts.size} unique additional products from ${allAdditionalProducts.length} total entries`);
+      
+      // Log which quote each additional product came from for debugging
+      Array.from(latestAdditionalProducts.values()).forEach((ap: any) => {
+        const quoteIndex = quoteOrderMap.get(ap.quote_id);
+        const quote = allQuotes.find(q => q.id === ap.quote_id);
+        console.log(`Additional product ${ap.additional_products?.name}: Using price $${ap.unit_price} from quote ${quote?.quote_number || ap.quote_id} (index: ${quoteIndex}, newest: ${quoteIndex === 0 ? 'YES' : 'NO'}, status: ${quote?.status || 'unknown'})`);
+      });
+      
+      // 4. Map to AdditionalProduct interface
+      const additionalProductsArray: AdditionalProduct[] = Array.from(latestAdditionalProducts.values()).map((ap: any) => ({
+        id: ap.id,
+        quoteAdditionalProductId: ap.id,
+        additionalProductId: ap.additional_product_id,
+        name: ap.additional_products?.name || 'Unknown',
+        code: ap.additional_products?.code || 'Unknown',
+        unit: ap.additional_products?.unit || 'unit',
+        quantity: ap.quantity,
+        unitPrice: ap.unit_price,
+        totalPrice: ap.total_price,
+        quoteId: ap.quote_id
+      }));
+      
+      setAvailableAdditionalProducts(additionalProductsArray);
+      console.log('Loaded additional products:', additionalProductsArray);
+    } catch (error) {
+      console.error('Error loading additional products:', error);
+      toast.error('Error al cargar los productos adicionales disponibles');
+      setAvailableAdditionalProducts([]);
+    } finally {
+      setLoadingAdditionalProducts(false);
+    }
+  };
+
   function handleCancelEdit() {
     setIsEditing(false);
     setEditedOrder(null);
+    setSelectedAdditionalProducts(new Set());
+    setAvailableAdditionalProducts([]);
     resetFilters();
   }
 
@@ -1103,16 +1299,135 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           if (emptyTruckError) throw emptyTruckError;
         }
       }
+
+      // Handle additional products (only if no remisiones)
+      if (!hasRemisiones) {
+        // Get existing additional products from order
+        const existingAdditionalProductItems = order.products.filter(p => 
+          p.product_type?.startsWith('PRODUCTO ADICIONAL:')
+        );
+
+        // Calculate total concrete volume for multiplier calculation
+        const totalConcreteVolume = editedOrder.products?.reduce((sum, p) => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          if (originalProduct && 
+              !originalProduct.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+              originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
+              originalProduct.product_type !== 'VACÍO DE OLLA') {
+            return sum + (p.volume || 0);
+          }
+          return sum;
+        }, 0) || 0;
+
+        // Create a map of existing products by matching name/code
+        const existingProductMap = new Map<string, any>();
+        existingAdditionalProductItems.forEach(item => {
+          const match = item.product_type?.match(/PRODUCTO ADICIONAL: (.+?) \((.+?)\)/);
+          if (match) {
+            const [, name, code] = match;
+            const key = `${name.trim()}:${code.trim()}`;
+            existingProductMap.set(key, item);
+          }
+        });
+
+        // Process selected additional products
+        const selectedIds = Array.from(selectedAdditionalProducts);
+        const selectedProductsMap = new Map<string, AdditionalProduct>();
+        
+        selectedIds.forEach(id => {
+          const ap = availableAdditionalProducts.find(a => a.quoteAdditionalProductId === id);
+          if (ap) {
+            const key = `${ap.name}:${ap.code}`;
+            selectedProductsMap.set(key, ap);
+          }
+        });
+
+        // Add new additional products
+        for (const [key, ap] of selectedProductsMap) {
+          if (!existingProductMap.has(key)) {
+            // Create new order_item for this additional product
+            const itemVolume = ap.quantity; // multiplier per m³
+            const unitPrice = ap.unitPrice;
+            const totalPrice = ap.quantity * totalConcreteVolume * unitPrice;
+
+            const { error: insertError } = await supabase
+              .from('order_items')
+              .insert({
+                order_id: orderId,
+                quote_detail_id: null,
+                recipe_id: null,
+                master_recipe_id: null,
+                product_type: `PRODUCTO ADICIONAL: ${ap.name} (${ap.code})`,
+                volume: itemVolume,
+                unit_price: unitPrice,
+                total_price: totalPrice,
+                has_pump_service: false,
+                pump_price: null,
+                pump_volume: null
+              });
+
+            if (insertError) {
+              console.error('Error inserting additional product:', insertError);
+              throw insertError;
+            }
+            console.log(`Added new additional product: ${ap.name} (${ap.code})`);
+          }
+        }
+
+        // Remove deselected additional products
+        for (const [key, existingItem] of existingProductMap) {
+          if (!selectedProductsMap.has(key)) {
+            // Delete this order_item
+            const { error: deleteError } = await supabase
+              .from('order_items')
+              .delete()
+              .eq('id', existingItem.id);
+
+            if (deleteError) {
+              console.error('Error deleting additional product:', deleteError);
+              throw deleteError;
+            }
+            console.log(`Removed additional product: ${existingItem.product_type}`);
+          } else {
+            // Update if quantity or price changed (recalculate total)
+            const ap = selectedProductsMap.get(key)!;
+            const itemVolume = ap.quantity;
+            const unitPrice = ap.unitPrice;
+            const totalPrice = ap.quantity * totalConcreteVolume * unitPrice;
+
+            // Only update if values changed
+            if (existingItem.volume !== itemVolume || 
+                existingItem.unit_price !== unitPrice ||
+                existingItem.total_price !== totalPrice) {
+              const { error: updateError } = await supabase
+                .from('order_items')
+                .update({
+                  volume: itemVolume,
+                  unit_price: unitPrice,
+                  total_price: totalPrice
+                })
+                .eq('id', existingItem.id);
+
+              if (updateError) {
+                console.error('Error updating additional product:', updateError);
+                throw updateError;
+              }
+              console.log(`Updated additional product: ${ap.name} (${ap.code})`);
+            }
+          }
+        }
+      }
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
       if (editedOrder.products && editedOrder.products.length > 0 && !hasRemisiones) {
-        // Filter to only concrete/recipe items, exclude special service items
+        // Filter to only concrete/recipe items, exclude special service items and additional products
         const concreteProducts = editedOrder.products.filter(p => {
           const originalProduct = order.products.find(op => op.id === p.id);
           return originalProduct && 
                  originalProduct.product_type !== 'VACÍO DE OLLA' &&
                  originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
                  originalProduct.product_type !== 'EMPTY_TRUCK_CHARGE' &&
+                 !originalProduct.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
                  !originalProduct.has_empty_truck_charge;
         });
 
@@ -1489,6 +1804,41 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       }
     }
   }, [order]);
+
+  // Match existing additional products to available products when both are loaded
+  useEffect(() => {
+    if (isEditing && order && availableAdditionalProducts.length > 0) {
+      const existingAdditionalProducts = order.products.filter(p => 
+        p.product_type?.startsWith('PRODUCTO ADICIONAL:')
+      );
+      
+      const matchedIds = new Set<string>();
+      
+      // Match by extracting name and code from product_type
+      // Format: "PRODUCTO ADICIONAL: Name (Code)"
+      existingAdditionalProducts.forEach(existing => {
+        const productType = existing.product_type || '';
+        const match = productType.match(/PRODUCTO ADICIONAL: (.+?) \((.+?)\)/);
+        if (match) {
+          const [, name, code] = match;
+          
+          // Find matching available product by name and code
+          const matched = availableAdditionalProducts.find(ap => 
+            ap.name === name.trim() && ap.code === code.trim()
+          );
+          
+          if (matched) {
+            matchedIds.add(matched.quoteAdditionalProductId);
+          }
+        }
+      });
+      
+      if (matchedIds.size > 0) {
+        console.log(`Matched ${matchedIds.size} existing additional products to available products`);
+        setSelectedAdditionalProducts(matchedIds);
+      }
+    }
+  }, [isEditing, order, availableAdditionalProducts]);
   
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
@@ -2536,6 +2886,118 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           </div>
                         )}
                         <p className="text-xs text-amber-700 mt-2">Este cargo se agrega como un producto especial y no afecta la receta.</p>
+                      </div>
+                    )}
+
+                    {/* Additional Products Section */}
+                    {availableAdditionalProducts.length > 0 && (
+                      <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">Productos Adicionales</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Seleccione los productos adicionales que desea incluir en esta orden. Estos productos se multiplicarán por los metros cúbicos de concreto entregados.
+                        </p>
+                        
+                        <div className="mb-3 p-2 bg-purple-100 rounded-md">
+                          <p className="text-xs text-purple-800">
+                            <strong>Nota:</strong> El cálculo final se realizará multiplicando la cantidad por los m³ de concreto entregados. 
+                            El total mostrado aquí es una estimación basada en el volumen actual de la orden.
+                          </p>
+                        </div>
+                        
+                        {loadingAdditionalProducts ? (
+                          <div className="text-center py-4 text-gray-600">Cargando productos adicionales...</div>
+                        ) : (
+                          <>
+                            <div className="space-y-3">
+                              {availableAdditionalProducts.map((ap) => {
+                                const isSelected = selectedAdditionalProducts.has(ap.quoteAdditionalProductId);
+                                // Calculate total concrete volume from edited products
+                                const totalConcreteVolume = editedOrder?.products?.reduce((sum, p) => {
+                                  // Only count concrete products, not special services
+                                  const originalProduct = order?.products.find(op => op.id === p.id);
+                                  if (originalProduct && 
+                                      !originalProduct.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+                                      originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
+                                      originalProduct.product_type !== 'VACÍO DE OLLA') {
+                                    return sum + (p.volume || 0);
+                                  }
+                                  return sum;
+                                }, 0) || 0;
+                                const estimatedTotal = isSelected ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0;
+                                
+                                return (
+                                  <div
+                                    key={ap.quoteAdditionalProductId}
+                                    className={`flex items-center justify-between p-3 rounded-md border ${
+                                      isSelected ? 'bg-purple-100 border-purple-400' : 'bg-white border-gray-200'
+                                    }`}
+                                  >
+                                    <div className="flex items-center space-x-3 flex-1">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          const newSelected = new Set(selectedAdditionalProducts);
+                                          if (e.target.checked) {
+                                            newSelected.add(ap.quoteAdditionalProductId);
+                                          } else {
+                                            newSelected.delete(ap.quoteAdditionalProductId);
+                                          }
+                                          setSelectedAdditionalProducts(newSelected);
+                                        }}
+                                        className="h-5 w-5 text-purple-600 rounded border-gray-300"
+                                      />
+                                      <div className="flex-1">
+                                        <div className="flex items-center space-x-2">
+                                          <span className="font-medium text-gray-800">{ap.name}</span>
+                                          <span className="text-xs text-gray-500">({ap.code})</span>
+                                        </div>
+                                        <div className="text-sm text-gray-600 mt-1">
+                                          <span className="font-medium">Cantidad por m³:</span> {ap.quantity} {ap.unit} • 
+                                          <span className="font-medium ml-2">Precio unitario:</span> ${ap.unitPrice.toFixed(2)}
+                                        </div>
+                                        {isSelected && totalConcreteVolume > 0 && (
+                                          <div className="text-sm text-purple-700 mt-1 font-medium">
+                                            Estimado: {ap.quantity} × {totalConcreteVolume.toFixed(2)} m³ × ${ap.unitPrice.toFixed(2)} = ${estimatedTotal.toFixed(2)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            
+                            {selectedAdditionalProducts.size > 0 && (
+                              <div className="mt-4 pt-3 border-t border-purple-200">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-sm font-medium text-gray-700">
+                                    Total productos adicionales (estimado basado en volumen actual):
+                                  </span>
+                                  <span className="text-lg font-semibold text-purple-700">
+                                    ${Array.from(selectedAdditionalProducts).reduce((sum, apId) => {
+                                      const ap = availableAdditionalProducts.find(a => a.quoteAdditionalProductId === apId);
+                                      const totalConcreteVolume = editedOrder?.products?.reduce((s, p) => {
+                                        const originalProduct = order?.products.find(op => op.id === p.id);
+                                        if (originalProduct && 
+                                            !originalProduct.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+                                            originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
+                                            originalProduct.product_type !== 'VACÍO DE OLLA') {
+                                          return s + (p.volume || 0);
+                                        }
+                                        return s;
+                                      }, 0) || 0;
+                                      return sum + (ap ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0);
+                                    }, 0).toFixed(2)}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  El cálculo final se realizará con los m³ de concreto realmente entregados.
+                                </p>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
                     )}
                     

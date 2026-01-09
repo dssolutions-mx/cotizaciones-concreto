@@ -1256,171 +1256,64 @@ Fin del reporte
       let totalOrderItemsCreated = 0;
       
       // Handle existing orders (update them with new remisiones)
+      // OPTIMIZED: Use bulk mode to prevent trigger storms
+      const affectedOrderIds = new Set<string>();
+      
       if (existingOrderSuggestions.length > 0) {
-        console.log('[ArkikProcessor] Updating existing orders...');
+        console.log(`[ArkikProcessor] Updating ${existingOrderSuggestions.length} existing orders (bulk mode enabled)...`);
         
         const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
         const matcher = new ArkikOrderMatcher(currentPlant!.id);
         
+        // Process all existing order updates with bulk mode enabled
         for (const suggestion of existingOrderSuggestions) {
           const updateResult = await matcher.updateOrderWithRemisiones(
             suggestion.existing_order_id!,
-            suggestion.remisiones
+            suggestion.remisiones,
+            true // Enable bulk mode to skip triggers
           );
           
           if (updateResult.success) {
             totalOrdersUpdated++;
-            // Note: In commercial mode, we update existing order_items, not create new ones
-            // So we don't count them as "created"
             totalRemisionesCreated += suggestion.remisiones.length;
-            // TODO: Add material processing count
+            totalMaterialsProcessed += updateResult.materialsCreated || 0;
+            
+            // Track affected order for batch recalculation
+            affectedOrderIds.add(suggestion.existing_order_id!);
+            
+            console.log(`[ArkikProcessor] ✅ Updated order ${suggestion.existing_order_number}: ${suggestion.remisiones.length} remisiones, ${updateResult.materialsCreated || 0} materials`);
           } else {
-            console.error(`Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
+            console.error(`[ArkikProcessor] ❌ Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
           }
         }
 
-        // After updating existing orders, insert/update materials for each remision with proper material_id
-        try {
-          const remisionesForExistingOrders = existingOrderSuggestions.flatMap(s => s.remisiones);
-          console.log(`[ArkikProcessor] 🔍 Processing materials for ${remisionesForExistingOrders.length} remisiones in existing orders`);
+        // OPTIMIZATION: Batch recalculate all affected orders in parallel
+        if (affectedOrderIds.size > 0) {
+          console.log(`[ArkikProcessor] 🔄 Batch recalculating ${affectedOrderIds.size} affected orders...`);
           
-          if (remisionesForExistingOrders.length > 0) {
-            // Build unique sets
-            const allMaterialCodesSet = new Set<string>();
-            const allRemisionNumbersSet = new Set<string>();
-            remisionesForExistingOrders.forEach(r => {
-              allRemisionNumbersSet.add(String(r.remision_number));
-              Object.keys(r.materials_teorico || {}).forEach(code => allMaterialCodesSet.add(code));
-              Object.keys(r.materials_real || {}).forEach(code => allMaterialCodesSet.add(code));
-              Object.keys(r.materials_retrabajo || {}).forEach(code => allMaterialCodesSet.add(code));
-              Object.keys(r.materials_manual || {}).forEach(code => allMaterialCodesSet.add(code));
-            });
+          try {
+            const { recalculateOrderAmount } = await import('@/services/orderService');
             
-            console.log(`[ArkikProcessor] 🔍 Found ${allMaterialCodesSet.size} unique material codes:`, Array.from(allMaterialCodesSet));
-            console.log(`[ArkikProcessor] 🔍 Processing ${allRemisionNumbersSet.size} remision numbers:`, Array.from(allRemisionNumbersSet));
-
-            // Fetch material info once
-            const materialInfoByCode = new Map<string, { id: string; name: string }>();
-            if (allMaterialCodesSet.size > 0) {
-              console.log(`[ArkikProcessor] 🔍 Fetching material IDs from database for ${allMaterialCodesSet.size} material codes...`);
-              const { data: dbMaterials, error: dbMatError } = await supabase
-                .from('materials')
-                .select('id, material_code, material_name')
-                .eq('plant_id', currentPlant.id)
-                .eq('is_active', true)
-                .in('material_code', Array.from(allMaterialCodesSet));
-              if (dbMatError) {
-                console.error('[ArkikProcessor] ❌ Could not fetch materials for mapping (commercial existing orders):', dbMatError);
-              } else {
-                console.log(`[ArkikProcessor] ✅ Fetched ${dbMaterials?.length || 0} materials from database`);
-                (dbMaterials || []).forEach((m: any) => materialInfoByCode.set(m.material_code, { id: m.id, name: m.material_name }));
-                console.log('[ArkikProcessor] 🔍 Material mapping:', Object.fromEntries(materialInfoByCode));
-              }
-            }
-
-            // Fetch remision ids for the remision numbers just processed
-            const remisionIdByNumber = new Map<string, string>();
-            if (allRemisionNumbersSet.size > 0) {
-              console.log(`[ArkikProcessor] 🔍 Fetching remision IDs from database for ${allRemisionNumbersSet.size} remision numbers...`);
-              const { data: dbRemisiones, error: dbRemError } = await supabase
-                .from('remisiones')
-                .select('id, remision_number')
-                .eq('plant_id', currentPlant.id)
-                .in('remision_number', Array.from(allRemisionNumbersSet));
-              if (dbRemError) {
-                console.error('[ArkikProcessor] ❌ Could not fetch remision IDs for existing orders:', dbRemError);
-              } else {
-                console.log(`[ArkikProcessor] ✅ Fetched ${dbRemisiones?.length || 0} remisiones from database`);
-                (dbRemisiones || []).forEach((r: any) => remisionIdByNumber.set(String(r.remision_number), r.id));
-                console.log('[ArkikProcessor] 🔍 Remision ID mapping:', Object.fromEntries(remisionIdByNumber));
-              }
-            }
-
-            // Upsert materials per remision
-            for (const remision of remisionesForExistingOrders) {
-              const remisionId = remisionIdByNumber.get(String(remision.remision_number));
-              if (!remisionId) {
-                console.warn('[ArkikProcessor] ⚠️ Skipping materials for remision without DB ID (commercial existing orders):', remision.remision_number);
-                continue;
-              }
-
-              console.log(`[ArkikProcessor] 🔍 Processing materials for remision ${remision.remision_number} (ID: ${remisionId})`);
-
-              try {
-                const allCodes = new Set([
-                  ...Object.keys(remision.materials_teorico || {}),
-                  ...Object.keys(remision.materials_real || {}),
-                  ...Object.keys(remision.materials_retrabajo || {}),
-                  ...Object.keys(remision.materials_manual || {})
-                ]);
-
-                console.log(`[ArkikProcessor] 🔍 Remision ${remision.remision_number} has ${allCodes.size} material codes:`, Array.from(allCodes));
-
-                const materialsToInsert: any[] = [];
-
-                if (allCodes.size > 0) {
-                  allCodes.forEach(code => {
-                    const teorico = Number(remision.materials_teorico?.[code] || 0);
-                    const realBase = Number(remision.materials_real?.[code] || 0);
-                    const retrabajo = Number(remision.materials_retrabajo?.[code] || 0);
-                    const manual = Number(remision.materials_manual?.[code] || 0);
-                    const ajuste = retrabajo + manual;
-                    const realFinal = realBase + ajuste;
-
-                    console.log(`[ArkikProcessor] 🔍 Material ${code}: teorico=${teorico}, real=${realBase}, retrabajo=${retrabajo}, manual=${manual}, final=${realFinal}`);
-
-                    if (teorico > 0 || realFinal > 0) {
-                      const info = materialInfoByCode.get(code);
-                      if (!info) {
-                        console.warn(`[ArkikProcessor] ⚠️ Material ${code} not found in database, using code as name`);
-                      }
-                      materialsToInsert.push({
-                        remision_id: remisionId,
-                        material_id: info?.id,
-                        material_type: info?.name || code,
-                        cantidad_teorica: teorico,
-                        cantidad_real: realFinal,
-                        ajuste
-                      });
-                    }
-                  });
+            // Recalculate all orders in parallel
+            const recalcResults = await Promise.allSettled(
+              Array.from(affectedOrderIds).map(orderId => recalculateOrderAmount(orderId))
+            );
+            
+            const successCount = recalcResults.filter(r => r.status === 'fulfilled').length;
+            const failureCount = recalcResults.filter(r => r.status === 'rejected').length;
+            
+            console.log(`[ArkikProcessor] ✅ Batch recalculation complete: ${successCount} succeeded, ${failureCount} failed`);
+            
+            if (failureCount > 0) {
+              recalcResults.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                  console.error(`[ArkikProcessor] ❌ Recalculation failed for order:`, Array.from(affectedOrderIds)[index], result.reason);
                 }
-
-                console.log(`[ArkikProcessor] 🔍 Prepared ${materialsToInsert.length} materials for insertion`);
-
-                // Clear existing and insert new materials
-                console.log(`[ArkikProcessor] 🔍 Deleting existing materials for remision ${remision.remision_number}...`);
-                const { error: delErr } = await supabase
-                  .from('remision_materiales')
-                  .delete()
-                  .eq('remision_id', remisionId);
-                if (delErr) {
-                  console.error('[ArkikProcessor] ❌ Warning deleting existing materials (commercial existing orders):', remision.remision_number, delErr);
-                } else {
-                  console.log(`[ArkikProcessor] ✅ Deleted existing materials for remision ${remision.remision_number}`);
-                }
-
-                if (materialsToInsert.length > 0) {
-                  console.log(`[ArkikProcessor] 🔍 Inserting ${materialsToInsert.length} materials for remision ${remision.remision_number}...`);
-                  const { error: insErr } = await supabase
-                    .from('remision_materiales')
-                    .insert(materialsToInsert);
-                  if (insErr) {
-                    console.error('[ArkikProcessor] ❌ Failed to insert materials (commercial existing orders):', remision.remision_number, insErr, materialsToInsert);
-                  } else {
-                    console.log(`[ArkikProcessor] ✅ Successfully inserted ${materialsToInsert.length} materials for remision ${remision.remision_number}`);
-                    totalMaterialsProcessed += materialsToInsert.length;
-                  }
-                } else {
-                  console.log(`[ArkikProcessor] ℹ️ No materials to insert for remision ${remision.remision_number}`);
-                }
-              } catch (e) {
-                console.error('[ArkikProcessor] ❌ Error processing materials for remision (commercial existing orders):', remision.remision_number, e);
-              }
+              });
             }
+          } catch (recalcError) {
+            console.error('[ArkikProcessor] ❌ Error during batch recalculation:', recalcError);
           }
-        } catch (e) {
-          console.error('[ArkikProcessor] Error in commercial materials post-processing for existing orders:', e);
         }
       }
       
