@@ -164,51 +164,21 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
         : 'El agua es obligatoria en todas las recetas',
     });
   } else {
-    // Check water quantity (should be reasonable, typically 150-250 L/m³)
-    // Handle both L/m³ and kg/m³ (water density ~1 kg/L, so values are similar)
+    // Check water quantity (only error if <= 0)
     const waterQty = waterMaterial.quantity || 0;
-    const unit = waterMaterial.unit?.toLowerCase() || '';
-    const isLiters = unit.includes('l/') || unit.includes('l/m');
-    
-    // Convert kg/m³ to L/m³ for comparison (assuming water density ~1)
-    const waterQtyLiters = isLiters ? waterQty : waterQty; // kg/m³ ≈ L/m³ for water
-    
-    if (waterQtyLiters < 100) {
+    if (waterQty <= 0) {
       issues.push({
-        type: 'low_quantities',
-        severity: 'warning',
-        message: `Cantidad de agua muy baja: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
-        details: `Valores típicos: 150-250 L/m³ (o kg/m³)`,
-      });
-    } else if (waterQtyLiters > 300) {
-      issues.push({
-        type: 'low_quantities',
-        severity: 'warning',
-        message: `Cantidad de agua muy alta: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
-        details: `Valores típicos: 150-250 L/m³ (o kg/m³). Valores altos pueden afectar la resistencia`,
+        type: 'invalid_quantities',
+        severity: getSeverity(true),
+        message: `Cantidad de agua inválida: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
+        details: isQuoteBuilderVariant
+          ? `El agua debe tener una cantidad mayor a 0. Valor actual: ${waterQty.toFixed(2)} ${waterMaterial.unit}. Esta variante se usa en QuoteBuilder.`
+          : `El agua debe tener una cantidad mayor a 0. Valor actual: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
       });
     }
   }
 
-  // Check for low quantities in general
-  const lowQuantityMaterials = materials.filter(m => {
-    const qty = m.quantity || 0;
-    // Flag materials with suspiciously low quantities (< 1)
-    return qty > 0 && qty < 1;
-  });
-
-  if (lowQuantityMaterials.length > 0) {
-    issues.push({
-      type: 'low_quantities',
-      severity: 'warning',
-      message: `${lowQuantityMaterials.length} material${lowQuantityMaterials.length !== 1 ? 'es' : ''} con cantidades muy bajas (< 1)`,
-      details: lowQuantityMaterials.map(m => 
-        `${m.material?.material_name || m.material_type}: ${m.quantity.toFixed(3)} ${m.unit}`
-      ).join(', '),
-    });
-  }
-
-  // Check for invalid quantities (zero or negative)
+  // Check for invalid quantities (zero or negative) in all materials
   const invalidMaterials = materials.filter(m => !m.quantity || m.quantity <= 0);
   if (invalidMaterials.length > 0) {
     issues.push({
