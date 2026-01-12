@@ -565,17 +565,17 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                     // Clear local state
                     setSingleStdDevInput('');
                     
-                    // Allow empty (keep current), 0, or valid range (0-50)
+                    // Allow empty (keep current), 0, or any positive value
                     if (inputValue === '' || numValue === null) {
                       // Keep current value if empty on blur
                       return;
-                    } else if (numValue >= 0 && numValue <= 50) {
-                      // Save valid value (including 0) - create new object reference to ensure React detects change
+                    } else if (numValue >= 0) {
+                      // Save valid value (any positive number including 0) - create new object reference to ensure React detects change
                       console.log(`[StdDev] Saving single value ${numValue}`);
                       onDesignParamsChange({ standardDeviation: numValue });
                     } else {
-                      // Reset to default if invalid
-                      console.log(`[StdDev] Invalid value, resetting to default 23`);
+                      // Reset to default if negative
+                      console.log(`[StdDev] Invalid value (negative), resetting to default 23`);
                       onDesignParamsChange({ standardDeviation: 23 });
                     }
                   }}
@@ -587,7 +587,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                   placeholder="23"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Este valor se aplicará a todas las resistencias (puede ser 0)
+                  Este valor se aplicará a todas las resistencias (cualquier valor positivo o 0)
                 </p>
               </div>
             ) : (
@@ -645,12 +645,12 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                 return updated;
                               });
                               
-                              // Allow empty (keep current), 0, or valid range (0-50)
+                              // Allow empty (keep current), 0, or any positive value
                               if (inputValue === '' || numValue === null) {
                                 // Keep current value if empty on blur
                                 return;
-                              } else if (numValue >= 0 && numValue <= 50) {
-                                // Save valid value (including 0)
+                              } else if (numValue >= 0) {
+                                // Save valid value (any positive number including 0)
                                 // Create new object reference to ensure React detects change
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
@@ -674,7 +674,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                 });
                                 onDesignParamsChange({ standardDeviation: updated });
                               } else {
-                                // Invalid value - remove custom value
+                                // Invalid value (negative) - remove custom value
                                 // Create new object reference to ensure React detects change
                                 const stdDevRecord = typeof designParams.standardDeviation === 'number' 
                                   ? {} 
