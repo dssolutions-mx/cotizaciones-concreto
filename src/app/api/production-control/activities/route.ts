@@ -56,18 +56,22 @@ export async function GET(request: NextRequest) {
         .order('activity_time', { ascending: false })
         .limit(limit),
 
-      // Pumping service activities
+      // Pumping service activities (from remisiones table with tipo_remision = BOMBEO)
       serviceClient
-        .from('pumping_remisiones')
+        .from('remisiones')
         .select(`
           id,
           remision_number,
           created_at,
-          status,
-          client_name,
-          plant_id
+          conductor,
+          volumen_fabricado,
+          plant_id,
+          orders!inner(
+            clients:client_id(business_name)
+          )
         `)
         .eq('plant_id', plantId)
+        .eq('tipo_remision', 'BOMBEO')
         .order('created_at', { ascending: false })
         .limit(limit),
 
@@ -123,15 +127,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Process pumping activities
+    // Process pumping activities (from remisiones with tipo_remision = BOMBEO)
     if (pumpingActivities.data) {
       pumpingActivities.data.forEach(activity => {
+        const clientName = (activity.orders as any)?.clients?.business_name || 'Cliente desconocido';
         activities.push({
           id: `pumping-${activity.id}`,
           type: 'pumping',
           action: `Servicio de bombeo ${activity.remision_number}`,
-          details: `${activity.client_name} - ${activity.status}`,
-          user: 'Sistema',
+          details: `${clientName} - ${activity.volumen_fabricado} m³`,
+          user: activity.conductor || 'Sistema',
           timestamp: activity.created_at,
           icon: 'Truck',
           color: 'cyan'
