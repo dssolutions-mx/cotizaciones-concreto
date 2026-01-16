@@ -255,7 +255,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                 </div>
 
                 {useHours ? (
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-2 space-y-1">
                     <FormLabel className="text-xs">Edad (horas)</FormLabel>
                     <Input
                       type="number"
@@ -275,11 +275,12 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                     />
                   </div>
                 ) : (
-                  <div className="md:col-span-2">
+                  <div className="md:col-span-2 space-y-1">
                     <FormLabel className="text-xs">Edad (días)</FormLabel>
                     <Input
                       type="number"
                       min={0}
+                      className="w-full"
                       value={(function() {
                         const base = getBaseDate();
                         const currentDate = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
@@ -306,7 +307,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                 )}
 
                 <div className={cn('space-y-1', (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? 'md:col-span-2' : 'md:col-span-2')}>
-                  <FormLabel className="text-xs">Fecha programada de ensayo</FormLabel>
+                  <FormLabel className="text-xs flex">Fecha programada de ensayo</FormLabel>
                   <Input
                     type="date"
                     value={(() => {
@@ -347,7 +348,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                 </div>
 
                 {/* Second row for time and test date summary */}
-                <div className="md:col-span-6">
+                <div className="md:col-span-6 space-y-1">
                   <FormLabel className="text-xs">Hora de Ensayo (local)</FormLabel>
                   <Input
                     type="time"
