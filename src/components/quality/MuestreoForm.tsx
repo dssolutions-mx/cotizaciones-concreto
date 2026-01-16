@@ -42,7 +42,7 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
   const [remisionDate, setRemisionDate] = useState<string | null>(null);
   const [recipeDetails, setRecipeDetails] = useState<{ code: string; clasificacion: 'FC' | 'MR'; edadGarantia: number } | null>(null);
   const [formData, setFormData] = useState({
-    planta: 'P001' as 'P001' | 'P002' | 'P003' | 'P004',
+    planta: 'P001' as string,
     revenimientoSitio: '',
     masaUnitaria: '',
     temperaturaAmbiente: '',
@@ -51,11 +51,42 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
   });
   const [loading, setLoading] = useState(false);
   const [showRemisionPicker, setShowRemisionPicker] = useState(true);
+  const [plants, setPlants] = useState<Array<{id: string, code: string, name: string}>>([]);
 
   // Add an effect to log when remisionDate changes
   useEffect(() => {
     console.log('remisionDate state updated:', remisionDate);
   }, [remisionDate]);
+
+  // Load plants dynamically from database
+  useEffect(() => {
+    const loadPlants = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('plants')
+          .select('id, code, name')
+          .eq('is_active', true)
+          .order('code');
+        
+        if (error) throw error;
+        
+        setPlants(data || []);
+        
+        // Validate and set default plant
+        if (data && data.length) {
+          const plantExists = data.some(p => p.code === formData.planta);
+          if (!plantExists) {
+            // Set to first available plant if current doesn't exist
+            setFormData(prev => ({ ...prev, planta: data[0].code }));
+          }
+        }
+      } catch (error) {
+        console.error('Error loading plants:', error);
+      }
+    };
+    
+    loadPlants();
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -278,11 +309,12 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
                   <SelectTrigger id="planta">
                     <SelectValue placeholder="Seleccione una planta" />
                   </SelectTrigger>
-                                                    <SelectContent>
-                                    <SelectItem value="P001">Planta 1</SelectItem>
-                                    <SelectItem value="P002">Planta 2</SelectItem>
-                                    <SelectItem value="P003">Planta 3</SelectItem>
-                                    <SelectItem value="P004">Planta 4</SelectItem>
+                                  <SelectContent>
+                                    {plants.map((plant) => (
+                                      <SelectItem key={plant.id} value={plant.code}>
+                                        {plant.name} ({plant.code})
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                 </Select>
               </div>

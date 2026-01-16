@@ -116,6 +116,9 @@ export default function NuevoMuestreoPage() {
   // Add state for storing previous filter state
   const [previousStep, setPreviousStep] = useState<number | null>(null);
   
+  // Plants state for dynamic loading
+  const [plants, setPlants] = useState<Array<{id: string, code: string, name: string}>>([]);
+  
   // Initialize form with default values
   const form = useForm<MuestreoFormValues>({
     resolver: zodResolver(muestreoFormSchema),
@@ -246,6 +249,38 @@ export default function NuevoMuestreoPage() {
       loadOrders();
     }
   }, [mode]);
+
+  // Load plants dynamically from database
+  useEffect(() => {
+    const loadPlants = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('plants')
+          .select('id, code, name')
+          .eq('is_active', true)
+          .order('code');
+        
+        if (error) throw error;
+        
+        setPlants(data || []);
+        
+        // Validate and set default plant
+        const currentPlanta = form.getValues('planta');
+        if (data && data.length) {
+          // Check if current plant exists in loaded plants
+          const plantExists = data.some(p => p.code === currentPlanta);
+          if (!plantExists) {
+            // Set to first available plant if current doesn't exist
+            form.setValue('planta', data[0].code);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading plants:', error);
+      }
+    };
+    
+    loadPlants();
+  }, [form]);
 
   // Filter orders when search term or date range changes
   useEffect(() => {
@@ -1036,11 +1071,11 @@ export default function NuevoMuestreoPage() {
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent>
-                                    <SelectItem value="P001">Planta 1</SelectItem>
-                                    <SelectItem value="P002">Planta 2</SelectItem>
-                                    <SelectItem value="P003">Planta 3</SelectItem>
-                                    <SelectItem value="P004">Planta 4</SelectItem>
-                                    <SelectItem value="P005">Planta 5</SelectItem>
+                                    {plants.map((plant) => (
+                                      <SelectItem key={plant.id} value={plant.code}>
+                                        {plant.name} ({plant.code})
+                                      </SelectItem>
+                                    ))}
                                   </SelectContent>
                                 </Select>
                                 <FormMessage />

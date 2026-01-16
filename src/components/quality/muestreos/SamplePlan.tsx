@@ -305,7 +305,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   </div>
                 )}
 
-                <div className={cn('', (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? 'md:col-span-2' : 'md:col-span-2')}>
+                <div className={cn('space-y-1', (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? 'md:col-span-2' : 'md:col-span-2')}>
                   <FormLabel className="text-xs">Fecha programada de ensayo</FormLabel>
                   <Input
                     type="date"
@@ -316,7 +316,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
                     })()}
                     onChange={(e) => {
-                                              const val = e.target.value;
+                      const val = e.target.value;
                         const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
                         // FIXED: Preserve the existing time instead of hardcoding 12:00 PM
                         const existingTime = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
