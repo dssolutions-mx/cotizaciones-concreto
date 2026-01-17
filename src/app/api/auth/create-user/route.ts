@@ -2,17 +2,26 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { checkBotId } from 'botid/server';
+import { checkBotIdWithTimeout } from '@/lib/utils/botid-timeout';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify the request is not from a bot using BotID
-    const verification = await checkBotId();
-    if (verification.isBot) {
-      return NextResponse.json(
-        { error: 'Access denied: Bot detected' },
-        { status: 403 }
-      );
+    // Verify the request is not from a bot using BotID (with timeout protection)
+    try {
+      const verification = await checkBotIdWithTimeout(5000); // 5 second timeout
+      if (verification.isBot) {
+        console.warn('BotID detected bot - blocking request');
+        return NextResponse.json(
+          { error: 'Access denied: Bot detected' },
+          { status: 403 }
+        );
+      }
+    } catch (botIdError) {
+      // Log warning but allow request to proceed (graceful degradation for admin operations)
+      // BotID failures should not block internal admin user creation
+      const errorMessage = botIdError instanceof Error ? botIdError.message : 'Unknown BotID error';
+      console.warn('BotID verification failed or timed out, allowing request to proceed:', errorMessage);
+      // Continue with user creation - this is an internal admin operation
     }
     // Create a Supabase client with the URL and anon key from env vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
