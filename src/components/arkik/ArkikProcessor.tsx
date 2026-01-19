@@ -41,8 +41,9 @@ const formatLocalTime = (date: Date): string => {
   return `${hours}:${minutes}:${seconds}`;
 };
 
-// Plant 2 Tijuana ID - defaults to obra dedicada mode
+// Plant IDs that default to obra dedicada mode
 const PLANT_2_TIJUANA_ID = '836cbbcf-67b2-4534-97cc-b83e71722ff7';
+const PLANT_3_TIJUANA_ID = 'baf175a7-fcf7-4e71-b18f-e952d8802129';
 
 export default function ArkikProcessor() {
   const { currentPlant } = usePlantContext();
@@ -97,7 +98,7 @@ export default function ArkikProcessor() {
   
   // Set default processing mode based on plant
   useEffect(() => {
-    if (currentPlant?.id === PLANT_2_TIJUANA_ID) {
+    if (currentPlant?.id === PLANT_2_TIJUANA_ID || currentPlant?.id === PLANT_3_TIJUANA_ID) {
       setProcessingMode('dedicated');
     } else if (currentPlant) {
       // Reset to hybrid for other plants
