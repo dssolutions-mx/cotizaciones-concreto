@@ -257,8 +257,7 @@ export default function QuoteBuilder() {
         .order('recipe_code', { ascending: true });
       if (variantsError) throw variantsError;
 
-      const chosenVariant = variants?.[0];
-      if (!chosenVariant) {
+      if (!variants || variants.length === 0) {
         toast.error('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
         return;
       }
@@ -267,9 +266,44 @@ export default function QuoteBuilder() {
       // product_prices table is ONLY for storing approved prices after a quote is approved
       // It should NOT be used when creating new quotes
       
-      // Always calculate base price using latest variant materials
+      // Try variants until finding one with materials
       // This ensures: materials × current prices + admin costs (NO transport)
-      const basePrice = await calculateBasePrice(chosenVariant.id);
+      let chosenVariant = variants[0];
+      let basePrice: number | null = null;
+      const triedVariants: string[] = [];
+
+      for (const variant of variants) {
+        triedVariants.push(variant.recipe_code || variant.id);
+        try {
+          basePrice = await calculateBasePrice(variant.id);
+          chosenVariant = variant;
+          if (triedVariants.length > 1) {
+            console.log(
+              `[QuoteBuilder] Fallback: Variant ${triedVariants[0]} had no materials, ` +
+              `using variant ${variant.recipe_code || variant.id} (${triedVariants.length - 1} variants skipped)`
+            );
+          }
+          break; // Found a variant with materials
+        } catch (error: any) {
+          // Check if error is about missing materials
+          if (error?.message?.includes('No materials found')) {
+            console.warn(
+              `[QuoteBuilder] Variant ${variant.recipe_code || variant.id} has no materials, trying next variant`
+            );
+            continue; // Try next variant
+          }
+          // If it's a different error, throw it
+          throw error;
+        }
+      }
+
+      if (basePrice === null) {
+        const variantCodes = triedVariants.join(', ');
+        throw new Error(
+          `No se encontraron materiales para ninguna variante del maestro ${master.master_code}. ` +
+          `Variantes intentadas: ${variantCodes}. Por favor, asegúrese de que al menos una variante tenga materiales definidos.`
+        );
+      }
 
       // Add transport cost if distance info is available
       // IMPORTANT: Use current distanceInfo, not stale data

@@ -329,26 +329,59 @@ export async function proxy(request: NextRequest) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')
-        .select('role, plant_id')
+        .select('role, plant_id, business_unit_id')
         .eq('id', user.id)
         .single();
 
       const role = (profileData as any)?.role as string | undefined;
       const plantId = (profileData as any)?.plant_id as string | undefined;
+      const businessUnitId = (profileData as any)?.business_unit_id as string | undefined;
 
-      if (role === 'QUALITY_TEAM' && plantId) {
-        // Get plant code to check if it's restricted
-        const { data: plantData } = await supabase
-          .from('plants')
-          .select('code')
-          .eq('id', plantId)
-          .single();
-
-        const plantCode = (plantData as any)?.code as string | undefined;
+      if (role === 'QUALITY_TEAM') {
         const restrictedPlants = ['P2', 'P3', 'P4', 'P002', 'P003', 'P004']; // Support both formats
+        let shouldBlock = false;
+        let restrictedPlantCode: string | undefined;
 
-        if (plantCode && restrictedPlants.includes(plantCode)) {
-          console.log(`Blocking QUALITY_TEAM user from plant ${plantCode} accessing ${pathname}, redirecting to /quality/muestreos`);
+        if (plantId) {
+          // Check single plant assignment
+          const { data: plantData } = await supabase
+            .from('plants')
+            .select('code')
+            .eq('id', plantId)
+            .single();
+
+          const plantCode = (plantData as any)?.code as string | undefined;
+          if (plantCode && restrictedPlants.includes(plantCode)) {
+            shouldBlock = true;
+            restrictedPlantCode = plantCode;
+          }
+        } else if (businessUnitId) {
+          // Check if any plant in the business unit is restricted
+          const { data: buPlants } = await supabase
+            .from('plants')
+            .select('code')
+            .eq('business_unit_id', businessUnitId)
+            .in('code', restrictedPlants);
+
+          if (buPlants && buPlants.length > 0) {
+            // If all plants in BU are restricted, block access
+            // Get all plants in BU to check
+            const { data: allBuPlants } = await supabase
+              .from('plants')
+              .select('code')
+              .eq('business_unit_id', businessUnitId);
+
+            if (allBuPlants && allBuPlants.length === buPlants.length) {
+              // All plants in BU are restricted
+              shouldBlock = true;
+              restrictedPlantCode = buPlants[0]?.code;
+            }
+            // If only some plants are restricted, allow access (user can work with non-restricted plants)
+          }
+        }
+
+        if (shouldBlock && restrictedPlantCode) {
+          console.log(`Blocking QUALITY_TEAM user ${plantId ? `from plant ${restrictedPlantCode}` : `from business unit with restricted plants`} accessing ${pathname}, redirecting to /quality/muestreos`);
           const redirectUrl = request.nextUrl.clone();
           redirectUrl.pathname = '/quality/muestreos';
           return NextResponse.redirect(redirectUrl);

@@ -9,6 +9,81 @@ interface MaterialQuantity {
 }
 
 /**
+ * Helper function to find a recipe version with materials
+ * Iterates through versions ordered by created_at descending until finding one with materials
+ * @param recipeId - The recipe ID to search for
+ * @returns Object with version ID and materials, or throws error if none found
+ */
+async function getRecipeVersionWithMaterials(recipeId: string): Promise<{
+  versionId: string;
+  materials: MaterialQuantity[];
+}> {
+  // Get all recipe versions ordered by created_at descending
+  const { data: versions, error: versionsError } = await supabase
+    .from('recipe_versions')
+    .select('id, created_at')
+    .eq('recipe_id', recipeId)
+    .order('created_at', { ascending: false });
+
+  if (versionsError) throw versionsError;
+  if (!versions || versions.length === 0) {
+    throw new Error(`No recipe versions found for recipe ${recipeId}`);
+  }
+
+  // Try to get recipe code for better error messages
+  let recipeCode: string | null = null;
+  try {
+    const { data: recipe } = await supabase
+      .from('recipes')
+      .select('recipe_code')
+      .eq('id', recipeId)
+      .single();
+    recipeCode = recipe?.recipe_code || null;
+  } catch (e) {
+    // Ignore error, recipeCode will remain null
+  }
+
+  const checkedVersionIds: string[] = [];
+
+  // Iterate through versions until finding one with materials
+  for (const version of versions) {
+    checkedVersionIds.push(version.id);
+
+    const { data: versionMaterials, error: materialsError } = await supabase
+      .from('material_quantities')
+      .select('material_type, quantity, unit, material_id')
+      .eq('recipe_version_id', version.id);
+
+    if (materialsError) {
+      console.warn(`[priceCalculator] Error fetching materials for version ${version.id}:`, materialsError);
+      continue; // Try next version
+    }
+
+    if (versionMaterials && versionMaterials.length > 0) {
+      // Found a version with materials
+      if (checkedVersionIds.length > 1) {
+        console.log(
+          `[priceCalculator] Fallback: Latest version ${checkedVersionIds[0]} had no materials, ` +
+          `using version ${version.id} (${checkedVersionIds.length - 1} versions skipped)`
+        );
+      }
+      return {
+        versionId: version.id,
+        materials: versionMaterials as MaterialQuantity[],
+      };
+    }
+  }
+
+  // No versions have materials - throw descriptive error
+  const recipeInfo = recipeCode ? `recipe ${recipeCode} (${recipeId})` : `recipe ${recipeId}`;
+  throw new Error(
+    `No materials found for any version of ${recipeInfo}. ` +
+    `Checked ${checkedVersionIds.length} version(s): ${checkedVersionIds.join(', ')}. ` +
+    `Please ensure at least one version has materials defined.`
+  );
+}
+
+/**
  * Calculate base price for a recipe:
  * - Materials from latest variant (by updated_at) × material prices
  * - Plus administrative expenses per m³
@@ -21,35 +96,11 @@ export const calculateBasePrice = async (
   try {
     let materialsToUse = materials;
 
-    // If materials not provided, get latest variant materials
+    // If materials not provided, get latest variant materials with fallback
     if (!materialsToUse || materialsToUse.length === 0) {
-      // Get latest recipe version (by created_at, most recent first)
-      const { data: versions, error: versionsError } = await supabase
-        .from('recipe_versions')
-        .select('id, created_at')
-        .eq('recipe_id', recipeId)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (versionsError) throw versionsError;
-      if (!versions || versions.length === 0) {
-        throw new Error(`No recipe versions found for recipe ${recipeId}`);
-      }
-
-      const latestVersion = versions[0];
-
-      // Get materials for latest version
-      const { data: versionMaterials, error: materialsError } = await supabase
-        .from('material_quantities')
-        .select('material_type, quantity, unit, material_id')
-        .eq('recipe_version_id', latestVersion.id);
-
-      if (materialsError) throw materialsError;
-      if (!versionMaterials || versionMaterials.length === 0) {
-        throw new Error(`No materials found for latest version of recipe ${recipeId}`);
-      }
-
-      materialsToUse = versionMaterials as MaterialQuantity[];
+      const { versionId, materials } = await getRecipeVersionWithMaterials(recipeId);
+      materialsToUse = materials;
+      console.log(`[priceCalculator] Using materials from version ${versionId} for recipe ${recipeId}`);
     }
 
     // Get current material prices
@@ -115,32 +166,11 @@ export const calculateBasePriceBreakdown = async (
   try {
     let materialsToUse = materials;
 
-    // If materials not provided, get latest variant materials
+    // If materials not provided, get latest variant materials with fallback
     if (!materialsToUse || materialsToUse.length === 0) {
-      const { data: versions, error: versionsError } = await supabase
-        .from('recipe_versions')
-        .select('id, created_at')
-        .eq('recipe_id', recipeId)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (versionsError) throw versionsError;
-      if (!versions || versions.length === 0) {
-        throw new Error(`No recipe versions found for recipe ${recipeId}`);
-      }
-
-      const latestVersion = versions[0];
-      const { data: versionMaterials, error: materialsError } = await supabase
-        .from('material_quantities')
-        .select('material_type, quantity, unit, material_id')
-        .eq('recipe_version_id', latestVersion.id);
-
-      if (materialsError) throw materialsError;
-      if (!versionMaterials || versionMaterials.length === 0) {
-        throw new Error(`No materials found for latest version of recipe ${recipeId}`);
-      }
-
-      materialsToUse = versionMaterials as MaterialQuantity[];
+      const { versionId, materials } = await getRecipeVersionWithMaterials(recipeId);
+      materialsToUse = materials;
+      console.log(`[priceCalculator] Using materials from version ${versionId} for recipe ${recipeId} (breakdown)`);
     }
 
     // Get current material prices

@@ -8,23 +8,58 @@ const corsHeaders = {
 };
 
 // Enhanced function to get plant-specific recipients
+// Includes quality team members assigned directly to the plant OR to the plant's business unit
 async function getPlantSpecificRecipients(supabaseClient: any, plantId: string): Promise<string[]> {
-  const { data, error } = await supabaseClient
+  // First, get the plant's business_unit_id
+  const { data: plantData, error: plantError } = await supabaseClient
+    .from('plants')
+    .select('business_unit_id')
+    .eq('id', plantId)
+    .single();
+
+  if (plantError) {
+    console.error('Error fetching plant data:', plantError);
+    return [];
+  }
+
+  const businessUnitId = plantData?.business_unit_id;
+
+  // Get quality team members directly assigned to the plant
+  const { data: plantAssignedUsers, error: plantError2 } = await supabaseClient
     .from('user_profiles')
     .select('email')
     .eq('plant_id', plantId)
-    .in('role', [
-      'QUALITY_TEAM'
-      
-    ])
+    .in('role', ['QUALITY_TEAM'])
     .eq('is_active', true);
 
-  if (error) {
-    console.error('Error fetching plant-specific recipients:', error);
-    return [];
+  if (plantError2) {
+    console.error('Error fetching plant-specific recipients:', plantError2);
   }
   
-  const plantEmails = data.map((user: { email: string }) => user.email);
+  const plantEmails = (plantAssignedUsers || []).map((user: { email: string }) => user.email);
+
+  // Get quality team members assigned to the business unit (if plant has a business unit)
+  if (businessUnitId) {
+    const { data: buAssignedUsers, error: buError } = await supabaseClient
+      .from('user_profiles')
+      .select('email')
+      .eq('business_unit_id', businessUnitId)
+      .is('plant_id', null) // Only users with business_unit_id and no specific plant_id
+      .in('role', ['QUALITY_TEAM'])
+      .eq('is_active', true);
+
+    if (buError) {
+      console.error('Error fetching quality team for business unit:', buError);
+    } else {
+      const buEmails = (buAssignedUsers || []).map((user: { email: string }) => user.email);
+      // Add business unit emails, avoiding duplicates
+      buEmails.forEach((email: string) => {
+        if (!plantEmails.includes(email)) {
+          plantEmails.push(email);
+        }
+      });
+    }
+  }
   
   // Always add Juan and Alejandro to the notifications
   const juanEmail = 'juan.aguirre@dssolutions-mx.com';
