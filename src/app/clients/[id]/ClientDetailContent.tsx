@@ -659,7 +659,52 @@ function ClientBalanceBreakdown({
   const [vatByPlant, setVatByPlant] = React.useState<Record<string, number>>({});
   const [adjustmentsList, setAdjustmentsList] = React.useState<any[]>([]);
   const [expandedSites, setExpandedSites] = React.useState<Set<string>>(new Set());
+  const [paymentDistributions, setPaymentDistributions] = React.useState<Record<string, { construction_site: string | null; amount: number }>>({});
   const generalBalance = React.useMemo(() => balances.find(b => b.construction_site === null)?.current_balance || 0, [balances]);
+
+  // Cargar distribuciones de pagos
+  React.useEffect(() => {
+    const loadPaymentDistributions = async () => {
+      try {
+        if (!payments || payments.length === 0) {
+          setPaymentDistributions({});
+          return;
+        }
+        const paymentIds = payments.map(p => p.id);
+        const CHUNK_SIZE = 150;
+        const chunks: string[][] = [];
+        for (let i = 0; i < paymentIds.length; i += CHUNK_SIZE) {
+          chunks.push(paymentIds.slice(i, i + CHUNK_SIZE));
+        }
+
+        const distributions: Record<string, { construction_site: string | null; amount: number }> = {};
+        for (let index = 0; index < chunks.length; index++) {
+          const chunk = chunks[index];
+          const { data, error } = await supabase
+            .from('client_payment_distributions')
+            .select('payment_id, construction_site, amount')
+            .in('payment_id', chunk);
+
+          if (error) {
+            console.error('Error loading payment distributions chunk', { index, size: chunk.length, error });
+            continue;
+          }
+
+          (data || []).forEach((d: any) => {
+            distributions[d.payment_id] = {
+              construction_site: d.construction_site,
+              amount: parseFloat(d.amount) || 0
+            };
+          });
+        }
+        setPaymentDistributions(distributions);
+      } catch (e) {
+        console.error('Error loading payment distributions:', e);
+        setPaymentDistributions({});
+      }
+    };
+    loadPaymentDistributions();
+  }, [payments]);
 
   // Cargar remisiones por orden para determinar entregas (EXISTS remisiones)
   React.useEffect(() => {
@@ -885,8 +930,21 @@ function ClientBalanceBreakdown({
       const label = key === '::GENERAL' ? 'General' : key;
       const ordersForSite = (orderRowsExtended || []).filter((r: any) => (r.construction_site || '::GENERAL') === key && deliveredOrderIds.has(r.id));
       const consumption = ordersForSite.reduce((sum, r) => sum + computeOrderWithVat(r), 0);
-      const paymentsForSite = (payments || []).filter(p => (p.construction_site || '::GENERAL') === key);
-      const paymentsSum = paymentsForSite.reduce((s, p) => s + (p.amount || 0), 0);
+      // Usar distribuciones de pagos en lugar de construction_site del pago
+      const paymentsForSite = (payments || []).filter(p => {
+        const dist = paymentDistributions[p.id];
+        if (!dist) {
+          // Si no hay distribución, usar construction_site del pago como fallback
+          return (p.construction_site || '::GENERAL') === key;
+        }
+        const distSite = dist.construction_site || '::GENERAL';
+        return distSite === key;
+      });
+      const paymentsSum = paymentsForSite.reduce((s, p) => {
+        const dist = paymentDistributions[p.id];
+        // Usar el monto de la distribución si existe, sino el monto del pago
+        return s + (dist ? dist.amount : (p.amount || 0));
+      }, 0);
       // Calcular ajustes usando effect_on_client (ya tiene el signo correcto)
       // Los ajustes solo se aplican a General; las obras no tienen ajustes directos
       let adjustmentsSum = 0;
@@ -921,7 +979,7 @@ function ClientBalanceBreakdown({
       };
     });
     return bySite;
-  }, [siteKeys, orderRowsExtended, deliveredOrderIds, vatByPlant, payments, adjustmentsList, balances]);
+  }, [siteKeys, orderRowsExtended, deliveredOrderIds, vatByPlant, payments, paymentDistributions, adjustmentsList, balances]);
 
   const totals = React.useMemo(() => {
     const base = Object.values(perSiteBreakdown).reduce((acc, s) => {
@@ -1809,14 +1867,37 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       setPayments(fetchedPayments);
       setBalances(fetchedBalances);
 
-      // Fetch orders for this client
+      // Fetch orders for this client - load ALL orders (no limit)
+      // Supabase has a default limit of 1000, so we need to paginate to get all orders
       setLoadingOrders(true);
-      const { data: orders, error: ordersError } = await orderService.getOrders({ clientId });
-      if (ordersError) {
-        console.error("Error loading client orders:", ordersError);
-      } else {
-        setClientOrders(orders);
+      let allOrders: OrderWithClient[] = [];
+      let hasMore = true;
+      const pageSize = 1000;
+      let offset = 0;
+      
+      while (hasMore) {
+        const { data: ordersPage, error: ordersError } = await orderService.getOrders({ 
+          clientId,
+          limit: pageSize,
+          offset: offset
+        });
+        
+        if (ordersError) {
+          console.error("Error loading client orders:", ordersError);
+          break;
+        }
+        
+        if (ordersPage && ordersPage.length > 0) {
+          allOrders.push(...ordersPage);
+          // If we got fewer than pageSize, we've reached the end
+          hasMore = ordersPage.length === pageSize;
+          offset += pageSize;
+        } else {
+          hasMore = false;
+        }
       }
+      
+      setClientOrders(allOrders);
       setLoadingOrders(false);
 
     } catch (err) {

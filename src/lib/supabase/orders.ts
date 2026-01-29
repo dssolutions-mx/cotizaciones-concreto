@@ -24,7 +24,8 @@ export const orderService = {
     clientId?: string, 
     startDate?: string, 
     endDate?: string, 
-    limit?: number 
+    limit?: number,
+    offset?: number
   }, client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
@@ -73,13 +74,24 @@ export const orderService = {
         query = query.lte('delivery_date', filters.endDate);
       }
       
-      // Apply limit if provided
-      if (filters?.limit) {
-        query = query.limit(filters.limit);
+      // Sort by created_at in descending order (must be before limit/offset)
+      query = query.order('created_at', { ascending: false });
+      
+      // Apply offset if provided (for pagination)
+      if (filters?.offset !== undefined) {
+        query = query.range(filters.offset, filters.offset + (filters.limit || 1000) - 1);
       }
       
-      // Sort by created_at in descending order
-      query = query.order('created_at', { ascending: false });
+      // Apply limit if provided (default to 1000 if no offset specified)
+      if (filters?.limit) {
+        if (filters?.offset === undefined) {
+          query = query.limit(filters.limit);
+        }
+        // If offset is provided, limit is handled by range() above
+      } else if (filters?.offset === undefined) {
+        // Default limit of 1000 if no limit and no offset specified
+        query = query.limit(1000);
+      }
       
       const { data, error } = await query;
       

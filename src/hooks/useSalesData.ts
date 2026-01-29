@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from 'react';
 import { addDays, endOfWeek, format, isAfter, isBefore, max as dateMax, min as dateMin, startOfDay, startOfWeek } from 'date-fns';
 import { supabase } from '@/lib/supabase';
+import { usePlantContext } from '@/contexts/PlantContext';
+import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
 interface UseSalesDataProps {
   startDate: Date | undefined;
@@ -9,6 +11,7 @@ interface UseSalesDataProps {
 }
 
 export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataProps) => {
+  const { userAccess, isGlobalAdmin } = usePlantContext();
   const [salesData, setSalesData] = useState<any[]>([]);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
   const [orderItems, setOrderItems] = useState<any[]>([]); // Add order items for sophisticated price matching
@@ -84,6 +87,13 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           const formattedStart = format(slice.from, 'yyyy-MM-dd');
           const formattedEnd = format(slice.to, 'yyyy-MM-dd');
 
+          // Get accessible plant IDs (handles business unit access)
+          const plantIds = await plantAwareDataService.getAccessiblePlantIds({
+            userAccess,
+            isGlobalAdmin,
+            currentPlantId: currentPlant?.id || null
+          });
+
           // Fetch remisiones for the slice
           let remisionesQuery = supabase
             .from('remisiones')
@@ -103,9 +113,14 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
             .gte('fecha', formattedStart)
             .lte('fecha', formattedEnd);
 
-          if (currentPlant?.id) {
-            remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+          // Apply plant filtering based on accessible plant IDs
+          if (plantIds && plantIds.length > 0) {
+            remisionesQuery = remisionesQuery.in('plant_id', plantIds);
+          } else if (plantIds && plantIds.length === 0) {
+            // User has no access - return empty by filtering on non-existent condition
+            remisionesQuery = remisionesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
           }
+          // If plantIds is null, user can access all plants (global admin), so no filter applied
 
           const { data: sliceRemisiones, error: remErr } = await remisionesQuery.order('fecha', { ascending: false });
           if (remErr) throw remErr;
@@ -119,8 +134,11 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
                 .select('remision_id, subtotal_amount, volumen_fabricado')
                 .in('remision_id', remisionIds.map(id => String(id)));
 
-              if (currentPlant?.id) {
-                pricingQuery = pricingQuery.eq('plant_id', currentPlant.id);
+              // Apply same plant filtering for pricing data
+              if (plantIds && plantIds.length > 0) {
+                pricingQuery = pricingQuery.in('plant_id', plantIds);
+              } else if (plantIds && plantIds.length === 0) {
+                pricingQuery = pricingQuery.eq('id', '00000000-0000-0000-0000-000000000000');
               }
 
               const { data: pricingData, error: pricingErr } = await pricingQuery;
@@ -325,6 +343,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
 
 // Hook for fetching historical sales data (matching main sales data processing)
 export const useHistoricalSalesData = (currentPlant: any) => {
+  const { userAccess, isGlobalAdmin } = usePlantContext();
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [historicalRemisiones, setHistoricalRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -343,6 +362,13 @@ export const useHistoricalSalesData = (currentPlant: any) => {
 
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+
+        // Get accessible plant IDs (handles business unit access)
+        const plantIds = await plantAwareDataService.getAccessiblePlantIds({
+          userAccess,
+          isGlobalAdmin,
+          currentPlantId: currentPlant?.id || null
+        });
 
         // 1. Fetch remisiones directly by their fecha field (MATCHING MAIN SALES LOGIC)
         let remisionesQuery = supabase
@@ -363,9 +389,11 @@ export const useHistoricalSalesData = (currentPlant: any) => {
           .gte('fecha', formattedStartDate)
           .lte('fecha', formattedEndDate);
 
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+        // Apply plant filtering based on accessible plant IDs
+        if (plantIds && plantIds.length > 0) {
+          remisionesQuery = remisionesQuery.in('plant_id', plantIds);
+        } else if (plantIds && plantIds.length === 0) {
+          remisionesQuery = remisionesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
         }
 
         const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: true });

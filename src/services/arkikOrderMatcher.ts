@@ -613,6 +613,26 @@ export class ArkikOrderMatcher {
     try {
       console.log(`[ArkikOrderMatcher] Adding ${remisiones.length} remisiones to existing order ${orderId} (bulk mode: ${useBulkMode})`);
       
+      // Filter out excluded remisiones (materials-only duplicates, etc.)
+      const remisionesToProcess = remisiones.filter(remision => {
+        if (remision.is_excluded_from_import) {
+          console.log(`[ArkikOrderMatcher] Skipping excluded remision ${remision.remision_number}`);
+          return false;
+        }
+        if (remision.duplicate_strategy === 'materials_only') {
+          console.log(`[ArkikOrderMatcher] Skipping materials-only duplicate ${remision.remision_number}`);
+          return false;
+        }
+        return true;
+      });
+
+      if (remisionesToProcess.length === 0) {
+        console.log(`[ArkikOrderMatcher] All remisiones were filtered out - nothing to process`);
+        return { success: true, materialsCreated: 0 };
+      }
+
+      console.log(`[ArkikOrderMatcher] Processing ${remisionesToProcess.length} remisiones (${remisiones.length - remisionesToProcess.length} filtered out)`);
+      
       // Fetch order items to enforce strict gate before inserting
       const { data: orderItems, error: orderItemsError } = await supabase
         .from('order_items')
@@ -624,7 +644,7 @@ export class ArkikOrderMatcher {
       }
 
       // Enforce strict recipe match for all remisiones with recipe_id
-      const blocked = remisiones.filter(r => r.recipe_id && !hasStrictRecipeMatch(orderItems as any, r));
+      const blocked = remisionesToProcess.filter(r => r.recipe_id && !hasStrictRecipeMatch(orderItems as any, r));
       if (blocked.length > 0) {
         const nums = blocked.map(b => b.remision_number).join(', ');
         return {
@@ -640,8 +660,36 @@ export class ArkikOrderMatcher {
       }
       
       try {
-        // Step 1: Insert remisiones into the database using the same field mapping as dedicated mode
-        const remisionesToInsert = remisiones.map(remision => {
+        // Step 1: Check which remisiones already exist (batch query to prevent duplicates)
+        const remisionNumbers = remisionesToProcess.map(r => r.remision_number);
+        const { data: existingRemisiones } = await supabase
+          .from('remisiones')
+          .select('id, remision_number')
+          .in('remision_number', remisionNumbers);
+
+        const existingRemisionNumbers = new Set(
+          existingRemisiones?.map(r => r.remision_number) || []
+        );
+
+        // Only insert new remisiones
+        const newRemisiones = remisionesToProcess.filter(
+          r => !existingRemisionNumbers.has(r.remision_number)
+        );
+
+        if (existingRemisionNumbers.size > 0) {
+          console.log(`[ArkikOrderMatcher] ${existingRemisionNumbers.size} remisiones already exist, ${newRemisiones.length} will be inserted`);
+        }
+
+        if (newRemisiones.length === 0) {
+          console.log(`[ArkikOrderMatcher] All remisiones already exist - skipping insertion`);
+          return {
+            success: true,
+            materialsCreated: 0
+          };
+        }
+
+        // Step 2: Insert remisiones into the database using the same field mapping as dedicated mode
+        const remisionesToInsert = newRemisiones.map(remision => {
           // Format hora_carga properly
           let horaCarga: string;
           if (remision.hora_carga instanceof Date) {
@@ -695,16 +743,34 @@ export class ArkikOrderMatcher {
 
         console.log(`[ArkikOrderMatcher] Successfully inserted ${insertedRemisiones?.length} remisiones`);
 
-        // Step 2: Create materials for each remision (read from staging maps)
+        // Step 3: Batch check which remisiones already have materials (single query, not N queries)
+        const remisionIds = insertedRemisiones.map(r => r.id);
+        const { data: existingMaterials } = await supabase
+          .from('remision_materiales')
+          .select('remision_id')
+          .in('remision_id', remisionIds);
+
+        const remisionesWithMaterials = new Set(
+          existingMaterials?.map(m => m.remision_id) || []
+        );
+
+        // Filter out remisiones that already have materials
+        const remisionesNeedingMaterials = insertedRemisiones.filter(
+          r => !remisionesWithMaterials.has(r.id)
+        );
+
+        console.log(`[ArkikOrderMatcher] ${remisionesWithMaterials.size} remisiones already have materials, ${remisionesNeedingMaterials.length} need materials`);
+
+        // Step 4: Create materials for each remision that needs them (read from staging maps)
         let materialsCreated = 0;
-        if (insertedRemisiones && insertedRemisiones.length > 0) {
-          console.log(`[ArkikOrderMatcher] Creating materials for ${insertedRemisiones.length} remisiones`);
+        if (remisionesNeedingMaterials.length > 0) {
+          console.log(`[ArkikOrderMatcher] Creating materials for ${remisionesNeedingMaterials.length} remisiones`);
           
           const allRemisionMaterials: any[] = [];
           
           // Prepare materials data for batch insertion
-          for (const createdRemision of insertedRemisiones) {
-            const stagingRemision = remisiones.find(r => r.remision_number === createdRemision.remision_number);
+          for (const createdRemision of remisionesNeedingMaterials) {
+            const stagingRemision = remisionesToProcess.find(r => r.remision_number === createdRemision.remision_number);
             
             if (stagingRemision && stagingRemision.materials_teorico) {
               const teoricos = stagingRemision.materials_teorico as Record<string, number>;
@@ -832,7 +898,12 @@ export class ArkikOrderMatcher {
   private calculateAveragePrice(remisiones: StagingRemision[]): number {
     const validPrices = remisiones
       .map(r => r.unit_price)
-      .filter((price): price is number => price != null && (price > 0 || remisiones.find(r => r.unit_price === price)?.quote_detail_id));
+      .filter((price): price is number => {
+        if (price == null) return false;
+        if (price > 0) return true;
+        const remision = remisiones.find(r => r.unit_price === price);
+        return !!remision?.quote_detail_id;
+      });
 
     if (validPrices.length === 0) return 0;
 

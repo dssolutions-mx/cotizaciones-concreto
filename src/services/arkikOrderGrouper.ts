@@ -13,21 +13,43 @@ export class ArkikOrderGrouper {
     remisiones: StagingRemision[], 
     options: OrderGroupingOptions = { processingMode: 'dedicated' }
   ): OrderSuggestion[] {
+    // Filter out excluded remisiones before grouping (defensive check)
+    const filteredRemisiones = remisiones.filter(remision => {
+      if (remision.is_excluded_from_import) {
+        console.log(`[ArkikOrderGrouper] Excluding remision ${remision.remision_number} from grouping (is_excluded_from_import)`);
+        return false;
+      }
+      if (remision.duplicate_strategy === 'materials_only') {
+        console.log(`[ArkikOrderGrouper] Excluding remision ${remision.remision_number} from grouping (materials_only duplicate)`);
+        return false;
+      }
+      return true;
+    });
+
+    if (filteredRemisiones.length !== remisiones.length) {
+      console.log(`[ArkikOrderGrouper] Filtered ${remisiones.length - filteredRemisiones.length} excluded remisiones before grouping`);
+    }
+
     if (options.processingMode === 'commercial' || options.processingMode === 'hybrid') {
       return this.groupWithExistingOrders(
-        remisiones, 
+        filteredRemisiones, 
         options.existingOrderMatches || [], 
         options.manualAssignments
       );
     }
     
-    return this.groupForNewOrders(remisiones);
+    return this.groupForNewOrders(filteredRemisiones);
   }
 
   private groupForNewOrders(remisiones: StagingRemision[]): OrderSuggestion[] {
+    // Additional defensive filtering (should already be filtered, but double-check)
+    const validRemisiones = remisiones.filter(r => 
+      !r.is_excluded_from_import && r.duplicate_strategy !== 'materials_only'
+    );
+    
     const groups = new Map<string, StagingRemision[]>();
-    const withOrder = remisiones.filter(r => r.orden_original);
-    const withoutOrder = remisiones.filter(r => !r.orden_original);
+    const withOrder = validRemisiones.filter(r => r.orden_original);
+    const withoutOrder = validRemisiones.filter(r => !r.orden_original);
 
     withOrder.forEach(remision => {
       const key = remision.orden_original!;
@@ -56,9 +78,14 @@ export class ArkikOrderGrouper {
     const processedRemisionIds = new Set<string>();
 
     // Process existing order matches first, but only keep remisiones that strictly match recipes
+    // Also filter out excluded remisiones as defensive check
     existingMatches.forEach(match => {
       const items = (match.order as any).order_items as any[] | undefined;
-      const strictlyCompatibleRemisiones = match.matchedRemisiones.filter(r => !r.recipe_id || hasStrictRecipeMatch(items as any, r));
+      const strictlyCompatibleRemisiones = match.matchedRemisiones.filter(r => 
+        !r.is_excluded_from_import && 
+        r.duplicate_strategy !== 'materials_only' &&
+        (!r.recipe_id || hasStrictRecipeMatch(items as any, r))
+      );
       if (strictlyCompatibleRemisiones.length > 0) {
         const filteredMatch = { ...match, matchedRemisiones: strictlyCompatibleRemisiones } as any;
         const suggestion = this.createOrderSuggestionFromExistingOrder(filteredMatch);
@@ -69,10 +96,13 @@ export class ArkikOrderGrouper {
       }
     });
 
-    // Process manual assignments
+    // Process manual assignments (also filter excluded remisiones)
     if (manualAssignments) {
       const manuallyAssignedRemisiones = remisiones.filter(r => 
-        !processedRemisionIds.has(r.id) && manualAssignments.has(r.remision_number)
+        !r.is_excluded_from_import &&
+        r.duplicate_strategy !== 'materials_only' &&
+        !processedRemisionIds.has(r.id) && 
+        manualAssignments.has(r.remision_number)
       );
 
       // Group manually assigned remisiones by target order ID
@@ -93,8 +123,12 @@ export class ArkikOrderGrouper {
       });
     }
 
-    // Process remaining unmatched remisiones as new orders
-    const unmatchedRemisiones = remisiones.filter(r => !processedRemisionIds.has(r.id));
+    // Process remaining unmatched remisiones as new orders (filter excluded ones)
+    const unmatchedRemisiones = remisiones.filter(r => 
+      !r.is_excluded_from_import &&
+      r.duplicate_strategy !== 'materials_only' &&
+      !processedRemisionIds.has(r.id)
+    );
     if (unmatchedRemisiones.length > 0) {
       const newOrderSuggestions = this.groupForNewOrders(unmatchedRemisiones);
       suggestions.push(...newOrderSuggestions);
