@@ -11,6 +11,7 @@ import { X, Plus, Trash2, Edit2, Save, Package, Truck } from 'lucide-react'
 import { toast } from 'sonner'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
+import { Plant } from '@/types/plant'
 
 interface POItem {
   tempId: string
@@ -62,10 +63,37 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   const [serviceDescription, setServiceDescription] = useState('')
 
   const [materials, setMaterials] = useState<any[]>([])
+  const [plants, setPlants] = useState<Plant[]>([])
+  const [loadingPlants, setLoadingPlants] = useState(false)
 
   useEffect(() => {
     if (defaultPlantId) setPlantId(defaultPlantId)
   }, [defaultPlantId])
+
+  // Fetch plants when modal opens
+  useEffect(() => {
+    if (open) {
+      setLoadingPlants(true)
+      fetch('/api/plants')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.data) {
+            setPlants(data.data)
+            // Ensure defaultPlantId is selected if provided
+            if (defaultPlantId) {
+              setPlantId(defaultPlantId)
+            }
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching plants:', err)
+          toast.error('Error al cargar las plantas')
+        })
+        .finally(() => {
+          setLoadingPlants(false)
+        })
+    }
+  }, [open, defaultPlantId])
 
   useEffect(() => {
     if (!open) {
@@ -289,14 +317,24 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                   <div>
                     <Label className="text-sm font-medium text-gray-700">Planta</Label>
                     <div className="mt-1.5">
-                      <Input 
+                      <Select 
                         value={plantId} 
-                        onChange={(e) => setPlantId(e.target.value)}
-                        placeholder="UUID de planta"
-                        className="text-base"
-                      />
+                        onValueChange={setPlantId}
+                        disabled={loadingPlants}
+                      >
+                        <SelectTrigger className="text-base">
+                          <SelectValue placeholder={loadingPlants ? "Cargando plantas..." : "Seleccionar planta"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {plants.map((plant) => (
+                            <SelectItem key={plant.id} value={plant.id}>
+                              {plant.name} ({plant.code})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <p className="mt-1 text-xs text-gray-500">
-                        Predeterminado a la planta actual
+                        {defaultPlantId ? 'Predeterminado a la planta actual' : 'Seleccione una planta'}
                       </p>
                     </div>
                   </div>

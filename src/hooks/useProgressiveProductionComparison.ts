@@ -143,16 +143,38 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
             setProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
           }
 
-          // Build plant metrics from accumulated remisiones
-          const totalVolume = remisionesForPlant.reduce((sum, r) => sum + (Number(r.volumen_fabricado) || 0), 0);
+          // Filter remisiones to only include those with materials (like detail page does)
           const remisionIds = remisionesForPlant.map((r) => r.id);
+          const remisionesWithMaterials = new Set<string>();
+          
+          // Probe which remisiones have materials in chunks
+          const probeChunkSize = 25;
+          for (let i = 0; i < remisionIds.length; i += probeChunkSize) {
+            const chunk = remisionIds.slice(i, i + probeChunkSize);
+            const { data } = await supabase
+              .from('remision_materiales')
+              .select('remision_id')
+              .in('remision_id', chunk);
+            (data || []).forEach((d: any) => { 
+              if (d.remision_id) remisionesWithMaterials.add(d.remision_id); 
+            });
+          }
+          
+          // Filter remisiones to only those with materials
+          const remisionesWithMaterialsList = remisionesForPlant.filter((r) => 
+            remisionesWithMaterials.has(r.id)
+          );
+          const remisionIdsWithMaterials = remisionesWithMaterialsList.map((r) => r.id);
+
+          // Build plant metrics from remisiones WITH materials only
+          const totalVolume = remisionesWithMaterialsList.reduce((sum, r) => sum + (Number(r.volumen_fabricado) || 0), 0);
 
           let fcPonderada = 0;
           let edadPonderada = 0;
           if (totalVolume > 0) {
             let sumFcVolume = 0;
             let sumEdadVolume = 0;
-            remisionesForPlant.forEach((rem) => {
+            remisionesWithMaterialsList.forEach((rem) => {
               const vol = Number(rem.volumen_fabricado) || 0;
               const fc = Number(rem.recipes?.strength_fc) || 0;
               const edad = Number(rem.recipes?.age_days) || 28;
@@ -163,8 +185,8 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
             edadPonderada = sumEdadVolume / totalVolume;
           }
 
-          // Calculate materials costs/consumptions (chunked internally)
-          const materialCosts = await calculateMaterialCosts(remisionIds, plant.id);
+          // Calculate materials costs/consumptions (chunked internally) - only for remisiones with materials
+          const materialCosts = await calculateMaterialCosts(remisionIdsWithMaterials, plant.id);
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
 
           const plantData: PlantProductionData = {
@@ -176,7 +198,7 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
             cement_consumption: materialCosts.cementConsumption,
             cement_cost_per_m3: totalVolume > 0 ? materialCosts.cementCost / totalVolume : 0,
             avg_cost_per_m3: totalVolume > 0 ? materialCosts.totalCost / totalVolume : 0,
-            remisiones_count: remisionesForPlant.length,
+            remisiones_count: remisionesWithMaterialsList.length,
             additive_consumption: materialCosts.additiveConsumption,
             additive_cost: materialCosts.additiveCost,
             aggregate_consumption: materialCosts.aggregateConsumption,
@@ -304,19 +326,40 @@ async function fetchPlantProductionData(
       };
     }
 
-    const totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
     const remisionIds = remisiones.map(r => r.id);
+    
+    // Filter remisiones to only include those with materials
+    const remisionesWithMaterials = new Set<string>();
+    const probeChunkSize = 25;
+    for (let i = 0; i < remisionIds.length; i += probeChunkSize) {
+      const chunk = remisionIds.slice(i, i + probeChunkSize);
+      const { data } = await supabase
+        .from('remision_materiales')
+        .select('remision_id')
+        .in('remision_id', chunk);
+      (data || []).forEach((d: any) => { 
+        if (d.remision_id) remisionesWithMaterials.add(d.remision_id); 
+      });
+    }
+    
+    // Filter remisiones to only those with materials
+    const remisionesWithMaterialsList = remisiones.filter((r) => 
+      remisionesWithMaterials.has(r.id)
+    );
+    const remisionIdsWithMaterials = remisionesWithMaterialsList.map(r => r.id);
+    
+    const totalVolume = remisionesWithMaterialsList.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
 
-    // Costs and consumptions
-    const materialCosts = await calculateMaterialCosts(remisionIds, plantId);
+    // Costs and consumptions - only for remisiones with materials
+    const materialCosts = await calculateMaterialCosts(remisionIdsWithMaterials, plantId);
 
-    // Weighted metrics
+    // Weighted metrics - only for remisiones with materials
     let fcPonderada = 0;
     let edadPonderada = 0;
     if (totalVolume > 0) {
       let sumFcVolume = 0;
       let sumEdadVolume = 0;
-      remisiones.forEach(remision => {
+      remisionesWithMaterialsList.forEach(remision => {
         const volume = remision.volumen_fabricado || 0;
         const fc = remision.recipes?.strength_fc || 0;
         const edad = remision.recipes?.age_days || 28;
@@ -336,7 +379,7 @@ async function fetchPlantProductionData(
       cement_consumption: materialCosts.cementConsumption,
       cement_cost_per_m3: totalVolume > 0 ? materialCosts.cementCost / totalVolume : 0,
       avg_cost_per_m3: totalVolume > 0 ? materialCosts.totalCost / totalVolume : 0,
-      remisiones_count: remisiones.length,
+      remisiones_count: remisionesWithMaterialsList.length,
       additive_consumption: materialCosts.additiveConsumption,
       additive_cost: materialCosts.additiveCost,
       aggregate_consumption: materialCosts.aggregateConsumption,

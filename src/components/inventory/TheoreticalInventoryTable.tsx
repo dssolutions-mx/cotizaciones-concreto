@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { 
@@ -194,30 +195,78 @@ export default function TheoreticalInventoryTable({
                     <TableRow key={flow.material_id}>
                       <TableCell className="font-medium">{flow.material_name}</TableCell>
                       <TableCell>{flow.unit}</TableCell>
-                      <TableCell className="text-right">{formatNumber(flow.initial_stock)}</TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">
-                        +{formatNumber(flow.total_entries)}
-                      </TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">
-                        +{formatNumber(flow.total_manual_additions)}
-                      </TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">
-                        -{formatNumber(flow.total_remisiones_consumption)}
-                      </TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">
-                        -{formatNumber(flow.total_manual_withdrawals)}
-                      </TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">
-                        -{formatNumber(flow.total_waste)}
+                      <TableCell className="text-right font-medium">
+                        <span className={cn(
+                          "px-2 py-1 rounded",
+                          flow.initial_stock > 0 ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-600"
+                        )}>
+                          {formatNumber(flow.initial_stock)}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="font-semibold">{formatNumber(flow.theoretical_final_stock)}</span>
-                          {TrendIcon && (
-                            <div className={cn("flex items-center gap-1", trend.color)}>
-                              <TrendIcon className="h-4 w-4" />
-                              <span className="text-xs">{trend.label}</span>
-                            </div>
+                        {flow.total_entries > 0 && (
+                          <span className="inline-flex items-center gap-1 text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
+                            <TrendingUp className="h-3 w-3" />
+                            +{formatNumber(flow.total_entries)}
+                          </span>
+                        )}
+                        {flow.total_entries === 0 && <span className="text-gray-400">0</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {flow.total_manual_additions > 0 && (
+                          <span className="inline-flex items-center gap-1 text-green-700 font-medium bg-green-50 px-2 py-1 rounded">
+                            <TrendingUp className="h-3 w-3" />
+                            +{formatNumber(flow.total_manual_additions)}
+                          </span>
+                        )}
+                        {flow.total_manual_additions === 0 && <span className="text-gray-400">0</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {flow.total_remisiones_consumption > 0 && (
+                          <span className="inline-flex items-center gap-1 text-red-700 font-medium bg-red-50 px-2 py-1 rounded">
+                            <TrendingDown className="h-3 w-3" />
+                            -{formatNumber(flow.total_remisiones_consumption)}
+                          </span>
+                        )}
+                        {flow.total_remisiones_consumption === 0 && <span className="text-gray-400">0</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {flow.total_manual_withdrawals > 0 && (
+                          <span className="inline-flex items-center gap-1 text-red-700 font-medium bg-red-50 px-2 py-1 rounded">
+                            <TrendingDown className="h-3 w-3" />
+                            -{formatNumber(flow.total_manual_withdrawals)}
+                          </span>
+                        )}
+                        {flow.total_manual_withdrawals === 0 && <span className="text-gray-400">0</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {flow.total_waste > 0 && (
+                          <span className="inline-flex items-center gap-1 text-orange-700 font-medium bg-orange-50 px-2 py-1 rounded">
+                            <AlertTriangle className="h-3 w-3" />
+                            -{formatNumber(flow.total_waste)}
+                          </span>
+                        )}
+                        {flow.total_waste === 0 && <span className="text-gray-400">0</span>}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex flex-col items-end gap-1">
+                          <span className={cn(
+                            "font-semibold px-2 py-1 rounded",
+                            flow.theoretical_final_stock > 0 
+                              ? "bg-blue-100 text-blue-800" 
+                              : flow.theoretical_final_stock < 0
+                              ? "bg-red-100 text-red-800"
+                              : "bg-gray-100 text-gray-600"
+                          )}>
+                            {formatNumber(flow.theoretical_final_stock)}
+                          </span>
+                          {Math.abs(flow.variance_percentage) > 1 && (
+                            <Badge 
+                              variant={Math.abs(flow.variance_percentage) > 5 ? "destructive" : "secondary"}
+                              className="text-xs"
+                            >
+                              {flow.variance_percentage > 0 ? '+' : ''}{flow.variance_percentage.toFixed(1)}%
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -247,44 +296,46 @@ export default function TheoreticalInventoryTable({
           </Table>
         </div>
 
-        {/* Explicación Simplificada */}
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-          <h4 className="font-semibold mb-3 text-blue-800 flex items-center gap-2">
-            <Calculator className="h-4 w-4" />
-            Cómo Interpretar Esta Tabla
-          </h4>
-          <div className="space-y-2 text-sm text-blue-700">
-            <div className="flex items-center gap-2">
-              <ArrowRight className="h-3 w-3" />
-              <span><strong>Stock Inicial:</strong> Inventario calculado al inicio del período seleccionado</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowRight className="h-3 w-3" />
-              <span><strong>Entradas/Salidas:</strong> Todos los movimientos registrados en el período</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowRight className="h-3 w-3" />
-              <span><strong>Stock Final Teórico:</strong> Lo que deberías tener según los cálculos (Inicial + Entradas - Salidas)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowRight className="h-3 w-3" />
-              <span><strong>Ajustar:</strong> Crear correcciones si el inventario físico real difiere del teórico</span>
-            </div>
-          </div>
-        </div>
+        {/* Summary Info */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="bg-blue-50 border-blue-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                <Calculator className="h-4 w-4" />
+                Cómo Interpretar Esta Tabla
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-blue-700">
+              <div className="flex items-start gap-2">
+                <ArrowRight className="h-3 w-3 mt-1 flex-shrink-0" />
+                <span><strong>Stock Inicial:</strong> Inventario calculado históricamente al inicio del período</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <ArrowRight className="h-3 w-3 mt-1 flex-shrink-0" />
+                <span><strong>Movimientos:</strong> Entradas (+), Consumo (-), Ajustes (±), Desperdicio (-)</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <ArrowRight className="h-3 w-3 mt-1 flex-shrink-0" />
+                <span><strong>Stock Final Teórico:</strong> Inicial + Entradas - Salidas (cálculo preciso)</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <ArrowRight className="h-3 w-3 mt-1 flex-shrink-0" />
+                <span><strong>Varianza:</strong> Diferencia entre stock real y teórico (indica discrepancias)</span>
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Nuevo Enfoque Implementado */}
-        <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
-          <h4 className="font-semibold mb-2 text-green-800">✅ Nuevo Enfoque de Cálculo Histórico</h4>
-          <p className="text-sm text-green-700 mb-2">
-            <strong>Problema resuelto:</strong> El sistema ahora calcula el inventario de manera histórica y precisa.
-          </p>
-          <div className="text-xs text-green-600 space-y-1">
-            <p><strong>Stock Inicial:</strong> Se calcula sumando TODOS los movimientos desde el origen hasta el inicio del período</p>
-            <p><strong>Movimientos del Período:</strong> Solo incluye entradas/salidas del rango de fechas seleccionado</p>
-            <p><strong>Stock Final Teórico:</strong> Inicial + Entradas - Salidas (aritmética simple y confiable)</p>
-            <p><strong>Beneficio:</strong> Análisis preciso de cualquier período sin depender de datos que se actualizan</p>
-          </div>
+          <Card className="bg-green-50 border-green-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-green-800">✅ Cálculo Histórico Optimizado</CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-green-700 space-y-2">
+              <p><strong>✓ Batch Queries:</strong> Consultas optimizadas para máximo rendimiento</p>
+              <p><strong>✓ Cálculo Preciso:</strong> Stock inicial calculado desde el origen histórico</p>
+              <p><strong>✓ Varianza Real:</strong> Comparación con stock actual de material_inventory</p>
+              <p><strong>✓ Análisis Flexible:</strong> Cualquier período sin depender de datos actualizados</p>
+            </CardContent>
+          </Card>
         </div>
       </CardContent>
 

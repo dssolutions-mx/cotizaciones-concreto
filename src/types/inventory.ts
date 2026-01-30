@@ -315,6 +315,7 @@ export interface InventoryDashboardFilters {
   start_date: string;
   end_date: string;
   material_ids?: string[];
+  category?: string;
 }
 
 export interface MaterialFlowSummary {

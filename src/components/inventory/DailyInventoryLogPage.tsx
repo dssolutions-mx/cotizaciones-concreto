@@ -5,8 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Calendar as CalendarIcon, Package, TrendingDown, ArrowUpDown, FileText, Save, Lock } from 'lucide-react'
-import { format } from 'date-fns'
+import { Calendar as CalendarIcon, Package, TrendingDown, ArrowUpDown, FileText, Save, Lock, Plus } from 'lucide-react'
+import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { DailyInventoryLog } from '@/types/inventory'
@@ -18,6 +18,10 @@ import MaterialAdjustmentsList from './MaterialAdjustmentsList'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import StatCard from './ui/StatCard'
+import FloatingActionButton from './ui/FloatingActionButton'
+import Link from 'next/link'
+import { DailyEntriesChart, DailyAdjustmentsChart } from './charts/DailyLogCharts'
 
 export default function DailyInventoryLogPage() {
   const { profile } = useAuthSelectors()
@@ -28,6 +32,8 @@ export default function DailyInventoryLogPage() {
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [entries, setEntries] = useState<any[]>([])
+  const [adjustments, setAdjustments] = useState<any[]>([])
 
   useEffect(() => {
     fetchDailyLog()
@@ -163,41 +169,60 @@ export default function DailyInventoryLogPage() {
     <div className="max-w-7xl mx-auto space-y-6">
       <InventoryBreadcrumb />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Bitácora Diaria</h1>
-          <p className="text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Bitácora Diaria</h1>
+          <p className="text-gray-600 text-sm sm:text-base">
             Control de actividades de inventario
           </p>
         </div>
         
-        {/* Date Picker */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              className={cn(
-                "w-[240px] justify-start text-left font-normal",
-                !selectedDate && "text-muted-foreground"
-              )}
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {selectedDate ? (
-                format(selectedDate, "PPP", { locale: es })
-              ) : (
-                <span>Seleccionar fecha</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => date && setSelectedDate(date)}
-              initialFocus
-            />
-          </PopoverContent>
-        </Popover>
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          {/* Quick Action Buttons */}
+          <div className="flex gap-2 order-2 sm:order-1">
+            <Link href="/production-control/entries">
+              <Button variant="outline" size="sm" className="h-10 min-w-[48px] sm:min-w-[140px]">
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Nueva Entrada</span>
+              </Button>
+            </Link>
+            <Link href="/production-control/adjustments">
+              <Button variant="outline" size="sm" className="h-10 min-w-[48px] sm:min-w-[140px]">
+                <TrendingDown className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Nuevo Ajuste</span>
+              </Button>
+            </Link>
+          </div>
+
+          {/* Date Picker */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "w-full sm:w-[240px] justify-start text-left font-normal h-10",
+                  !selectedDate && "text-muted-foreground"
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {selectedDate ? (
+                  format(selectedDate, "PPP", { locale: es })
+                ) : (
+                  <span>Seleccionar fecha</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={selectedDate}
+                onSelect={(date) => date && setSelectedDate(date)}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
       </div>
 
       {/* Daily Summary Card */}
@@ -260,6 +285,7 @@ export default function DailyInventoryLogPage() {
                           size="sm"
                           onClick={handleCloseDay}
                           disabled={saving}
+                          className="h-10 min-w-[120px] font-semibold"
                         >
                           <Lock className="h-4 w-4 mr-2" />
                           Cerrar Día
@@ -274,69 +300,64 @@ export default function DailyInventoryLogPage() {
         </CardHeader>
         <CardContent>
           {/* Summary Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="flex items-center space-x-4 p-4 bg-blue-50 rounded-lg">
-              <div className="p-3 bg-blue-100 rounded-full">
-                <Package className="h-6 w-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-blue-900">Entradas</p>
-                <p className="text-2xl font-bold text-blue-700">
-                  {dailyLog?.total_entries || 0}
-                </p>
-                <p className="text-xs text-blue-600">registros</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-4 p-4 bg-orange-50 rounded-lg">
-              <div className="p-3 bg-orange-100 rounded-full">
-                <TrendingDown className="h-6 w-6 text-orange-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-orange-900">Ajustes</p>
-                <p className="text-2xl font-bold text-orange-700">
-                  {dailyLog?.total_adjustments || 0}
-                </p>
-                <p className="text-xs text-orange-600">movimientos</p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-4 p-4 bg-red-50 rounded-lg">
-              <div className="p-3 bg-red-100 rounded-full">
-                <ArrowUpDown className="h-6 w-6 text-red-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-red-900">Consumo Total</p>
-                <p className="text-2xl font-bold text-red-700">
-                  {dailyLog?.total_consumption 
-                    ? Number(dailyLog.total_consumption).toLocaleString('es-ES', { 
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2 
-                      })
-                    : '0.00'
-                  }
-                </p>
-                <p className="text-xs text-red-600">kg</p>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6">
+            <StatCard
+              title="Entradas"
+              value={dailyLog?.total_entries || 0}
+              icon={Package}
+              iconColor="text-blue-600"
+              subtitle="registros"
+            />
+            <StatCard
+              title="Ajustes"
+              value={dailyLog?.total_adjustments || 0}
+              icon={TrendingDown}
+              iconColor="text-orange-600"
+              subtitle="movimientos"
+            />
+            <StatCard
+              title="Consumo Total"
+              value={dailyLog?.total_consumption 
+                ? Number(dailyLog.total_consumption).toLocaleString('es-ES', { 
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2 
+                  })
+                : '0.00'
+              }
+              icon={ArrowUpDown}
+              iconColor="text-red-600"
+              subtitle="kg"
+            />
           </div>
 
-          {/* Daily Notes */}
+          {/* Daily Notes - Collapsible */}
           <div className="border-t pt-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-3">Notas del Día</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-medium text-gray-900">Notas del Día</h3>
+              {!isEditing && notes && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditing(true)}
+                  className="text-xs"
+                >
+                  Editar
+                </Button>
+              )}
+            </div>
             {isEditing ? (
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Agregar notas sobre las actividades del día..."
-                className="min-h-[100px]"
+                className="min-h-[100px] text-sm"
               />
             ) : (
               <div className="min-h-[100px] p-4 bg-gray-50 rounded-lg">
                 {notes ? (
-                  <p className="text-gray-700 whitespace-pre-wrap">{notes}</p>
+                  <p className="text-gray-700 whitespace-pre-wrap text-sm">{notes}</p>
                 ) : (
-                  <p className="text-gray-500 italic">No hay notas para este día</p>
+                  <p className="text-gray-500 italic text-sm">No hay notas para este día</p>
                 )}
               </div>
             )}
@@ -363,19 +384,23 @@ export default function DailyInventoryLogPage() {
               </TabsTrigger>
             </TabsList>
             
-            <TabsContent value="entries" className="mt-6">
+            <TabsContent value="entries" className="mt-6 space-y-6">
+              <DailyEntriesChart entries={entries} date={selectedDate} />
               <MaterialEntriesList 
                 date={selectedDate} 
                 isEditing={!dailyLog?.is_closed && canEdit}
                 key={refreshKey}
+                onEntriesLoaded={setEntries}
               />
             </TabsContent>
             
-            <TabsContent value="adjustments" className="mt-6">
+            <TabsContent value="adjustments" className="mt-6 space-y-6">
+              <DailyAdjustmentsChart adjustments={adjustments} date={selectedDate} />
               <MaterialAdjustmentsList 
                 date={selectedDate} 
                 isEditing={!dailyLog?.is_closed && canEdit}
                 refreshKey={refreshKey}
+                onAdjustmentsLoaded={setAdjustments}
               />
             </TabsContent>
           </Tabs>

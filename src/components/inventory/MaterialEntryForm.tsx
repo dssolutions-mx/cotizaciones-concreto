@@ -13,8 +13,12 @@ import {
   Calculator,
   FileText,
   User,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2,
+  X,
+  RefreshCw
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { toast } from 'sonner'
@@ -31,6 +35,9 @@ interface MaterialEntryFormProps {
 export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps) {
   const { profile } = useAuthSelectors()
   const { currentPlant } = usePlantContext()
+  
+  // Check if user is DOSIFICADOR for simplified form
+  const isDosificador = profile?.role === 'DOSIFICADOR'
   
   console.log('MaterialEntryForm - profile:', profile);
   console.log('MaterialEntryForm - currentPlant:', currentPlant);
@@ -55,6 +62,18 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const [receivedUom, setReceivedUom] = useState<'kg' | 'l' | 'm3'>('kg')
   const [receivedQtyEntered, setReceivedQtyEntered] = useState<number>(0)
   const [volumetricWeight, setVolumetricWeight] = useState<number | undefined>(undefined)
+  // Track which fields were auto-filled from PO
+  const [autoFilledFromPO, setAutoFilledFromPO] = useState<{
+    material: boolean
+    supplier: boolean
+    uom: boolean
+    volumetricWeight: boolean
+  }>({
+    material: false,
+    supplier: false,
+    uom: false,
+    volumetricWeight: false
+  })
   
   // Fleet PO state
   const [fleetPoItems, setFleetPoItems] = useState<any[]>([])
@@ -99,6 +118,19 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   };
 
   const handleMaterialChange = async (materialId: string) => {
+    // If material is changed manually and it was auto-filled from PO, clear the auto-fill flag
+    if (autoFilledFromPO.material && materialId !== formData.material_id) {
+      setAutoFilledFromPO(prev => ({ ...prev, material: false }))
+      // If PO is still selected but material doesn't match, clear PO selection
+      if (selectedPoItemId) {
+        const poItem = poItems.find(it => it.id === selectedPoItemId)
+        if (poItem && poItem.material_id !== materialId) {
+          setSelectedPoItemId('')
+          toast.warning('El material seleccionado no coincide con el PO. Se limpió la selección del PO.')
+        }
+      }
+    }
+    
     setFormData(prev => ({ ...prev, material_id: materialId }))
     
     const plantId = currentPlant?.id || profile?.plant_id;
@@ -130,6 +162,66 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       setSelectedPoItemId('')
     }
   }
+
+  // Auto-fill form fields when PO item is selected
+  useEffect(() => {
+    if (!selectedPoItemId) {
+      // Clear auto-fill flags when PO is cleared
+      setAutoFilledFromPO({
+        material: false,
+        supplier: false,
+        uom: false,
+        volumetricWeight: false
+      })
+      return
+    }
+
+    const poItem = poItems.find(it => it.id === selectedPoItemId)
+    if (!poItem || poItem.is_service) return
+
+    const plantId = currentPlant?.id || profile?.plant_id
+
+    // Auto-fill material
+    if (poItem.material_id && poItem.material_id !== formData.material_id) {
+      setFormData(prev => ({ ...prev, material_id: poItem.material_id }))
+      setAutoFilledFromPO(prev => ({ ...prev, material: true }))
+      
+      // Load inventory for the material (without calling handleMaterialChange to avoid recursion)
+      if (plantId) {
+        fetch(`/api/inventory?material_id=${poItem.material_id}&plant_id=${plantId}`)
+          .then(res => res.json())
+          .then(data => {
+            const inventory = data.inventory?.find((inv: any) => inv.material_id === poItem.material_id)
+            setCurrentInventory(inventory?.current_stock || 0)
+          })
+          .catch(() => {})
+      }
+    }
+
+    // Auto-fill supplier
+    if (poItem.po?.supplier_id && poItem.po.supplier_id !== formData.supplier_id) {
+      setFormData(prev => ({ ...prev, supplier_id: poItem.po.supplier_id }))
+      setAutoFilledFromPO(prev => ({ ...prev, supplier: true }))
+    }
+
+    // Auto-fill UoM
+    if (poItem.uom && ['kg', 'l', 'm3'].includes(poItem.uom)) {
+      setReceivedUom(poItem.uom as 'kg' | 'l' | 'm3')
+      setAutoFilledFromPO(prev => ({ ...prev, uom: true }))
+    }
+
+    // Auto-fill volumetric weight if m3
+    if (poItem.uom === 'm3' && poItem.volumetric_weight_kg_per_m3) {
+      setVolumetricWeight(poItem.volumetric_weight_kg_per_m3)
+      setAutoFilledFromPO(prev => ({ ...prev, volumetricWeight: true }))
+    }
+
+    // Pre-fill quantity with remaining quantity (as suggestion)
+    const remaining = poItem.qty_remaining_native ?? poItem.remainingKg ?? poItem.qty_remaining ?? 0
+    if (remaining > 0) {
+      setReceivedQtyEntered(remaining)
+    }
+  }, [selectedPoItemId, poItems, formData.material_id, formData.supplier_id, currentPlant?.id, profile?.plant_id])
 
   // Refresh PO items when supplier changes
   useEffect(() => {
@@ -350,6 +442,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         setSelectedPoItemId('')
         setSelectedFleetPoItemId('')
         setFleetQtyEntered(0)
+        setReceivedQtyEntered(0)
+        setReceivedUom('kg')
+        setVolumetricWeight(undefined)
+        setAutoFilledFromPO({
+          material: false,
+          supplier: false,
+          uom: false,
+          volumetricWeight: false
+        })
         
         onSuccess?.()
       } else {
@@ -442,7 +543,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="material_id">Material *</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="material_id">Material *</Label>
+                {autoFilledFromPO.material && (
+                  <Badge variant="secondary" className="text-xs">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Desde PO
+                  </Badge>
+                )}
+              </div>
               <div className="space-y-1">
                 <MaterialSelect
                   value={formData.material_id}
@@ -451,7 +560,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   plantId={currentPlant?.id || profile?.plant_id || undefined}
                 />
                 <p className="text-xs text-gray-500">
-                  Seleccione un material de la lista disponible para esta planta
+                  {autoFilledFromPO.material 
+                    ? 'Material seleccionado automáticamente desde el PO'
+                    : 'Seleccione un material de la lista disponible para esta planta'}
                 </p>
               </div>
             </div>
@@ -466,12 +577,25 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   const effectiveUom: 'kg' | 'l' | 'm3' = isM3 ? 'm3' : (isL ? 'l' : 'kg')
                   return (
                     <>
-                      <Label>Cantidad Ingresada *</Label>
+                      <div className="flex items-center gap-2">
+                        <Label>Cantidad Ingresada *</Label>
+                        {autoFilledFromPO.uom && (
+                          <Badge variant="secondary" className="text-xs">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            UoM desde PO
+                          </Badge>
+                        )}
+                      </div>
                       <div className="flex gap-2">
                         <select
                           className="border rounded px-3 py-2 text-sm"
                           value={effectiveUom}
-                          onChange={(e) => setReceivedUom(e.target.value as any)}
+                          onChange={(e) => {
+                            setReceivedUom(e.target.value as any)
+                            if (autoFilledFromPO.uom) {
+                              setAutoFilledFromPO(prev => ({ ...prev, uom: false }))
+                            }
+                          }}
                           disabled={isM3}
                         >
                           <option value="kg">kg</option>
@@ -486,29 +610,54 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                           value={receivedQtyEntered || ''}
                           onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
                           required
+                          className={receivedQtyEntered > 0 ? 'bg-blue-50' : ''}
                         />
                       </div>
                       {isM3 && (
                         <div className="mt-2">
-                          <Label className="text-xs text-gray-600">Peso volumétrico (kg/m³)</Label>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs text-gray-600">Peso volumétrico (kg/m³)</Label>
+                            {autoFilledFromPO.volumetricWeight && (
+                              <Badge variant="secondary" className="text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Desde PO
+                              </Badge>
+                            )}
+                          </div>
                           <Input
                             type="number"
                             step="any"
                             min="0"
                             value={volumetricWeight || ''}
-                            onChange={(e) => setVolumetricWeight(parseFloat(e.target.value) || undefined)}
+                            onChange={(e) => {
+                              setVolumetricWeight(parseFloat(e.target.value) || undefined)
+                              if (autoFilledFromPO.volumetricWeight) {
+                                setAutoFilledFromPO(prev => ({ ...prev, volumetricWeight: false }))
+                              }
+                            }}
                             placeholder="Ej. 1400"
+                            className={volumetricWeight ? 'bg-blue-50' : ''}
                           />
-                          <p className="text-xs text-gray-500 mt-1">Si el PO o un acuerdo de proveedor define el valor, se usará automáticamente. Proporcione uno solo si no está definido.</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {autoFilledFromPO.volumetricWeight 
+                              ? 'Peso volumétrico definido en el PO'
+                              : 'Si el PO o un acuerdo de proveedor define el valor, se usará automáticamente. Proporcione uno solo si no está definido.'}
+                          </p>
                         </div>
                       )}
-                      <p className="text-xs text-gray-500">Ingrese en el UoM seleccionado; se validará contra el saldo del PO.</p>
+                      <p className="text-xs text-gray-500">
+                        {receivedQtyEntered > 0 && it?.qty_remaining_native !== undefined && receivedQtyEntered <= it.qty_remaining_native
+                          ? `✓ Sugerido desde PO. Restante: ${it.qty_remaining_native.toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${uom}`
+                          : 'Ingrese en el UoM seleccionado; se validará contra el saldo del PO.'}
+                      </p>
                     </>
                   )
                 })()
               ) : (
                 <>
-                  <Label htmlFor="quantity_received">Cantidad Recibida (kg) *</Label>
+                  <Label htmlFor="quantity_received" className={cn("text-sm sm:text-base", isDosificador && "text-base font-semibold")}>
+                    Cantidad Recibida (kg) *
+                  </Label>
                   <Input
                     id="quantity_received"
                     type="number"
@@ -519,86 +668,196 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       ...prev, 
                       quantity_received: parseFloat(e.target.value) || 0 
                     }))}
+                    className={cn(
+                      "h-12",
+                      isDosificador && "h-16 text-2xl font-semibold text-center"
+                    )}
+                    placeholder={isDosificador ? "0.00" : ""}
                     required
                   />
-                  <p className="text-xs text-gray-500">Cantidad en kilogramos</p>
+                  <p className={cn("text-xs text-gray-500", isDosificador && "text-center")}>
+                    {isDosificador ? "Ingrese la cantidad en kilogramos" : "Cantidad en kilogramos"}
+                  </p>
                 </>
               )}
             </div>
           </div>
 
           {/* PO Selector */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label>Orden de Compra (PO)</Label>
               <select
                 className="border rounded px-3 py-2 text-sm w-full"
                 value={selectedPoItemId}
-                onChange={(e) => setSelectedPoItemId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedPoItemId(e.target.value)
+                  if (!e.target.value) {
+                    // Clear auto-fill flags when PO is cleared
+                    setAutoFilledFromPO({
+                      material: false,
+                      supplier: false,
+                      uom: false,
+                      volumetricWeight: false
+                    })
+                  }
+                }}
               >
                 <option value="">Sin PO</option>
-                {poItems.map((it) => (
-                  <option key={it.id} value={it.id}>
-                    {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.is_service ? 'Servicio' : 'Material'} · Restante: ${(Number(it.remainingKg)||0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} kg`}
-                  </option>
-                ))}
+                {poItems.map((it) => {
+                  const supplierName = it.po?.supplier?.name || `#${it.po?.supplier?.provider_number || 'N/A'}`
+                  const materialName = it.material?.material_name || 'Material'
+                  const uom = it.uom || 'kg'
+                  const remaining = it.qty_remaining_native ?? it.remainingKg ?? it.qty_remaining ?? 0
+                  const price = Number(it.unit_price || 0).toFixed(2)
+                  return (
+                    <option key={it.id} value={it.id}>
+                      {`PO ${String(it.po?.id || '').slice(0,8)} · ${supplierName} · ${materialName} · ${remaining.toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${uom} · $${price}/${uom}`}
+                    </option>
+                  )
+                })}
               </select>
               <p className="text-xs text-gray-500">Solo se muestran ítems abiertos o parciales con saldo.</p>
             </div>
 
-            {selectedPoItemId && (
-              <div className="space-y-2">
-                <Label>Información del PO</Label>
-                <div className="p-3 bg-blue-50 rounded border border-blue-200">
-                  {(() => {
-                    const it = poItems.find(it => it.id === selectedPoItemId)
-                    const uom = it?.uom || 'kg'
-                    const remaining = it?.qty_remaining_native ?? it?.remainingKg ?? 0
-                    return (
-                      <>
-                        <p className="text-xs text-blue-700">
-                          Precio: <span className="font-semibold">${Number(it?.unit_price || 0).toFixed(2)}/{uom}</span>
+            {selectedPoItemId && (() => {
+              const poItem = poItems.find(it => it.id === selectedPoItemId)
+              if (!poItem) return null
+              
+              const supplier = poItem.po?.supplier
+              const supplierName = supplier?.name || `Proveedor #${supplier?.provider_number || 'N/A'}`
+              const materialName = poItem.material?.material_name || 'Material'
+              const uom = poItem.uom || 'kg'
+              const remaining = poItem.qty_remaining_native ?? poItem.remainingKg ?? poItem.qty_remaining ?? 0
+              const price = Number(poItem.unit_price || 0)
+              const poNumber = String(poItem.po?.id || '').slice(0, 8)
+              
+              return (
+                <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Package className="h-4 w-4 text-blue-600" />
+                        PO #{poNumber}
+                      </CardTitle>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedPoItemId('')
+                          setAutoFilledFromPO({
+                            material: false,
+                            supplier: false,
+                            uom: false,
+                            volumetricWeight: false
+                          })
+                        }}
+                        className="h-7 text-xs"
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Cambiar PO
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-600">Proveedor</p>
+                        <p className="font-semibold text-gray-900">{supplierName}</p>
+                        {supplier?.provider_letter && (
+                          <p className="text-xs text-gray-500">Letra: {supplier.provider_letter}</p>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600">Material</p>
+                        <p className="font-semibold text-gray-900">{materialName}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600">Precio Unitario</p>
+                        <p className="font-semibold text-blue-700">
+                          ${price.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{uom}
                         </p>
-                        <p className="text-xs text-blue-700 mt-1">
-                          Restante: <span className="font-semibold">{Number(remaining).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uom}</span>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-600">Cantidad Restante</p>
+                        <p className="font-semibold text-green-700">
+                          {remaining.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {uom}
                         </p>
-                      </>
-                    )
-                  })()}
-                </div>
-              </div>
-            )}
+                      </div>
+                    </div>
+                    {poItem.required_by && (
+                      <div className="pt-2 border-t border-blue-200">
+                        <p className="text-xs text-gray-600">Fecha Requerida</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          {format(new Date(poItem.required_by), 'dd/MM/yyyy')}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })()}
           </div>
 
-          {/* Inventory Calculation */}
+          {/* Inventory Calculation - Prominent for DOSIFICADOR */}
           {currentInventory !== null && (
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Calculator className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900">Cálculo de Inventario</span>
+            <div className={cn(
+              "p-4 sm:p-6 rounded-lg border-2",
+              isDosificador 
+                ? "bg-blue-50 border-blue-300" 
+                : "bg-blue-50 border-blue-200"
+            )}>
+              <div className="flex items-center gap-2 mb-3">
+                <Calculator className={cn("text-blue-600", isDosificador ? "h-5 w-5" : "h-4 w-4")} />
+                <span className={cn(
+                  "font-medium text-blue-900",
+                  isDosificador ? "text-base" : "text-sm"
+                )}>
+                  Cálculo de Inventario
+                </span>
               </div>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="text-blue-700">Inventario Actual</p>
-                  <p className="font-semibold text-blue-900">
+              <div className={cn(
+                "grid gap-4",
+                isDosificador ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-3",
+                isDosificador ? "text-base" : "text-sm"
+              )}>
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Inventario Actual
+                  </p>
+                  <p className={cn(
+                    "font-semibold text-blue-900",
+                    isDosificador ? "text-xl" : ""
+                  )}>
                     {currentInventory.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })} kg
                   </p>
                 </div>
-                <div>
-                  <p className="text-blue-700">Cantidad a Agregar</p>
-                  <p className="font-semibold text-green-600">
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Cantidad a Agregar
+                  </p>
+                  <p className={cn(
+                    "font-semibold text-green-600",
+                    isDosificador ? "text-xl" : ""
+                  )}>
                     +{formData.quantity_received.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })} kg
                   </p>
                 </div>
-                <div>
-                  <p className="text-blue-700">Inventario Final</p>
-                  <p className="font-semibold text-blue-900">
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Inventario Final
+                  </p>
+                  <p className={cn(
+                    "font-semibold text-blue-900",
+                    isDosificador ? "text-xl" : ""
+                  )}>
                     {inventoryAfter?.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
@@ -621,26 +880,54 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </CardContent>
       </Card>
 
-      {/* Supplier Information */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Información del Proveedor
-          </CardTitle>
-          <CardDescription>
-            Datos del proveedor y documentación
-          </CardDescription>
-        </CardHeader>
+      {/* Supplier Information - Simplified for DOSIFICADOR */}
+      {(!isDosificador || formData.material_id) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Información del Proveedor
+            </CardTitle>
+            <CardDescription>
+              {isDosificador 
+                ? 'Datos básicos del proveedor (opcional)'
+                : 'Datos del proveedor y documentación'
+              }
+            </CardDescription>
+          </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="supplier_id">Proveedor de Material</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="supplier_id">Proveedor de Material</Label>
+                {autoFilledFromPO.supplier && (
+                  <Badge variant="secondary" className="text-xs">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Desde PO
+                  </Badge>
+                )}
+              </div>
               <SupplierSelect
                 value={formData.supplier_id || ''}
-                onChange={(value: string) => setFormData(prev => ({ ...prev, supplier_id: value }))}
+                onChange={(value: string) => {
+                  // If supplier is changed manually and it was auto-filled from PO, clear the auto-fill flag
+                  if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                    setAutoFilledFromPO(prev => ({ ...prev, supplier: false }))
+                    // If PO is still selected but supplier doesn't match, warn user
+                    if (selectedPoItemId) {
+                      const poItem = poItems.find(it => it.id === selectedPoItemId)
+                      if (poItem && poItem.po?.supplier_id !== value) {
+                        toast.warning('El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.')
+                      }
+                    }
+                  }
+                  setFormData(prev => ({ ...prev, supplier_id: value }))
+                }}
                 plantId={currentPlant?.id || profile?.plant_id || undefined}
               />
+              {autoFilledFromPO.supplier && (
+                <p className="text-xs text-gray-500">Proveedor seleccionado automáticamente desde el PO</p>
+              )}
             </div>
             
             <div className="space-y-2">
@@ -718,8 +1005,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </div>
         </CardContent>
       </Card>
+      )}
 
-      {/* Notes and Documents */}
+      {/* Notes and Documents - Simplified for DOSIFICADOR */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
@@ -731,16 +1019,18 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Notas</Label>
-            <Textarea
-              id="notes"
-              value={formData.notes || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-              rows={3}
-              placeholder="Observaciones adicionales sobre la entrada..."
-            />
-          </div>
+          {!isDosificador && (
+            <div className="space-y-2">
+              <Label>Notas</Label>
+              <Textarea
+                id="notes"
+                value={formData.notes || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Observaciones adicionales sobre la entrada..."
+              />
+            </div>
+          )}
           
           <div className="space-y-2">
             <Label>Documentos de Evidencia</Label>
@@ -853,11 +1143,24 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               quantity_received: 0,
               supplier_id: '',
               supplier_invoice: '',
+              fleet_supplier_id: '',
               notes: '',
               entry_date: new Date().toISOString().split('T')[0]
             })
             setCurrentInventory(null)
             setPendingFiles([]) // Clear pending files on cancel
+            setSelectedPoItemId('')
+            setSelectedFleetPoItemId('')
+            setFleetQtyEntered(0)
+            setReceivedQtyEntered(0)
+            setReceivedUom('kg')
+            setVolumetricWeight(undefined)
+            setAutoFilledFromPO({
+              material: false,
+              supplier: false,
+              uom: false,
+              volumetricWeight: false
+            })
           }}
         >
           Limpiar

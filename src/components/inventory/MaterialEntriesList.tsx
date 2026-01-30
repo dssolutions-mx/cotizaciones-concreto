@@ -27,6 +27,7 @@ interface MaterialEntriesListProps {
   date?: Date
   dateRange?: { from: Date | undefined; to: Date | undefined }
   isEditing: boolean
+  onEntriesLoaded?: (entries: MaterialEntry[]) => void
 }
 
 // Documents Section Component
@@ -131,7 +132,7 @@ function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: 
   )
 }
 
-export default function MaterialEntriesList({ date, dateRange, isEditing }: MaterialEntriesListProps) {
+export default function MaterialEntriesList({ date, dateRange, isEditing, onEntriesLoaded }: MaterialEntriesListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -163,7 +164,9 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
       
       if (response.ok) {
         const data = await response.json()
-        setEntries(data.entries || [])
+        const entriesData = data.entries || []
+        setEntries(entriesData)
+        onEntriesLoaded?.(entriesData)
       }
     } catch (error) {
       console.error('Error fetching entries:', error)
@@ -187,18 +190,20 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
 
   if (entries.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Package className="h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-12 px-4">
+          <div className="p-4 bg-gray-100 rounded-full mb-4">
+            <Package className="h-12 w-12 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2 text-center">
             No hay entradas registradas
           </h3>
-          <p className="text-gray-500 text-center mb-4">
-            No se han registrado entradas de materiales para este día
+          <p className="text-gray-500 text-center mb-6 max-w-md">
+            No se han registrado entradas de materiales para este período. Use el botón de abajo para registrar una nueva entrada.
           </p>
           {isEditing && (
             <Link href="/production-control/entries">
-              <Button>
+              <Button size="lg" className="min-w-[200px]">
                 <Plus className="h-4 w-4 mr-2" />
                 Registrar Nueva Entrada
               </Button>
@@ -226,28 +231,28 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
       {/* Entries List */}
       {entries.map((entry) => (
         <Card key={entry.id} className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-50 rounded-lg">
+          <CardHeader className="pb-3 p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="p-2 bg-blue-50 rounded-lg flex-shrink-0">
                   <Package className="h-5 w-5 text-blue-600" />
                 </div>
-                <div>
-                  <CardTitle className="text-lg">{entry.entry_number}</CardTitle>
-                  <CardDescription>
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-base sm:text-lg truncate">{entry.entry_number}</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">
                     {format(new Date(`${entry.entry_date}T${entry.entry_time}`), "dd MMM yyyy 'a las' HH:mm", { locale: es })}
                   </CardDescription>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">Entrada</Badge>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Badge variant="outline" className="text-xs">Entrada</Badge>
                 {entry.pricing_status === 'reviewed' ? (
-                  <Badge variant="default" className="bg-green-600">Revisado</Badge>
+                  <Badge variant="default" className="bg-green-600 text-xs">Revisado</Badge>
                 ) : (
-                  <Badge variant="secondary" className="bg-yellow-500 text-white">Pendiente</Badge>
+                  <Badge variant="secondary" className="bg-yellow-500 text-white text-xs">Pendiente</Badge>
                 )}
                 {isEditing && (
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" className="h-10 w-10 p-0">
                     <Edit className="h-4 w-4" />
                   </Button>
                 )}
@@ -255,9 +260,9 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
             </div>
           </CardHeader>
           
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 p-4 sm:p-6">
             {/* Material Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-2">Material</h4>
                 {entry.material ? (

@@ -7,23 +7,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { Package, Plus, List, Calendar as CalendarIcon, DollarSign } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import MaterialEntryForm from './MaterialEntryForm'
 import MaterialEntriesList from './MaterialEntriesList'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
 import EntryPricingReviewList from './EntryPricingReviewList'
+import FloatingActionButton from './ui/FloatingActionButton'
+import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
+import EntriesStatistics from './EntriesStatistics'
 
 export default function MaterialEntriesPage() {
   const [activeTab, setActiveTab] = useState('new')
   const [refreshList, setRefreshList] = useState(0)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: new Date(),
+  // Default to last 7 days for entries list
+  const defaultDateRange = {
+    from: subDays(new Date(), 6),
     to: new Date()
-  })
+  }
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(defaultDateRange)
+  const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last7days')
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [entries, setEntries] = useState<any[]>([])
 
   useEffect(() => {
     // Check user role for conditional tab display
@@ -51,17 +58,48 @@ export default function MaterialEntriesPage() {
     setRefreshList(prev => prev + 1)
   }
 
+  const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
+    setSelectedPreset(preset)
+    setDateRange(range)
+  }
+
+  const handleDateRangeChange = (range: { from: Date | undefined; to: Date | undefined }) => {
+    setDateRange(range)
+    // Detect if range matches a preset
+    if (range.from && range.to) {
+      const presets: DateRangePreset[] = ['today', 'yesterday', 'last7days', 'last30days', 'thisWeek', 'thisMonth']
+      for (const preset of presets) {
+        const presetRange = getDateRangeForPreset(preset)
+        if (
+          format(range.from, 'yyyy-MM-dd') === format(presetRange.from, 'yyyy-MM-dd') &&
+          format(range.to, 'yyyy-MM-dd') === format(presetRange.to, 'yyyy-MM-dd')
+        ) {
+          setSelectedPreset(preset)
+          return
+        }
+      }
+      setSelectedPreset('custom')
+    }
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <InventoryBreadcrumb />
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Entradas de Material</h1>
-          <p className="text-gray-600">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Entradas de Material</h1>
+          <p className="text-gray-600 text-sm sm:text-base">
             Registro y gestión de recepción de materiales
           </p>
         </div>
+        {activeTab === 'list' && (
+          <FloatingActionButton
+            icon={Plus}
+            label="Nueva Entrada"
+            onClick={() => setActiveTab('new')}
+          />
+        )}
       </div>
 
       {/* Main Content */}
@@ -107,7 +145,7 @@ export default function MaterialEntriesPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <CardTitle className="flex items-center gap-2">
                     <List className="h-5 w-5" />
                     Entradas Registradas
@@ -117,14 +155,22 @@ export default function MaterialEntriesPage() {
                   </CardDescription>
                 </div>
                 
-                {/* Date Range Picker */}
-                <div className="flex items-center gap-2">
+                {/* Date Range Controls */}
+                <div className="flex flex-col gap-3 w-full sm:w-auto">
+                  {/* Date Range Presets */}
+                  <DateRangePresets
+                    selectedPreset={selectedPreset}
+                    onPresetSelect={handlePresetSelect}
+                  />
+                  
+                  {/* Date Range Picker */}
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
+                        size="sm"
                         className={cn(
-                          "w-[280px] justify-start text-left font-normal",
+                          "w-full sm:w-[280px] justify-start text-left font-normal h-10",
                           !dateRange.from && "text-muted-foreground"
                         )}
                       >
@@ -143,13 +189,13 @@ export default function MaterialEntriesPage() {
                         )}
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
+                    <PopoverContent className="w-auto p-0" align="end">
                       <CalendarComponent
                         initialFocus
                         mode="range"
                         defaultMonth={dateRange.from}
                         selected={dateRange}
-                        onSelect={setDateRange}
+                        onSelect={handleDateRangeChange}
                         numberOfMonths={2}
                       />
                     </PopoverContent>
@@ -158,10 +204,12 @@ export default function MaterialEntriesPage() {
               </div>
             </CardHeader>
             <CardContent>
+              <EntriesStatistics entries={entries} dateRange={dateRange} />
               <MaterialEntriesList 
                 dateRange={dateRange}
                 isEditing={true}
                 key={refreshList}
+                onEntriesLoaded={setEntries}
               />
             </CardContent>
           </Card>

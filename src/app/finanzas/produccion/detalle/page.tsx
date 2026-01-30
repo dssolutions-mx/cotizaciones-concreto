@@ -94,6 +94,7 @@ interface InvestigationData {
   recipeConsumption: RecipeConsumptionData[];
   missingPrices: MissingPriceData[];
   recipeAnalysis: RecipeAnalysis[]; // New: detailed recipe analysis with patterns
+  problematicRemisiones: ProblematicRemision[]; // Remisiones with no materials or < 3 materials
 }
 
 // Extended interfaces for drill-down analysis
@@ -171,6 +172,25 @@ interface MissingPriceData {
   unit_of_measure: string;
   last_known_price?: number;
   last_price_date?: string;
+}
+
+interface ProblematicRemision {
+  remision_id: string;
+  remision_number: string;
+  fecha: string;
+  volumen_fabricado: number;
+  materials_count: number;
+  issue_type: 'no_materials' | 'few_materials'; // 0 materials or < 3 materials
+  order_info: {
+    client_id: string | null;
+    business_name: string;
+    construction_site?: string;
+    order_number?: string;
+  };
+  recipe_info: {
+    recipe_code: string;
+    strength_fc: number;
+  };
 }
 
 export default function ProduccionDashboard() {
@@ -1322,6 +1342,40 @@ export default function ProduccionDashboard() {
       const totalChunks = Math.ceil(remisionIds.length / chunkSize);
       console.log(`Successfully fetched material consumption data for ${materiales.length} records from ${totalChunks} chunks`);
 
+      // 2.5. Identify problematic remisiones (no materials or < 3 materials)
+      setInvestigationProgress('Identificando remisiones con problemas de materiales...');
+      const materialesByRemision = new Map<string, number>();
+      materiales.forEach((m: any) => {
+        const count = materialesByRemision.get(m.remision_id) || 0;
+        materialesByRemision.set(m.remision_id, count + 1);
+      });
+
+      const problematicRemisiones: ProblematicRemision[] = [];
+      remisiones.forEach((remision: any) => {
+        const materialsCount = materialesByRemision.get(remision.id) || 0;
+        if (materialsCount === 0 || materialsCount < 3) {
+          problematicRemisiones.push({
+            remision_id: remision.id,
+            remision_number: remision.remision_number,
+            fecha: remision.fecha,
+            volumen_fabricado: remision.volumen_fabricado,
+            materials_count: materialsCount,
+            issue_type: materialsCount === 0 ? 'no_materials' : 'few_materials',
+            order_info: {
+              client_id: remision.orders?.client_id || null,
+              business_name: remision.orders?.clients?.business_name || 'Desconocido',
+              construction_site: remision.orders?.construction_site,
+              order_number: remision.orders?.order_number
+            },
+            recipe_info: {
+              recipe_code: remision.recipes?.recipe_code || 'N/A',
+              strength_fc: remision.recipes?.strength_fc || 0
+            }
+          });
+        }
+      });
+      console.log(`Identified ${problematicRemisiones.length} problematic remisiones (${problematicRemisiones.filter(r => r.issue_type === 'no_materials').length} with no materials, ${problematicRemisiones.filter(r => r.issue_type === 'few_materials').length} with < 3 materials)`);
+
       // 3. Fetch all material prices
       const materialIds = Array.from(new Set(materiales.map((m: any) => m.material_id)));
       const currentDate = format(new Date(), 'yyyy-MM-dd');
@@ -1483,7 +1537,8 @@ export default function ProduccionDashboard() {
         materialPrices: materialPricesSummary,
         recipeConsumption: Array.from(recipeConsumption.values()),
         missingPrices,
-        recipeAnalysis: recipeAnalysis
+        recipeAnalysis: recipeAnalysis,
+        problematicRemisiones: problematicRemisiones
       });
 
       setInvestigationProgress(''); // Clear progress when complete
@@ -2599,6 +2654,24 @@ export default function ProduccionDashboard() {
                                   );
                                   XLSX.utils.book_append_sheet(workbook, remisionesSheet, 'Remisiones');
                                   
+                                  // Export problematic remisiones
+                                  if (investigationData.problematicRemisiones && investigationData.problematicRemisiones.length > 0) {
+                                    const problematicSheet = XLSX.utils.json_to_sheet(
+                                      investigationData.problematicRemisiones.map((r: ProblematicRemision) => ({
+                                        'Número Remisión': r.remision_number,
+                                        'Fecha': r.fecha,
+                                        'Volumen (m³)': r.volumen_fabricado,
+                                        'Cantidad Materiales': r.materials_count,
+                                        'Problema': r.issue_type === 'no_materials' ? 'Sin Materiales' : 'Pocos Materiales (< 3)',
+                                        'Cliente': r.order_info.business_name,
+                                        'Obra': r.order_info.construction_site || 'N/A',
+                                        'Receta': r.recipe_info.recipe_code,
+                                        'Resistencia (kg/cm²)': r.recipe_info.strength_fc
+                                      }))
+                                    );
+                                    XLSX.utils.book_append_sheet(workbook, problematicSheet, 'Remisiones Problemáticas');
+                                  }
+                                  
                                   XLSX.writeFile(workbook, `Investigacion_Patrones_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`);
                                 }}
                                 variant="outline"
@@ -2672,6 +2745,146 @@ export default function ProduccionDashboard() {
                                 </>
                               )}
                             </div>
+
+                            {/* Problematic Remisiones Section */}
+                            {investigationData.problematicRemisiones && investigationData.problematicRemisiones.length > 0 && !selectedRecipeId && !selectedRemisionId && (
+                              <Card className="mb-4 border-orange-200">
+                                <CardHeader>
+                                  <CardTitle className="flex items-center gap-2">
+                                    <AlertTriangle className="h-5 w-5 text-orange-600" />
+                                    Remisiones con Problemas de Materiales
+                                  </CardTitle>
+                                  <CardDescription>
+                                    Remisiones que requieren atención por tener materiales faltantes o incompletos
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="space-y-4">
+                                    {/* Remisiones sin materiales */}
+                                    {investigationData.problematicRemisiones.filter(r => r.issue_type === 'no_materials').length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <Badge variant="destructive" className="text-sm">
+                                            Sin Materiales
+                                          </Badge>
+                                          <span className="text-sm text-muted-foreground">
+                                            {investigationData.problematicRemisiones.filter(r => r.issue_type === 'no_materials').length} remisión(es)
+                                          </span>
+                                        </div>
+                                        <ScrollArea className="h-[200px] border rounded-md">
+                                          <Table>
+                                            <TableHeader>
+                                              <TableRow>
+                                                <TableHead>Remisión</TableHead>
+                                                <TableHead>Fecha</TableHead>
+                                                <TableHead className="text-right">Volumen (m³)</TableHead>
+                                                <TableHead>Cliente</TableHead>
+                                                <TableHead>Obra</TableHead>
+                                                <TableHead>Receta</TableHead>
+                                                <TableHead className="text-right">Materiales</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {investigationData.problematicRemisiones
+                                                .filter(r => r.issue_type === 'no_materials')
+                                                .map((remision) => (
+                                                  <TableRow key={remision.remision_id} className="bg-red-50/50">
+                                                    <TableCell className="font-medium">
+                                                      {remision.remision_number}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      {format(new Date(remision.fecha), 'dd/MM/yyyy')}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                      {remision.volumen_fabricado.toFixed(2)}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[200px] truncate">
+                                                      {remision.order_info.business_name}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[200px] truncate">
+                                                      {remision.order_info.construction_site || 'N/A'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Badge variant="outline">
+                                                        {remision.recipe_info.recipe_code}
+                                                      </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                      <Badge variant="destructive">0</Badge>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                ))}
+                                            </TableBody>
+                                          </Table>
+                                        </ScrollArea>
+                                      </div>
+                                    )}
+
+                                    {/* Remisiones con pocos materiales */}
+                                    {investigationData.problematicRemisiones.filter(r => r.issue_type === 'few_materials').length > 0 && (
+                                      <div>
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <Badge variant="outline" className="text-sm border-orange-300 text-orange-700 bg-orange-50">
+                                            Con Pocos Materiales (&lt; 3)
+                                          </Badge>
+                                          <span className="text-sm text-muted-foreground">
+                                            {investigationData.problematicRemisiones.filter(r => r.issue_type === 'few_materials').length} remisión(es)
+                                          </span>
+                                        </div>
+                                        <ScrollArea className="h-[200px] border rounded-md">
+                                          <Table>
+                                            <TableHeader>
+                                              <TableRow>
+                                                <TableHead>Remisión</TableHead>
+                                                <TableHead>Fecha</TableHead>
+                                                <TableHead className="text-right">Volumen (m³)</TableHead>
+                                                <TableHead>Cliente</TableHead>
+                                                <TableHead>Obra</TableHead>
+                                                <TableHead>Receta</TableHead>
+                                                <TableHead className="text-right">Materiales</TableHead>
+                                              </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {investigationData.problematicRemisiones
+                                                .filter(r => r.issue_type === 'few_materials')
+                                                .map((remision) => (
+                                                  <TableRow key={remision.remision_id} className="bg-orange-50/50">
+                                                    <TableCell className="font-medium">
+                                                      {remision.remision_number}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      {format(new Date(remision.fecha), 'dd/MM/yyyy')}
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                      {remision.volumen_fabricado.toFixed(2)}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[200px] truncate">
+                                                      {remision.order_info.business_name}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[200px] truncate">
+                                                      {remision.order_info.construction_site || 'N/A'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Badge variant="outline">
+                                                        {remision.recipe_info.recipe_code}
+                                                      </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                      <Badge variant="outline" className="border-orange-300 text-orange-700 bg-orange-50">
+                                                        {remision.materials_count}
+                                                      </Badge>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                ))}
+                                            </TableBody>
+                                          </Table>
+                                        </ScrollArea>
+                                      </div>
+                                    )}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            )}
 
                             {/* Recipe List View (Default) */}
                             {!selectedRecipeId && !selectedRemisionId && (

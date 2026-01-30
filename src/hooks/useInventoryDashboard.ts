@@ -39,6 +39,7 @@ interface UseInventoryDashboardActions {
   setDateRange: (startDate: string, endDate: string) => void
   setPlantId: (plantId: string) => void
   setMaterialIds: (materialIds: string[]) => void
+  setCategory: (category: string | undefined) => void
   refreshData: () => void
   exportData: () => Promise<void>
   resetFilters: () => void
@@ -66,7 +67,8 @@ export function useInventoryDashboard(): UseInventoryDashboard {
   const [uiFilters, setUiFilters] = useState({
     start_date: defaultDates.startDate,
     end_date: defaultDates.endDate,
-    material_ids: [] as string[]
+    material_ids: [] as string[],
+    category: undefined as string | undefined
   })
   
   // Debounce filters to prevent rapid API calls
@@ -121,7 +123,8 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       const activeFilters = {
         start_date: debouncedFilters.start_date,
         end_date: debouncedFilters.end_date,
-        material_ids: debouncedFilters.material_ids
+        material_ids: debouncedFilters.material_ids,
+        category: debouncedFilters.category
       }
 
       // Build query parameters
@@ -135,6 +138,10 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       if (activeFilters.material_ids && activeFilters.material_ids.length > 0) {
         params.append('material_ids', activeFilters.material_ids.join(','))
       }
+      
+      if (activeFilters.category && activeFilters.category !== 'all') {
+        params.append('category', activeFilters.category)
+      }
 
       console.log('🚀 Fetching optimized dashboard data:', {
         plant: currentPlant.name,
@@ -143,15 +150,29 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       })
 
       const response = await fetch(`/api/inventory/dashboard?${params.toString()}`, {
-        signal: abortControllerRef.current.signal
+        signal: abortControllerRef.current.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        }
       })
       
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Error al cargar dashboard de inventario')
+        let errorData
+        try {
+          errorData = await response.json()
+        } catch (e) {
+          // If response is not JSON, use status text
+          throw new Error(`Error ${response.status}: ${response.statusText || 'Error de conexión con el servidor'}`)
+        }
+        throw new Error(errorData.error || `Error al cargar dashboard de inventario (${response.status})`)
       }
 
-      const result = await response.json()
+      let result
+      try {
+        result = await response.json()
+      } catch (e) {
+        throw new Error('Error al procesar la respuesta del servidor. La respuesta no es válida JSON.')
+      }
       
       if (!result.success) {
         throw new Error(result.error || 'Error en la respuesta del servidor')
@@ -182,7 +203,16 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       }
 
       console.error('❌ Dashboard fetch error:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      
+      // Handle network errors specifically
+      let errorMessage = 'Error desconocido'
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        errorMessage = 'Error de conexión. Verifica tu conexión a internet o intenta nuevamente.'
+      } else if (error instanceof Error) {
+        errorMessage = error.message
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
       
       setState(prev => ({
         ...prev,
@@ -190,7 +220,10 @@ export function useInventoryDashboard(): UseInventoryDashboard {
         error: errorMessage
       }))
 
-      toast.error(`Error al cargar dashboard: ${errorMessage}`)
+      // Only show toast for non-abort errors
+      if (error.name !== 'AbortError') {
+        toast.error(`Error al cargar dashboard: ${errorMessage}`)
+      }
     } finally {
       fetchingRef.current = false
     }
@@ -259,6 +292,16 @@ export function useInventoryDashboard(): UseInventoryDashboard {
     }))
   }, [])
 
+  const setCategory = useCallback((category: string | undefined) => {
+    console.log('🔧 Category filter updated (UI only):', category)
+    
+    // Update UI state immediately
+    setUiFilters(prev => ({
+      ...prev,
+      category: category
+    }))
+  }, [])
+
   const refreshData = useCallback(() => {
     console.log('🔄 Manual refresh triggered')
     fetchData(true) // Force refresh
@@ -301,7 +344,8 @@ export function useInventoryDashboard(): UseInventoryDashboard {
     setUiFilters({
       start_date: defaultDates.startDate,
       end_date: defaultDates.endDate,
-      material_ids: []
+      material_ids: [],
+      category: undefined
     })
   }, [defaultDates])
 
@@ -347,6 +391,7 @@ export function useInventoryDashboard(): UseInventoryDashboard {
     setDateRange,
     setPlantId,
     setMaterialIds,
+    setCategory,
     refreshData,
     exportData,
     resetFilters,

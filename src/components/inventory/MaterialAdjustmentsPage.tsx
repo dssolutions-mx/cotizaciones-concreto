@@ -11,9 +11,14 @@ import MaterialAdjustmentForm from './MaterialAdjustmentForm'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Plus, History, TrendingDown, Minus, AlertTriangle, RotateCcw, ArrowUpDown, Clock, RefreshCw, Calendar as CalendarIcon } from 'lucide-react'
 import { MaterialAdjustment } from '@/types/inventory'
-import { format } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
+import StatCard from './ui/StatCard'
+import EmptyState from './ui/EmptyState'
+import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
+import FloatingActionButton from './ui/FloatingActionButton'
+import AdjustmentsStatistics from './AdjustmentsStatistics'
 
 interface MaterialAdjustmentsPageProps {
   // Future props for filtering, etc.
@@ -23,10 +28,13 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
   const [showForm, setShowForm] = useState(false)
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: new Date(),
+  // Default to last 7 days as recommended in plan
+  const defaultDateRange = {
+    from: subDays(new Date(), 6),
     to: new Date()
-  })
+  }
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(defaultDateRange)
+  const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last7days')
   const [stats, setStats] = useState({
     today: 0,
     thisWeek: 0,
@@ -94,11 +102,35 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
     fetchAdjustments()
   }
 
+  const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
+    setSelectedPreset(preset)
+    setDateRange(range)
+  }
+
+  const handleDateRangeChange = (range: { from: Date | undefined; to: Date | undefined }) => {
+    setDateRange(range)
+    // Detect if range matches a preset
+    if (range.from && range.to) {
+      const presets: DateRangePreset[] = ['today', 'yesterday', 'last7days', 'last30days', 'thisWeek', 'thisMonth']
+      for (const preset of presets) {
+        const presetRange = getDateRangeForPreset(preset)
+        if (
+          format(range.from, 'yyyy-MM-dd') === format(presetRange.from, 'yyyy-MM-dd') &&
+          format(range.to, 'yyyy-MM-dd') === format(presetRange.to, 'yyyy-MM-dd')
+        ) {
+          setSelectedPreset(preset)
+          return
+        }
+      }
+      setSelectedPreset('custom')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <InventoryBreadcrumb />
       {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Ajustes de Inventario
@@ -108,14 +140,23 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
           </p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          {/* Date Range Presets */}
+          <div className="w-full sm:w-auto order-2 sm:order-1">
+            <DateRangePresets
+              selectedPreset={selectedPreset}
+              onPresetSelect={handlePresetSelect}
+            />
+          </div>
+
           {/* Date Range Picker */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
+                size="sm"
                 className={cn(
-                  "w-[280px] justify-start text-left font-normal",
+                  "w-full sm:w-[200px] justify-start text-left font-normal",
                   !dateRange.from && "text-muted-foreground"
                 )}
               >
@@ -134,13 +175,13 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                 )}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
+            <PopoverContent className="w-auto p-0" align="end">
               <CalendarComponent
                 initialFocus
                 mode="range"
                 defaultMonth={dateRange.from}
                 selected={dateRange}
-                onSelect={setDateRange}
+                onSelect={handleDateRangeChange}
                 numberOfMonths={2}
               />
             </PopoverContent>
@@ -148,60 +189,52 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
           
           <Button
             variant="outline"
+            size="sm"
             onClick={fetchAdjustments}
             disabled={loading}
+            className="order-3"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </Button>
-          <Button
+          
+          {/* Desktop button - FAB handles mobile */}
+          <FloatingActionButton
+            icon={Plus}
+            label="Nuevo Ajuste"
             onClick={() => setShowForm(true)}
-            disabled={showForm}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Nuevo Ajuste
-          </Button>
+            className="order-1 sm:order-4"
+          />
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <Clock className="h-8 w-8 text-red-500" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Ajustes Hoy</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.today}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <History className="h-8 w-8 text-blue-500" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Esta Semana</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.thisWeek}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <TrendingDown className="h-8 w-8 text-orange-500" />
-              <div className="ml-3">
-                <p className="text-sm font-medium text-gray-500">Total Mes</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.thisMonth}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Quick Stats with Trend Indicators */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
+        <StatCard
+          title="Ajustes Hoy"
+          value={stats.today}
+          icon={Clock}
+          iconColor="text-red-600"
+          subtitle="registros del día"
+        />
+        <StatCard
+          title="Esta Semana"
+          value={stats.thisWeek}
+          icon={History}
+          iconColor="text-blue-600"
+          subtitle="registros semanales"
+        />
+        <StatCard
+          title="Total Mes"
+          value={stats.thisMonth}
+          icon={TrendingDown}
+          iconColor="text-orange-600"
+          subtitle="registros mensuales"
+        />
       </div>
+
+      {/* Detailed Statistics */}
+      <AdjustmentsStatistics adjustments={adjustments} />
 
       {/* Main Content */}
       {showForm ? (
@@ -233,11 +266,13 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                     ))}
                   </div>
                 ) : adjustments.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <TrendingDown className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                    <p>No hay ajustes registrados</p>
-                    <p className="text-sm">Los ajustes aparecerán aquí una vez que registre el primero</p>
-                  </div>
+                  <EmptyState
+                    icon={TrendingDown}
+                    title="No hay ajustes registrados"
+                    description="Los ajustes aparecerán aquí una vez que registre el primero. Use el botón de abajo para crear un nuevo ajuste."
+                    actionLabel="Nuevo Ajuste"
+                    onAction={() => setShowForm(true)}
+                  />
                 ) : (
                   <div className="space-y-4">
                     {adjustments.slice(0, 10).map((adjustment) => {
@@ -277,23 +312,23 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                       const Icon = getAdjustmentIcon(adjustment.adjustment_type)
 
                       return (
-                        <Card key={adjustment.id} className="border-l-4 border-l-red-500">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-3">
+                        <Card key={adjustment.id} className="border-l-4 border-l-red-500 hover:shadow-md transition-shadow">
+                          <CardContent className="p-4 sm:p-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                              <div className="flex items-start space-x-3 flex-1 min-w-0">
                                 <div className="flex-shrink-0">
                                   <Icon className="h-8 w-8 text-red-500" />
                                 </div>
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <p className="text-sm font-medium text-gray-900">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                                    <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
                                       {adjustment.adjustment_number}
                                     </p>
-                                    <Badge variant="outline" className={getAdjustmentColor(adjustment.adjustment_type)}>
+                                    <Badge variant="outline" className={cn("text-xs", getAdjustmentColor(adjustment.adjustment_type))}>
                                       {getAdjustmentTypeLabel(adjustment.adjustment_type)}
                                     </Badge>
                                   </div>
-                                  <p className="text-sm text-gray-500">
+                                  <p className="text-sm text-gray-500 line-clamp-2 mb-1">
                                     {adjustment.reference_notes}
                                   </p>
                                   <p className="text-xs text-gray-400">
@@ -301,12 +336,15 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                   </p>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-lg font-semibold text-red-600">
-                                  -{adjustment.quantity_adjusted} kg
+                              <div className="text-left sm:text-right flex-shrink-0">
+                                <p className="text-lg sm:text-xl font-semibold text-red-600">
+                                  -{adjustment.quantity_adjusted.toLocaleString('es-MX', { 
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2 
+                                  })} kg
                                 </p>
-                                <p className="text-sm text-gray-500">
-                                  Inventario: {adjustment.inventory_before} → {adjustment.inventory_after}
+                                <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                                  Inventario: {adjustment.inventory_before.toLocaleString('es-MX')} → {adjustment.inventory_after.toLocaleString('es-MX')}
                                 </p>
                               </div>
                             </div>
@@ -388,11 +426,13 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                     ))}
                   </div>
                 ) : adjustments.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <TrendingDown className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                    <p>No hay ajustes por material</p>
-                    <p className="text-sm">Los ajustes aparecerán agrupados por material una vez que registre algunos</p>
-                  </div>
+                  <EmptyState
+                    icon={TrendingDown}
+                    title="No hay ajustes por material"
+                    description="Los ajustes aparecerán agrupados por material una vez que registre algunos."
+                    actionLabel="Nuevo Ajuste"
+                    onAction={() => setShowForm(true)}
+                  />
                 ) : (
                   <div className="space-y-4">
                     {/* Group adjustments by material */}

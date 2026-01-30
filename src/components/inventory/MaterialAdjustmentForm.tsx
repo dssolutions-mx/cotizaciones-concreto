@@ -18,7 +18,8 @@ import {
   Minus, 
   Plus, 
   AlertTriangle, 
-  Info
+  Info,
+  RefreshCw
 } from 'lucide-react'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -88,6 +89,9 @@ export default function MaterialAdjustmentForm({
 }: MaterialAdjustmentFormProps) {
   const { profile } = useAuthSelectors()
   const { currentPlant } = usePlantContext()
+  
+  // Check if user is DOSIFICADOR for simplified form
+  const isDosificador = profile?.role === 'DOSIFICADOR'
   
   console.log('MaterialAdjustmentForm - profile:', profile);
   console.log('MaterialAdjustmentForm - currentPlant:', currentPlant);
@@ -423,9 +427,15 @@ export default function MaterialAdjustmentForm({
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="quantity_adjusted">Cantidad a Ajustar (kg) *</Label>
+              <Label htmlFor="quantity_adjusted" className={cn("text-sm sm:text-base", isDosificador && "text-base font-semibold")}>
+                Cantidad a Ajustar (kg) *
+              </Label>
               <div className="relative">
-                <div className={`absolute left-3 top-1/2 transform -translate-y-1/2 text-lg font-bold ${getQuantityColor()}`}>
+                <div className={cn(
+                  "absolute left-3 top-1/2 transform -translate-y-1/2 font-bold",
+                  isDosificador ? "text-2xl" : "text-lg",
+                  getQuantityColor()
+                )}>
                   {getQuantitySign()}
                 </div>
                 <Input
@@ -438,42 +448,81 @@ export default function MaterialAdjustmentForm({
                     ...prev, 
                     quantity_adjusted: parseFloat(e.target.value) || 0 
                   }))}
-                  className="pl-8"
+                  className={cn(
+                    "pl-8",
+                    isDosificador ? "h-16 text-2xl font-semibold text-center" : "h-12"
+                  )}
+                  placeholder={isDosificador ? "0.00" : ""}
                   required
                 />
               </div>
+              {isDosificador && (
+                <p className="text-xs text-gray-500 text-center">
+                  Ingrese la cantidad en kilogramos
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Inventory Calculation */}
+          {/* Inventory Calculation - Prominent for DOSIFICADOR */}
           {currentInventory !== null && (
-            <div className="p-4 bg-blue-50 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Calculator className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-900">Cálculo de Inventario</span>
+            <div className={cn(
+              "p-4 sm:p-6 rounded-lg border-2",
+              isDosificador 
+                ? "bg-blue-50 border-blue-300" 
+                : "bg-blue-50 border-blue-200"
+            )}>
+              <div className="flex items-center gap-2 mb-3">
+                <Calculator className={cn("text-blue-600", isDosificador ? "h-5 w-5" : "h-4 w-4")} />
+                <span className={cn(
+                  "font-medium text-blue-900",
+                  isDosificador ? "text-base" : "text-sm"
+                )}>
+                  Cálculo de Inventario
+                </span>
               </div>
-              <div className="grid grid-cols-3 gap-4 text-sm">
-                <div>
-                  <p className="text-blue-700">Inventario Actual</p>
-                  <p className="font-semibold text-blue-900">
+              <div className={cn(
+                "grid gap-4",
+                isDosificador ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-3",
+                isDosificador ? "text-base" : "text-sm"
+              )}>
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Inventario Actual
+                  </p>
+                  <p className={cn(
+                    "font-semibold text-blue-900",
+                    isDosificador ? "text-xl" : ""
+                  )}>
                     {currentInventory.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })} kg
                   </p>
                 </div>
-                <div>
-                  <p className="text-blue-700">Cantidad a Ajustar</p>
-                  <p className={`font-semibold ${getQuantityColor()}`}>
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Cantidad a Ajustar
+                  </p>
+                  <p className={cn(
+                    "font-semibold",
+                    isDosificador ? "text-xl" : "",
+                    getQuantityColor()
+                  )}>
                     {getQuantitySign()}{Math.abs(formData.quantity_adjusted).toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })} kg
                   </p>
                 </div>
-                <div>
-                  <p className="text-blue-700">Inventario Final</p>
-                  <p className="font-semibold text-blue-900">
+                <div className={isDosificador ? "text-center sm:text-left" : ""}>
+                  <p className={cn("text-blue-700", isDosificador ? "text-sm mb-1" : "")}>
+                    Inventario Final
+                  </p>
+                  <p className={cn(
+                    "font-semibold text-blue-900",
+                    isDosificador ? "text-xl" : ""
+                  )}>
                     {inventoryAfter?.toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
@@ -728,13 +777,20 @@ export default function MaterialAdjustmentForm({
         <Button 
           type="submit" 
           disabled={loading || uploading || !formData.material_id || formData.quantity_adjusted <= 0 || !formData.reference_notes}
-          className="min-w-[120px]"
+          className={cn(
+            "min-w-[120px]",
+            isDosificador && "h-14 text-lg min-w-[200px] font-semibold"
+          )}
+          size={isDosificador ? "lg" : "default"}
         >
           {loading ? (
-            'Guardando...'
+            <span className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Guardando...
+            </span>
           ) : (
             <>
-              <Save className="h-4 w-4 mr-2" />
+              <Save className={cn("mr-2", isDosificador ? "h-5 w-5" : "h-4 w-4")} />
               Guardar Ajuste
             </>
           )}

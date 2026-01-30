@@ -18,10 +18,10 @@ export async function GET(request: NextRequest) {
   const material_id = searchParams.get('material_id') || undefined;
   const is_service = searchParams.get('is_service') === 'true';
 
-  // Base: open or partial items, with header join
+  // Base: open or partial items, with header join including supplier info
   let query = supabase
     .from('purchase_order_items')
-    .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status), material:materials!material_id (id, material_name, density_kg_per_l)')
+    .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status, supplier:suppliers(id, name, provider_number, provider_letter, internal_code)), material:materials!material_id (id, material_name, density_kg_per_l)')
     .in('status', ['open', 'partial']);
 
   if (plant_id) query = query.eq('po.plant_id', plant_id as any);

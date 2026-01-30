@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('end_date');
     const plantId = searchParams.get('plant_id');
     const materialIds = searchParams.get('material_ids')?.split(',').filter(Boolean);
+    const category = searchParams.get('category') || undefined;
 
     // Validate required parameters
     if (!startDate || !endDate) {
@@ -119,7 +120,8 @@ export async function GET(request: NextRequest) {
       plant_id: targetPlantId,
       start_date: startDate,
       end_date: endDate,
-      material_ids: materialIds
+      material_ids: materialIds,
+      category: category
     };
 
     // Create service and get dashboard data

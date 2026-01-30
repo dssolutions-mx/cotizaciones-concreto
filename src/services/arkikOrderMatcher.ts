@@ -661,27 +661,37 @@ export class ArkikOrderMatcher {
       
       try {
         // Step 1: Check which remisiones already exist (batch query to prevent duplicates)
+        // Only check CONCRETO remisiones linked to this order (BOMBEO remisiones don't block CONCRETO)
         const remisionNumbers = remisionesToProcess.map(r => r.remision_number);
         const { data: existingRemisiones } = await supabase
           .from('remisiones')
-          .select('id, remision_number')
-          .in('remision_number', remisionNumbers);
+          .select('id, remision_number, tipo_remision, order_id')
+          .in('remision_number', remisionNumbers)
+          .eq('tipo_remision', 'CONCRETO') // Only check CONCRETO remisiones (Arkik always creates CONCRETO)
+          .eq('order_id', orderId); // Only check remisiones linked to THIS order
 
         const existingRemisionNumbers = new Set(
           existingRemisiones?.map(r => r.remision_number) || []
         );
 
-        // Only insert new remisiones
+        // Only insert new remisiones (not already linked to this order as CONCRETO)
         const newRemisiones = remisionesToProcess.filter(
           r => !existingRemisionNumbers.has(r.remision_number)
         );
 
         if (existingRemisionNumbers.size > 0) {
-          console.log(`[ArkikOrderMatcher] ${existingRemisionNumbers.size} remisiones already exist, ${newRemisiones.length} will be inserted`);
+          console.log(`[ArkikOrderMatcher] ${existingRemisionNumbers.size} CONCRETO remisiones already exist in this order, ${newRemisiones.length} will be inserted`);
+          if (existingRemisiones && existingRemisiones.length > 0) {
+            console.log(`[ArkikOrderMatcher] Existing remisiones:`, existingRemisiones.map(r => ({
+              remision_number: r.remision_number,
+              tipo_remision: r.tipo_remision,
+              order_id: r.order_id
+            })));
+          }
         }
 
         if (newRemisiones.length === 0) {
-          console.log(`[ArkikOrderMatcher] All remisiones already exist - skipping insertion`);
+          console.log(`[ArkikOrderMatcher] All remisiones already exist as CONCRETO in this order - skipping insertion`);
           return {
             success: true,
             materialsCreated: 0
@@ -766,6 +776,41 @@ export class ArkikOrderMatcher {
         if (remisionesNeedingMaterials.length > 0) {
           console.log(`[ArkikOrderMatcher] Creating materials for ${remisionesNeedingMaterials.length} remisiones`);
           
+          // Collect all unique material codes from remisiones (same approach as validation)
+          const materialCodes = new Set<string>();
+          for (const createdRemision of remisionesNeedingMaterials) {
+            const stagingRemision = remisionesToProcess.find(r => r.remision_number === createdRemision.remision_number);
+            if (stagingRemision) {
+              Object.keys(stagingRemision.materials_teorico || {}).forEach(code => materialCodes.add(code));
+              Object.keys(stagingRemision.materials_real || {}).forEach(code => materialCodes.add(code));
+              Object.keys(stagingRemision.materials_retrabajo || {}).forEach(code => materialCodes.add(code));
+              Object.keys(stagingRemision.materials_manual || {}).forEach(code => materialCodes.add(code));
+            }
+          }
+
+          // Fetch materials directly by material_code (same as validation does)
+          // This matches materials to their IDs using the same logic as the validator
+          const { data: materials, error: materialsError } = await supabase
+            .from('materials')
+            .select('id, material_code, material_name')
+            .eq('plant_id', this.plantId)
+            .eq('is_active', true)
+            .in('material_code', Array.from(materialCodes));
+
+          if (materialsError) {
+            console.error(`[ArkikOrderMatcher] Error fetching materials:`, materialsError);
+          }
+
+          // Build material_code -> material_id map (same structure as validation)
+          const materialsMap = new Map<string, string>();
+          if (materials) {
+            materials.forEach(material => {
+              materialsMap.set(material.material_code, material.id);
+            });
+          }
+
+          console.log(`[ArkikOrderMatcher] Fetched ${materialsMap.size} materials (out of ${materialCodes.size} codes)`);
+
           const allRemisionMaterials: any[] = [];
           
           // Prepare materials data for batch insertion
@@ -778,14 +823,14 @@ export class ArkikOrderMatcher {
               const retrabajo = (stagingRemision.materials_retrabajo || {}) as Record<string, number>;
               const manual = (stagingRemision.materials_manual || {}) as Record<string, number>;
 
-              const materialCodes = new Set<string>([
+              const materialCodesForRemision = new Set<string>([
                 ...Object.keys(teoricos),
                 ...Object.keys(reales),
                 ...Object.keys(retrabajo),
                 ...Object.keys(manual)
               ]);
-              if (materialCodes.size > 0) {
-                materialCodes.forEach(code => {
+              if (materialCodesForRemision.size > 0) {
+                materialCodesForRemision.forEach(code => {
                   const cantidad_teorica = Number(teoricos[code] || 0);
                   const baseReal = Number(reales[code] || 0);
                   const retrabajoVal = Number(retrabajo[code] || 0);
@@ -794,9 +839,13 @@ export class ArkikOrderMatcher {
                   const cantidad_real = baseReal + retrabajoVal + manualVal; // final real
                   // Only insert if at least one value is non-zero
                   if (cantidad_teorica > 0 || cantidad_real > 0 || ajuste !== 0) {
+                    // Get material_id from materials map (same as validation does)
+                    const material_id = materialsMap.get(code) || null;
+                    
                     allRemisionMaterials.push({
                       remision_id: createdRemision.id,
                       material_type: code,
+                      material_id: material_id, // CRITICAL: Include material_id for production control and expenses
                       cantidad_teorica,
                       cantidad_real,
                       ajuste

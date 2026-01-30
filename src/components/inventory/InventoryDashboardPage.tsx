@@ -20,7 +20,7 @@ import {
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { format, addDays } from 'date-fns'
+import { format, addDays, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useInventoryDashboard } from '@/hooks/useInventoryDashboard'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -29,8 +29,17 @@ import TheoreticalInventoryTable from './TheoreticalInventoryTable'
 import InventoryMovementsTable from './InventoryMovementsTable'
 import RemisionConsumptionTable from './RemisionConsumptionTable'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
+import {
+  InventoryVarianceChart,
+  InventoryFlowChart,
+  InventoryStockLevelsChart,
+  InventorySummaryCards
+} from './charts/InventoryCharts'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useState, useEffect } from 'react'
+import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
+import StatCard from './ui/StatCard'
+import MaterialCategoryFilter, { type MaterialCategory } from './ui/MaterialCategoryFilter'
 
 function InventoryDashboardPage() {
   const { profile } = useAuthSelectors()
@@ -41,10 +50,14 @@ function InventoryDashboardPage() {
     isGlobalAdmin,
     isLoading: plantContextLoading 
   } = usePlantContext()
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: undefined,
-    to: undefined
-  })
+  // Default to last 7 days for dashboard
+  const defaultDateRange = {
+    from: subDays(new Date(), 6),
+    to: new Date()
+  }
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(defaultDateRange)
+  const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last7days')
+  const [selectedCategory, setSelectedCategory] = useState<MaterialCategory>('all')
 
   const {
     data,
@@ -53,6 +66,7 @@ function InventoryDashboardPage() {
     filters,
     setDateRange: setDashboardDateRange,
     setPlantId,
+    setCategory: setDashboardCategory,
     refreshData,
     exportData,
     resetFilters,
@@ -69,6 +83,14 @@ function InventoryDashboardPage() {
     }
   }, [currentPlant, setPlantId])
 
+  const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
+    setSelectedPreset(preset)
+    setDateRange(range)
+    const startDate = format(range.from, 'yyyy-MM-dd')
+    const endDate = format(range.to, 'yyyy-MM-dd')
+    setDashboardDateRange(startDate, endDate)
+  }
+
   const handleDateRangeChange = (range: { from: Date | undefined; to: Date | undefined }) => {
     setDateRange(range)
     
@@ -76,6 +98,20 @@ function InventoryDashboardPage() {
       const startDate = format(range.from, 'yyyy-MM-dd')
       const endDate = format(range.to, 'yyyy-MM-dd')
       setDashboardDateRange(startDate, endDate)
+      
+      // Detect if range matches a preset
+      const presets: DateRangePreset[] = ['today', 'yesterday', 'last7days', 'last30days', 'thisWeek', 'thisMonth']
+      for (const preset of presets) {
+        const presetRange = getDateRangeForPreset(preset)
+        if (
+          format(range.from, 'yyyy-MM-dd') === format(presetRange.from, 'yyyy-MM-dd') &&
+          format(range.to, 'yyyy-MM-dd') === format(presetRange.to, 'yyyy-MM-dd')
+        ) {
+          setSelectedPreset(preset)
+          return
+        }
+      }
+      setSelectedPreset('custom')
     }
   }
 
@@ -146,142 +182,131 @@ function InventoryDashboardPage() {
         </div>
         
         {/* Controls */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Plant Selector for global admin users */}
-          {isGlobalAdmin && (
-            <Select value={currentPlant?.id || ''} onValueChange={handlePlantChange}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Seleccionar planta" />
-              </SelectTrigger>
-              <SelectContent>
-                {availablePlants.map((plant) => (
-                  <SelectItem key={plant.id} value={plant.id}>
-                    {plant.name} ({plant.code})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+        <div className="flex flex-col gap-4">
+          {/* Date Range Presets */}
+          <div className="w-full">
+            <DateRangePresets
+              selectedPreset={selectedPreset}
+              onPresetSelect={handlePresetSelect}
+            />
+          </div>
 
-          {/* Date Range Picker */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "w-[300px] justify-start text-left font-normal",
-                  !dateRange.from && "text-muted-foreground"
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {dateRange.from ? (
-                  dateRange.to ? (
-                    <>
-                      {format(dateRange.from, "dd MMM", { locale: es })} -{" "}
-                      {format(dateRange.to, "dd MMM yyyy", { locale: es })}
-                    </>
+          {/* Material Category Filter */}
+          <div className="w-full">
+            <MaterialCategoryFilter
+              selectedCategory={selectedCategory}
+              onCategoryChange={(category) => {
+                setSelectedCategory(category)
+                setDashboardCategory(category === 'all' ? undefined : category)
+              }}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Plant Selector for global admin users */}
+            {isGlobalAdmin && (
+              <Select value={currentPlant?.id || ''} onValueChange={handlePlantChange}>
+                <SelectTrigger className="w-full sm:w-[200px] h-10">
+                  <SelectValue placeholder="Seleccionar planta" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availablePlants.map((plant) => (
+                    <SelectItem key={plant.id} value={plant.id}>
+                      {plant.name} ({plant.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {/* Date Range Picker */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "w-full sm:w-[280px] justify-start text-left font-normal h-10",
+                    !dateRange.from && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "dd MMM", { locale: es })} -{" "}
+                        {format(dateRange.to, "dd MMM yyyy", { locale: es })}
+                      </>
+                    ) : (
+                      format(dateRange.from, "dd MMM yyyy", { locale: es })
+                    )
                   ) : (
-                    format(dateRange.from, "dd MMM yyyy", { locale: es })
-                  )
-                ) : (
-                  <span>Seleccionar rango de fechas</span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                initialFocus
-                mode="range"
-                defaultMonth={dateRange.from}
-                selected={dateRange}
-                onSelect={handleDateRangeChange}
-                numberOfMonths={2}
-                locale={es}
-                disabled={(date) => date > new Date() || date < addDays(new Date(), -365)}
-              />
-            </PopoverContent>
-          </Popover>
+                    <span>Seleccionar rango de fechas</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={dateRange.from}
+                  selected={dateRange}
+                  onSelect={handleDateRangeChange}
+                  numberOfMonths={2}
+                  locale={es}
+                  disabled={(date) => date > new Date() || date < addDays(new Date(), -365)}
+                />
+              </PopoverContent>
+            </Popover>
 
-          <Button variant="outline" size="sm" onClick={refreshData} disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-            Actualizar
-          </Button>
+            <Button variant="outline" size="sm" onClick={refreshData} disabled={loading} className="h-10 min-w-[48px] sm:min-w-[100px]">
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin", "sm:mr-2")} />
+              <span className="hidden sm:inline">Actualizar</span>
+            </Button>
 
-          <Button variant="outline" size="sm" onClick={exportData} disabled={!data}>
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
-          </Button>
+            <Button variant="outline" size="sm" onClick={exportData} disabled={!data} className="h-10 min-w-[48px] sm:min-w-[100px]">
+              <Download className={cn("h-4 w-4", "sm:mr-2")} />
+              <span className="hidden sm:inline">Exportar</span>
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Summary Cards */}
       {data && (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Total Materials */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-blue-100 rounded-full mr-4">
-                    <Package className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Materiales Monitoreados</p>
-                    <p className="text-2xl font-bold text-gray-900">{totalMaterials}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Materials with Variance */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-yellow-100 rounded-full mr-4">
-                    <TrendingUp className="h-6 w-6 text-yellow-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Con Varianza</p>
-                    <p className="text-2xl font-bold text-gray-900">{materialsWithVariance}</p>
-                    <p className="text-xs text-gray-500">≥1% varianza</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Materials at Risk */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-red-100 rounded-full mr-4">
-                    <AlertTriangle className="h-6 w-6 text-red-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">En Riesgo</p>
-                    <p className="text-2xl font-bold text-gray-900">{materialsAtRisk}</p>
-                    <p className="text-xs text-gray-500">≥5% varianza</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Average Variance */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-2 bg-green-100 rounded-full mr-4">
-                    <Target className="h-6 w-6 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Varianza Promedio</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {averageVariancePercentage.toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Key Metrics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard
+              title="Materiales Monitoreados"
+              value={totalMaterials}
+              icon={Package}
+              iconColor="text-blue-600"
+            />
+            <StatCard
+              title="Con Varianza"
+              value={materialsWithVariance}
+              icon={TrendingUp}
+              iconColor="text-yellow-600"
+              subtitle="≥1% varianza"
+            />
+            <StatCard
+              title="En Riesgo"
+              value={materialsAtRisk}
+              icon={AlertTriangle}
+              iconColor="text-red-600"
+              subtitle="≥5% varianza"
+            />
+            <StatCard
+              title="Varianza Promedio"
+              value={`${averageVariancePercentage.toFixed(1)}%`}
+              icon={Target}
+              iconColor="text-green-600"
+            />
           </div>
+
+          {/* Flow Summary Cards */}
+          <InventorySummaryCards materialFlows={data.summary.material_flows} />
 
           {/* Date Range Info */}
           <Card>
@@ -328,7 +353,15 @@ function InventoryDashboardPage() {
                 </div>
                 
                 <div className="p-6">
-                  <TabsContent value="summary" className="mt-0">
+                  <TabsContent value="summary" className="mt-0 space-y-6">
+                    {/* Charts Section */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <InventoryVarianceChart materialFlows={data.summary.material_flows} />
+                      <InventoryStockLevelsChart materialFlows={data.summary.material_flows} />
+                    </div>
+                    <InventoryFlowChart materialFlows={data.summary.material_flows} />
+                    
+                    {/* Table Section */}
                     <TheoreticalInventoryTable 
                       materialFlows={data.summary.material_flows} 
                       dateRange={data.summary.date_range}

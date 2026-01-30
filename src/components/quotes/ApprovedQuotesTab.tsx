@@ -528,10 +528,10 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         throw quoteError;
       }
       
-      // Get original quote details with recipe_ids
+      // Get original quote details with recipe_ids and master_recipe_ids
       const { data: originalQuoteDetails, error: detailsQueryError } = await supabase
         .from('quote_details')
-        .select('id, recipe_id')
+        .select('id, recipe_id, master_recipe_id')
         .eq('quote_id', quote.id);
         
       if (detailsQueryError) {
@@ -539,10 +539,12 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         throw detailsQueryError;
       }
       
-      // Create a map of detail.id to recipe_id
+      // Create maps of detail.id to recipe_id and master_recipe_id
       const recipeIdMap = new Map();
+      const masterRecipeIdMap = new Map();
       originalQuoteDetails?.forEach(detail => {
         recipeIdMap.set(detail.id, detail.recipe_id);
+        masterRecipeIdMap.set(detail.id, detail.master_recipe_id);
       });
       
       // Use either the updated details from editing or the original quote details
@@ -550,7 +552,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       
       console.log('Detalles a usar para duplicación:', detailsToUse);
       
-      // Insertar solo los detalles que tengan un recipe_id válido
+      // Insertar solo los detalles que tengan un recipe_id o master_recipe_id válido
       const quoteDetailsToInsert = detailsToUse
         .map(detail => {
           // Verificar que los valores numéricos sean válidos
@@ -570,17 +572,19 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
             profitMargin = 0;
           }
           
-          // Asegurarnos de que tenemos un recipe_id válido
+          // Asegurarnos de que tenemos un recipe_id o master_recipe_id válido
           const recipeId = recipeIdMap.get(detail.id);
+          const masterRecipeId = masterRecipeIdMap.get(detail.id);
           
-          if (!recipeId) {
-            console.warn(`No se encontró recipe_id para el detalle con id ${detail.id}. Omitiendo este detalle.`);
-            return null; // Retornar null para los detalles sin recipe_id
+          if (!recipeId && !masterRecipeId) {
+            console.warn(`No se encontró recipe_id ni master_recipe_id para el detalle con id ${detail.id}. Omitiendo este detalle.`);
+            return null; // Retornar null para los detalles sin recipe_id ni master_recipe_id
           }
           
           return {
             quote_id: newQuote.id,
-            recipe_id: recipeId,
+            recipe_id: recipeId || null,
+            master_recipe_id: masterRecipeId || null,
             product_id: null, // Importante: solo uno de recipe_id o product_id debe tener valor, no ambos
             volume: Number(detail.volume) || 0,
             base_price: basePrice,

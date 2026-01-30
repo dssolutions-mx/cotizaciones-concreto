@@ -25,6 +25,7 @@ interface MaterialAdjustmentsListProps {
   date: Date
   isEditing: boolean
   refreshKey?: number
+  onAdjustmentsLoaded?: (adjustments: MaterialAdjustment[]) => void
 }
 
 const adjustmentTypeLabels = {
@@ -51,7 +52,7 @@ const adjustmentTypeIcons = {
   loss: AlertTriangle
 }
 
-export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }: MaterialAdjustmentsListProps) {
+export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, onAdjustmentsLoaded }: MaterialAdjustmentsListProps) {
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -76,7 +77,9 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
         console.log('Response data:', data)
         console.log('Adjustments array:', data.adjustments)
         console.log('Adjustments count:', data.adjustments?.length || 0)
-        setAdjustments(data.adjustments || [])
+        const adjustmentsData = data.adjustments || []
+        setAdjustments(adjustmentsData)
+        onAdjustmentsLoaded?.(adjustmentsData)
       } else {
         console.error('Adjustments API error:', response.status, response.statusText)
         const errorData = await response.json()
@@ -104,18 +107,20 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
 
   if (adjustments.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <TrendingDown className="h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col items-center justify-center py-12 px-4">
+          <div className="p-4 bg-gray-100 rounded-full mb-4">
+            <TrendingDown className="h-12 w-12 text-gray-400" />
+          </div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2 text-center">
             No hay ajustes registrados
           </h3>
-          <p className="text-gray-500 text-center mb-4">
-            No se han registrado ajustes de inventario para este día
+          <p className="text-gray-500 text-center mb-6 max-w-md">
+            No se han registrado ajustes de inventario para este día. Use el botón de abajo para registrar un nuevo ajuste.
           </p>
           {isEditing && (
             <Link href="/production-control/adjustments">
-              <Button>
+              <Button size="lg" className="min-w-[200px]">
                 <Plus className="h-4 w-4 mr-2" />
                 Registrar Nuevo Ajuste
               </Button>
@@ -147,25 +152,25 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
         
         return (
           <Card key={adjustment.id} className="hover:shadow-md transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${colorClass}`}>
+            <CardHeader className="pb-3 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="flex items-start gap-3 flex-1 min-w-0">
+                  <div className={`p-2 rounded-lg flex-shrink-0 ${colorClass}`}>
                     <Icon className="h-5 w-5" />
                   </div>
-                  <div>
-                    <CardTitle className="text-lg">{adjustment.adjustment_number}</CardTitle>
-                    <CardDescription>
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-base sm:text-lg truncate">{adjustment.adjustment_number}</CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">
                       {format(new Date(`${adjustment.adjustment_date}T${adjustment.adjustment_time}`), "dd MMM yyyy 'a las' HH:mm", { locale: es })}
                     </CardDescription>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className={colorClass}>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge variant="outline" className={cn(colorClass, "text-xs")}>
                     {adjustmentTypeLabels[adjustment.adjustment_type]}
                   </Badge>
                   {isEditing && (
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" className="h-10 w-10 p-0">
                       <Edit className="h-4 w-4" />
                     </Button>
                   )}
@@ -173,9 +178,9 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
               </div>
             </CardHeader>
             
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 p-4 sm:p-6">
               {/* Material Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-2">Material</h4>
                   <p className="text-sm text-gray-600">ID: {adjustment.material_id}</p>
