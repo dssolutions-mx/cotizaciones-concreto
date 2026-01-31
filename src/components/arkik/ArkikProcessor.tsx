@@ -1290,12 +1290,18 @@ Fin del reporte
           if (updateResult.success) {
             totalOrdersUpdated++;
             totalRemisionesCreated += suggestion.remisiones.length;
-            totalMaterialsProcessed += updateResult.materialsCreated || 0;
+            // Use totalMaterialsProcessed if available (includes existing materials), otherwise fall back to materialsCreated
+            const materialsCount = updateResult.totalMaterialsProcessed ?? updateResult.materialsCreated ?? 0;
+            totalMaterialsProcessed += materialsCount;
             
             // Track affected order for batch recalculation
             affectedOrderIds.add(suggestion.existing_order_id!);
             
-            console.log(`[ArkikProcessor] ✅ Updated order ${suggestion.existing_order_number}: ${suggestion.remisiones.length} remisiones, ${updateResult.materialsCreated || 0} materials`);
+            const materialsDetail = updateResult.totalMaterialsProcessed 
+              ? `${updateResult.totalMaterialsProcessed} materiales totales (${updateResult.materialsCreated || 0} nuevos, ${updateResult.remisionesWithExistingMaterials || 0} remisiones ya tenían materiales)`
+              : `${updateResult.materialsCreated || 0} materiales`;
+            
+            console.log(`[ArkikProcessor] ✅ Updated order ${suggestion.existing_order_number}: ${suggestion.remisiones.length} remisiones, ${materialsDetail}`);
           } else {
             console.error(`[ArkikProcessor] ❌ Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
           }
@@ -1378,8 +1384,11 @@ Fin del reporte
         `• ${totalOrdersCreated} órdenes nuevas creadas`,
         `• ${totalOrdersUpdated} órdenes existentes actualizadas`,
         `• ${totalRemisionesCreated} remisiones procesadas`,
-        `• ${totalMaterialsProcessed} registros de materiales`,
-        `• ${totalOrderItemsCreated} items de orden creados/actualizados`
+        `• ${totalMaterialsProcessed} registros de materiales procesados`,
+        `• ${totalOrderItemsCreated} items de orden creados/actualizados`,
+        '',
+        'Nota: El conteo de materiales incluye todos los materiales de las remisiones procesadas,',
+        'incluyendo aquellos que ya existían en remisiones previamente importadas.'
       ].join('\n');
       
       alert(successMessage);

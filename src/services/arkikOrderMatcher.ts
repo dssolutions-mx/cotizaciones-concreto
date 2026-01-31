@@ -608,6 +608,9 @@ export class ArkikOrderMatcher {
     success: boolean;
     updatedOrderItems?: OrderItem[];
     materialsCreated?: number;
+    totalMaterialsProcessed?: number;
+    remisionesWithExistingMaterials?: number;
+    remisionesWithNewMaterials?: number;
     error?: string;
   }> {
     try {
@@ -771,7 +774,41 @@ export class ArkikOrderMatcher {
 
         console.log(`[ArkikOrderMatcher] ${remisionesWithMaterials.size} remisiones already have materials, ${remisionesNeedingMaterials.length} need materials`);
 
-        // Step 4: Create materials for each remision that needs them (read from staging maps)
+        // Step 4: Count total materials that should exist (for reporting)
+        // Count materials for ALL inserted remisiones (both new and existing)
+        let totalMaterialsCount = 0;
+        for (const createdRemision of insertedRemisiones) {
+          const stagingRemision = remisionesToProcess.find(r => r.remision_number === createdRemision.remision_number);
+          if (stagingRemision) {
+            const teoricos = stagingRemision.materials_teorico || {};
+            const reales = stagingRemision.materials_real || {};
+            const retrabajo = stagingRemision.materials_retrabajo || {};
+            const manual = stagingRemision.materials_manual || {};
+            
+            const materialCodes = new Set([
+              ...Object.keys(teoricos),
+              ...Object.keys(reales),
+              ...Object.keys(retrabajo),
+              ...Object.keys(manual)
+            ]);
+            
+            // Count materials that have non-zero values
+            materialCodes.forEach(code => {
+              const cantidad_teorica = Number(teoricos[code] || 0);
+              const baseReal = Number(reales[code] || 0);
+              const retrabajoVal = Number(retrabajo[code] || 0);
+              const manualVal = Number(manual[code] || 0);
+              const cantidad_real = baseReal + retrabajoVal + manualVal;
+              const ajuste = retrabajoVal + manualVal;
+              
+              if (cantidad_teorica > 0 || cantidad_real > 0 || ajuste !== 0) {
+                totalMaterialsCount++;
+              }
+            });
+          }
+        }
+
+        // Step 5: Create materials for each remision that needs them (read from staging maps)
         let materialsCreated = 0;
         if (remisionesNeedingMaterials.length > 0) {
           console.log(`[ArkikOrderMatcher] Creating materials for ${remisionesNeedingMaterials.length} remisiones`);
@@ -877,7 +914,7 @@ export class ArkikOrderMatcher {
         // OPTIMIZATION: Skip individual recalculation when in bulk mode
         // The caller will batch recalculate all affected orders at the end
         if (!useBulkMode) {
-          // Step 3: Trigger automatic order recalculation (only if not in bulk mode)
+          // Step 6: Trigger automatic order recalculation (only if not in bulk mode)
           try {
             const { recalculateOrderAmount } = await import('./orderService');
             const recalcResult = await recalculateOrderAmount(orderId);
@@ -890,7 +927,7 @@ export class ArkikOrderMatcher {
           console.log(`[ArkikOrderMatcher] Skipping individual recalculation (bulk mode enabled - will batch recalculate at end)`);
         }
 
-        // Step 4: Get the updated order items (optional, for return value)
+        // Step 7: Get the updated order items (optional, for return value)
         const { data: updatedOrderItems, error: fetchError } = await supabase
           .from('order_items')
           .select('*')
@@ -903,7 +940,10 @@ export class ArkikOrderMatcher {
         return {
           success: true,
           updatedOrderItems: updatedOrderItems || [],
-          materialsCreated
+          materialsCreated,
+          totalMaterialsProcessed: totalMaterialsCount, // Total materials across all remisiones (including existing)
+          remisionesWithExistingMaterials: remisionesWithMaterials.size,
+          remisionesWithNewMaterials: remisionesNeedingMaterials.length
         };
 
       } finally {
