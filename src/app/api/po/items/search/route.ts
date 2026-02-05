@@ -17,17 +17,31 @@ export async function GET(request: NextRequest) {
   const supplier_id = searchParams.get('supplier_id') || undefined;
   const material_id = searchParams.get('material_id') || undefined;
   const is_service = searchParams.get('is_service') === 'true';
+  const material_supplier_id = searchParams.get('material_supplier_id') || undefined;
 
   // Base: open or partial items, with header join including supplier info
+  // Include material_supplier join for fleet POs
   let query = supabase
     .from('purchase_order_items')
-    .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status, supplier:suppliers(id, name, provider_number, provider_letter, internal_code)), material:materials!material_id (id, material_name, density_kg_per_l)')
+    .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status, supplier:suppliers(id, name, provider_number, provider_letter, internal_code)), material:materials!material_id (id, material_name, density_kg_per_l), material_supplier:suppliers!material_supplier_id (id, name, provider_number, provider_letter, internal_code)')
     .in('status', ['open', 'partial']);
 
   if (plant_id) query = query.eq('po.plant_id', plant_id as any);
-  if (supplier_id) query = query.eq('po.supplier_id', supplier_id as any);
+  // CRITICAL: For material POs, filter by BOTH material_id AND supplier_id (PO header supplier)
+  // This ensures each material-provider combination has its own PO
+  if (supplier_id) {
+    if (is_service) {
+      // For fleet POs, filter by material_supplier_id
+      query = query.eq('material_supplier_id', supplier_id as any);
+    } else {
+      // For material POs, filter by PO header supplier_id
+      query = query.eq('po.supplier_id', supplier_id as any);
+    }
+  }
   if (material_id) query = query.eq('material_id', material_id as any);
   if (is_service) query = query.eq('is_service', true);
+  // Additional filter for fleet POs by material_supplier_id if provided separately
+  if (material_supplier_id) query = query.eq('material_supplier_id', material_supplier_id as any);
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('po.plant_id', profile.plant_id as any);
 
   const { data, error } = await query;

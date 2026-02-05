@@ -1,5 +1,5 @@
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import json
 
@@ -8,15 +8,13 @@ CLIENT_IDS = {
     'SEDENA': '241d39e9-ec9b-41b9-a93b-7c20e3638f1c',  # FIDEICOMISO DE ADMINISTRACION Y PAGO SEDENA 80778
     'JESUS OCHOA': '2690972d-b975-4a69-a35d-5c4461a7554c',
     'IMPULSORA TLAXTALECA': '573922b3-e5d0-4b43-8567-38b075e89de7',  # IMPULSORA TLAXCALTECA DE INDUSTRIAS
+    'IMPULSORA TLAXCALTECA': '573922b3-e5d0-4b43-8567-38b075e89de7',  # Alternative spelling
 }
 
 PLANT_IDS = {
     'P002': '836cbbcf-67b2-4534-97cc-b83e71722ff7',  # Tijuana Planta 2
     'P003': 'baf175a7-fcf7-4e71-b18f-e952d8802129',  # Tijuana Planta 3
 }
-
-# Orders data (will be loaded from JSON or fetched)
-ORDERS_DATA = []
 
 def normalize_unit(unit_str):
     """Normalize unit names: BP2 -> BP02, BP1 -> BP01"""
@@ -53,8 +51,18 @@ def parse_remision(row):
         operador_raw = row[' OPERADOR '].strip()
         planta_raw = row[' PLANTA  '].strip()
         
-        # Parse date (MM/DD/YY format)
-        fecha = datetime.strptime(fecha_str, '%m/%d/%y').date()
+        # Parse date (MM/DD/YY format) - Note: dates show /25 but this is January 2026
+        # Need to handle year correctly
+        fecha_parts = fecha_str.split('/')
+        month = int(fecha_parts[0])
+        day = int(fecha_parts[1])
+        year_part = int(fecha_parts[2])
+        
+        # If year is 25, it's actually 2025 but context says January so it's 2026
+        # If year is 26, it's 2026
+        year = 2026 if year_part == 26 else 2026  # January 2026
+        
+        fecha = datetime(year, month, day).date()
         
         # Parse price
         unit_price = float(pu_str)
@@ -188,7 +196,7 @@ def generate_migration_sql(groups, orders_data):
     sql_parts = []
     
     sql_parts.append("-- ============================================================================")
-    sql_parts.append("-- PUMPING REMISIONES IMPLEMENTATION - DECEMBER 2025")
+    sql_parts.append("-- PUMPING REMISIONES IMPLEMENTATION - JANUARY 2026")
     sql_parts.append("-- Tijuana Plants 2 and 3")
     sql_parts.append("-- ============================================================================")
     sql_parts.append("-- ")
@@ -335,12 +343,19 @@ WHERE id = '{order_id}';""")
     return '\n'.join(sql_parts), unmatched_groups
 
 if __name__ == "__main__":
-    # Load orders data from the query result
-    # This would normally come from a database query, but for now we'll use a JSON file
-    # or pass it directly
+    # Load orders from JSON file (saved from database query)
+    orders_file = 'january_orders.json'
+    try:
+        with open(orders_file, 'r') as f:
+            orders_data = json.load(f)
+        print(f"Loaded {len(orders_data)} orders from {orders_file}")
+    except FileNotFoundError:
+        print(f"ERROR: {orders_file} not found. Please save orders data first.")
+        print("The orders data should be saved from the database query result.")
+        exit(1)
     
     # Parse CSV
-    csv_file_path = 'REPORTE DE BOMBEO DICIEMBRE PLANTA 2 Y 3.csv'
+    csv_file_path = 'RELACION DE BOMBEO 2026 (1).csv'
     print(f"Parsing CSV: {csv_file_path}")
     csv_rows = parse_csv(csv_file_path)
     
@@ -357,27 +372,17 @@ if __name__ == "__main__":
     groups = group_remisiones(remisiones)
     print(f"Grouped into {len(groups)} groups")
     
-    # Load orders data (you'll need to save the query result as JSON or pass it here)
-    # For now, we'll create a placeholder that needs to be filled
-    print("\nNOTE: Orders data needs to be loaded from database query result.")
-    print("Please save the orders query result as 'december_orders.json' or update ORDERS_DATA in the script.")
-    print("\nTo generate migration:")
-    print("1. Save orders query result as JSON file")
-    print("2. Load it in this script")
-    print("3. Run generate_migration_sql()")
+    # Generate migration
+    migration_sql, unmatched = generate_migration_sql(groups, orders_data)
     
-    # If orders data is available, generate migration
-    if ORDERS_DATA:
-        migration_sql, unmatched = generate_migration_sql(groups, ORDERS_DATA)
-        
-        migration_file = 'supabase/migrations/20251202_december_pumping_remisiones_p2_p3.sql'
-        with open(migration_file, 'w', encoding='utf-8') as f:
-            f.write(migration_sql)
-        
-        print(f"\nMigration file generated: {migration_file}")
-        print(f"Total groups: {len(groups)}")
-        print(f"Unmatched groups: {len(unmatched)}")
-    else:
-        print("\nGroups summary:")
-        for (date_str, client_id, plant_id), data in sorted(groups.items()):
-            print(f"  {date_str} | {data['client_name']} | {data['plant_code']} | {len(data['remisiones'])} remisiones | {data['total_volume']:.2f} m³")
+    migration_file = 'supabase/migrations/20260102_january_pumping_remisiones_p2_p3.sql'
+    with open(migration_file, 'w', encoding='utf-8') as f:
+        f.write(migration_sql)
+    
+    print(f"\nMigration file generated: {migration_file}")
+    print(f"Total groups: {len(groups)}")
+    print(f"Unmatched groups: {len(unmatched)}")
+    if unmatched:
+        print("\nUnmatched groups:")
+        for group in unmatched:
+            print(f"  {group['date']} | {group['client']} | {group['plant']} | {group['volume']:.2f} m³")

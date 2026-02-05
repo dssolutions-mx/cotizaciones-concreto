@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { MaterialFlowSummary } from '@/types/inventory'
 import { cn } from '@/lib/utils'
-import { format } from 'date-fns'
+import { format, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 import MaterialAdjustmentForm from './MaterialAdjustmentForm'
 
@@ -128,11 +128,11 @@ export default function TheoreticalInventoryTable({
         <CardDescription>
           Movimientos de materiales para el período del{' '}
           <span className="font-semibold">
-            {format(new Date(dateRange.start_date), 'dd MMM yyyy', { locale: es })}
+            {format(parse(dateRange.start_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy', { locale: es })}
           </span>{' '}
           al{' '}
           <span className="font-semibold">
-            {format(new Date(dateRange.end_date), 'dd MMM yyyy', { locale: es })}
+            {format(parse(dateRange.end_date, 'yyyy-MM-dd', new Date()), 'dd MMM yyyy', { locale: es })}
           </span>
         </CardDescription>
         
@@ -360,7 +360,7 @@ export default function TheoreticalInventoryTable({
                   <div>
                     <span className="text-gray-600">Período:</span>
                     <p className="font-semibold">
-                      {format(new Date(dateRange.start_date), 'dd/MM/yyyy', { locale: es })} - {format(new Date(dateRange.end_date), 'dd/MM/yyyy', { locale: es })}
+                      {format(parse(dateRange.start_date, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: es })} - {format(parse(dateRange.end_date, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: es })}
                     </p>
                   </div>
                 </div>

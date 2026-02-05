@@ -385,8 +385,8 @@ export class InventoryDashboardService {
         wasteMaterials: historicalWasteByCode.size
       });
 
-      // OPTIMIZED: Fetch all period data in parallel to reduce query time
-      const [periodEntriesResult, periodAdjustmentsResult, periodRemisionesResult] = await Promise.all([
+      // OPTIMIZED: Fetch all period data in parallel, including remision materials in same batch
+      const [periodEntriesResult, periodAdjustmentsResult, periodRemisionesResult, periodWasteResult] = await Promise.all([
         // Batch fetch ALL period entries (between startDate and endDate)
         this.supabase
           .from('material_entries')
@@ -411,12 +411,22 @@ export class InventoryDashboardService {
           .select('id, fecha')
           .eq('plant_id', plantId)
           .gte('fecha', startDate)
+          .lte('fecha', endDate),
+        
+        // Batch fetch ALL period waste (between startDate and endDate) - included in parallel batch
+        this.supabase
+          .from('waste_materials')
+          .select('material_code, waste_amount')
+          .eq('plant_id', plantId)
+          .in('material_code', materialCodesList)
+          .gte('fecha', startDate)
           .lte('fecha', endDate)
       ]);
 
       const allPeriodEntries = periodEntriesResult.data || [];
       const allPeriodAdjustments = periodAdjustmentsResult.data || [];
       const periodRemisiones = periodRemisionesResult.data || [];
+      const allPeriodWaste = periodWasteResult.data || [];
 
       const periodRemisionIdSet = new Set(periodRemisiones?.map(r => r.id) || []);
       console.log('📊 Period remisiones (between dates):', {
@@ -425,7 +435,7 @@ export class InventoryDashboardService {
         dateRange: `${startDate} to ${endDate}`
       });
 
-      // Now get materials for period remisiones
+      // OPTIMIZED: Fetch remision materials in parallel with other operations if needed
       // Get ALL materials from period remisiones (including those with NULL material_id)
       // We need to get material_type/code to map to material_id
       const { data: allPeriodRemisionMaterialsRaw } = periodRemisionIdSet.size > 0 ? await this.supabase
@@ -434,13 +444,12 @@ export class InventoryDashboardService {
         .in('remision_id', Array.from(periodRemisionIdSet)) : { data: [] };
 
       // Map remision materials to material_id if missing, and filter to only tracked materials
-      // Create a map for period materials (reuse the same logic as historical)
-      const materialCodeToIdMapPeriod = new Map(filteredMaterials.map(m => [m.material_code, m.id]));
+      // Reuse materialCodeToIdMap defined earlier
       const allPeriodRemisionMaterials = (allPeriodRemisionMaterialsRaw || [])
         .map(rm => {
           // If material_id is null, try to find it by material_type (which might be a code)
           if (!rm.material_id && rm.material_type) {
-            const mappedId = materialCodeToIdMapPeriod.get(rm.material_type);
+            const mappedId = materialCodeToIdMap.get(rm.material_type);
             return { ...rm, material_id: mappedId || rm.material_id };
           }
           return rm;
@@ -459,15 +468,6 @@ export class InventoryDashboardService {
         uniqueMaterialTypes: [...new Set((allPeriodRemisionMaterialsRaw || []).map(rm => rm.material_type).filter(Boolean))],
         uniqueMaterialIdsInPeriod: [...new Set(allPeriodRemisionMaterialsRaw?.map(rm => rm.material_id).filter(Boolean) || [])].length
       });
-
-      // Batch fetch ALL period waste (between startDate and endDate)
-      const { data: allPeriodWaste } = await this.supabase
-        .from('waste_materials')
-        .select('material_code, waste_amount')
-        .eq('plant_id', plantId)
-        .in('material_code', materialCodesList)
-        .gte('fecha', startDate)
-        .lte('fecha', endDate);
 
       const periodEntriesByMaterial = new Map<string, number[]>();
       (allPeriodEntries || []).forEach(e => {
@@ -654,17 +654,11 @@ export class InventoryDashboardService {
    * Get comprehensive inventory dashboard data with HISTORICAL CALCULATION approach
    * This method calculates initial stock from historical data rather than relying on current_stock
    */
-  async getDashboardData(filters: InventoryDashboardFilters, userId: string): Promise<InventoryDashboardData> {
+  async getDashboardData(filters: InventoryDashboardFilters, profile: any): Promise<InventoryDashboardData> {
     try {
       console.time('🚀 Dashboard Data Fetch (Historical)');
       
-      // Get user profile to ensure proper plant access
-      const { data: profile } = await this.supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
+      // Profile is passed from route handler to avoid redundant lookup
       if (!profile) {
         throw new Error('Usuario no encontrado');
       }

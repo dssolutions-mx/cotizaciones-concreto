@@ -31,6 +31,7 @@ export const POItemInputSchema = z.object({
   unit_price: z.number().nonnegative('Precio debe ser no negativo'),
   required_by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(),
+  material_supplier_id: z.string().uuid('ID de proveedor de material debe ser un UUID válido').nullable().optional(),
 }).refine(
   (data) => {
     if (data.is_service) {
@@ -62,6 +63,17 @@ export const POItemInputSchema = z.object({
   },
   {
     message: 'UoM inválido o peso volumétrico inválido (m3 requiere valor positivo si se envía)',
+  }
+).refine(
+  (data) => {
+    // material_supplier_id can only be set when is_service = true
+    if (data.material_supplier_id && !data.is_service) {
+      return false;
+    }
+    return true;
+  },
+  {
+    message: 'material_supplier_id solo puede ser establecido para servicios (is_service=true)',
   }
 );
 

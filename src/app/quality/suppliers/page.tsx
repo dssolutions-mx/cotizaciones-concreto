@@ -74,6 +74,21 @@ export default function SuppliersPage() {
       return;
     }
 
+    // Pre-validation: Check if provider number already exists
+    const existingSupplier = suppliers.find(
+      s => s.provider_number === providerNumber && 
+           (s.plant_id === plantId || (!s.plant_id && !plantId))
+    );
+    
+    if (existingSupplier) {
+      toast({
+        variant: 'destructive',
+        title: 'Número de proveedor duplicado',
+        description: `Ya existe un proveedor con el número ${providerNumber}${plantId ? ' en esta planta' : ''}. Por favor usa otro número.`
+      });
+      return;
+    }
+
     try {
       await recipeService.createSupplier({
         name: form.name.trim(),

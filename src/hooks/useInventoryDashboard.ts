@@ -76,7 +76,7 @@ export function useInventoryDashboard(): UseInventoryDashboard {
   
   const [state, setState] = useState<UseInventoryDashboardState>({
     data: null,
-    loading: false,
+    loading: true, // Initialize as loading to show loading state immediately
     error: null,
     filters: {
       start_date: defaultDates.startDate,
@@ -89,6 +89,11 @@ export function useInventoryDashboard(): UseInventoryDashboard {
   // Track if we're currently fetching to prevent duplicate requests
   const fetchingRef = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const isInitialLoadRef = useRef(true)
+  
+  // In-memory cache with TTL
+  const cacheRef = useRef<Map<string, { data: InventoryDashboardData; timestamp: number }>>(new Map())
+  const CACHE_TTL = 30000 // 30 seconds
 
   const fetchData = useCallback(async (forceRefresh = false) => {
     // Prevent duplicate requests
@@ -107,6 +112,43 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       return
     }
 
+    // Use debounced filters for actual API call (except for initial load)
+    const activeFilters = isInitialLoadRef.current ? {
+      start_date: uiFilters.start_date,
+      end_date: uiFilters.end_date,
+      material_ids: uiFilters.material_ids,
+      category: uiFilters.category
+    } : {
+      start_date: debouncedFilters.start_date,
+      end_date: debouncedFilters.end_date,
+      material_ids: debouncedFilters.material_ids,
+      category: debouncedFilters.category
+    }
+
+    // Build cache key
+    const cacheKey = `${currentPlant.id}-${activeFilters.start_date}-${activeFilters.end_date}-${activeFilters.category || 'all'}-${(activeFilters.material_ids || []).join(',')}`
+    
+    // Check cache (unless force refresh)
+    if (!forceRefresh) {
+      const cached = cacheRef.current.get(cacheKey)
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log('✅ Using cached dashboard data')
+        setState(prev => ({
+          ...prev,
+          data: cached.data,
+          loading: false,
+          error: null,
+          filters: {
+            ...prev.filters,
+            ...activeFilters,
+            plant_id: currentPlant.id
+          }
+        }))
+        isInitialLoadRef.current = false
+        return
+      }
+    }
+
     // Cancel previous request if exists
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -119,14 +161,6 @@ export function useInventoryDashboard(): UseInventoryDashboard {
     setState(prev => ({ ...prev, loading: true, error: null }))
     
     try {
-      // Use debounced filters for actual API call
-      const activeFilters = {
-        start_date: debouncedFilters.start_date,
-        end_date: debouncedFilters.end_date,
-        material_ids: debouncedFilters.material_ids,
-        category: debouncedFilters.category
-      }
-
       // Build query parameters
       const params = new URLSearchParams({
         start_date: activeFilters.start_date,
@@ -146,7 +180,8 @@ export function useInventoryDashboard(): UseInventoryDashboard {
       console.log('🚀 Fetching optimized dashboard data:', {
         plant: currentPlant.name,
         dateRange: `${activeFilters.start_date} to ${activeFilters.end_date}`,
-        materialCount: activeFilters.material_ids.length || 'all'
+        materialCount: activeFilters.material_ids.length || 'all',
+        isInitialLoad: isInitialLoadRef.current
       })
 
       const response = await fetch(`/api/inventory/dashboard?${params.toString()}`, {
@@ -184,6 +219,22 @@ export function useInventoryDashboard(): UseInventoryDashboard {
         movements: result.data.movements.length
       })
 
+      // Store in cache
+      cacheRef.current.set(cacheKey, {
+        data: result.data,
+        timestamp: Date.now()
+      })
+
+      // Clean up old cache entries (keep only last 10)
+      if (cacheRef.current.size > 10) {
+        const entries = Array.from(cacheRef.current.entries())
+        entries.sort((a, b) => b[1].timestamp - a[1].timestamp)
+        cacheRef.current.clear()
+        entries.slice(0, 10).forEach(([key, value]) => {
+          cacheRef.current.set(key, value)
+        })
+      }
+
       setState(prev => ({
         ...prev,
         data: result.data,
@@ -195,6 +246,8 @@ export function useInventoryDashboard(): UseInventoryDashboard {
           plant_id: currentPlant.id
         }
       }))
+      
+      isInitialLoadRef.current = false
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -227,19 +280,47 @@ export function useInventoryDashboard(): UseInventoryDashboard {
     } finally {
       fetchingRef.current = false
     }
-  }, [profile, currentPlant, debouncedFilters])
+  }, [profile, currentPlant, debouncedFilters, uiFilters])
 
-  // PERFORMANCE: Only fetch when plant changes or debounced filters change
+  // PERFORMANCE: Fetch immediately on mount if plant is ready (initial load)
+  // Then use debounced filters for subsequent changes
   useEffect(() => {
-    if (!profile || !currentPlant) return
+    if (!profile || !currentPlant) {
+      // If no plant, set loading to false after a brief delay
+      if (!currentPlant && profile) {
+        setState(prev => ({ 
+          ...prev, 
+          loading: false, 
+          error: 'No se ha seleccionado una planta válida',
+          data: null 
+        }))
+      }
+      return
+    }
 
-    console.log('🔄 Triggering data fetch:', {
+    // For initial load, fetch immediately without debounce
+    if (isInitialLoadRef.current) {
+      console.log('🔄 Initial load - fetching immediately:', {
+        plant: currentPlant.name,
+        filters: uiFilters
+      })
+      fetchData()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id, currentPlant?.id])
+
+  // PERFORMANCE: Use debounced filters for subsequent filter changes
+  useEffect(() => {
+    if (!profile || !currentPlant || isInitialLoadRef.current) return
+
+    console.log('🔄 Filter change - fetching with debounced filters:', {
       plant: currentPlant.name,
       filters: debouncedFilters
     })
 
     fetchData()
-  }, [profile, currentPlant?.id, fetchData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedFilters])
 
   // Cleanup on unmount
   useEffect(() => {

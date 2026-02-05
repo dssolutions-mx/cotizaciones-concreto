@@ -22,7 +22,7 @@ import {
   AlertTriangle
 } from 'lucide-react'
 import { RemisionMaterialConsumption } from '@/types/inventory'
-import { format } from 'date-fns'
+import { format, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 
@@ -239,7 +239,7 @@ export default function RemisionConsumptionTable({ consumptionDetails }: Remisio
               return (
                 <TableRow key={index} className="hover:bg-gray-50">
                   <TableCell className="font-mono text-sm">
-                    {format(new Date(consumption.remision_date), 'dd/MM/yyyy', { locale: es })}
+                    {format(parse(consumption.remision_date, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: es })}
                   </TableCell>
                   <TableCell className="font-mono text-sm font-medium">
                     {consumption.remision_number}

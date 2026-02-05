@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { ProgressBar } from '@/components/ui/ProgressBar';
-import { cn } from '@/lib/utils';
+import { cn, formatTimestamp } from '@/lib/utils';
 import { OrderWithClient } from '@/types/orders';
 import { MapPin, Clock } from 'lucide-react';
 
@@ -300,6 +300,13 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                 </span>
               )}
             </div>
+
+            {/* Creation Date */}
+            {order.created_at && (
+              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                <span>Creado: {formatTimestamp(order.created_at, 'PPp')}</span>
+              </div>
+            )}
 
             {/* Progress Bars */}
             {displayConcrete && (

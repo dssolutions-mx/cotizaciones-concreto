@@ -124,6 +124,43 @@ export function safeFormatDate(date: any, formatString = 'PP'): string {
   return 'N/A';
 }
 
+// Function to format UTC timestamps with timezone conversion
+export function formatTimestamp(timestamp: string | null | undefined, formatString = 'PPp'): string {
+  if (!timestamp) return 'No disponible';
+
+  try {
+    // Parse the ISO timestamp string (UTC from Supabase)
+    const dateObj = parseISO(timestamp);
+    
+    // Validate the date object
+    if (!isValidDate(dateObj)) {
+      console.error("Invalid timestamp:", timestamp);
+      return 'Fecha inválida';
+    }
+
+    // Format using date-fns - browser will automatically convert to local timezone
+    return formatFn(dateObj, formatString, { locale: es });
+  } catch (error) {
+    console.error("Error formatting timestamp:", error);
+    // Fallback: try to parse as Date and use locale string
+    try {
+      const fallbackDate = new Date(timestamp);
+      if (isValidDate(fallbackDate)) {
+        return fallbackDate.toLocaleString('es-MX', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      }
+    } catch (fallbackError) {
+      console.error("Fallback date parsing failed:", fallbackError);
+    }
+    return 'No disponible';
+  }
+}
+
 // Helper function to get a safe Date object, returning current date as fallback
 export function getSafeDate(date: any): Date {
   return isValidDate(date) ? date : new Date();

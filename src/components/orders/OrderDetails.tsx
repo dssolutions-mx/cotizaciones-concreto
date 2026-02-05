@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useUnifiedAuthBridge } from '@/adapters/unified-auth-bridge';
 import type { UserRole } from '@/store/auth/types';
 import { renderTracker } from '@/lib/performance/renderTracker';
+import { formatTimestamp } from '@/lib/utils';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import OrderDetailsBalance from './OrderDetailsBalance';
@@ -2233,6 +2234,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       <dt className="text-sm font-medium text-gray-500">Hora de Entrega</dt>
                       <dd className="mt-1 text-sm text-gray-900">
                         {order.delivery_time ? formatTime(order.delivery_time) : 'No especificada'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-1">
+                      <dt className="text-sm font-medium text-gray-500">Fecha de Creación</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {order.created_at ? formatTimestamp(order.created_at, 'PPp') : 'No disponible'}
                       </dd>
                     </div>
                     <div className="sm:col-span-1">

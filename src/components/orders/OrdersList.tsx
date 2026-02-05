@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { OrderCard2 } from './OrderCard2';
-import { cn } from '@/lib/utils';
+import { cn, formatTimestamp } from '@/lib/utils';
 import Link from 'next/link';
 
 type DeliveredFilter = 'all' | 'delivered' | 'pending';
@@ -327,6 +327,11 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
           {isPastOrder && order.delivery_date && (
             <p className="text-sm text-red-600 mt-1">
               <span className="font-medium">Fecha programada:</span> {formatDate(order.delivery_date)}
+            </p>
+          )}
+          {order.created_at && (
+            <p className="text-xs text-gray-500 mt-1">
+              <span className="font-medium">Creado:</span> {formatTimestamp(order.created_at, 'PPp')}
             </p>
           )}
         </div>

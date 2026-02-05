@@ -125,8 +125,9 @@ export async function GET(request: NextRequest) {
     };
 
     // Create service and get dashboard data
+    // Pass profile to avoid redundant lookup in service
     const dashboardService = new InventoryDashboardService(supabase);
-    const dashboardData = await dashboardService.getDashboardData(filters, user.id);
+    const dashboardData = await dashboardService.getDashboardData(filters, profile);
 
     console.log('✅ Successfully processed dashboard request:', {
       materialsTracked: dashboardData.summary.total_materials_tracked,
@@ -135,10 +136,16 @@ export async function GET(request: NextRequest) {
       consumptionDetailsCount: dashboardData.consumption_details.length
     });
 
-    return NextResponse.json({
+    // Add caching headers for GET requests
+    const response = NextResponse.json({
       success: true,
       data: dashboardData
     });
+    
+    // Cache for 30 seconds
+    response.headers.set('Cache-Control', 'private, max-age=30, stale-while-revalidate=60');
+    
+    return response;
 
   } catch (error) {
     console.error('Error in inventory dashboard GET:', error);

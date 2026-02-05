@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { MaterialEntry } from '@/types/inventory'
-import { format } from 'date-fns'
+import { format, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Package, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -109,7 +109,7 @@ export default function EntryPricingReviewList({ onSuccess }: EntryPricingReview
                   {entry.entry_number}
                 </span>
                 <span className="text-xs text-gray-500">
-                  {format(new Date(entry.entry_date), "dd MMM yyyy", { locale: es })}
+                  {format(parse(entry.entry_date, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: es })}
                 </span>
               </div>
               

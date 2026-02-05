@@ -752,7 +752,11 @@ export const recipeService = {
       if (error) throw error;
       return data;
     } catch (error) {
-      const errorMessage = handleError(error, 'createSupplier');
+      // Pasar información del contexto para mensajes más específicos
+      const errorMessage = handleError(error, 'createSupplier', {
+        provider_number: supplier.provider_number,
+        plant_id: supplier.plant_id
+      });
       console.error(errorMessage);
       throw new Error(errorMessage);
     }

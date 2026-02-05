@@ -20,7 +20,7 @@ import {
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { format, addDays, subDays } from 'date-fns'
+import { format, addDays, subDays, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { useInventoryDashboard } from '@/hooks/useInventoryDashboard'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -83,6 +83,26 @@ function InventoryDashboardPage() {
     }
   }, [currentPlant, setPlantId])
 
+  // Sync dateRange state with actual data dates to ensure consistency
+  useEffect(() => {
+    if (data?.summary?.date_range) {
+      const { start_date, end_date } = data.summary.date_range
+      // Parse dates as local dates to avoid timezone issues
+      const startDate = parse(start_date, 'yyyy-MM-dd', new Date())
+      const endDate = parse(end_date, 'yyyy-MM-dd', new Date())
+      
+      // Only update if dates are different to avoid unnecessary re-renders
+      if (
+        !dateRange.from ||
+        !dateRange.to ||
+        format(dateRange.from, 'yyyy-MM-dd') !== start_date ||
+        format(dateRange.to, 'yyyy-MM-dd') !== end_date
+      ) {
+        setDateRange({ from: startDate, to: endDate })
+      }
+    }
+  }, [data?.summary?.date_range?.start_date, data?.summary?.date_range?.end_date])
+
   const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
     setSelectedPreset(preset)
     setDateRange(range)
@@ -125,14 +145,61 @@ function InventoryDashboardPage() {
   if (loading || plantContextLoading) {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
+        <InventoryBreadcrumb />
+        {/* Header skeleton */}
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+            <div className="space-y-2">
+              <div className="h-9 bg-gray-200 rounded w-64"></div>
+              <div className="h-5 bg-gray-200 rounded w-96"></div>
+            </div>
+            <div className="flex gap-3">
+              <div className="h-10 bg-gray-200 rounded w-32"></div>
+              <div className="h-10 bg-gray-200 rounded w-40"></div>
+              <div className="h-10 bg-gray-200 rounded w-24"></div>
+            </div>
+          </div>
+          
+          {/* Summary cards skeleton */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-32 bg-gray-200 rounded"></div>
+              <Card key={i} className="animate-pulse">
+                <CardHeader className="pb-3">
+                  <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                  <div className="h-8 bg-gray-200 rounded w-16"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-3 bg-gray-200 rounded w-32"></div>
+                </CardContent>
+              </Card>
             ))}
           </div>
-          <div className="h-96 bg-gray-200 rounded"></div>
+
+          {/* Flow summary cards skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            {[...Array(3)].map((_, i) => (
+              <Card key={i} className="animate-pulse">
+                <CardHeader>
+                  <div className="h-5 bg-gray-200 rounded w-32 mb-2"></div>
+                  <div className="h-3 bg-gray-200 rounded w-24"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-12 bg-gray-200 rounded"></div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Main content skeleton */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                <div className="h-10 bg-gray-200 rounded w-full"></div>
+                <div className="h-64 bg-gray-200 rounded"></div>
+                <div className="h-96 bg-gray-200 rounded"></div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     )
@@ -314,7 +381,7 @@ function InventoryDashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="text-lg">
-                    Período de Análisis: {format(new Date(data.summary.date_range.start_date), "dd 'de' MMMM", { locale: es })} - {format(new Date(data.summary.date_range.end_date), "dd 'de' MMMM 'de' yyyy", { locale: es })}
+                    Período de Análisis: {format(parse(data.summary.date_range.start_date, 'yyyy-MM-dd', new Date()), "dd 'de' MMMM", { locale: es })} - {format(parse(data.summary.date_range.end_date, 'yyyy-MM-dd', new Date()), "dd 'de' MMMM 'de' yyyy", { locale: es })}
                   </CardTitle>
                   <CardDescription>
                     {data.summary.total_remisiones} remisiones • {data.summary.total_entries} entradas • {data.summary.total_adjustments} ajustes

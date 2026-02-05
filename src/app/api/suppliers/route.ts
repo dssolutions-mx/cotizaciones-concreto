@@ -105,6 +105,32 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Error creating supplier:', error);
+      
+      // Check for unique constraint violation (PostgreSQL error code 23505)
+      if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
+        // Try to extract provider number from error message
+        const providerNumberMatch = error.message?.match(/provider_number[^=]*=\((\d+)\)/i);
+        const providerNumber = providerNumberMatch ? providerNumberMatch[1] : body.provider_number;
+        
+        const errorMessage = providerNumber 
+          ? `Ya existe un proveedor con el número ${providerNumber}${body.plant_id ? ' en esta planta' : ''}.`
+          : 'Ya existe un proveedor con ese número.';
+        
+        return NextResponse.json({ error: errorMessage }, { status: 409 });
+      }
+      
+      // Check for check constraint violation (PostgreSQL error code 23514)
+      if (error.code === '23514' || error.message?.includes('check constraint')) {
+        if (error.message?.includes('suppliers_provider_number_check')) {
+          // Mostrar el mensaje real de PostgreSQL para identificar la restricción exacta
+          const errorMessage = `El número de proveedor ${body.provider_number} no cumple con las restricciones de la base de datos. ${error.message || 'Por favor verifica el número e intenta de nuevo.'}`;
+          return NextResponse.json({ error: errorMessage }, { status: 400 });
+        }
+        return NextResponse.json({ 
+          error: error.message || 'Los datos proporcionados no cumplen con las restricciones requeridas.' 
+        }, { status: 400 });
+      }
+      
       return NextResponse.json({ error: 'Failed to create supplier' }, { status: 500 });
     }
 

@@ -24,7 +24,7 @@ import {
   AlertTriangle
 } from 'lucide-react'
 import { InventoryMovement } from '@/types/inventory'
-import { format } from 'date-fns'
+import { format, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 
@@ -244,7 +244,7 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
               return (
                 <TableRow key={index} className="hover:bg-gray-50">
                   <TableCell className="font-mono text-sm">
-                    {format(new Date(movement.movement_date), 'dd/MM/yyyy', { locale: es })}
+                    {format(parse(movement.movement_date, 'yyyy-MM-dd', new Date()), 'dd/MM/yyyy', { locale: es })}
                   </TableCell>
                   <TableCell>
                     <Badge variant={typeInfo.variant} className="text-xs">

@@ -68,6 +68,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!payload.is_service && payload.uom === 'm3' && payload.volumetric_weight_kg_per_m3 !== undefined) {
     insertPayload.volumetric_weight_kg_per_m3 = payload.volumetric_weight_kg_per_m3;
   }
+  // Add material_supplier_id for fleet/service items
+  if (payload.is_service && payload.material_supplier_id) {
+    insertPayload.material_supplier_id = payload.material_supplier_id;
+  }
 
   const { data, error } = await supabase
     .from('purchase_order_items')

@@ -24,6 +24,8 @@ interface POItem {
   required_by?: string
   total: number
   volumetric_weight_kg_per_m3?: number
+  material_supplier_id?: string // For fleet/service items
+  service_description?: string
 }
 
 interface CreatePOModalProps {
@@ -61,10 +63,12 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   })
   
   const [serviceDescription, setServiceDescription] = useState('')
+  const [materialSupplierId, setMaterialSupplierId] = useState('')
 
   const [materials, setMaterials] = useState<any[]>([])
   const [plants, setPlants] = useState<Plant[]>([])
   const [loadingPlants, setLoadingPlants] = useState(false)
+  const [suppliers, setSuppliers] = useState<any[]>([])
 
   useEffect(() => {
     if (defaultPlantId) setPlantId(defaultPlantId)
@@ -119,6 +123,20 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
     }
   }, [plantId])
 
+  // Fetch suppliers for material supplier selection (fleet POs)
+  useEffect(() => {
+    if (plantId) {
+      fetch(`/api/suppliers?plant_id=${plantId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.data) {
+            setSuppliers(data.data || [])
+          }
+        })
+        .catch(() => {})
+    }
+  }, [plantId])
+
   const resetItemForm = () => {
     setItemForm({
       tempId: '',
@@ -132,6 +150,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       total: 0
     })
     setServiceDescription('')
+    setMaterialSupplierId('')
   }
 
   const handleAddItem = () => {
@@ -160,6 +179,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       ...itemForm,
       tempId: `temp-${Date.now()}`,
       material_name: materialName,
+      service_description: itemForm.is_service ? serviceDescription : undefined,
+      material_supplier_id: itemForm.is_service ? materialSupplierId : undefined,
       total: itemForm.qty_ordered * itemForm.unit_price
     }
 
@@ -201,6 +222,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   const handleEditItem = (item: POItem) => {
     setEditingItem(item)
     setItemForm({ ...item })
+    setServiceDescription(item.service_description || '')
+    setMaterialSupplierId(item.material_supplier_id || '')
     setIsEditing(true)
   }
 
@@ -249,6 +272,9 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
         // Add service or material fields
         if (item.is_service) {
           payload.service_description = item.service_description
+          if (item.material_supplier_id) {
+            payload.material_supplier_id = item.material_supplier_id
+          }
         } else {
           payload.material_id = item.material_id
         }
@@ -589,6 +615,20 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                             />
                           </div>
                         </div>
+
+                        <div className="md:col-span-2">
+                          <Label className="text-sm font-medium text-gray-700">Proveedor de Material</Label>
+                          <div className="mt-1.5">
+                            <SupplierSelect
+                              value={materialSupplierId}
+                              onChange={setMaterialSupplierId}
+                              plantId={plantId || undefined}
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                              Seleccione el proveedor de material para el cual este servicio de flota aplica
+                            </p>
+                          </div>
+                        </div>
                       </>
                     ) : (
                       <>
@@ -600,6 +640,12 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                               onChange={(v: string) => setItemForm(f => ({ ...f, material_id: v }))}
                               plantId={plantId || undefined}
                             />
+                            {supplierId && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                Este PO es para {suppliers.find(s => s.id === supplierId)?.name || 'el proveedor seleccionado'}. 
+                                Si el material viene de otro proveedor, considere crear un PO separado.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div>

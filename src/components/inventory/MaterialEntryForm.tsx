@@ -242,16 +242,17 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   }, [formData.supplier_id])
   
   // Fetch fleet PO items when fleet supplier changes
+  // CRITICAL: Filter by material_supplier_id matching the material supplier (formData.supplier_id)
   useEffect(() => {
     const plantId = currentPlant?.id || profile?.plant_id
-    if (!plantId || !formData.fleet_supplier_id) {
+    if (!plantId || !formData.supplier_id) {
       setFleetPoItems([])
       return
     }
     ;(async () => {
       const params = new URLSearchParams()
       params.set('plant_id', plantId)
-      params.set('supplier_id', formData.fleet_supplier_id)
+      params.set('material_supplier_id', formData.supplier_id) // Filter by material supplier
       params.set('is_service', 'true')
       const res = await fetch(`/api/po/items/search?${params.toString()}`)
       if (res.ok) {
@@ -259,7 +260,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         setFleetPoItems(data.items || [])
       }
     })()
-  }, [formData.fleet_supplier_id, currentPlant?.id, profile?.plant_id])
+  }, [formData.supplier_id, currentPlant?.id, profile?.plant_id]) // Changed from fleet_supplier_id to supplier_id
 
   // Handle file upload
   const handleFileUpload = (files: FileList) => {
@@ -356,6 +357,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       if (selectedPoItemId) {
         const item = poItems.find(it => it.id === selectedPoItemId)
         if (item) {
+          // CRITICAL: Validate that supplier matches PO header supplier
+          if (formData.supplier_id && item.po?.supplier_id && formData.supplier_id !== item.po.supplier_id) {
+            toast.error('El proveedor seleccionado no coincide con el proveedor del PO. Seleccione un PO que corresponda a este proveedor.')
+            setLoading(false)
+            return
+          }
+          
           // Validate against remaining kg
           let enteredKg = formData.quantity_received
           if (receivedUom === 'l') {
@@ -387,6 +395,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       if (selectedFleetPoItemId) {
         const fleetItem = fleetPoItems.find(it => it.id === selectedFleetPoItemId)
         if (fleetItem) {
+          // Validate that fleet PO's material_supplier_id matches selected material supplier
+          if (formData.supplier_id && fleetItem.material_supplier_id && formData.supplier_id !== fleetItem.material_supplier_id) {
+            toast.error('El proveedor de material no coincide con el proveedor del PO de flota. Seleccione un PO de flota que corresponda a este proveedor.')
+            setLoading(false)
+            return
+          }
+          
           if (!fleetQtyEntered || fleetQtyEntered <= 0) {
             toast.error('Ingrese cantidad del servicio de flota')
             setLoading(false)
@@ -705,20 +720,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 }}
               >
                 <option value="">Sin PO</option>
-                {poItems.map((it) => {
-                  const supplierName = it.po?.supplier?.name || `#${it.po?.supplier?.provider_number || 'N/A'}`
-                  const materialName = it.material?.material_name || 'Material'
-                  const uom = it.uom || 'kg'
-                  const remaining = it.qty_remaining_native ?? it.remainingKg ?? it.qty_remaining ?? 0
-                  const price = Number(it.unit_price || 0).toFixed(2)
-                  return (
-                    <option key={it.id} value={it.id}>
-                      {`PO ${String(it.po?.id || '').slice(0,8)} · ${supplierName} · ${materialName} · ${remaining.toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${uom} · $${price}/${uom}`}
-                    </option>
-                  )
-                })}
+                {poItems.length === 0 && formData.material_id && formData.supplier_id ? (
+                  <option disabled>No hay POs disponibles para {formData.material_id ? 'este material' : ''} de {formData.supplier_id ? 'este proveedor' : ''}</option>
+                ) : (
+                  poItems.map((it) => {
+                    const supplierName = it.po?.supplier?.name || `#${it.po?.supplier?.provider_number || 'N/A'}`
+                    const materialName = it.material?.material_name || 'Material'
+                    const uom = it.uom || 'kg'
+                    const remaining = it.qty_remaining_native ?? it.remainingKg ?? it.qty_remaining ?? 0
+                    const price = Number(it.unit_price || 0).toFixed(2)
+                    return (
+                      <option key={it.id} value={it.id}>
+                        {`PO ${String(it.po?.id || '').slice(0,8)} · ${supplierName} · ${materialName} · ${remaining.toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${uom} · $${price}/${uom}`}
+                      </option>
+                    )
+                  })
+                )}
               </select>
-              <p className="text-xs text-gray-500">Solo se muestran ítems abiertos o parciales con saldo.</p>
+              <p className="text-xs text-gray-500">
+                {formData.material_id && formData.supplier_id 
+                  ? `POs disponibles para ${formData.material_id ? 'este material' : ''} de ${formData.supplier_id ? 'este proveedor' : ''}. Solo se muestran ítems abiertos o parciales con saldo.`
+                  : 'Solo se muestran ítems abiertos o parciales con saldo.'}
+              </p>
+              {formData.material_id && formData.supplier_id && poItems.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  No hay POs disponibles para esta combinación material-proveedor. Cree un PO primero.
+                </p>
+              )}
             </div>
 
             {selectedPoItemId && (() => {
@@ -769,6 +797,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                         {supplier?.provider_letter && (
                           <p className="text-xs text-gray-500">Letra: {supplier.provider_letter}</p>
                         )}
+                        {formData.supplier_id && formData.supplier_id === poItem.po?.supplier_id ? (
+                          <p className="text-xs text-green-600 mt-1">✓ Coincide con proveedor seleccionado</p>
+                        ) : formData.supplier_id && formData.supplier_id !== poItem.po?.supplier_id ? (
+                          <p className="text-xs text-red-600 mt-1">⚠ No coincide con proveedor seleccionado</p>
+                        ) : null}
                       </div>
                       <div>
                         <p className="text-xs text-gray-600">Material</p>
@@ -970,12 +1003,24 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
                     >
                       <option value="">Sin PO de flota</option>
-                      {fleetPoItems.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.service_description || 'Servicio'} · Restante: ${(Number(it.qty_remaining)||0).toLocaleString('es-MX')} ${it.uom}`}
-                        </option>
-                      ))}
+                      {fleetPoItems.length === 0 && formData.supplier_id ? (
+                        <option disabled>No hay POs de flota disponibles para este proveedor</option>
+                      ) : (
+                        fleetPoItems.map((it) => {
+                          const materialSupplierName = it.material_supplier?.name || 'Proveedor'
+                          return (
+                            <option key={it.id} value={it.id}>
+                              {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.service_description || 'Servicio'} · Para: ${materialSupplierName} · Restante: ${(Number(it.qty_remaining)||0).toLocaleString('es-MX')} ${it.uom}`}
+                            </option>
+                          )
+                        })
+                      )}
                     </select>
+                    {formData.supplier_id && fleetPoItems.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">
+                        No hay POs de flota disponibles para {formData.supplier_id ? 'este proveedor' : 'el proveedor seleccionado'}. Cree un PO de flota primero.
+                      </p>
+                    )}
                   </div>
                   
                   {selectedFleetPoItemId && (

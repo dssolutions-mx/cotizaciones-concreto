@@ -31,6 +31,8 @@ export interface PurchaseOrderItem {
   created_at: string;
   // Optional conversion info for materials in m3
   volumetric_weight_kg_per_m3?: number; // if defined, locks entry conversion
+  // Fleet PO material supplier linking (only for fleet/service items)
+  material_supplier_id?: string | null; // Links fleet PO to specific material supplier for distance-based pricing
   // Computed
   qty_remaining?: number; // remaining in native UoM
 }
