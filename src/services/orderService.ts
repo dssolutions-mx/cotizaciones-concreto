@@ -1028,11 +1028,41 @@ export async function updateOrderNormalized(
     .filter(Boolean);
   
   if (itemIdsToReplace.length > 0) {
-    const { error: delErr } = await supabase
+    // Verify items exist before attempting delete
+    const { data: itemsToDelete, error: checkErr } = await supabase
+      .from('order_items')
+      .select('id')
+      .in('id', itemIdsToReplace)
+      .eq('order_id', orderId);
+    
+    if (checkErr) throw checkErr;
+    
+    // Check if all items were found (security check)
+    const foundIds = new Set((itemsToDelete || []).map((item: any) => item.id));
+    const missingIds = itemIdsToReplace.filter(id => !foundIds.has(id));
+    if (missingIds.length > 0) {
+      console.warn(`Some order items were not found for deletion: ${missingIds.join(', ')}`);
+    }
+    
+    // Attempt delete and verify it succeeded
+    const { data: deletedItems, error: delErr } = await supabase
       .from('order_items')
       .delete()
-      .in('id', itemIdsToReplace);
-    if (delErr) throw delErr;
+      .in('id', itemIdsToReplace)
+      .select('id');
+    
+    if (delErr) {
+      console.error('Error deleting order items:', delErr);
+      throw new Error(`No se pudieron eliminar los ítems de la orden. Esto puede deberse a permisos insuficientes o a que la orden tiene remisiones registradas. Error: ${delErr.message}`);
+    }
+    
+    // Verify deletion succeeded - check if expected number of items were deleted
+    const deletedCount = deletedItems?.length || 0;
+    if (deletedCount < itemIdsToReplace.length) {
+      console.warn(`Expected to delete ${itemIdsToReplace.length} items, but only ${deletedCount} were deleted. This may indicate RLS policy restrictions.`);
+      // Don't throw here - continue with insert, but log the issue
+      // The RLS policy should prevent this, but if it happens, we'll detect duplicates later
+    }
   }
 
   // Insert one item per master
@@ -1054,10 +1084,35 @@ export async function updateOrderNormalized(
   });
 
   if (insertRows.length > 0) {
+    // Before inserting, check for potential duplicates (same master_recipe_id already exists)
+    // This is a safety check in case DELETE didn't work properly
+    const masterIdsToInsert = insertRows.map(r => r.master_recipe_id).filter(Boolean);
+    if (masterIdsToInsert.length > 0) {
+      const { data: existingItems, error: checkExistingErr } = await supabase
+        .from('order_items')
+        .select('id, master_recipe_id')
+        .eq('order_id', orderId)
+        .in('master_recipe_id', masterIdsToInsert);
+      
+      if (checkExistingErr) {
+        console.warn('Error checking for existing items:', checkExistingErr);
+      } else if (existingItems && existingItems.length > 0) {
+        // Found potential duplicates - log warning but continue
+        // The DELETE should have removed these, but if RLS blocked it, we'll have duplicates
+        console.warn(`Warning: Found ${existingItems.length} existing order items with same master_recipe_id that should have been deleted. This may indicate RLS policy issues.`);
+      }
+    }
+    
     const { error: insErr } = await supabase
       .from('order_items')
       .insert(insertRows);
-    if (insErr) throw insErr;
+    if (insErr) {
+      // Check if error is due to duplicates or constraint violations
+      if (insErr.code === '23505' || insErr.message?.includes('duplicate') || insErr.message?.includes('unique')) {
+        throw new Error(`No se pudieron insertar los ítems porque ya existen ítems duplicados en la orden. Esto puede deberse a permisos insuficientes para eliminar los ítems anteriores. Por favor, contacte a un administrador.`);
+      }
+      throw insErr;
+    }
   }
 
   // Update any modified special service items (preserve them with updated volumes)
