@@ -391,6 +391,7 @@ export default function OrdersList({
   // Estados para los filtros
   const [searchQuery, setSearchQuery] = useState(clientFilter || '');
   const [deliveredFilter, setDeliveredFilter] = useState<DeliveredFilter>('all');
+  const [creatorFilter, setCreatorFilter] = useState<string>('all');
   
   const router = useRouter();
   const { profile } = useAuthBridge();
@@ -874,6 +875,44 @@ export default function OrdersList({
     loadOrders();
   }, [loadOrders]);
 
+  // Extract unique creators from orders
+  const availableCreators = useMemo(() => {
+    const creatorMap = new Map<string, { id: string; name: string; email: string }>();
+    
+    orders.forEach(order => {
+      // Check both created_by (ID) and creator (profile object)
+      const creatorId = (order as any).created_by;
+      const creator = (order as any).creator;
+      
+      if (creatorId) {
+        // If we have creator profile, use it; otherwise use created_by ID
+        if (creator && creator.id) {
+          const firstName = (creator.first_name || '').trim();
+          const lastName = (creator.last_name || '').trim();
+          const email = (creator.email || '').trim();
+          const name = `${firstName} ${lastName}`.trim() || email || 'Usuario sin nombre';
+          
+          if (!creatorMap.has(creator.id)) {
+            creatorMap.set(creator.id, {
+              id: creator.id,
+              name,
+              email
+            });
+          }
+        } else if (!creatorMap.has(creatorId)) {
+          // Fallback: use ID if profile not available
+          creatorMap.set(creatorId, {
+            id: creatorId,
+            name: `Usuario ${creatorId.substring(0, 8)}`,
+            email: ''
+          });
+        }
+      }
+    });
+    
+    return Array.from(creatorMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [orders]);
+
   // Función para aplicar filtros a los datos
   const applyFilters = useCallback(() => {
     if (orders.length === 0) return;
@@ -917,6 +956,16 @@ export default function OrdersList({
       });
     }
     
+    // Filtrar por creador
+    if (creatorFilter !== 'all') {
+      result = result.filter(order => {
+        const creatorId = (order as any).created_by;
+        const creator = (order as any).creator;
+        // Match by created_by ID (primary) or creator.id (if available)
+        return creatorId === creatorFilter || (creator && creator.id === creatorFilter);
+      });
+    }
+    
     // Filtrar por estado de entrega
     if (deliveredFilter !== 'all') {
       result = result.filter(order => {
@@ -928,7 +977,7 @@ export default function OrdersList({
     }
     
     setFilteredOrders(result);
-  }, [orders, searchQuery, deliveredFilter]);
+  }, [orders, searchQuery, deliveredFilter, creatorFilter]);
 
   // Función para agrupar las órdenes por fecha
   const groupOrdersByDate = useCallback(() => {
@@ -1075,7 +1124,7 @@ export default function OrdersList({
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {
     applyFilters();
-  }, [applyFilters, orders, searchQuery, deliveredFilter]);
+  }, [applyFilters, orders, searchQuery, deliveredFilter, creatorFilter]);
   
   // Agrupar los datos cuando cambian los datos filtrados
   useEffect(() => {
@@ -1203,44 +1252,60 @@ export default function OrdersList({
           </form>
         </div>
 
-        {/* Filtros específicos */
-        }
-        <div className="mb-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por entrega:</h3>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => handleDeliveredFilterChange('all')}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                deliveredFilter === 'all' 
-                  ? 'bg-blue-100 text-blue-800 border border-blue-300' 
-                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-              }`}
+        {/* Filtros específicos */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por creador:</h3>
+            <select
+              value={creatorFilter}
+              onChange={(e) => setCreatorFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
-              Todos
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeliveredFilterChange('delivered')}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                deliveredFilter === 'delivered' 
-                  ? 'bg-green-100 text-green-800 border border-green-300' 
-                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-              }`}
-            >
-              Entregados
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeliveredFilterChange('pending')}
-              className={`px-3 py-1.5 text-sm rounded-md ${
-                deliveredFilter === 'pending' 
-                  ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
-                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-              }`}
-            >
-              Pendientes
-            </button>
+              <option value="all">Todos los creadores</option>
+              {availableCreators.map(creator => (
+                <option key={creator.id} value={creator.id}>
+                  {creator.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por entrega:</h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleDeliveredFilterChange('all')}
+                className={`px-3 py-1.5 text-sm rounded-md ${
+                  deliveredFilter === 'all' 
+                    ? 'bg-blue-100 text-blue-800 border border-blue-300' 
+                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeliveredFilterChange('delivered')}
+                className={`px-3 py-1.5 text-sm rounded-md ${
+                  deliveredFilter === 'delivered' 
+                    ? 'bg-green-100 text-green-800 border border-green-300' 
+                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                Entregados
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeliveredFilterChange('pending')}
+                className={`px-3 py-1.5 text-sm rounded-md ${
+                  deliveredFilter === 'pending' 
+                    ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
+                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                }`}
+              >
+                Pendientes
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1254,6 +1319,10 @@ export default function OrdersList({
               : deliveredFilter === 'pending' 
                 ? 'pendientes de entrega' 
                 : ''
+          } {
+            creatorFilter !== 'all' 
+              ? `creadas por ${availableCreators.find(c => c.id === creatorFilter)?.name || 'usuario seleccionado'}` 
+              : ''
           } {searchQuery ? `que coinciden con "${searchQuery}"` : ''}
         </div>
       )}
@@ -1269,6 +1338,8 @@ export default function OrdersList({
           <p className="mt-2 text-sm text-gray-500">
             {searchQuery ? 
               `No hay pedidos que coincidan con "${searchQuery}".` :
+              creatorFilter !== 'all' ?
+                `No hay pedidos creados por ${availableCreators.find(c => c.id === creatorFilter)?.name || 'el usuario seleccionado'}.` :
               deliveredFilter !== 'all' ? 
                 deliveredFilter === 'delivered' ? 
                   'No hay pedidos entregados' : 

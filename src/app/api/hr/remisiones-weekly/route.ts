@@ -134,60 +134,103 @@ export async function POST(request: NextRequest) {
       console.error('[HR API] SUPABASE_SERVICE_ROLE_KEY is not set - RLS bypass may not work correctly');
     }
 
-    let q = service
-      .from('remisiones')
-      .select(
-        `
-          id,
-          fecha,
-          remision_number,
-          conductor,
-          unidad,
-          volumen_fabricado,
-          tipo_remision,
-          plant_id,
-          hora_carga,
-          order_id,
-          plant:plants(id, code, name),
-          order:orders(
+    // Build base query (will be reused for pagination)
+    const buildBaseQuery = () => {
+      let q = service
+        .from('remisiones')
+        .select(
+          `
             id,
-            construction_site,
-            client_id,
-            client:clients(id, business_name)
-          )
-        `
-      )
-      .gte('fecha', startDate)
-      .lte('fecha', endDate);
+            fecha,
+            remision_number,
+            conductor,
+            unidad,
+            volumen_fabricado,
+            tipo_remision,
+            plant_id,
+            hora_carga,
+            order_id,
+            plant:plants(id, code, name),
+            order:orders(
+              id,
+              construction_site,
+              client_id,
+              client:clients(id, business_name)
+            )
+          `,
+          { count: 'exact' }
+        )
+        .gte('fecha', startDate)
+        .lte('fecha', endDate)
+        .order('fecha', { ascending: true });
 
-    if (includeTypes.length > 0) q = q.in('tipo_remision', includeTypes);
-    if (plantIds.length > 0) q = q.in('plant_id', plantIds);
+      if (includeTypes.length > 0) q = q.in('tipo_remision', includeTypes);
+      if (plantIds.length > 0) q = q.in('plant_id', plantIds);
 
-    if (search) {
-      const term = search.replace(/[%_]/g, '\\$&');
-      q = q.or(
-        [
-          `remision_number.ilike.%${term}%`,
-          `conductor.ilike.%${term}%`,
-          `unidad.ilike.%${term}%`,
-        ].join(',')
-      );
+      if (search) {
+        const term = search.replace(/[%_]/g, '\\$&');
+        q = q.or(
+          [
+            `remision_number.ilike.%${term}%`,
+            `conductor.ilike.%${term}%`,
+            `unidad.ilike.%${term}%`,
+          ].join(',')
+        );
+      }
+
+      return q;
+    };
+
+    // Fetch all remisiones using pagination to avoid 1000 row limit
+    const fetchPageSize = 1000; // Supabase's default limit
+    let allRemisiones: RemisionRow[] = [];
+    let from = 0;
+    let totalCount: number | null = null;
+    let pageCount = 0;
+    const maxPages = 1000; // Safety limit to prevent infinite loops
+
+    while (pageCount < maxPages) {
+      const q = buildBaseQuery();
+      const { data, error, count } = await q.range(from, from + fetchPageSize - 1);
+
+      if (error) {
+        console.error('Error fetching remisiones:', error);
+        console.error('User role:', profile?.role);
+        console.error('Date range:', { startDate, endDate });
+        console.error('Pagination state:', { from, pageCount, totalCount });
+        return NextResponse.json({ error: 'Failed to fetch remisiones', details: error.message }, { status: 500 });
+      }
+
+      // Set total count on first page
+      if (totalCount === null) {
+        totalCount = count ?? 0;
+        // Log for debugging ADMIN_OPERATIONS access issues
+        if (profile?.role === 'ADMIN_OPERATIONS' || profile?.role === 'ADMINISTRATIVE') {
+          console.log(`[HR API] ${profile.role} user query: ${totalCount} total remisiones found for range ${startDate} to ${endDate}`);
+        }
+      }
+
+      if (!data || data.length === 0) {
+        break; // No more data
+      }
+
+      allRemisiones = allRemisiones.concat(data as RemisionRow[]);
+      pageCount++;
+
+      // If we got fewer rows than the page size, we've reached the end
+      if (data.length < fetchPageSize) {
+        break;
+      }
+
+      from += fetchPageSize;
     }
 
-    const { data, error } = await q.order('fecha', { ascending: true });
-    if (error) {
-      console.error('Error fetching remisiones:', error);
-      console.error('User role:', profile?.role);
-      console.error('Date range:', { startDate, endDate });
-      return NextResponse.json({ error: 'Failed to fetch remisiones', details: error.message }, { status: 500 });
+    // Safety check: if we hit max pages, log a warning
+    if (pageCount >= maxPages) {
+      console.warn(`[HR API] Pagination stopped at ${maxPages} pages. Total remisiones fetched: ${allRemisiones.length}, expected: ${totalCount}`);
     }
 
-    // Log for debugging ADMIN_OPERATIONS access issues
-    if (profile?.role === 'ADMIN_OPERATIONS' || profile?.role === 'ADMINISTRATIVE') {
-      console.log(`[HR API] ${profile.role} user query: ${data?.length ?? 0} remisiones found for range ${startDate} to ${endDate}`);
-    }
-
-    const all = ((data ?? []) as RemisionRow[]).filter(r => {
+    const all = (allRemisiones as RemisionRow[]).filter(r => {
       const driverKey = normalizeKey(r.conductor);
       const truckKey = normalizeKey(r.unidad);
 
