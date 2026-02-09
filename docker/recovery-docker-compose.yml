@@ -1,0 +1,82 @@
+version: '3.8'
+
+# Docker Compose setup for local database recovery
+# This allows you to restore a Supabase backup locally without affecting production
+
+services:
+  postgres-recovery:
+    image: postgres:15
+    container_name: order-recovery-db
+    environment:
+      POSTGRES_DB: recovery_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: recovery_password_change_me
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts
+    volumes:
+      - recovery-data:/var/lib/postgresql/data
+      - ./recovery-backups:/backups  # Mount backups directory
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - recovery-network
+
+  # Optional: pgAdmin for easier database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: order-recovery-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@recovery.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres-recovery
+    networks:
+      - recovery-network
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+
+volumes:
+  recovery-data:
+    driver: local
+  pgadmin-data:
+    driver: local
+
+networks:
+  recovery-network:
+    driver: bridge
+
+# Instructions:
+# 1. Start the containers:
+#    docker-compose -f docker/recovery-docker-compose.yml up -d
+#
+# 2. Download backup from Supabase Dashboard → Database → Backups
+#    Save it to: ./recovery-backups/backup.dump (or .sql)
+#
+# 3. Restore the backup:
+#    # For .dump file:
+#    docker exec -i order-recovery-db pg_restore -U postgres -d recovery_db < ./recovery-backups/backup.dump
+#
+#    # For .sql file:
+#    docker exec -i order-recovery-db psql -U postgres -d recovery_db < ./recovery-backups/backup.sql
+#
+# 4. Connect to the database:
+#    Connection string: postgresql://postgres:recovery_password_change_me@localhost:5433/recovery_db
+#
+# 5. Run extraction queries:
+#    docker exec -i order-recovery-db psql -U postgres -d recovery_db -f /backups/extract-deleted-order.sql
+#
+# 6. Access pgAdmin (optional):
+#    http://localhost:5050
+#    Login: admin@recovery.local / admin
+#    Add server: postgres-recovery, port 5432, user: postgres, password: recovery_password_change_me
+#
+# 7. Stop containers when done:
+#    docker-compose -f docker/recovery-docker-compose.yml down
+#    # To remove volumes: docker-compose -f docker/recovery-docker-compose.yml down -v

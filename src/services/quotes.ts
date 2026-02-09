@@ -336,12 +336,14 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     // Determine IVA status from details
     const requiresIVA = quoteData.details.length > 0 && quoteData.details.every(d => d.includes_vat);
 
+    // AUTO-APPROVAL DISABLED: All quotes require manual approval
     // Conditional auto-approval threshold based on IVA status
     // With IVA (requires receipt): 8% margin
     // Without IVA (no receipt): 14% margin
-    const autoApprovalThreshold = requiresIVA ? 8.0 : 14.0;
-    const shouldAutoApprove = marginPercentage >= autoApprovalThreshold;
-    const initialStatus = shouldAutoApprove ? 'APPROVED' : 'PENDING_APPROVAL';
+    // const autoApprovalThreshold = requiresIVA ? 8.0 : 14.0;
+    // const shouldAutoApprove = marginPercentage >= autoApprovalThreshold;
+    const shouldAutoApprove = false; // Auto-approval disabled
+    const initialStatus = 'PENDING_APPROVAL'; // All quotes require manual approval
 
     // Generate quote number with range code
     const rangeCode = distanceInfo?.range_code || 'G'; // Default to G if no distance info

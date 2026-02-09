@@ -93,3 +93,8 @@ Thumbs.db
 *.log
 *.cache
 .cache/
+
+# Recovery data (contains sensitive order information)
+recovery-exports/
+recovery-backups/
+recovery-*/

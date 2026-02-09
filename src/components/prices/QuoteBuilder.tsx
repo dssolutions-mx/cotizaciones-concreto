@@ -930,72 +930,16 @@ export default function QuoteBuilder() {
         });
       }
 
+      // AUTO-APPROVAL DISABLED: Product prices will be created when quote is manually approved
       // NOW create product_prices for auto-approved quotes (AFTER all products are added)
       // Use API route to ensure server-side execution and bypass RLS issues
-      if (createdQuote.auto_approved) {
-        // ADDED: Verify special products were saved if we expected them
-        if (quoteAdditionalProducts.length > 0) {
-          console.log(`[QuoteBuilder] Verifying ${quoteAdditionalProducts.length} special products were saved...`);
-          
-          const { data: savedProducts, error: verifyError } = await supabase
-            .from('quote_additional_products')
-            .select('id')
-            .eq('quote_id', createdQuote.id);
-          
-          if (verifyError) {
-            throw new Error(`Error verificando productos especiales: ${verifyError.message}`);
-          }
-          
-          if (!savedProducts || savedProducts.length !== quoteAdditionalProducts.length) {
-            throw new Error(`Solo se guardaron ${savedProducts?.length || 0} de ${quoteAdditionalProducts.length} productos especiales`);
-          }
-          
-          console.log(`[QuoteBuilder] ✓ Verified ${savedProducts.length} special products saved`);
-        }
-        
-        try {
-          console.log(`[QuoteBuilder] Auto-approved quote ${createdQuote.id}, creating product_prices entries via API...`);
-          
-          const response = await fetch('/api/quotes/approve', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ quoteId: createdQuote.id }),
-          });
+      // if (createdQuote.auto_approved) {
+      //   ... (code disabled - auto-approval is disabled)
+      // }
 
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP ${response.status}`);
-          }
-
-          const result = await response.json();
-          console.log(`[QuoteBuilder] ✓ Successfully created ${result.pricesCreated} product_prices for auto-approved quote ${createdQuote.id}`);
-        } catch (approvalError: any) {
-          const errorMessage = approvalError?.message || 'Unknown error creating product prices';
-          console.error('[QuoteBuilder] Error creating product_prices for auto-approved quote:', {
-            quote_id: createdQuote.id,
-            quote_number: createdQuote.quote_number,
-            error: errorMessage,
-            full_error: approvalError
-          });
-          
-          // Show error toast to user so they know product_prices creation failed
-          toast.error(`Cotización ${createdQuote.quote_number} fue auto-aprobada, pero hubo un error al crear los precios de productos. Por favor, contacte al administrador.`);
-          
-          // Note: We don't revert the quote status here because:
-          // 1. The quote is already created and approved
-          // 2. The user can manually trigger product_prices creation later if needed
-          // 3. Reverting might cause confusion if the quote was already saved
-        }
-      }
-
-      // Check if auto-approved
-      const isAutoApproved = createdQuote.auto_approved || false;
-      const thresholdUsed = includesVAT ? 8 : 14;
-      const statusMessage = isAutoApproved 
-        ? `Cotización ${createdQuote.quote_number} creada y auto-aprobada (margen >= ${thresholdUsed}%)`
-        : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación (margen < ${thresholdUsed}%)`;
+      // AUTO-APPROVAL DISABLED: All quotes require manual approval
+      const isAutoApproved = false; // Auto-approval disabled
+      const statusMessage = `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación`;
 
       toast.success(statusMessage);
       
@@ -1843,21 +1787,7 @@ export default function QuoteBuilder() {
                   </label>
                 </div>
                 
-                {/* IVA Auto-Approval Guidance */}
-                <div className="ml-8 p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                    <div className="text-xs text-blue-900">
-                      <p className="font-medium mb-1">Umbral de Auto-Aprobación</p>
-                      <p className="text-blue-700">
-                        {includesVAT 
-                          ? "Con IVA (requiere factura): Auto-aprobación al 8% de margen"
-                          : "Sin IVA (sin factura): Auto-aprobación al 14% de margen"
-                        }
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {/* AUTO-APPROVAL DISABLED: All quotes require manual approval */}
               </div>
             </div>
 
@@ -1951,61 +1881,23 @@ export default function QuoteBuilder() {
             </h2>
           </div>
 
-          {/* Margin Status Indicator */}
+          {/* Margin Status Indicator - AUTO-APPROVAL DISABLED */}
           {quoteProducts.length > 0 && (() => {
             const avgMargin = quoteProducts.reduce((sum, p) => sum + p.profitMargin, 0) / quoteProducts.length * 100;
-            const threshold = includesVAT ? 8 : 14;
-            const meetsThreshold = avgMargin >= threshold;
-            const isClose = !meetsThreshold && avgMargin >= threshold - 2; // Within 2% of threshold
             
             return (
-              <div className={`mb-4 p-4 rounded-lg border-2 ${
-                meetsThreshold 
-                  ? 'bg-green-50 border-green-200' 
-                  : isClose 
-                    ? 'bg-amber-50 border-amber-200' 
-                    : 'bg-red-50 border-red-200'
-              }`}>
+              <div className="mb-4 p-4 rounded-lg border-2 bg-blue-50 border-blue-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-full ${
-                      meetsThreshold 
-                        ? 'bg-green-100' 
-                        : isClose 
-                          ? 'bg-amber-100' 
-                          : 'bg-red-100'
-                    }`}>
-                      {meetsThreshold ? (
-                        <Check className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <AlertCircle className={`h-5 w-5 ${isClose ? 'text-amber-600' : 'text-red-600'}`} />
-                      )}
+                    <div className="p-2 rounded-full bg-blue-100">
+                      <Info className="h-5 w-5 text-blue-600" />
                     </div>
                     <div>
-                      <p className={`font-semibold text-sm ${
-                        meetsThreshold 
-                          ? 'text-green-900' 
-                          : isClose 
-                            ? 'text-amber-900' 
-                            : 'text-red-900'
-                      }`}>
-                        {meetsThreshold 
-                          ? 'Esta cotización será auto-aprobada' 
-                          : isClose 
-                            ? 'Cerca del umbral de auto-aprobación' 
-                            : 'Requiere aprobación manual'
-                        }
+                      <p className="font-semibold text-sm text-blue-900">
+                        Esta cotización requiere aprobación manual
                       </p>
-                      <p className={`text-xs mt-0.5 ${
-                        meetsThreshold 
-                          ? 'text-green-700' 
-                          : isClose 
-                            ? 'text-amber-700' 
-                            : 'text-red-700'
-                      }`}>
-                        Margen promedio: <span className="font-bold">{avgMargin.toFixed(1)}%</span> | 
-                        Umbral requerido: <span className="font-bold">{threshold}%</span>
-                        {!meetsThreshold && ` (faltan ${(threshold - avgMargin).toFixed(1)}%)`}
+                      <p className="text-xs mt-0.5 text-blue-700">
+                        Margen promedio: <span className="font-bold">{avgMargin.toFixed(1)}%</span>
                       </p>
                     </div>
                   </div>
