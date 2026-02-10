@@ -202,26 +202,64 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="text-center">
               <p className="text-sm font-medium text-gray-500 mb-1">Volumen Fabricado</p>
               <div className="text-lg font-bold text-gray-900">
                 {remision.volumen_fabricado} m³
               </div>
             </div>
-            <div>
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-500 mb-1">Cemento kg/m³</p>
+              <div className="text-lg font-bold text-green-600">
+                {(() => {
+                  const cementMaterial = materialsAnalysis.find(m => {
+                    const type = m.material_type.toLowerCase();
+                    const name = m.material_name.toLowerCase();
+                    return type === 'cement' || 
+                           type.includes('cemento') || 
+                           name.includes('cemento') ||
+                           name.includes('cpc') ||
+                           /^c\d+$/.test(type);
+                  });
+                  if (cementMaterial && remision.volumen_fabricado > 0) {
+                    return (cementMaterial.theoretical_quantity / remision.volumen_fabricado).toFixed(2);
+                  }
+                  return '--';
+                })()}
+              </div>
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium text-gray-500 mb-1">Agua L/m³</p>
+              <div className="text-lg font-bold text-green-600">
+                {(() => {
+                  const waterMaterial = materialsAnalysis.find(m => {
+                    const type = m.material_type.toLowerCase();
+                    const name = m.material_name.toLowerCase();
+                    return type === 'water' || 
+                           type.includes('agua') || 
+                           name.includes('agua');
+                  });
+                  if (waterMaterial && remision.volumen_fabricado > 0) {
+                    return (waterMaterial.theoretical_quantity / remision.volumen_fabricado).toFixed(2);
+                  }
+                  return '--';
+                })()}
+              </div>
+            </div>
+            <div className="text-center">
               <p className="text-sm font-medium text-gray-500 mb-1">Fórmula</p>
               <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                 {remision.recipe?.recipe_code || 'N/A'}
               </Badge>
             </div>
-            <div>
+            <div className="text-center">
               <p className="text-sm font-medium text-gray-500 mb-1">Resistencia</p>
               <div className="text-lg font-bold text-gray-900">
                 {remision.recipe?.strength_fc || '--'} kg/cm²
               </div>
             </div>
-            <div>
+            <div className="text-center">
               <p className="text-sm font-medium text-gray-500 mb-1">Ajustes Realizados</p>
               <div className={`text-lg font-bold ${
                 materialsAnalysis.some(m => m.has_adjustments) ? 'text-orange-600' : 'text-gray-400'
