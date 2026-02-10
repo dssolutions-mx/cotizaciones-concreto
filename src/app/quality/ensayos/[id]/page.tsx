@@ -40,8 +40,12 @@ import {
   Clock,
   Shield,
   Clock3,
-  AlertCircle
+  AlertCircle,
+  Settings2
 } from 'lucide-react';
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { fetchEnsayoById } from '@/services/qualityEnsayoService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { EnsayoWithRelations } from '@/types/quality';
@@ -57,6 +61,10 @@ export default function EnsayoDetailPage() {
   const [ensayo, setEnsayo] = useState<EnsayoWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Factor de corrección de resistencia (solo para FC)
+  const [usarFactorCorreccion, setUsarFactorCorreccion] = useState(false);
+  const [factorCorreccion, setFactorCorreccion] = useState(0.92);
   
   useEffect(() => {
     const fetchEnsayoDetails = async () => {
@@ -597,6 +605,83 @@ export default function EnsayoDetailPage() {
                   )}
                 </div>
               </div>
+              
+              {/* Factor de Corrección - Solo para FC */}
+              {clasificacion === 'FC' && (
+                <>
+                  <Separator />
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Settings2 className="h-4 w-4 text-gray-500" />
+                        <Label htmlFor="factor-correccion" className="text-sm font-medium text-gray-700">
+                          Factor de Corrección
+                        </Label>
+                      </div>
+                      <Switch
+                        id="factor-correccion"
+                        checked={usarFactorCorreccion}
+                        onCheckedChange={setUsarFactorCorreccion}
+                      />
+                    </div>
+                    
+                    {usarFactorCorreccion && (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <Label htmlFor="valor-factor" className="text-sm text-gray-600 whitespace-nowrap">
+                            Factor:
+                          </Label>
+                          <Input
+                            id="valor-factor"
+                            type="number"
+                            step="0.01"
+                            min="0.5"
+                            max="1.5"
+                            value={factorCorreccion}
+                            onChange={(e) => setFactorCorreccion(parseFloat(e.target.value) || 0.92)}
+                            className="w-24 h-8 text-center"
+                          />
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div className="bg-white rounded-lg p-3 border">
+                            <p className="text-xs font-medium text-gray-500 mb-1">Resistencia Corregida</p>
+                            <p className="text-lg font-bold text-blue-600">
+                              {(ensayo.resistencia_calculada * factorCorreccion).toFixed(2)} kg/cm²
+                            </p>
+                          </div>
+                          <div className="bg-white rounded-lg p-3 border">
+                            <p className="text-xs font-medium text-gray-500 mb-1">% Cumplimiento Corregido</p>
+                            <div className="flex items-center gap-1">
+                              {(() => {
+                                const porcentajeCorregido = ensayo.porcentaje_cumplimiento * factorCorreccion;
+                                return (
+                                  <>
+                                    <span className={`text-lg font-bold ${
+                                      porcentajeCorregido >= 100 ? 'text-green-600' : 'text-amber-600'
+                                    }`}>
+                                      {porcentajeCorregido.toFixed(2)}%
+                                    </span>
+                                    {porcentajeCorregido >= 100 ? (
+                                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                    ) : (
+                                      <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <p className="text-xs text-gray-500 italic">
+                          El factor de corrección multiplica la resistencia original para obtener valores ajustados.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
               
               <Separator />
               
