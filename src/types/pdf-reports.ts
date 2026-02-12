@@ -109,6 +109,8 @@ export interface ReportRemisionData {
   unidad?: string;
   tipo_remision: 'CONCRETO' | 'BOMBEO';
   
+  // Display product: master_code when available (source of truth), else variant recipe_code
+  master_code?: string;
   // From relationships
   recipe?: {
     recipe_code: string;

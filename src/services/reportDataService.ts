@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
-import type { 
+import { findProductPrice } from '@/utils/salesDataProcessor';
+import type {
   ReportFilter, 
   ReportRemisionData, 
   ReportSummary,
@@ -11,6 +12,18 @@ import type {
   SelectableRemision,
   SelectionSummary
 } from '@/types/pdf-reports';
+
+/** Display product code: master_code when available (source of truth), else variant recipe_code */
+function getDisplayProductCode(remision: any): string {
+  if (remision.tipo_remision === 'BOMBEO') return 'SER002';
+  const q = (x: any) => (Array.isArray(x) ? x[0] : x);
+  return (
+    q(remision.master_recipes)?.master_code ||
+    q(remision.recipe?.master_recipes)?.master_code ||
+    remision.recipe?.recipe_code ||
+    'Sin Receta'
+  );
+}
 
 export class ReportDataService {
   /**
@@ -38,13 +51,17 @@ export class ReportDataService {
           conductor,
           unidad,
           tipo_remision,
+          recipe_id,
+          master_recipe_id,
+          master_recipes:master_recipe_id(master_code),
           recipe:recipes (
             recipe_code,
             strength_fc,
             placement_type,
             max_aggregate_size,
             slump,
-            age_days
+            age_days,
+            master_recipes:master_recipe_id(master_code)
           ),
           orders!inner(
             id,
@@ -99,11 +116,18 @@ export class ReportDataService {
         };
       }
 
-      // Get order items for pricing
+      // Get order items for pricing (with quote_details for proper price matching)
       const orderIds = Array.from(new Set(remisionesData.map(r => r.order_id)));
       const { data: orderItems } = await supabase
         .from('order_items')
-        .select('*')
+        .select(`
+          *,
+          quote_details (
+            final_price,
+            recipe_id,
+            master_recipe_id
+          )
+        `)
         .in('order_id', orderIds);
 
       // Build hierarchical structure
@@ -115,14 +139,22 @@ export class ReportDataService {
         
         if (!client || !order) return;
 
-        // Find order item for pricing
-        const orderItem = orderItems?.find(item => 
-          item.order_id === remision.order_id && 
-          (item.product_type === remision.recipe?.recipe_code || 
-           item.recipe_id?.toString() === remision.recipe?.recipe_code)
+        // Use shared price matching (handles recipe_id, master_recipe_id, pump, etc.)
+        const recipeCode = remision.recipe?.recipe_code;
+        const recipeId = remision.recipe_id;
+        const masterRecipeId = remision.master_recipe_id || remision.recipe?.master_recipe_id;
+        const productCode = remision.tipo_remision === 'BOMBEO'
+          ? 'SER002'
+          : (recipeCode || 'PRODUCTO');
+        const unitPrice = findProductPrice(
+          productCode,
+          remision.order_id,
+          recipeId,
+          orderItems || [],
+          undefined,
+          undefined,
+          masterRecipeId
         );
-
-        const unitPrice = orderItem?.unit_price || 0;
         const lineTotal = unitPrice * remision.volumen_fabricado;
 
         // Build client structure
@@ -165,7 +197,7 @@ export class ReportDataService {
           fecha: remision.fecha,
           order_id: remision.order_id,
           volumen_fabricado: remision.volumen_fabricado,
-          recipe_code: remision.recipe?.recipe_code,
+          recipe_code: getDisplayProductCode(remision),
           conductor: remision.conductor,
           line_total: lineTotal,
           selected: false,
@@ -257,13 +289,15 @@ export class ReportDataService {
           .from('remisiones')
           .select(`
             *,
+            master_recipes:master_recipe_id(master_code),
             recipe:recipes (
               recipe_code,
               strength_fc,
               placement_type,
               max_aggregate_size,
               slump,
-              age_days
+              age_days,
+              master_recipes:master_recipe_id(master_code)
             ),
             materiales:remision_materiales(*),
             plant:plants (
@@ -335,7 +369,14 @@ export class ReportDataService {
 
         const { data: itemsData, error: itemsErr } = await supabase
           .from('order_items')
-          .select('*')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id,
+              master_recipe_id
+            )
+          `)
           .in('order_id', orderIds);
         if (itemsErr) throw itemsErr;
         orderItems = itemsData || [];
@@ -354,18 +395,30 @@ export class ReportDataService {
           const enrichedRemisiones: ReportRemisionData[] = (remisionesDataForEnrichment || []).map(remision => {
             const order = orders.find(o => o.id === remision.order_id);
             const client = order?.clients;
-            const orderItem = orderItems?.find(item => 
-              item.order_id === remision.order_id && 
-              (item.product_type === remision.recipe?.recipe_code || 
-               item.recipe_id?.toString() === remision.recipe?.recipe_code)
+            const recipeCode = remision.recipe?.recipe_code;
+            const recipeId = remision.recipe_id;
+            const masterRecipeId = remision.master_recipe_id || remision.recipe?.master_recipe_id;
+            const productCode = remision.tipo_remision === 'BOMBEO'
+              ? 'SER002'
+              : (recipeCode || 'PRODUCTO');
+            const unitPrice = findProductPrice(
+              productCode,
+              remision.order_id,
+              recipeId,
+              orderItems || [],
+              undefined,
+              undefined,
+              masterRecipeId
             );
-            const unitPrice = orderItem?.unit_price || 0;
             const lineTotal = unitPrice * remision.volumen_fabricado;
             const vatRate = remision.plant?.business_unit?.vat_rate || 16;
-            const vatAmount = lineTotal * (vatRate / 100);
+            // Only apply VAT when order requires invoice (fiscal); cash/efectivo has no VAT
+            const requiresInvoice = order?.requires_invoice ?? false;
+            const vatAmount = requiresInvoice ? lineTotal * (vatRate / 100) : 0;
             const finalTotal = lineTotal + vatAmount;
             return {
               ...remision,
+              master_code: getDisplayProductCode(remision),
               order: order ? {
                 order_number: order.order_number,
                 construction_site: order.construction_site,
@@ -398,16 +451,18 @@ export class ReportDataService {
             };
           });
 
-          // Step 5: Apply additional filters (recipe, invoice)
+          // Step 5: Apply additional filters (recipe, invoice) - match by display code (master when available)
           let filteredData = enrichedRemisiones;
           if (filters.recipeCodes && filters.recipeCodes.length > 0) {
-            filteredData = filteredData.filter(item => 
-              item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
-            );
+            filteredData = filteredData.filter(item => {
+              const displayCode = item.master_code ?? getDisplayProductCode(item);
+              return displayCode && filters.recipeCodes!.includes(displayCode);
+            });
           } else if (filters.recipeCode && filters.recipeCode !== 'all') {
-            filteredData = filteredData.filter(item => 
-              item.recipe?.recipe_code === filters.recipeCode
-            );
+            filteredData = filteredData.filter(item => {
+              const displayCode = item.master_code ?? getDisplayProductCode(item);
+              return displayCode === filters.recipeCode;
+            });
           }
           if (filters.invoiceRequirement && filters.invoiceRequirement !== 'all') {
             const requiresInvoice = filters.invoiceRequirement === 'with_invoice';
@@ -467,7 +522,14 @@ export class ReportDataService {
         const orderIds = orders.map(o => o.id);
         const { data: itemsData, error: itemsError } = await supabase
           .from('order_items')
-          .select('*')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id,
+              master_recipe_id
+            )
+          `)
           .in('order_id', orderIds);
         if (itemsError) throw itemsError;
         orderItems = itemsData || [];
@@ -477,13 +539,15 @@ export class ReportDataService {
           .from('remisiones')
           .select(`
             *,
+            master_recipes:master_recipe_id(master_code),
             recipe:recipes (
               recipe_code,
               strength_fc,
               placement_type,
               max_aggregate_size,
               slump,
-              age_days
+              age_days,
+              master_recipes:master_recipe_id(master_code)
             ),
             materiales:remision_materiales(*),
             plant:plants (
@@ -517,18 +581,29 @@ export class ReportDataService {
         const enrichedRemisiones: ReportRemisionData[] = (remisionesData || []).map(remision => {
           const order = orders.find(o => o.id === remision.order_id);
           const client = order?.clients;
-          const orderItem = orderItems?.find(item => 
-            item.order_id === remision.order_id && 
-            (item.product_type === remision.recipe?.recipe_code || 
-             item.recipe_id?.toString() === remision.recipe?.recipe_code)
+          const recipeCode = remision.recipe?.recipe_code;
+          const recipeId = remision.recipe_id;
+          const masterRecipeId = remision.master_recipe_id || remision.recipe?.master_recipe_id;
+          const productCode = remision.tipo_remision === 'BOMBEO'
+            ? 'SER002'
+            : (recipeCode || 'PRODUCTO');
+          const unitPrice = findProductPrice(
+            productCode,
+            remision.order_id,
+            recipeId,
+            orderItems || [],
+            undefined,
+            undefined,
+            masterRecipeId
           );
-          const unitPrice = orderItem?.unit_price || 0;
           const lineTotal = unitPrice * remision.volumen_fabricado;
           const vatRate = remision.plant?.business_unit?.vat_rate || 16;
-          const vatAmount = lineTotal * (vatRate / 100);
+          const requiresInvoice = order?.requires_invoice ?? false;
+          const vatAmount = requiresInvoice ? lineTotal * (vatRate / 100) : 0;
           const finalTotal = lineTotal + vatAmount;
           return {
             ...remision,
+            master_code: getDisplayProductCode(remision),
             order: order ? {
               order_number: order.order_number,
               construction_site: order.construction_site,
@@ -563,13 +638,15 @@ export class ReportDataService {
 
         let filteredData = enrichedRemisiones;
         if (filters.recipeCodes && filters.recipeCodes.length > 0) {
-          filteredData = filteredData.filter(item => 
-            item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
-          );
+          filteredData = filteredData.filter(item => {
+            const displayCode = item.master_code ?? getDisplayProductCode(item);
+            return displayCode && filters.recipeCodes!.includes(displayCode);
+          });
         } else if (filters.recipeCode && filters.recipeCode !== 'all') {
-          filteredData = filteredData.filter(item => 
-            item.recipe?.recipe_code === filters.recipeCode
-          );
+          filteredData = filteredData.filter(item => {
+            const displayCode = item.master_code ?? getDisplayProductCode(item);
+            return displayCode === filters.recipeCode;
+          });
         }
         if (filters.invoiceRequirement && filters.invoiceRequirement !== 'all') {
           const requiresInvoice = filters.invoiceRequirement === 'with_invoice';
@@ -630,7 +707,14 @@ export class ReportDataService {
       const orderIds = orders.map(order => order.id);
       const { data: orderItemsClient, error: itemsError } = await supabase
         .from('order_items')
-        .select('*')
+        .select(`
+          *,
+          quote_details (
+            final_price,
+            recipe_id,
+            master_recipe_id
+          )
+        `)
         .in('order_id', orderIds);
       if (itemsError) throw itemsError;
       orderItems = orderItemsClient || [];
@@ -639,13 +723,15 @@ export class ReportDataService {
         .from('remisiones')
         .select(`
           *,
+          master_recipes:master_recipe_id(master_code),
           recipe:recipes (
             recipe_code,
             strength_fc,
             placement_type,
             max_aggregate_size,
             slump,
-            age_days
+            age_days,
+            master_recipes:master_recipe_id(master_code)
           ),
           materiales:remision_materiales(*),
           plant:plants (
@@ -694,22 +780,31 @@ export class ReportDataService {
         const order = orders.find(o => o.id === remision.order_id);
         const client = order?.clients;
         
-        // Find corresponding order item for pricing
-        const orderItem = orderItems?.find(item => 
-          item.order_id === remision.order_id && 
-          (item.product_type === remision.recipe?.recipe_code || 
-           item.recipe_id?.toString() === remision.recipe?.recipe_code)
+        // Use shared price matching (handles recipe_id, master_recipe_id, pump, etc.)
+        const recipeCode = remision.recipe?.recipe_code;
+        const recipeId = remision.recipe_id;
+        const masterRecipeId = remision.master_recipe_id || remision.recipe?.master_recipe_id;
+        const productCode = remision.tipo_remision === 'BOMBEO'
+          ? 'SER002'
+          : (recipeCode || 'PRODUCTO');
+        const unitPrice = findProductPrice(
+          productCode,
+          remision.order_id,
+          recipeId,
+          orderItems || [],
+          undefined,
+          undefined,
+          masterRecipeId
         );
-
-        // Calculate financial fields
-        const unitPrice = orderItem?.unit_price || 0;
         const lineTotal = unitPrice * remision.volumen_fabricado;
         const vatRate = remision.plant?.business_unit?.vat_rate || 16; // Use plant's business unit VAT rate or default to 16%
-        const vatAmount = lineTotal * (vatRate / 100);
+        const requiresInvoice = order?.requires_invoice ?? false;
+        const vatAmount = requiresInvoice ? lineTotal * (vatRate / 100) : 0;
         const finalTotal = lineTotal + vatAmount;
 
         return {
           ...remision,
+          master_code: getDisplayProductCode(remision),
           order: order ? {
             order_number: order.order_number,
             construction_site: order.construction_site,
@@ -747,15 +842,17 @@ export class ReportDataService {
       // Step 5: Apply additional filters
       let filteredData = enrichedRemisiones;
 
-      // Filter by recipe code if specified (multiple recipes supported)
+      // Filter by recipe code if specified - match by display code (master when available)
       if (filters.recipeCodes && filters.recipeCodes.length > 0) {
-        filteredData = filteredData.filter(item => 
-          item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
-        );
+        filteredData = filteredData.filter(item => {
+          const displayCode = item.master_code ?? getDisplayProductCode(item);
+          return displayCode && filters.recipeCodes!.includes(displayCode);
+        });
       } else if (filters.recipeCode && filters.recipeCode !== 'all') {
-        filteredData = filteredData.filter(item => 
-          item.recipe?.recipe_code === filters.recipeCode
-        );
+        filteredData = filteredData.filter(item => {
+          const displayCode = item.master_code ?? getDisplayProductCode(item);
+          return displayCode === filters.recipeCode;
+        });
       }
 
       // Filter by delivery status if specified
@@ -949,7 +1046,9 @@ export class ReportDataService {
       let query = supabase
         .from('remisiones')
         .select(`
-          recipe:recipes(recipe_code),
+          tipo_remision,
+          master_recipes:master_recipe_id(master_code),
+          recipe:recipes(recipe_code, master_recipes:master_recipe_id(master_code)),
           orders!inner(client_id)
         `)
         .gte('fecha', formattedStartDate)
@@ -969,11 +1068,11 @@ export class ReportDataService {
         return [];
       }
 
-      // Get unique recipe codes
+      // Get unique display codes (master when available, source of truth)
       const recipeCodes = Array.from(new Set(
         remisiones
-          .map(r => r.recipe?.recipe_code)
-          .filter(code => code && code.trim() !== '')
+          .map(r => getDisplayProductCode(r))
+          .filter(code => code && code.trim() !== '' && code !== 'SER002')
       ));
       
       return recipeCodes.sort();
@@ -997,7 +1096,9 @@ export class ReportDataService {
       let query = supabase
         .from('remisiones')
         .select(`
-          recipe:recipes(recipe_code),
+          tipo_remision,
+          master_recipes:master_recipe_id(master_code),
+          recipe:recipes(recipe_code, master_recipes:master_recipe_id(master_code)),
           orders!inner(client_id)
         `)
         .gte('fecha', formattedStartDate)
@@ -1017,11 +1118,11 @@ export class ReportDataService {
         return [];
       }
 
-      // Get unique recipe codes
+      // Get unique display codes (master when available)
       const recipeCodes = Array.from(new Set(
         remisiones
-          .map(r => r.recipe?.recipe_code)
-          .filter(code => code && code.trim() !== '')
+          .map(r => getDisplayProductCode(r))
+          .filter(code => code && code.trim() !== '' && code !== 'SER002')
       ));
       
       return recipeCodes.sort();
@@ -1056,7 +1157,7 @@ export class ReportDataService {
       summary.finalTotal += item.final_total || 0;
 
       // Group by recipe
-      const recipeCode = item.recipe?.recipe_code || 'Sin Receta';
+      const recipeCode = item.master_code ?? getDisplayProductCode(item);
       if (!summary.groupedByRecipe[recipeCode]) {
         summary.groupedByRecipe[recipeCode] = {
           count: 0,
@@ -1169,7 +1270,7 @@ export class ReportDataService {
             transformedItem.unidad = item.unidad;
             break;
           case 'recipe_code':
-            transformedItem.recipe_code = item.recipe?.recipe_code;
+            transformedItem.recipe_code = item.master_code ?? getDisplayProductCode(item);
             break;
           case 'strength_fc':
             transformedItem.strength_fc = item.recipe?.strength_fc;

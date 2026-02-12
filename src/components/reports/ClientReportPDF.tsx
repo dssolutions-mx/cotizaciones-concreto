@@ -705,14 +705,12 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
 
   // NEW: Professional totals section with proper visual hierarchy (only at the end)
   const renderFinalTotals = () => {
-    // Get VAT percentage from plant info or default to 16%
-    // Database stores VAT as decimal (0.08 for 8%), so multiply by 100 for display
-    const vatRateDecimal = clientInfo?.plant_info?.vat_percentage || 0.16;
-    const vatPercentage = vatRateDecimal * 100; // Convert to percentage for display
-    
-    // Recalculate VAT amount based on plant's VAT rate
-    const vatAmount = (summary.totalAmount * vatRateDecimal);
-    const finalTotal = summary.totalAmount + vatAmount;
+    // Use summary totals - VAT is applied per-row based on order.requires_invoice (fiscal vs efectivo)
+    const vatAmount = summary.totalVAT ?? 0;
+    const finalTotal = summary.finalTotal ?? summary.totalAmount + vatAmount;
+    // VAT percentage for display label (plant rate when VAT applies)
+    const vatPct = clientInfo?.plant_info?.vat_percentage;
+    const vatPercentage = (typeof vatPct === 'number' && vatPct <= 1) ? vatPct * 100 : (vatPct ?? 16);
     
     return (
       <View style={styles.totalsSection}>
@@ -787,7 +785,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
               {clientInfo.rfc && <Text>RFC: {clientInfo.rfc}</Text>}
               {clientInfo.address && <Text>{clientInfo.address}</Text>}
               {clientInfo.plant_info && (
-                <Text>Planta: {clientInfo.plant_info.plant_name} ({clientInfo.plant_info.plant_code}) - IVA: {(clientInfo.plant_info.vat_percentage * 100).toFixed(0)}%</Text>
+                <Text>Planta: {clientInfo.plant_info.plant_name} ({clientInfo.plant_info.plant_code}) - IVA: {((clientInfo.plant_info.vat_percentage ?? 16) <= 1 ? (clientInfo.plant_info.vat_percentage ?? 0.16) * 100 : clientInfo.plant_info.vat_percentage).toFixed(0)}%</Text>
               )}
             </View>
           )}
