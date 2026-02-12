@@ -192,8 +192,17 @@ export const formatRemisionesForAccounting = (
     // Determine display using direct recipe_id match
     const displayProductCode = getDisplayProductCodeForRemision(remision);
 
-    // Get price for this product using original product code AND recipe_id only (display is visual-only)
-    let productPrice = findProductPrice(originalProductCode, remision.order_id, effectiveRecipeId);
+    // Get price for this product using original product code, recipe_id, and master_recipe_id
+    const remisionMasterRecipeId = remision.master_recipe_id || remision.recipe?.master_recipe_id;
+    let productPrice = findProductPrice(
+      originalProductCode,
+      remision.order_id,
+      effectiveRecipeId,
+      orderProducts,
+      undefined, // pricingMap - not used in copy flow
+      undefined, // remisionId - not used
+      remisionMasterRecipeId
+    );
     if (!productPrice || productPrice === 0) {
       const dbg = explainPriceMatch(originalProductCode, remision.order_id, effectiveRecipeId, orderProducts);
       console.debug('CopyDebug Concrete', { remision: remision.remision_number, recipe: originalProductCode, recipeId: effectiveRecipeId, dbg });

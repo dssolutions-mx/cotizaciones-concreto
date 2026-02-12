@@ -256,8 +256,8 @@ export default function RemisionesPorCliente() {
             *,
             quote_details (
               final_price,
-              recipe_id
-              
+              recipe_id,
+              master_recipe_id
             )
           `)
           .in('order_id', orderIds);
