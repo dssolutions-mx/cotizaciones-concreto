@@ -58,7 +58,8 @@ export async function resolveMasterPriceForAsOf(params: ResolveMasterPriceParams
         )
       `)
       .in('id', quoteIds)
-      .eq('status', 'APPROVED');
+      .eq('status', 'APPROVED')
+      .eq('is_active', true);
 
     if (quotesError) throw quotesError;
     if (!quotes || quotes.length === 0) return null;

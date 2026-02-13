@@ -408,7 +408,8 @@ export class ArkikValidator {
           .from('quotes')
           .select('id, client_id, construction_site, status, plant_id, quote_details(recipe_id, recipes:recipe_id(recipe_code))')
           .eq('plant_id', this.plantId)
-          .eq('status', 'APPROVED');
+          .eq('status', 'APPROVED')
+          .eq('is_active', true);
         (quoteRows || []).forEach((q: any) => {
           const site = String(q.construction_site || '').trim();
           (q.quote_details || []).forEach((d: any) => {

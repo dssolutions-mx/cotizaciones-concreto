@@ -188,15 +188,18 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                 </h3>
                 <div className="flex items-center gap-2.5 text-sm text-gray-600 dark:text-gray-400">
                   <span className="font-medium">#{order.order_number}</span>
-                  {rating && (
-                    <span
-                      className={cn(
-                        'inline-block w-3 h-3 rounded-full',
-                        getAccessDotClass(rating)
-                      )}
-                      title={`Acceso: ${rating.toUpperCase()}`}
-                    />
-                  )}
+                  <span
+                    className={cn(
+                      'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
+                      rating === 'green' && 'bg-green-100 text-green-800 border border-green-500 dark:bg-green-900/30 dark:text-green-300 dark:border-green-600',
+                      rating === 'yellow' && 'bg-amber-100 text-amber-800 border border-amber-500 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-600',
+                      rating === 'red' && 'bg-red-100 text-red-800 border border-red-500 dark:bg-red-900/30 dark:text-red-300 dark:border-red-600',
+                      (!rating || !['green', 'yellow', 'red'].includes(rating)) && 'bg-gray-100 text-gray-600 border border-gray-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600'
+                    )}
+                    title={rating ? `Acceso: ${rating}` : 'Acceso: N/D'}
+                  >
+                    {rating === 'green' ? 'Acceso Verde' : rating === 'yellow' ? 'Acceso Amarillo' : rating === 'red' ? 'Acceso Rojo' : 'Acceso N/D'}
+                  </span>
                   {initials && (
                     <span
                       className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-semibold border border-gray-300 dark:border-gray-600"

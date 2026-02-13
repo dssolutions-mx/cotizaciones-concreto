@@ -659,12 +659,14 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       <div className="mt-1 flex justify-between items-center">
                         <span className="text-xs capitalize">{order.order_status}</span>
                         {order.credit_status && (
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                            order.credit_status === CreditStatus.APPROVED ? 'bg-green-100 text-green-800' : 
-                            order.credit_status === CreditStatus.REJECTED ? 'bg-red-100 text-red-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {order.credit_status}
+                          <span className={cn(
+                            'text-xs px-1.5 py-0.5 rounded-full font-semibold',
+                            order.credit_status === CreditStatus.APPROVED && 'bg-green-100 text-green-800 border border-green-500',
+                            order.credit_status === CreditStatus.REJECTED && 'bg-red-100 text-red-800 border border-red-500',
+                            (order.credit_status === CreditStatus.PENDING || order.credit_status === CreditStatus.REJECTED_BY_VALIDATOR) && 'bg-amber-100 text-amber-800 border border-amber-500',
+                            !['approved', 'rejected', 'pending', 'rejected_by_validator'].includes(order.credit_status) && 'bg-gray-100 text-gray-700 border border-gray-400'
+                          )}>
+                            {order.credit_status === 'approved' ? 'Aprobado' : order.credit_status === 'rejected' ? 'Rechazado' : order.credit_status === 'pending' ? 'Pendiente' : order.credit_status}
                           </span>
                         )}
                       </div>
@@ -805,12 +807,14 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       <div className="mt-1 flex justify-between items-center">
                         <span className="text-xs capitalize">{order.order_status}</span>
                         {order.credit_status && (
-                          <span className={`text-[10px] px-1 py-0.5 rounded-full ${
-                            order.credit_status === CreditStatus.APPROVED ? 'bg-green-100 text-green-800' : 
-                            order.credit_status === CreditStatus.REJECTED ? 'bg-red-100 text-red-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {order.credit_status}
+                          <span className={cn(
+                            'text-[10px] px-1 py-0.5 rounded-full font-semibold',
+                            order.credit_status === CreditStatus.APPROVED && 'bg-green-100 text-green-800 border border-green-500',
+                            order.credit_status === CreditStatus.REJECTED && 'bg-red-100 text-red-800 border border-red-500',
+                            (order.credit_status === CreditStatus.PENDING || order.credit_status === CreditStatus.REJECTED_BY_VALIDATOR) && 'bg-amber-100 text-amber-800 border border-amber-500',
+                            !['approved', 'rejected', 'pending', 'rejected_by_validator'].includes(order.credit_status) && 'bg-gray-100 text-gray-700 border border-gray-400'
+                          )}>
+                            {order.credit_status === 'approved' ? 'Aprobado' : order.credit_status === 'rejected' ? 'Rechazado' : order.credit_status === 'pending' ? 'Pendiente' : order.credit_status}
                           </span>
                         )}
                       </div>

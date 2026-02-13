@@ -956,6 +956,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         .eq('client_id', order.client_id)
         .eq('construction_site', order.construction_site)
         .eq('status', 'APPROVED')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
       
       if (approvedQuotesError) {

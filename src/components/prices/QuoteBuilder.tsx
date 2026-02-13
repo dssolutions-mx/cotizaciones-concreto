@@ -378,7 +378,7 @@ export default function QuoteBuilder() {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        const clientsData = await clientService.getAllClients();
+        const clientsData = await clientService.getApprovedClients();
         setClients(clientsData);
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -794,6 +794,23 @@ export default function QuoteBuilder() {
         setPlantValidationError('No se pudo determinar la planta para la cotización');
         return;
       }
+
+      // CRÍTICO: Validar que la obra esté aprobada antes de crear la cotización
+      if (selectedSite) {
+        const { data: site } = await supabase
+          .from('construction_sites')
+          .select('id, name, approval_status')
+          .eq('id', selectedSite)
+          .single();
+        if (!site) {
+          toast.error('Obra no encontrada');
+          return;
+        }
+        if (site.approval_status !== 'APPROVED') {
+          toast.error(`La obra "${site.name}" no está aprobada. Solicita la aprobación en Finanzas → Autorización de Clientes (pestaña Obras) antes de crear la cotización.`);
+          return;
+        }
+      }
       
       // Generate quote number (simple implementation, you might want a more robust method)
       const currentYear = new Date().getFullYear();
@@ -1049,7 +1066,7 @@ export default function QuoteBuilder() {
     const loadClientSites = async () => {
       if (selectedClient) {
         try {
-          const sites = await clientService.getClientSites(selectedClient);
+          const sites = await clientService.getClientSites(selectedClient, true);
           setClientSites(sites);
         } catch (error) {
           console.error('Error loading client sites:', error);

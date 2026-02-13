@@ -17,14 +17,23 @@ interface ConstructionSite {
 export const clientService = {
   /**
    * Obtiene todos los clientes ordenados por nombre de empresa
+   * @param approvedOnly - Si true, solo devuelve clientes aprobados (para quotes, órdenes, etc.)
    * @returns Lista de clientes con información básica
    */
-  async getAllClients() {
+  async getAllClients(approvedOnly = false) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('clients')
-        .select('id, business_name, client_code')
+        .select('id, business_name, client_code, approval_status, valid_until')
         .order('business_name');
+
+      if (approvedOnly) {
+        query = query.eq('approval_status', 'APPROVED');
+        // Exclude clients with expired valid_until
+        query = query.or('valid_until.is.null,valid_until.gte.' + new Date().toISOString().slice(0, 10));
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       return data || [];
@@ -33,6 +42,56 @@ export const clientService = {
       console.error(errorMessage);
       throw new Error(errorMessage);
     }
+  },
+
+  /**
+   * Obtiene solo clientes aprobados (para uso en quotes, órdenes, Arkik)
+   * @returns Lista de clientes aprobados
+   */
+  async getApprovedClients() {
+    return this.getAllClients(true);
+  },
+
+  /**
+   * Busca posibles clientes duplicados por coincidencia difusa (nombre, código)
+   * Usar antes de crear para advertir al usuario.
+   * @param businessName Nombre de la empresa
+   * @param clientCode Código de cliente (opcional)
+   * @returns Lista de clientes potencialmente duplicados
+   */
+  async findPotentialDuplicates(businessName: string, clientCode?: string): Promise<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>> {
+    try {
+      const params = new URLSearchParams({ business_name: (businessName || '').trim() });
+      if (clientCode?.trim()) params.set('client_code', clientCode.trim());
+      const res = await fetch(`/api/clients/check-duplicates?${params}`);
+      const json = await res.json();
+      return json.potentialDuplicates || [];
+    } catch (e) {
+      console.error('findPotentialDuplicates:', e);
+      return [];
+    }
+  },
+
+  /**
+   * Genera el siguiente código para cliente de efectivo: {initials}-{seq} (e.g. JJ-001)
+   * @param initials Iniciales del creador (e.g. "JJ")
+   * @returns Código único sugerido
+   */
+  async getNextCashOnlyClientCode(initials: string): Promise<string> {
+    const prefix = `${(initials || 'XX').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4)}-`;
+    const { data } = await supabase
+      .from('clients')
+      .select('client_code')
+      .ilike('client_code', `${prefix}%`)
+      .order('client_code', { ascending: false })
+      .limit(100);
+
+    let maxNum = 0;
+    (data || []).forEach((row: { client_code?: string }) => {
+      const match = (row.client_code || '').match(new RegExp(`^${prefix.replace(/-$/, '')}-(\\d+)$`, 'i'));
+      if (match) maxNum = Math.max(maxNum, parseInt(match[1], 10));
+    });
+    return `${prefix}${String(maxNum + 1).padStart(3, '0')}`;
   },
 
   /**
@@ -83,13 +142,13 @@ export const clientService = {
   },
 
   /**
-   * Crea un nuevo cliente
-   * @param clientData Datos del cliente a crear
+   * Crea un nuevo cliente (requiere aprobación del BU manager para uso en quotes/órdenes)
+   * @param clientData Datos del cliente - client_code requerido (RFC si requires_invoice, o {initials}-{seq} para efectivo)
    * @returns Cliente creado
    */
   async createClient(clientData: {
     business_name: string;
-    client_code?: string;
+    client_code: string; // Required - RFC for invoice clients, {initials}-{seq} for cash-only
     rfc?: string;
     requires_invoice?: boolean;
     address?: string;
@@ -99,13 +158,28 @@ export const clientService = {
     credit_status?: string;
   }) {
     try {
+      const code = (clientData.client_code || '').trim();
+      if (!code) {
+        throw new Error('El código de cliente es obligatorio');
+      }
+
+      const dataToInsert = {
+        ...clientData,
+        approval_status: 'PENDING_APPROVAL', // New clients require BU manager approval
+      };
+
       const { data, error } = await supabase
         .from('clients')
-        .insert([clientData])
+        .insert([dataToInsert])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error(`El código de cliente "${code}" ya existe. Use un código único.`);
+        }
+        throw error;
+      }
       return data;
     } catch (error) {
       const errorMessage = handleError(error, 'createClient');
@@ -153,19 +227,29 @@ export const clientService = {
   },
 
   /**
-   * Obtiene todas las obras (sitios de construcción) de un cliente
+   * Obtiene las obras (sitios de construcción) de un cliente
    * @param clientId ID del cliente
+   * @param approvedOnly Si true, solo devuelve obras aprobadas (para quotes, órdenes)
+   * @param includeInactive Si true, incluye obras inactivas (para gestión en detalle de cliente)
    * @returns Lista de obras del cliente
    */
-  async getClientSites(clientId: string): Promise<ConstructionSite[]> {
+  async getClientSites(clientId: string, approvedOnly = false, includeInactive = false): Promise<ConstructionSite[]> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('construction_sites')
         .select('*')
         .eq('client_id', clientId)
-        .eq('is_active', true)
         .order('name');
 
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
+
+      if (approvedOnly) {
+        query = query.eq('approval_status', 'APPROVED');
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     } catch (error) {
@@ -195,6 +279,23 @@ export const clientService = {
       
       if (!clientId) {
         throw new Error('Client ID is required to create a site');
+      }
+
+      // Solo clientes autorizados pueden tener obras
+      const { data: client, error: clientError } = await supabase
+        .from('clients')
+        .select('id, business_name, approval_status')
+        .eq('id', clientId)
+        .single();
+
+      if (clientError || !client) {
+        throw new Error('Cliente no encontrado');
+      }
+      if (client.approval_status !== 'APPROVED') {
+        throw new Error(
+          `No se pueden crear obras para este cliente. El cliente "${client.business_name || 'Sin nombre'}" aún no ha sido autorizado. ` +
+          'Solicita la aprobación en Finanzas > Autorización de Clientes.'
+        );
       }
       
       const dataToInsert = {

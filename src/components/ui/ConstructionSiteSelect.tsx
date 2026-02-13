@@ -40,7 +40,7 @@ export default function ConstructionSiteSelect({
   const loadSites = useCallback(async () => {
     try {
       setIsLoading(true);
-      const sitesData = await clientService.getClientSites(clientId);
+      const sitesData = await clientService.getClientSites(clientId, true);
       setSites(sitesData);
     } catch (error) {
       console.error('Error loading construction sites:', error);

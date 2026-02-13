@@ -38,29 +38,29 @@ const statusColors: Record<string, { bg: string; text: string; glow: string }> =
     glow: 'shadow-systemRed/50'
   },
   pending: {
-    bg: 'bg-systemOrange/20',
-    text: 'text-systemOrange dark:text-systemOrange/80',
-    glow: 'shadow-systemOrange/50'
+    bg: 'bg-amber-100 dark:bg-amber-900/30',
+    text: 'text-amber-800 dark:text-amber-300 font-bold',
+    glow: 'shadow-amber-500/40'
   },
   pending_approval: {
-    bg: 'bg-systemOrange/20',
-    text: 'text-systemOrange dark:text-systemOrange/80',
-    glow: 'shadow-systemOrange/50'
+    bg: 'bg-amber-100 dark:bg-amber-900/30',
+    text: 'text-amber-800 dark:text-amber-300 font-bold',
+    glow: 'shadow-amber-500/40'
   },
   approved: {
-    bg: 'bg-systemGreen/20',
-    text: 'text-systemGreen dark:text-systemGreen/80',
-    glow: 'shadow-systemGreen/50'
+    bg: 'bg-green-100 dark:bg-green-900/30',
+    text: 'text-green-800 dark:text-green-300 font-bold',
+    glow: 'shadow-green-500/40'
   },
   rejected: {
-    bg: 'bg-systemRed/20',
-    text: 'text-systemRed dark:text-systemRed/80',
-    glow: 'shadow-systemRed/50'
+    bg: 'bg-red-100 dark:bg-red-900/30',
+    text: 'text-red-800 dark:text-red-300 font-bold',
+    glow: 'shadow-red-500/40'
   },
   rejected_by_validator: {
-    bg: 'bg-systemRed/30',
-    text: 'text-systemRed dark:text-systemRed/90',
-    glow: 'shadow-systemRed/60'
+    bg: 'bg-red-100 dark:bg-red-900/30',
+    text: 'text-red-800 dark:text-red-300 font-bold',
+    glow: 'shadow-red-500/40'
   }
 };
 
@@ -116,7 +116,9 @@ export const StatusPill: React.FC<StatusPillProps> = ({
         colors.text,
         variant === 'glow' && glowEffect,
         variant === 'subtle' && subtleEffect,
-        'border border-current/20',
+        (['approved', 'rejected', 'rejected_by_validator', 'pending', 'pending_approval'].includes(statusKey)
+          ? (statusKey === 'approved' ? 'border-2 border-green-500' : statusKey === 'pending' || statusKey === 'pending_approval' ? 'border-2 border-amber-500' : 'border-2 border-red-500')
+          : 'border border-current/20'),
         className
       )}
     >

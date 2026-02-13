@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
 import SiteAccessValidation, { SiteAccessRating, SiteValidationState } from '@/components/orders/SiteAccessValidation';
+import NearbyDeliveriesPanel from '@/components/orders/NearbyDeliveriesPanel';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { cn } from '@/lib/utils';
@@ -258,7 +259,7 @@ export default function ScheduleOrderForm({
     const loadClients = async () => {
       try {
         setIsLoading(true);
-        const clients = await clientService.getAllClients();
+        const clients = await clientService.getApprovedClients();
         
         setClients(clients.map(client => ({
           id: client.id,
@@ -292,7 +293,9 @@ export default function ScheduleOrderForm({
         const { data, error } = await supabase
           .from('construction_sites')
           .select('id, name, location')
-          .eq('client_id', selectedClientId);
+          .eq('client_id', selectedClientId)
+          .eq('approval_status', 'APPROVED')
+          .eq('is_active', true);
         
         if (error) throw error;
         
@@ -404,6 +407,7 @@ export default function ScheduleOrderForm({
           .eq('quotes.client_id', selectedClientId)
           .eq('quotes.construction_site', selectedConstructionSite.name)
           .eq('quotes.status', 'APPROVED')
+          .eq('quotes.is_active', true)
           .eq('pump_service', true)
           .not('product_id', 'is', null)
           .is('recipe_id', null);
@@ -541,6 +545,7 @@ export default function ScheduleOrderForm({
           .eq('client_id', selectedClientId)
           .eq('construction_site', selectedConstructionSite.name)
           .eq('status', 'APPROVED')
+          .eq('is_active', true)
           .order('created_at', { ascending: false });
         
         if (approvedQuotesError) {
@@ -681,7 +686,8 @@ export default function ScheduleOrderForm({
             )
           `)
           .in('id', uniqueQuoteIds)
-          .eq('status', 'APPROVED'); // Ensure the linked quotes are still approved
+          .eq('status', 'APPROVED')
+          .eq('is_active', true); // Ensure the linked quotes are still approved and site-active
           
         if (quotesError) {
           console.error("Error fetching the linked quotes:", quotesError);
@@ -2359,6 +2365,16 @@ export default function ScheduleOrderForm({
                     </ol>
                   </div>
                 </div>
+                {/* Nearby deliveries context (delivery point radius) */}
+                {latitude && longitude && !coordinatesError && (
+                  <div className="mt-3">
+                    <NearbyDeliveriesPanel
+                      latitude={latitude}
+                      longitude={longitude}
+                      radiusMeters={1000}
+                    />
+                  </div>
+                )}
                 {/* Site Access Validation Step */}
                 <div className="mt-2">
                   <SiteAccessValidation

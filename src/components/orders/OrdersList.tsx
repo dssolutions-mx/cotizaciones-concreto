@@ -55,15 +55,42 @@ function getStatusColor(status: string) {
 function getCreditStatusColor(status: string) {
   switch (status) {
     case 'pending':
-      return 'bg-yellow-500 text-white';
+      return 'bg-amber-100 text-amber-800 border-2 border-amber-500 font-bold';
     case 'approved':
-      return 'bg-green-500 text-white';
+      return 'bg-green-100 text-green-800 border-2 border-green-600 font-bold';
     case 'rejected':
-      return 'bg-red-500 text-white';
     case 'rejected_by_validator':
-      return 'bg-orange-500 text-white';
+      return 'bg-red-100 text-red-800 border-2 border-red-600 font-bold';
     default:
-      return 'bg-gray-500 text-white';
+      return 'bg-gray-100 text-gray-800 border-2 border-gray-400';
+  }
+}
+
+function getSiteAccessBadgeClass(rating?: string | null) {
+  if (!rating) return 'bg-gray-100 text-gray-600 border border-gray-300';
+  switch (rating) {
+    case 'green':
+      return 'bg-green-100 text-green-800 border border-green-500';
+    case 'yellow':
+      return 'bg-amber-100 text-amber-800 border border-amber-500';
+    case 'red':
+      return 'bg-red-100 text-red-800 border border-red-500';
+    default:
+      return 'bg-gray-100 text-gray-600 border border-gray-300';
+  }
+}
+
+function getSiteAccessLabel(rating?: string | null) {
+  if (!rating) return 'Acceso N/D';
+  switch (rating) {
+    case 'green':
+      return 'Acceso Verde';
+    case 'yellow':
+      return 'Acceso Amarillo';
+    case 'red':
+      return 'Acceso Rojo';
+    default:
+      return `Acceso ${rating}`;
   }
 }
 
@@ -245,17 +272,6 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
               {order.clients?.business_name || 'Cliente no disponible'}
             </h3>
             <span className="ml-2 text-sm text-gray-500">#{order.order_number}</span>
-            {/* Site Access semaforization dot */}
-            {(() => {
-              const rating = (order as any).site_access_rating as string | undefined;
-              const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
-              return (
-                <span
-                  className={`ml-2 inline-block w-2.5 h-2.5 rounded-full ${getAccessDotClass(rating)}`}
-                  title={title}
-                />
-              );
-            })()}
             {initials && (
               <span className="ml-3 inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold" title="Creador del pedido">
                 {initials}
@@ -266,8 +282,11 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(order.order_status)}`}>
               {translateStatus(order.order_status)}
             </span>
-            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getCreditStatusColor(order.credit_status)}`}>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs ${getCreditStatusColor(order.credit_status)}`}>
               {translateCreditStatus(order.credit_status)}
+            </span>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getSiteAccessBadgeClass((order as any).site_access_rating)}`}>
+              {getSiteAccessLabel((order as any).site_access_rating)}
             </span>
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getPaymentTypeIndicator(requiresInvoice)}`}>
               {requiresInvoice === true ? 'Fiscal' : requiresInvoice === false ? 'Efectivo' : 'No especificado'}

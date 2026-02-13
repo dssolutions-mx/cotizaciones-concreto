@@ -117,6 +117,7 @@ export interface ApprovedQuote {
   creator_initials: string;
   approver_name: string;
   construction_site: string;
+  construction_site_id?: string | null;
   total_amount: number;
   created_at: string;
   validity_date: string;
@@ -185,7 +186,8 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         .select(`
           id, 
           quote_number, 
-          construction_site, 
+          construction_site,
+          construction_site_id,
           created_at,
           validity_date,
           approval_date,
@@ -245,6 +247,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
           )
         `)
         .eq('status', 'APPROVED')
+        .eq('is_active', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -313,6 +316,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
           id: quote.id,
           quote_number: quote.quote_number,
           construction_site: quote.construction_site,
+          construction_site_id: quote.construction_site_id ?? null,
           created_at: quote.created_at,
           validity_date: quote.validity_date,
           approval_date: quote.approval_date || quote.created_at || new Date().toISOString(),
@@ -502,6 +506,31 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       if (!authData.session?.user?.id) {
         throw new Error('Usuario no autenticado. Debe iniciar sesión para crear cotizaciones.');
       }
+
+      // Validar que la obra esté aprobada antes de duplicar
+      if (quote.construction_site && quote.client?.id) {
+        const siteId = quote.construction_site_id;
+        if (siteId) {
+          const { data: site } = await supabase
+            .from('construction_sites')
+            .select('id, name, approval_status')
+            .eq('id', siteId)
+            .single();
+          if (site && site.approval_status !== 'APPROVED') {
+            throw new Error(`La obra "${site.name}" no está aprobada. Solicita la aprobación en Finanzas → Autorización de Clientes antes de duplicar la cotización.`);
+          }
+        } else {
+          const { data: site } = await supabase
+            .from('construction_sites')
+            .select('id, name, approval_status')
+            .eq('client_id', quote.client.id)
+            .eq('name', quote.construction_site)
+            .maybeSingle();
+          if (site && site.approval_status !== 'APPROVED') {
+            throw new Error(`La obra "${site.name}" no está aprobada. Solicita la aprobación en Finanzas → Autorización de Clientes antes de duplicar la cotización.`);
+          }
+        }
+      }
       
       // Generate quote number (same implementation as in QuoteBuilder)
       const currentYear = new Date().getFullYear();
@@ -509,17 +538,21 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       const quoteNumber = `${quoteNumberPrefix}-${Math.floor(Math.random() * 9000) + 1000}`;
       
       // Create new quote with PENDING status
+      const insertData: Record<string, unknown> = {
+        client_id: quote.client?.id,
+        created_by: authData.session.user.id,
+        construction_site: quote.construction_site,
+        location: "N/A",
+        validity_date: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString(),
+        status: 'PENDING_APPROVAL',
+        quote_number: quoteNumber
+      };
+      if (quote.construction_site_id) {
+        insertData.construction_site_id = quote.construction_site_id;
+      }
       const { data: newQuote, error: quoteError } = await supabase
         .from('quotes')
-        .insert({
-          client_id: quote.client?.id,
-          created_by: authData.session.user.id, // Usar el ID del usuario actual
-          construction_site: quote.construction_site,
-          location: "N/A", // Este campo es obligatorio, usamos un valor por defecto
-          validity_date: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString(), // 30 days validity
-          status: 'PENDING_APPROVAL', // Usando el valor correcto según la restricción de la BD
-          quote_number: quoteNumber
-        })
+        .insert(insertData)
         .select('id')
         .single();
 

@@ -31,6 +31,7 @@ export interface Quote {
   construction_site_id?: string
   auto_approved?: boolean
   margin_percentage?: number
+  is_active?: boolean // false when construction site is deactivated; set by trigger
   // Campos relacionados con joins
   client?: Client
   details?: QuoteDetail[]
@@ -294,6 +295,36 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     
     if (!quoteData.plant_id) {
       throw new Error('plant_id es requerido para calcular la distancia');
+    }
+
+    // CRÍTICO: No permitir cotización si la obra no está aprobada
+    if (quoteData.construction_site_id) {
+      const { data: site, error: siteError } = await supabase
+        .from('construction_sites')
+        .select('id, name, approval_status')
+        .eq('id', quoteData.construction_site_id)
+        .single();
+      if (siteError || !site) {
+        throw new Error('Obra no encontrada. No se puede crear la cotización.');
+      }
+      if (site.approval_status !== 'APPROVED') {
+        throw new Error(
+          `La obra "${site.name || 'Sin nombre'}" no está aprobada. Solicita la aprobación en Finanzas → Autorización de Clientes (pestaña Obras) antes de crear la cotización.`
+        );
+      }
+    } else if (quoteData.construction_site && quoteData.client_id) {
+      // Validar por nombre cuando no hay construction_site_id (ej. duplicar cotización)
+      const { data: site } = await supabase
+        .from('construction_sites')
+        .select('id, name, approval_status')
+        .eq('client_id', quoteData.client_id)
+        .eq('name', quoteData.construction_site)
+        .maybeSingle();
+      if (site && site.approval_status !== 'APPROVED') {
+        throw new Error(
+          `La obra "${site.name}" no está aprobada. Solicita la aprobación en Finanzas → Autorización de Clientes antes de crear la cotización.`
+        );
+      }
     }
 
     // Calculate distance if not provided

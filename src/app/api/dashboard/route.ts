@@ -74,6 +74,7 @@ export async function GET(request: Request) {
         serviceClient
           .from('quotes')
           .select('id, status, created_at', { count: 'exact' })
+          .eq('is_active', true)
           .gte('created_at', currentMonthStart.toISOString())
           .lte('created_at', currentMonthEnd.toISOString())
       ),
@@ -82,6 +83,7 @@ export async function GET(request: Request) {
         serviceClient
           .from('quotes')
           .select('id, status, created_at', { count: 'exact' })
+          .eq('is_active', true)
           .gte('created_at', previousMonthStart.toISOString())
           .lte('created_at', previousMonthEnd.toISOString())
       ),
@@ -90,6 +92,7 @@ export async function GET(request: Request) {
         serviceClient
           .from('quotes')
           .select('*', { count: 'exact', head: true })
+          .eq('is_active', true)
           .in('status', ['DRAFT', 'PENDING_APPROVAL'])
       ),
         

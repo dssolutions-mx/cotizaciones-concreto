@@ -180,7 +180,8 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             )
           )
         `, { count: 'exact' })
-        .eq('status', 'PENDING_APPROVAL');
+        .eq('status', 'PENDING_APPROVAL')
+        .eq('is_active', true);
 
       // Apply client filter if provided
       if (clientFilter && clientFilter.trim()) {

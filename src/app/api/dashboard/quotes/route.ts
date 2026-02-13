@@ -15,6 +15,7 @@ export async function GET(request: Request) {
     let quotesQuery = serviceClient
       .from('quotes')
       .select('id, status, created_at, construction_site')
+      .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(100);
     
@@ -70,6 +71,7 @@ export async function GET(request: Request) {
         )
       `)
       .eq('status', 'PENDING_APPROVAL')
+      .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(10);
     

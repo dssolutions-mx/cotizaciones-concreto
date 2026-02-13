@@ -103,7 +103,7 @@ function AssignClientModalComponent({
 
       abortControllerRef.current = new AbortController();
 
-      const data = await clientService.getAllClients();
+      const data = await clientService.getApprovedClients();
       
       // Update cache
       cachedClientsForAssign = data;

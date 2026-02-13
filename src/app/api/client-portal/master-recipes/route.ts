@@ -158,7 +158,8 @@ export async function GET(request: Request) {
         )
       `)
       .in('id', uniqueQuoteIds)
-      .eq('status', 'APPROVED');
+      .eq('status', 'APPROVED')
+      .eq('is_active', true);
 
     if (quotesError) {
       console.error('Error fetching quotes:', quotesError);

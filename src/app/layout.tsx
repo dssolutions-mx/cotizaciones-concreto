@@ -39,7 +39,8 @@ import {
   Truck,
   Clock,
   Layers,
-  GitBranch
+  GitBranch,
+  ShieldCheck
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -116,6 +117,11 @@ const finanzasSubMenuItems = [
     title: "Reportes Dinámicos",
     href: "/finanzas/reportes-clientes",
     IconComponent: FileSpreadsheet,
+  },
+  {
+    title: "Gobierno de Precios",
+    href: "/finanzas/gobierno-precios",
+    IconComponent: ShieldCheck,
   },
 ];
 

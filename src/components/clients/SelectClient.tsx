@@ -34,7 +34,7 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
     async function fetchClients() {
       setIsLoading(true);
       try {
-        const data = await clientService.getAllClients();
+        const data = await clientService.getApprovedClients();
         setClients(data || []);
       } catch (error) {
         console.error("Error fetching clients:", error);
@@ -52,7 +52,7 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
       if (!selectedClientId || !showSites) return;
       
       try {
-        const sites = await clientService.getClientSites(selectedClientId);
+        const sites = await clientService.getClientSites(selectedClientId, true);
         setClientSites(sites || []);
       } catch (error) {
         console.error("Error fetching client sites:", error);

@@ -20,6 +20,16 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -95,8 +105,12 @@ const Switch = ({ checked, onCheckedChange, disabled }: {
   );
 };
 
-// Componente para nuevos sitios
-function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded: () => void }) {
+// Componente para nuevos sitios (solo visible si el cliente está autorizado)
+function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: { 
+  clientId: string; 
+  isClientApproved: boolean; 
+  onSiteAdded: () => void;
+}) {
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [siteData, setSiteData] = useState({
@@ -159,6 +173,20 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
       setIsSubmitting(false);
     }
   };
+
+  if (!isClientApproved) {
+    return (
+      <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+        <p className="text-sm text-amber-800">
+          Este cliente debe ser autorizado antes de poder agregar obras. Solicita la aprobación en{' '}
+          <Link href="/finanzas/gobierno-precios" className="font-medium underline hover:text-amber-900">
+            Finanzas → Autorización de Clientes
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
 
   if (!showForm) {
     return (
@@ -1384,23 +1412,33 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
   );
 }
 
-// Update SiteStatusToggle to also show coordinates
+// SiteStatusToggle: toggle activación/desactivación de obra (cascada a cotizaciones y precios)
 function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, onStatusChange: () => void }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [dialogReady, setDialogReady] = useState(false);
 
-  const handleToggle = async () => {
+  const performToggle = async (newActive: boolean) => {
     try {
       setIsUpdating(true);
-      await clientService.updateSiteStatus(site.id, !site.is_active);
+      await clientService.updateSiteStatus(site.id, newActive);
       onStatusChange();
-      toast.success(`Obra ${!site.is_active ? 'activada' : 'desactivada'} exitosamente`);
+      toast.success(`Obra ${newActive ? 'activada' : 'desactivada'} exitosamente`);
+      setShowDeactivateConfirm(false);
     } catch (error) {
       console.error('Error updating site status:', error);
       toast.error('Error al actualizar el estado de la obra');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleToggle = (newChecked: boolean) => {
+    if (newChecked) {
+      performToggle(true); // Reactivar: directo
+    } else {
+      setShowDeactivateConfirm(true); // Desactivar: confirmar antes
     }
   };
 
@@ -1439,6 +1477,28 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
           {site.is_active ? 'Activa' : 'Inactiva'}
         </span>
       </div>
+      <AlertDialog open={showDeactivateConfirm} onOpenChange={(open) => !open && setShowDeactivateConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desactivar obra &quot;{site.name}&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Al desactivar esta obra se desactivarán también las cotizaciones y precios asociados. 
+              No podrás crear nuevas cotizaciones ni pedidos para esta obra hasta que la reactives. 
+              Las órdenes históricas se conservan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdating}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => performToggle(false)}
+              disabled={isUpdating}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {isUpdating ? 'Procesando…' : 'Desactivar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       
       {hasCoordinates && (
         <div className="mt-2">
@@ -1859,7 +1919,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       setClient(fetchedClient);
 
       const [fetchedSites, fetchedPayments, fetchedBalances] = await Promise.all([
-        clientService.getClientSites(clientId),
+        clientService.getClientSites(clientId, false, true), // include inactive for management
         clientService.getClientPayments(clientId),
         clientService.getClientBalances(clientId)
       ]);
@@ -2295,7 +2355,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       <Card>
          <CardHeader>
            <CardTitle>Obras Registradas</CardTitle>
-           <CardDescription>Lista de obras asociadas a este cliente.</CardDescription>
+           <CardDescription>Lista de obras asociadas a este cliente. Las obras inactivas no aparecen al crear cotizaciones o pedidos. Usa el interruptor para activar o desactivar.</CardDescription>
          </CardHeader>
          <CardContent>
             {sites.length > 0 ? (
@@ -2313,7 +2373,10 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 </TableHeader>
                 <TableBody>
                   {sites.map((site) => (
-                    <TableRow key={site.id}>
+                    <TableRow 
+                      key={site.id} 
+                      className={!site.is_active ? 'bg-gray-50 opacity-75' : ''}
+                    >
                       <TableCell className="font-medium">{site.name}</TableCell>
                       <TableCell>{site.location || '-'}</TableCell>
                       <TableCell>{site.access_restrictions || '-'}</TableCell>
@@ -2365,7 +2428,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 onCancel={() => setEditingSite(null)}
               />
             )}
-            <NewSiteForm clientId={clientId} onSiteAdded={loadData} />
+            <NewSiteForm 
+              clientId={clientId} 
+              isClientApproved={(client as { approval_status?: string })?.approval_status === 'APPROVED'} 
+              onSiteAdded={loadData} 
+            />
          </CardContent>
       </Card>
 

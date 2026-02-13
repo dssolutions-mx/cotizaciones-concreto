@@ -1,9 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clientService } from '@/lib/supabase/clients';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { useDebounce } from '@/hooks/useDebounce';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { LiveDuplicateSuggestions } from '@/components/clients/LiveDuplicateSuggestions';
 
 // Interfaz para sitios de construcción (obras)
 interface ConstructionSite {
@@ -16,21 +29,53 @@ interface ConstructionSite {
 
 export default function NewClientPage() {
   const router = useRouter();
+  const { profile } = useAuthBridge();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSiteForm, setShowSiteForm] = useState(false);
-  
+  const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
+  const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [suggestedCashCode, setSuggestedCashCode] = useState<string | null>(null);
+  const [liveDuplicates, setLiveDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+
   const [formData, setFormData] = useState({
     business_name: '',
-    client_code: '',
-    rfc: '',
+    client_code: '', // RFC when requires_invoice
     requires_invoice: false,
     address: '',
     contact_name: '',
     email: '',
     phone: '',
-    credit_status: 'ACTIVE' // Default value
+    credit_status: 'ACTIVE' as const
   });
+
+  const debouncedBusinessName = useDebounce(formData.business_name.trim(), 400);
+
+  // Live fuzzy match mientras escribe
+  useEffect(() => {
+    if (debouncedBusinessName.length < 3) {
+      setLiveDuplicates([]);
+      return;
+    }
+    let cancelled = false;
+    setIsCheckingDuplicates(true);
+    const codeForCheck = formData.requires_invoice
+      ? formData.client_code.trim() || undefined
+      : (suggestedCashCode || undefined);
+    clientService
+      .findPotentialDuplicates(debouncedBusinessName, codeForCheck)
+      .then((list) => {
+        if (!cancelled) setLiveDuplicates(list || []);
+      })
+      .catch(() => {
+        if (!cancelled) setLiveDuplicates([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsCheckingDuplicates(false);
+      });
+    return () => { cancelled = true; };
+  }, [debouncedBusinessName, formData.requires_invoice, formData.client_code, suggestedCashCode]);
 
   // Estado para las obras
   const [sites, setSites] = useState<ConstructionSite[]>([]);
@@ -41,6 +86,21 @@ export default function NewClientPage() {
     special_conditions: '',
     is_active: true
   });
+
+  function getCreatorInitials(): string {
+    const fn = (profile as { first_name?: string } | null)?.first_name?.trim().slice(0, 1) || '';
+    const ln = (profile as { last_name?: string } | null)?.last_name?.trim().slice(0, 1) || '';
+    return (fn + ln).toUpperCase() || 'XX';
+  }
+
+  useEffect(() => {
+    if (!formData.requires_invoice) {
+      const initials = getCreatorInitials();
+      clientService.getNextCashOnlyClientCode(initials).then(setSuggestedCashCode).catch(() => setSuggestedCashCode('XX-001'));
+    } else {
+      setSuggestedCashCode(null);
+    }
+  }, [formData.requires_invoice, profile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -91,34 +151,70 @@ export default function NewClientPage() {
     setSites(prev => prev.filter((_, i) => i !== index));
   };
 
+  const doCreateClient = async () => {
+    const clientCode = formData.requires_invoice
+      ? formData.client_code.trim()
+      : (suggestedCashCode || 'XX-001');
+    const clientPayload = {
+      ...formData,
+      client_code: clientCode,
+      rfc: formData.requires_invoice ? formData.client_code.trim() : undefined,
+    };
+    await clientService.createClientWithSites(clientPayload, sites);
+    router.push('/clients');
+    router.refresh();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setError(null);
-    
+
+    if (!formData.business_name.trim()) {
+      setError('El nombre de la empresa es obligatorio');
+      return;
+    }
+    if (!formData.contact_name.trim()) {
+      setError('El nombre de contacto es obligatorio');
+      return;
+    }
+    if (!formData.phone.trim()) {
+      setError('El número de teléfono es obligatorio');
+      return;
+    }
+    if (formData.requires_invoice && !formData.client_code?.trim()) {
+      setError('El RFC es obligatorio cuando se requiere factura');
+      return;
+    }
+
     try {
-      // Validate required fields
-      if (!formData.business_name.trim()) {
-        throw new Error('El nombre de la empresa es obligatorio');
+      const codeForDupCheck = formData.requires_invoice
+        ? formData.client_code.trim()
+        : (suggestedCashCode || undefined);
+      const duplicates = await clientService.findPotentialDuplicates(
+        formData.business_name,
+        codeForDupCheck
+      );
+      if (duplicates.length > 0) {
+        setPotentialDuplicates(duplicates);
+        setShowDuplicateDialog(true);
+        return;
       }
-      
-      if (!formData.contact_name.trim()) {
-        throw new Error('El nombre de contacto es obligatorio');
-      }
-      
-      if (!formData.phone.trim()) {
-        throw new Error('El número de teléfono es obligatorio');
-      }
-      
-      // Si requiere factura, el RFC es obligatorio
-      if (formData.requires_invoice && !formData.rfc?.trim()) {
-        throw new Error('El RFC es obligatorio cuando se requiere factura');
-      }
-      
-      // Crear cliente con o sin obras
-      await clientService.createClientWithSites(formData, sites);
-      router.push('/clients');
-      router.refresh();
+      setIsSubmitting(true);
+      await doCreateClient();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al crear el cliente';
+      setError(errorMessage);
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleConfirmCreateDespiteDuplicates = async () => {
+    setShowDuplicateDialog(false);
+    try {
+      setIsSubmitting(true);
+      await doCreateClient();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al crear el cliente';
       setError(errorMessage);
@@ -164,23 +260,14 @@ export default function NewClientPage() {
                 className="w-full p-2 border border-gray-300 rounded-md"
                 required
               />
-            </div>
-            
-            <div className="mb-4">
-              <label htmlFor="client_code" className="block text-sm font-medium text-gray-700 mb-1">
-                Código de Cliente (Opcional)
-              </label>
-              <input
-                type="text"
-                id="client_code"
-                name="client_code"
-                value={formData.client_code}
-                onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Si se deja en blanco, se generará automáticamente
-              </p>
+              {debouncedBusinessName.length >= 3 && (
+                <div className="mt-2.5">
+                  <LiveDuplicateSuggestions
+                    isChecking={isCheckingDuplicates}
+                    duplicates={liveDuplicates}
+                  />
+                </div>
+              )}
             </div>
             
             <div className="mb-4">
@@ -193,7 +280,14 @@ export default function NewClientPage() {
                   id="requires_invoice"
                   name="requires_invoice"
                   checked={formData.requires_invoice}
-                  onChange={handleChange}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setFormData(prev => ({
+                      ...prev,
+                      requires_invoice: checked,
+                      ...(checked ? {} : { client_code: '' }),
+                    }));
+                  }}
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                 />
                 <label htmlFor="requires_invoice" className="ml-2 text-sm text-gray-700">
@@ -202,20 +296,36 @@ export default function NewClientPage() {
               </div>
             </div>
             
-            {formData.requires_invoice && (
+            {formData.requires_invoice ? (
               <div className="mb-4">
-                <label htmlFor="rfc" className="block text-sm font-medium text-gray-700 mb-1">
-                  RFC *
+                <label htmlFor="client_code" className="block text-sm font-medium text-gray-700 mb-1">
+                  RFC / Código de cliente *
                 </label>
                 <input
                   type="text"
-                  id="rfc"
-                  name="rfc"
-                  value={formData.rfc}
+                  id="client_code"
+                  name="client_code"
+                  value={formData.client_code}
                   onChange={handleChange}
                   className="w-full p-2 border border-gray-300 rounded-md"
-                  required={formData.requires_invoice}
+                  required
+                  placeholder="Ej: XAXX010101000"
                 />
+                <p className="text-xs text-gray-500 mt-1">El RFC es el código único del cliente (obligatorio para facturación)</p>
+              </div>
+            ) : (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Código de cliente
+                </label>
+                <p className="text-sm text-gray-600 py-1">
+                  {suggestedCashCode ? (
+                    <span>Código asignado: <strong>{suggestedCashCode}</strong></span>
+                  ) : (
+                    <span className="text-gray-400">Cargando...</span>
+                  )}
+                </p>
+                <p className="text-xs text-gray-500 mt-0">Se genera automáticamente para clientes de efectivo</p>
               </div>
             )}
             
@@ -497,6 +607,38 @@ export default function NewClientPage() {
           </div>
         </form>
       </div>
+
+      <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Posible duplicado?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="mb-2">
+                  Se encontraron clientes similares en el sistema. Revise si no es un duplicado antes de continuar.
+                </p>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {potentialDuplicates.map((d) => (
+                    <li key={d.id} className="flex justify-between gap-4">
+                      <span>{d.business_name}</span>
+                      <span className="text-muted-foreground">
+                        {d.client_code || '—'} • {d.match_reason}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3">¿Desea crear el cliente de todos modos?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCreateDespiteDuplicates}>
+              Sí, crear de todos modos
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 } 

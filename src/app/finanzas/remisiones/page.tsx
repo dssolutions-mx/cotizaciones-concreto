@@ -136,7 +136,7 @@ export default function RemisionesPorCliente() {
       setClientsWithRemisiones(clientIds);
       
       // Get client details for those IDs
-      const allClients = await clientService.getAllClients();
+      const allClients = await clientService.getApprovedClients();
       
       // Filter to only clients with remisiones in the date range
       const relevantClients = allClients.filter(client => 
@@ -203,7 +203,7 @@ export default function RemisionesPorCliente() {
       }
       
       try {
-        const sites = await clientService.getClientSites(selectedClientId);
+        const sites = await clientService.getClientSites(selectedClientId, true);
         const siteNames = sites.map(site => site.name);
         setClientSites(siteNames);
       } catch (error) {
