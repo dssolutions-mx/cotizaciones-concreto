@@ -1483,6 +1483,15 @@ async function createSingleOrderWithoutBalanceUpdate(
       result.materialsProcessed = 0;
     }
 
+    try {
+      const { recalculateOrderAmount } = await import('./orderService');
+      await recalculateOrderAmount(order.id);
+      console.log('[ArkikOrderCreator] Order amounts recalculated for new order:', order.id);
+    } catch (amountError) {
+      console.error('[ArkikOrderCreator] Error recalculating order amounts:', amountError);
+      result.errors.push(`Error recalculando montos de la orden: ${amountError instanceof Error ? amountError.message : 'Error desconocido'}`);
+    }
+
     console.log('[ArkikOrderCreator] Single order created successfully:', {
       order_id: order.id,
       order_number: orderNumber,
@@ -1492,11 +1501,6 @@ async function createSingleOrderWithoutBalanceUpdate(
       has_site_id: !!constructionSiteId,
       has_site_name: !!constructionSiteName
     });
-
-    // NOTE: Order amount recalculation is handled by the database trigger `actualizar_volumenes_orden()`
-    // which fires automatically on remisiones INSERT. The trigger also calls `update_client_balance()`,
-    // so manual recalculation is redundant and causes duplicate expensive operations.
-    // Balance calculation is deferred to batch processing to prevent race conditions.
 
     return result;
 
