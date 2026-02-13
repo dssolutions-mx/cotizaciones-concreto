@@ -357,9 +357,10 @@ export function PriceGovernanceTable() {
                     }`}
                   >
                     <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-4 py-4 px-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2"
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex w-full items-center gap-4 py-4 px-5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 cursor-pointer"
                       >
                         <ChevronRight
                           className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-200 ${
@@ -497,7 +498,7 @@ export function PriceGovernanceTable() {
                             </Button>
                           )}
                         </div>
-                      </button>
+                      </div>
                     </CollapsibleTrigger>
 
                     <CollapsibleContent>

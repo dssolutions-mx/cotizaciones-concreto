@@ -77,17 +77,7 @@ export async function GET(request: NextRequest) {
     if (clientId) sitesQuery = sitesQuery.eq('client_id', clientId);
     if (plantId) sitesQuery = sitesQuery.eq('plant_id', plantId);
 
-    const [sitesRes, remisionesRes] = await Promise.all([
-      sitesQuery,
-      supabase
-        .from('remisiones')
-        .select('fecha, master_recipe_id, recipe_id, orders!order_id(client_id, construction_site)')
-        .not('order_id', 'is', null)
-        .order('fecha', { ascending: false })
-        .limit(3000),
-    ]);
-
-    const { data: sites, error: sitesError } = sitesRes;
+    const { data: sites, error: sitesError } = await sitesQuery;
 
     if (sitesError) throw sitesError;
 
@@ -102,32 +92,38 @@ export async function GET(request: NextRequest) {
     const clientIds = [...new Set(sites.map((s: any) => s.client_id))];
     const siteNames = [...new Set(sites.map((s: any) => s.name))];
 
-    const pricesResFiltered = await supabase
-      .from('product_prices')
-      .select(`
-        id, code, base_price, effective_date, created_at, updated_at,
-        master_recipe_id, recipe_id, client_id, construction_site,
-        fc_mr_value, placement_type, max_aggregate_size, slump, age_days
-      `)
-      .eq('is_active', true)
-      .in('client_id', clientIds)
-      .in('construction_site', siteNames);
+    const [pricesResFiltered, lastUsedRes] = await Promise.all([
+      supabase
+        .from('product_prices')
+        .select(`
+          id, code, base_price, effective_date, created_at, updated_at,
+          master_recipe_id, recipe_id, client_id, construction_site,
+          fc_mr_value, placement_type, max_aggregate_size, slump, age_days
+        `)
+        .eq('is_active', true)
+        .in('client_id', clientIds)
+        .in('construction_site', siteNames),
+      supabase.rpc('get_price_last_used', {
+        p_client_ids: clientIds,
+        p_site_names: siteNames,
+      }),
+    ]);
 
     const allPrices = pricesResFiltered.data;
     if (pricesResFiltered.error) throw pricesResFiltered.error;
+    if (lastUsedRes.error) throw lastUsedRes.error;
 
     const lastUsedMap = new Map<string, string>();
-    (remisionesRes?.data || []).forEach((r: any) => {
-      const o = r.orders;
-      if (!o?.client_id || !o?.construction_site || !r.fecha) return;
-      const base = `${o.client_id}::${o.construction_site}`;
+    (lastUsedRes.data || []).forEach((row: { client_id: string; construction_site: string; master_recipe_id: string | null; recipe_id: string | null; last_used: string }) => {
+      if (!row?.client_id || !row?.construction_site || !row?.last_used) return;
+      const base = `${row.client_id}::${row.construction_site}`;
       const keysToSet: string[] = [
-        `${base}::${r.master_recipe_id || ''}::${r.recipe_id || ''}`,
-        ...(r.master_recipe_id ? [`${base}::${r.master_recipe_id}::`] : []),
-        ...(r.recipe_id ? [`${base}:: ::${r.recipe_id}`] : []),
+        `${base}::${row.master_recipe_id || ''}::${row.recipe_id || ''}`,
+        ...(row.master_recipe_id ? [`${base}::${row.master_recipe_id}::`] : []),
+        ...(row.recipe_id ? [`${base}:: ::${row.recipe_id}`] : []),
       ];
       keysToSet.forEach((key) => {
-        if (!lastUsedMap.has(key) || r.fecha > lastUsedMap.get(key)!) lastUsedMap.set(key, r.fecha);
+        if (!lastUsedMap.has(key) || row.last_used > lastUsedMap.get(key)!) lastUsedMap.set(key, row.last_used);
       });
     });
 
