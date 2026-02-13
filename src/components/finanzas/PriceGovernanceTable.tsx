@@ -35,9 +35,11 @@ import {
   Package,
   MapPin,
   Building2,
+  CalendarClock,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 import * as Popover from '@radix-ui/react-popover';
 import { DayPicker } from 'react-day-picker';
@@ -48,7 +50,14 @@ type ActivePrice = {
   code: string;
   base_price: number;
   effective_date: string;
+  created_at: string;
   updated_at: string;
+  last_used: string | null;
+  fc_mr_value: number | null;
+  placement_type: string | null;
+  max_aggregate_size: number | null;
+  slump: number | null;
+  age_days: number | null;
 };
 
 type PriceGovernanceSite = {
@@ -65,6 +74,37 @@ type PriceGovernanceSite = {
   prices: ActivePrice[];
 };
 
+type Metrics = {
+  sites_with_validity: number;
+  sites_without_validity: number;
+  prices_over_90_days: number;
+};
+
+/** Formato alineado con ScheduleOrderForm: f'c, Rev cm, Directa/Bombeado, TMA mm, edad días */
+function formatProductSpecs(p: ActivePrice): string {
+  const parts: string[] = [];
+  if (p.fc_mr_value) parts.push(`f'c ${p.fc_mr_value} kg/cm²`);
+  if (p.slump != null) parts.push(`Rev ${p.slump} cm`);
+  if (p.placement_type) {
+    const pl = String(p.placement_type).toUpperCase();
+    if (pl === 'D' || pl.includes('DIRECT')) parts.push('Directa');
+    else if (pl === 'B' || pl.includes('BOMB')) parts.push('Bombeado');
+    else parts.push(pl);
+  }
+  if (p.max_aggregate_size) parts.push(`TMA ${p.max_aggregate_size} mm`);
+  if (p.age_days) parts.push(`${p.age_days} días`);
+  return parts.length > 0 ? parts.join(' · ') : p.code || '—';
+}
+
+/** Usa effective_date (cuándo entró en vigor el precio), no created_at (registro en BD) */
+function isOver90Days(effectiveDate: string | null): boolean {
+  if (!effectiveDate) return false;
+  const d = new Date(effectiveDate);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  return d < cutoff;
+}
+
 function SiteRowSkeleton() {
   return (
     <div className="flex items-center gap-4 py-5 px-5 border-b border-slate-100 animate-pulse">
@@ -80,6 +120,7 @@ function SiteRowSkeleton() {
 
 export function PriceGovernanceTable() {
   const [sites, setSites] = useState<PriceGovernanceSite[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState<string>('');
@@ -90,7 +131,7 @@ export function PriceGovernanceTable() {
   const [datePopover, setDatePopover] = useState<string | null>(null);
   const [deactivatePriceTarget, setDeactivatePriceTarget] = useState<{
     priceId: string;
-    code: string;
+    specs: string;
     siteName: string;
   } | null>(null);
   const [deactivateSiteTarget, setDeactivateSiteTarget] = useState<PriceGovernanceSite | null>(null);
@@ -105,9 +146,11 @@ export function PriceGovernanceTable() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error');
       setSites(json.sites || []);
+      setMetrics(json.metrics || null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al cargar');
       setSites([]);
+      setMetrics(null);
     } finally {
       setLoading(false);
     }
@@ -194,6 +237,36 @@ export function PriceGovernanceTable() {
 
   return (
     <div className="space-y-6">
+      {/* Metrics */}
+      {metrics && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-slate-500 text-sm">
+              <Calendar className="h-4 w-4" />
+              Obras con vigencia definida
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-900">{metrics.sites_with_validity}</div>
+            <p className="mt-0.5 text-xs text-slate-500">valid_until asignado</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-slate-500 text-sm">
+              <CalendarClock className="h-4 w-4" />
+              Obras sin vigencia
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-900">{metrics.sites_without_validity}</div>
+            <p className="mt-0.5 text-xs text-slate-500">sin fecha de término</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
+            <div className="flex items-center gap-2 text-amber-700 text-sm">
+              <AlertTriangle className="h-4 w-4" />
+              Precios &gt;90 días
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-amber-800">{metrics.prices_over_90_days}</div>
+            <p className="mt-0.5 text-xs text-amber-600">vigentes desde hace más de 90 días</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -201,8 +274,8 @@ export function PriceGovernanceTable() {
             Precios vigentes por obra
           </h2>
           <p className="mt-1 text-sm text-slate-500 max-w-2xl">
-            Revisa los precios activos (últimos vigentes) que están disponibles para cotizaciones y órdenes.
-            Puedes desactivar precios individuales o la obra completa.
+            Precios activos en uso. Aquí puedes agregar vigencia a la obra (valid_until) o desactivar precios/obras.
+            Vigente desde = cuando la cotización se aprobó. Última entrega = última entrega real.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -306,6 +379,15 @@ export function PriceGovernanceTable() {
                             >
                               {site.is_active && !expired ? 'Activa' : expired ? 'Vencida' : 'Inactiva'}
                             </Badge>
+                            {site.valid_until ? (
+                              <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
+                                Vigencia hasta {format(new Date(site.valid_until), 'd MMM yyyy', { locale: es })}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                                Sin vigencia
+                              </Badge>
+                            )}
                             {site.prices.length > 0 && (
                               <span className="text-sm text-slate-500">
                                 {site.prices.length} precio{site.prices.length !== 1 ? 's' : ''} vigente
@@ -345,9 +427,9 @@ export function PriceGovernanceTable() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                                className="h-8 text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                                 disabled={acting === site.id}
-                                title="Vigencia obra"
+                                title={site.valid_until ? 'Cambiar vigencia' : 'Agregar vigencia'}
                               >
                                 <Calendar className="h-4 w-4" />
                               </Button>
@@ -358,7 +440,9 @@ export function PriceGovernanceTable() {
                                 align="end"
                                 sideOffset={8}
                               >
-                                <p className="text-xs font-medium text-slate-500 mb-3">Vigencia de la obra</p>
+                                <p className="text-xs font-medium text-slate-500 mb-3">
+                                  {site.valid_until ? 'Vigencia de la obra' : 'Agregar vigencia (valid_until)'}
+                                </p>
                                 <DayPicker
                                   mode="single"
                                   selected={site.valid_until ? new Date(site.valid_until) : undefined}
@@ -374,7 +458,7 @@ export function PriceGovernanceTable() {
                                     className="flex-1"
                                     onClick={() => updateSite(site, { valid_until: null })}
                                   >
-                                    Sin límite
+                                    Quitar vigencia
                                   </Button>
                                   <Button size="sm" variant="ghost" onClick={() => setDatePopover(null)}>
                                     Cerrar
@@ -426,57 +510,80 @@ export function PriceGovernanceTable() {
                             <table className="w-full text-sm">
                               <thead>
                                 <tr className="bg-slate-50/80 border-b border-slate-100">
-                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Producto</th>
+                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Especificaciones</th>
                                   <th className="text-right py-3 px-4 font-medium text-slate-600">Precio base</th>
-                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Fecha vigencia</th>
-                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Actualizado</th>
+                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Vigente desde</th>
+                                  <th className="text-left py-3 px-4 font-medium text-slate-600">Última entrega</th>
                                   <th className="w-12" />
                                 </tr>
                               </thead>
                               <tbody>
-                                {site.prices.map((price) => (
-                                  <tr
-                                    key={price.id}
-                                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors"
-                                  >
-                                    <td className="py-3 px-4">
-                                      <span className="font-mono font-medium text-slate-900">
-                                        {price.code || '—'}
-                                      </span>
-                                    </td>
-                                    <td className="py-3 px-4 text-right font-medium text-slate-900">
-                                      {formatCurrency(price.base_price)}
-                                    </td>
-                                    <td className="py-3 px-4 text-slate-600">
-                                      {price.effective_date
-                                        ? format(new Date(price.effective_date), "d MMM yyyy", { locale: es })
-                                        : '—'}
-                                    </td>
-                                    <td className="py-3 px-4 text-slate-500">
-                                      {price.updated_at
-                                        ? format(new Date(price.updated_at), "d MMM yyyy, HH:mm", { locale: es })
-                                        : '—'}
-                                    </td>
-                                    <td className="py-3 px-4">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                        disabled={acting === price.id}
-                                        title="Desactivar precio"
-                                        onClick={() =>
-                                          setDeactivatePriceTarget({
-                                            priceId: price.id,
-                                            code: price.code,
-                                            siteName: site.site_name,
-                                          })
-                                        }
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                ))}
+                                {site.prices.map((price) => {
+                                  const specs = formatProductSpecs(price);
+                                  const over90 = isOver90Days(price.effective_date);
+                                  return (
+                                    <tr
+                                      key={price.id}
+                                      className={`border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors ${
+                                        over90 ? 'bg-amber-50/30' : ''
+                                      }`}
+                                    >
+                                      <td className="py-3 px-4">
+                                        <div>
+                                          <div className="font-medium text-slate-900">{specs}</div>
+                                          {price.code && price.code !== specs && (
+                                            <div className="text-xs text-slate-400 font-mono mt-0.5 truncate max-w-[280px]">
+                                              {price.code}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-4 text-right font-medium text-slate-900">
+                                        {formatCurrency(price.base_price)}
+                                      </td>
+                                      <td className="py-3 px-4 text-slate-600">
+                                        {price.effective_date ? (
+                                          <>
+                                            {format(new Date(price.effective_date), 'd MMM yyyy', { locale: es })}
+                                            <div className="text-xs text-slate-400">
+                                              {formatDistanceToNow(new Date(price.effective_date), {
+                                                addSuffix: true,
+                                                locale: es,
+                                              })}
+                                            </div>
+                                          </>
+                                        ) : (
+                                          '—'
+                                        )}
+                                      </td>
+                                      <td className="py-3 px-4 text-slate-600">
+                                        {price.last_used ? (
+                                          format(new Date(price.last_used), 'd MMM yyyy', { locale: es })
+                                        ) : (
+                                          <span className="text-slate-400">Sin entregas</span>
+                                        )}
+                                      </td>
+                                      <td className="py-3 px-4">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                          disabled={acting === price.id}
+                                          title="Desactivar precio"
+                                          onClick={() =>
+                                            setDeactivatePriceTarget({
+                                              priceId: price.id,
+                                              specs: formatProductSpecs(price),
+                                              siteName: site.site_name,
+                                            })
+                                          }
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -502,7 +609,7 @@ export function PriceGovernanceTable() {
             <AlertDialogDescription>
               {deactivatePriceTarget && (
                 <>
-                  Se desactivará el precio <strong className="font-mono">{deactivatePriceTarget.code}</strong> en{' '}
+                  Se desactivará el precio <strong>{deactivatePriceTarget.specs}</strong> en{' '}
                   <strong>{deactivatePriceTarget.siteName}</strong>. Ya no estará disponible para nuevas cotizaciones
                   u órdenes. ¿Continuar?
                 </>
