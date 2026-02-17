@@ -33,6 +33,12 @@ export interface PurchaseOrderItem {
   volumetric_weight_kg_per_m3?: number; // if defined, locks entry conversion
   // Fleet PO material supplier linking (only for fleet/service items)
   material_supplier_id?: string | null; // Links fleet PO to specific material supplier for distance-based pricing
+  // Credit/discount tracking
+  credit_amount?: number | null; // Total credit/discount applied to this PO item
+  credit_applied_at?: string | null; // When credit was applied
+  credit_applied_by?: string | null; // User who applied the credit
+  credit_notes?: string | null; // Notes about the credit
+  original_unit_price?: number | null; // Original unit_price before credit (for audit trail)
   // Computed
   qty_remaining?: number; // remaining in native UoM
 }

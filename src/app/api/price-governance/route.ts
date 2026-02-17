@@ -30,6 +30,7 @@ export type PriceGovernanceSite = {
   is_active: boolean;
   valid_until: string | null;
   prices: ActivePrice[];
+  site_last_used: string | null;
 };
 
 export type PriceGovernanceMetrics = {
@@ -114,6 +115,7 @@ export async function GET(request: NextRequest) {
     if (lastUsedRes.error) throw lastUsedRes.error;
 
     const lastUsedMap = new Map<string, string>();
+    const siteLastUsedMap = new Map<string, string>();
     (lastUsedRes.data || []).forEach((row: { client_id: string; construction_site: string; master_recipe_id: string | null; recipe_id: string | null; last_used: string }) => {
       if (!row?.client_id || !row?.construction_site || !row?.last_used) return;
       const base = `${row.client_id}::${row.construction_site}`;
@@ -125,6 +127,8 @@ export async function GET(request: NextRequest) {
       keysToSet.forEach((key) => {
         if (!lastUsedMap.has(key) || row.last_used > lastUsedMap.get(key)!) lastUsedMap.set(key, row.last_used);
       });
+      const current = siteLastUsedMap.get(base);
+      if (!current || row.last_used > current) siteLastUsedMap.set(base, row.last_used);
     });
 
     const pricesByKey = new Map<string, ActivePrice[]>();
@@ -176,6 +180,7 @@ export async function GET(request: NextRequest) {
       const prices = (pricesByKey.get(key) || []).sort(
         (a, b) => new Date(b.effective_date || 0).getTime() - new Date(a.effective_date || 0).getTime()
       );
+      const site_last_used = siteLastUsedMap.get(key) ?? null;
 
       return {
         id: s.id,
@@ -189,6 +194,7 @@ export async function GET(request: NextRequest) {
         is_active: s.is_active ?? true,
         valid_until: s.valid_until,
         prices,
+        site_last_used,
       };
     });
 

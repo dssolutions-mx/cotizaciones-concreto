@@ -310,6 +310,13 @@ export async function POST(request: NextRequest) {
     const inventoryBefore = currentInventory?.current_stock || 0;
     const inventoryAfter = inventoryBefore + validatedData.quantity_received;
 
+    // Calculate received quantity in kg for FIFO tracking
+    const receivedQtyKg = validatedData.received_uom === 'l' && validatedData.received_qty_entered
+      ? null // liters pass-through; not converting
+      : (validatedData.po_item_id && validatedData.received_qty_kg
+          ? validatedData.received_qty_kg
+          : validatedData.quantity_received);
+
     // Create material entry (optional immediate PO linkage on create)
     const entryData = {
       entry_number: entryNumber,
@@ -323,9 +330,8 @@ export async function POST(request: NextRequest) {
       po_item_id: validatedData.po_item_id || null,
       received_uom: validatedData.received_uom || (validatedData.po_item_id ? 'kg' : null),
       received_qty_entered: validatedData.received_qty_entered || (validatedData.po_item_id ? validatedData.quantity_received : null),
-      received_qty_kg: validatedData.received_uom === 'l' && validatedData.received_qty_entered
-        ? null // liters pass-through; not converting
-        : (validatedData.po_item_id ? validatedData.quantity_received : null),
+      received_qty_kg: receivedQtyKg,
+      remaining_quantity_kg: receivedQtyKg, // Initialize FIFO remaining quantity
       supplier_invoice: validatedData.supplier_invoice || null,
       inventory_before: inventoryBefore,
       inventory_after: inventoryAfter,

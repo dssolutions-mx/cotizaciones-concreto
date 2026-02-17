@@ -23,6 +23,10 @@ export class ArkikOrderGrouper {
         console.log(`[ArkikOrderGrouper] Excluding remision ${remision.remision_number} from grouping (materials_only duplicate)`);
         return false;
       }
+      if (remision.duplicate_strategy === 'skip') {
+        console.log(`[ArkikOrderGrouper] Excluding remision ${remision.remision_number} from grouping (omit/skip)`);
+        return false;
+      }
       return true;
     });
 
@@ -44,7 +48,9 @@ export class ArkikOrderGrouper {
   private groupForNewOrders(remisiones: StagingRemision[]): OrderSuggestion[] {
     // Additional defensive filtering (should already be filtered, but double-check)
     const validRemisiones = remisiones.filter(r => 
-      !r.is_excluded_from_import && r.duplicate_strategy !== 'materials_only'
+      !r.is_excluded_from_import && 
+      r.duplicate_strategy !== 'materials_only' && 
+      r.duplicate_strategy !== 'skip'
     );
     
     const groups = new Map<string, StagingRemision[]>();
@@ -84,6 +90,7 @@ export class ArkikOrderGrouper {
       const strictlyCompatibleRemisiones = match.matchedRemisiones.filter(r => 
         !r.is_excluded_from_import && 
         r.duplicate_strategy !== 'materials_only' &&
+        r.duplicate_strategy !== 'skip' &&
         (!r.recipe_id || hasStrictRecipeMatch(items as any, r))
       );
       if (strictlyCompatibleRemisiones.length > 0) {
@@ -101,6 +108,7 @@ export class ArkikOrderGrouper {
       const manuallyAssignedRemisiones = remisiones.filter(r => 
         !r.is_excluded_from_import &&
         r.duplicate_strategy !== 'materials_only' &&
+        r.duplicate_strategy !== 'skip' &&
         !processedRemisionIds.has(r.id) && 
         manualAssignments.has(r.remision_number)
       );
@@ -127,6 +135,7 @@ export class ArkikOrderGrouper {
     const unmatchedRemisiones = remisiones.filter(r => 
       !r.is_excluded_from_import &&
       r.duplicate_strategy !== 'materials_only' &&
+      r.duplicate_strategy !== 'skip' &&
       !processedRemisionIds.has(r.id)
     );
     if (unmatchedRemisiones.length > 0) {

@@ -6,10 +6,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { X, Plus, Trash2, Edit2, Save, Package, Truck } from 'lucide-react'
+import { X, Plus, Trash2, Edit2, Save, Package, Truck, DollarSign } from 'lucide-react'
 import { toast } from 'sonner'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
+import ApplyPOCreditModal from './ApplyPOCreditModal'
+import { useAuthBridge } from '@/adapters/auth-context-bridge'
+import { PurchaseOrderItem } from '@/types/po'
 
 interface POItem {
   id?: string // Database ID when editing existing
@@ -26,6 +29,12 @@ interface POItem {
   total: number
   volumetric_weight_kg_per_m3?: number // Added for m3 UoM
   material_supplier_id?: string | null // For fleet/service items
+  // Credit fields
+  credit_amount?: number | null
+  credit_applied_at?: string | null
+  credit_applied_by?: string | null
+  credit_notes?: string | null
+  original_unit_price?: number | null
 }
 
 interface EditPOModalProps {
@@ -39,9 +48,12 @@ interface EditPOModalProps {
 const generateTempId = () => `temp-${Date.now()}-${Math.random()}`
 
 export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }: EditPOModalProps) {
+  const { profile } = useAuthBridge()
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState<POItem[]>([])
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [creditModalOpen, setCreditModalOpen] = useState(false)
+  const [selectedItemForCredit, setSelectedItemForCredit] = useState<PurchaseOrderItem | null>(null)
 
   // Item form
   const [itemForm, setItemForm] = useState<POItem>({
@@ -57,6 +69,11 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [poSupplierId, setPoSupplierId] = useState<string>('')
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
+
+  // Check if user can apply credits
+  const canApplyCredit = profile?.role === 'EXECUTIVE' || 
+                         profile?.role === 'ADMIN_OPERATIONS' || 
+                         profile?.role === 'ADMINISTRATIVE'
 
   // Load existing items and PO info
   useEffect(() => {
@@ -341,8 +358,24 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                         <div className="text-xs text-gray-500 mt-1">
                           Proveedor: {suppliers.find(s => s.id === poSupplierId)?.name || 'N/A'}
                         </div>
-                      )}
+                        )}
                       </div>
+                      {/* Credit Info */}
+                      {item.credit_amount && (
+                        <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
+                          <div className="flex items-center gap-2 text-xs">
+                            <DollarSign className="h-3 w-3 text-orange-600" />
+                            <span className="text-orange-800 font-medium">
+                              Crédito aplicado: {mxn.format(item.credit_amount)}
+                            </span>
+                          </div>
+                          {item.original_unit_price && (
+                            <div className="text-xs text-orange-700 mt-1">
+                              Precio original: {mxn.format(item.original_unit_price)} → Actual: {mxn.format(item.unit_price)}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-3">
                         <div>
                           <p className="text-gray-600">Cantidad</p>
@@ -365,6 +398,35 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                       </div>
                     </div>
                     <div className="flex gap-2 ml-4 flex-shrink-0">
+                      {canApplyCredit && !item.is_service && item.id && (
+                        <button
+                          onClick={() => {
+                            // Convert POItem to PurchaseOrderItem for credit modal
+                            const poItem: PurchaseOrderItem = {
+                              id: item.id!,
+                              po_id: poId,
+                              is_service: item.is_service,
+                              material_id: item.material_id || null,
+                              uom: item.uom || null,
+                              qty_ordered: item.qty_ordered,
+                              unit_price: item.unit_price,
+                              status: 'open',
+                              created_at: '',
+                              credit_amount: item.credit_amount || null,
+                              credit_applied_at: item.credit_applied_at || null,
+                              credit_applied_by: item.credit_applied_by || null,
+                              credit_notes: item.credit_notes || null,
+                              original_unit_price: item.original_unit_price || null,
+                            }
+                            setSelectedItemForCredit(poItem)
+                            setCreditModalOpen(true)
+                          }}
+                          className="p-2 hover:bg-white rounded text-green-600"
+                          title="Aplicar Crédito"
+                        >
+                          <DollarSign className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => startEditItem(item)}
                         className="p-2 hover:bg-white rounded text-blue-600"
@@ -706,6 +768,19 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
           </div>
         </div>
       </div>
+
+      {/* Credit Modal */}
+      <ApplyPOCreditModal
+        open={creditModalOpen}
+        onClose={() => {
+          setCreditModalOpen(false)
+          setSelectedItemForCredit(null)
+        }}
+        onSuccess={() => {
+          fetchItems() // Refresh items to show updated credit info
+        }}
+        poItem={selectedItemForCredit}
+      />
     </div>
   )
 }

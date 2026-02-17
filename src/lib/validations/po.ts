@@ -86,9 +86,14 @@ export const POItemUpdateSchema = z.object({
   volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(),
 });
 
+export const POCreditInputSchema = z.object({
+  credit_amount: z.number().positive('El monto del crédito debe ser positivo'),
+  credit_notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
+});
+
 export type POHeaderInput = z.infer<typeof POHeaderInputSchema>;
 export type POHeaderUpdate = z.infer<typeof POHeaderUpdateSchema>;
 export type POItemInput = z.infer<typeof POItemInputSchema>;
 export type POItemUpdate = z.infer<typeof POItemUpdateSchema>;
-
+export type POCreditInput = z.infer<typeof POCreditInputSchema>;
 

@@ -285,9 +285,37 @@ export function useProgressiveProductionDetails(params: {
           });
         });
       }
-      // Fetch material prices (effective for today) in chunks
+      // Fetch FIFO allocation costs from material_consumption_allocations
+      // This uses actual entry prices (reflecting PO credits) instead of material_prices table
+      const remisionMaterialIds = Array.from(new Set(rmRows.map((r) => {
+        // We need to get remision_material_id from remision_materiales
+        // For now, we'll fetch allocations by remision_id and material_id
+        return { remision_id: r.remision_id, material_id: r.material_id };
+      })));
+      
+      const costMap = new Map<string, number>(); // material_id -> total cost
+      const consumptionMap = new Map<string, number>(); // material_id -> total consumption
+      
+      // Fetch allocations for these remisiones
+      for (let i = 0; i < remisionIds.length; i += chunkSize) {
+        const chunk = remisionIds.slice(i, i + chunkSize);
+        const { data: allocations } = await supabase
+          .from('material_consumption_allocations')
+          .select('material_id, total_cost, quantity_consumed_kg')
+          .in('remision_id', chunk);
+        
+        (allocations || []).forEach((alloc: any) => {
+          const matId = alloc.material_id;
+          const cost = costMap.get(matId) || 0;
+          const consumption = consumptionMap.get(matId) || 0;
+          costMap.set(matId, cost + Number(alloc.total_cost || 0));
+          consumptionMap.set(matId, consumption + Number(alloc.quantity_consumed_kg || 0));
+        });
+      }
+      
+      // Fallback to material_prices if no allocations found (for remisiones without FIFO allocation)
       const today = format(new Date(), 'yyyy-MM-dd');
-      const priceMap = new Map<string, number>();
+      const fallbackPriceMap = new Map<string, number>();
       for (let i = 0; i < materialIds.length; i += chunkSize) {
         const idsChunk = materialIds.slice(i, i + chunkSize);
         let q = supabase
@@ -300,24 +328,40 @@ export function useProgressiveProductionDetails(params: {
         if (plantId) q = q.eq('plant_id', plantId);
         const { data } = await q;
         (data || []).forEach((p: any) => {
-          if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
+          if (!fallbackPriceMap.has(p.material_id)) fallbackPriceMap.set(p.material_id, Number(p.price_per_unit) || 0);
         });
       }
-      // Aggregate
+      
+      // Aggregate consumption quantities
       const aggregated = new Map<string, number>();
       rmRows.forEach((r) => {
         const key = r.material_id;
         const prev = aggregated.get(key) || 0;
         aggregated.set(key, prev + (Number(r.cantidad_real) || 0));
       });
+      
       let totalCostPerM3 = 0;
       let cementCostPerM3 = 0;
       let cementConsumption = 0;
       const breakdown: MaterialBreakdown[] = [];
       aggregated.forEach((qty, materialId) => {
         const meta = materialsMeta.get(materialId) || { material_name: 'Material', material_code: '', category: '', unit_of_measure: '' };
-        const price = Number(priceMap.get(materialId)) || 0;
-        const totalCost = qty * price;
+        
+        // Use FIFO allocation cost if available, otherwise fallback to material_prices
+        let totalCost: number;
+        let costPerUnit: number;
+        
+        if (costMap.has(materialId) && consumptionMap.has(materialId)) {
+          // Use FIFO allocation cost
+          totalCost = costMap.get(materialId)!;
+          const allocatedConsumption = consumptionMap.get(materialId)!;
+          costPerUnit = allocatedConsumption > 0 ? totalCost / allocatedConsumption : 0;
+        } else {
+          // Fallback to material_prices
+          costPerUnit = Number(fallbackPriceMap.get(materialId)) || 0;
+          totalCost = qty * costPerUnit;
+        }
+        
         const costPerM3 = totalVolume > 0 ? totalCost / totalVolume : 0;
         totalCostPerM3 += costPerM3;
         const typeOrName = String(meta.category || meta.material_name || '').toLowerCase();
@@ -332,7 +376,7 @@ export function useProgressiveProductionDetails(params: {
           total_consumption: qty,
           unit: meta.unit_of_measure,
           total_cost: totalCost,
-          cost_per_unit: price,
+          cost_per_unit: costPerUnit,
           cost_per_m3: costPerM3,
         });
       });

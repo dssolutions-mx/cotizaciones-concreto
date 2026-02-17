@@ -26,6 +26,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   ChevronRight,
   RefreshCw,
   Calendar,
@@ -37,6 +45,7 @@ import {
   Building2,
   CalendarClock,
   AlertTriangle,
+  Archive,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -72,12 +81,21 @@ type PriceGovernanceSite = {
   is_active: boolean;
   valid_until: string | null;
   prices: ActivePrice[];
+  site_last_used?: string | null;
 };
 
 type Metrics = {
   sites_with_validity: number;
   sites_without_validity: number;
   prices_over_90_days: number;
+};
+
+type BulkDeactivateCandidate = {
+  id: string;
+  site_name: string;
+  client_name: string;
+  client_code: string | null;
+  last_used: string | null;
 };
 
 /** Formato alineado con ScheduleOrderForm: f'c, Rev cm, Directa/Bombeado, TMA mm, edad días */
@@ -135,6 +153,11 @@ export function PriceGovernanceTable() {
     siteName: string;
   } | null>(null);
   const [deactivateSiteTarget, setDeactivateSiteTarget] = useState<PriceGovernanceSite | null>(null);
+  const [bulkDeactivateOpen, setBulkDeactivateOpen] = useState(false);
+  const [bulkDeactivateCandidates, setBulkDeactivateCandidates] = useState<BulkDeactivateCandidate[]>([]);
+  const [bulkDeactivateLoading, setBulkDeactivateLoading] = useState(false);
+  const [bulkDeactivateExecuting, setBulkDeactivateExecuting] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
 
   const loadData = useCallback(async () => {
     try {
@@ -218,6 +241,51 @@ export function PriceGovernanceTable() {
     }
   }
 
+  async function openBulkDeactivate() {
+    try {
+      setBulkDeactivateLoading(true);
+      setBulkDeactivateCandidates([]);
+      const params = new URLSearchParams({ olderThanDays: '90' });
+      if (clientFilter) params.set('client_id', clientFilter);
+      if (plantFilter) params.set('plant_id', plantFilter);
+      const res = await fetch(`/api/price-governance/bulk-deactivate/preview?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error');
+      setBulkDeactivateCandidates(json.candidates || []);
+      setBulkDeactivateOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al cargar vista previa');
+      setBulkDeactivateOpen(false);
+    } finally {
+      setBulkDeactivateLoading(false);
+    }
+  }
+
+  async function executeBulkDeactivate() {
+    try {
+      setBulkDeactivateExecuting(true);
+      const res = await fetch('/api/price-governance/bulk-deactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          olderThanDays: 90,
+          clientId: clientFilter || undefined,
+          plantId: plantFilter || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error');
+      setBulkDeactivateOpen(false);
+      setBulkDeactivateCandidates([]);
+      toast.success(`${json.deactivated} obra${json.deactivated !== 1 ? 's' : ''} desactivada${json.deactivated !== 1 ? 's' : ''}`);
+      await loadData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al desactivar');
+    } finally {
+      setBulkDeactivateExecuting(false);
+    }
+  }
+
   const toggleExpanded = (id: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -233,7 +301,16 @@ export function PriceGovernanceTable() {
   const isSiteExpired = (s: PriceGovernanceSite) =>
     s.valid_until && new Date(s.valid_until) < new Date();
 
-  const sitesWithPrices = sites.filter((s) => s.prices.length > 0);
+  const sitesToShow = sites
+    .filter((s) => {
+      if (statusFilter === 'active') return s.is_active;
+      if (statusFilter === 'inactive') return !s.is_active;
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+      return (a.site_name || '').localeCompare(b.site_name || '');
+    });
 
   return (
     <div className="space-y-6">
@@ -301,6 +378,16 @@ export function PriceGovernanceTable() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={statusFilter} onValueChange={(v: 'all' | 'active' | 'inactive') => setStatusFilter(v)}>
+            <SelectTrigger className="w-[160px] h-9 bg-white border-slate-200">
+              <SelectValue placeholder="Estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las obras</SelectItem>
+              <SelectItem value="active">Solo activas</SelectItem>
+              <SelectItem value="inactive">Solo inactivas</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"
@@ -309,6 +396,16 @@ export function PriceGovernanceTable() {
             disabled={loading}
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+            onClick={openBulkDeactivate}
+            disabled={loading || bulkDeactivateLoading}
+          >
+            <Archive className={`h-4 w-4 mr-1.5 ${bulkDeactivateLoading ? 'animate-pulse' : ''}`} />
+            Desactivar obras sin uso reciente
           </Button>
         </div>
       </div>
@@ -324,7 +421,7 @@ export function PriceGovernanceTable() {
               <SiteRowSkeleton key={i} />
             ))}
           </div>
-        ) : sitesWithPrices.length === 0 ? (
+        ) : sitesToShow.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 px-6">
             <div
               className="flex h-14 w-14 items-center justify-center rounded-full mb-4"
@@ -332,16 +429,18 @@ export function PriceGovernanceTable() {
             >
               <Package className="h-7 w-7 text-slate-500" />
             </div>
-            <h3 className="text-base font-medium text-slate-900">Sin precios activos</h3>
+            <h3 className="text-base font-medium text-slate-900">
+              {sites.length === 0 ? 'Sin obras' : 'Sin resultados'}
+            </h3>
             <p className="mt-2 text-center text-sm text-slate-500 max-w-sm">
               {sites.length === 0
                 ? 'No hay obras aprobadas que coincidan con los filtros.'
-                : 'Ninguna obra tiene precios activos. Los precios se crean al aprobar cotizaciones.'}
+                : 'No hay obras que coincidan con el filtro de estado.'}
             </p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {sitesWithPrices.map((site) => {
+            {sitesToShow.map((site) => {
               const expanded = expandedIds.has(site.id);
               const expired = isSiteExpired(site);
 
@@ -389,10 +488,17 @@ export function PriceGovernanceTable() {
                                 Sin vigencia
                               </Badge>
                             )}
-                            {site.prices.length > 0 && (
+                            {site.prices.length > 0 ? (
                               <span className="text-sm text-slate-500">
                                 {site.prices.length} precio{site.prices.length !== 1 ? 's' : ''} vigente
                                 {site.prices.length !== 1 ? 's' : ''}
+                              </span>
+                            ) : !site.is_active && (
+                              <span className="text-sm text-slate-400">
+                                Última entrega:{' '}
+                                {site.site_last_used
+                                  ? format(new Date(site.site_last_used), 'd MMM yyyy', { locale: es })
+                                  : 'Sin entregas'}
                               </span>
                             )}
                           </div>
@@ -504,6 +610,8 @@ export function PriceGovernanceTable() {
                     <CollapsibleContent>
                       <div className="border-t border-slate-100 bg-white">
                         <div className="px-5 pt-3 pb-4">
+                          {site.prices.length > 0 ? (
+                            <>
                           <div className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3 px-1">
                             Precios activos (en uso)
                           </div>
@@ -588,6 +696,12 @@ export function PriceGovernanceTable() {
                               </tbody>
                             </table>
                           </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-slate-500 py-2">
+                              Obra desactivada. Al reactivar, se restaurarán los precios más recientes por receta.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </CollapsibleContent>
@@ -662,6 +776,79 @@ export function PriceGovernanceTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk deactivate stale sites */}
+      <Dialog open={bulkDeactivateOpen} onOpenChange={setBulkDeactivateOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Desactivar obras sin uso reciente</DialogTitle>
+            <DialogDescription>
+              Se desactivarán las obras cuyo último uso (entrega) sea anterior a 90 días o que nunca
+              hayan tenido entregas. Sus precios y cotizaciones también quedarán desactivados.
+            </DialogDescription>
+          </DialogHeader>
+          {bulkDeactivateCandidates.length === 0 ? (
+            <p className="text-sm text-slate-600 py-4">
+              No hay obras que cumplan los criterios.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-slate-700">
+                {bulkDeactivateCandidates.length} obra
+                {bulkDeactivateCandidates.length !== 1 ? 's' : ''} serán desactivada
+                {bulkDeactivateCandidates.length !== 1 ? 's' : ''}:
+              </p>
+              <div className="overflow-auto max-h-[320px] rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Obra</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Cliente</th>
+                      <th className="text-left py-3 px-4 font-medium text-slate-600">Última entrega</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkDeactivateCandidates.map((c) => (
+                      <tr
+                        key={c.id}
+                        className="border-t border-slate-100 hover:bg-slate-50/50"
+                      >
+                        <td className="py-3 px-4 font-medium text-slate-900">{c.site_name}</td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {c.client_name}
+                          {c.client_code && (
+                            <span className="font-mono text-slate-500 ml-1">({c.client_code})</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {c.last_used
+                            ? format(new Date(c.last_used), 'd MMM yyyy', { locale: es })
+                            : <span className="text-slate-400">Sin entregas</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setBulkDeactivateOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={executeBulkDeactivate}
+              disabled={bulkDeactivateCandidates.length === 0 || bulkDeactivateExecuting}
+            >
+              {bulkDeactivateExecuting ? 'Desactivando...' : 'Desactivar obras'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

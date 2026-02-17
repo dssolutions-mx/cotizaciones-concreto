@@ -464,8 +464,15 @@ export class ArkikDuplicateHandler {
 
       switch (decision.strategy) {
         case DuplicateHandlingStrategy.SKIP:
-          skippedRemisiones.push(remision);
+          // CRITICAL: Mark skipped remisiones so they're filtered out even if they leak into the flow
+          const skippedRemision = {
+            ...remision,
+            is_excluded_from_import: true,
+            duplicate_strategy: 'skip' as const
+          };
+          skippedRemisiones.push(skippedRemision);
           skipped++;
+          console.log(`[ArkikDuplicateHandler] Skipped (omit) remision ${remision.remision_number} - marked is_excluded_from_import`);
           break;
 
         case DuplicateHandlingStrategy.UPDATE_MATERIALS_ONLY:

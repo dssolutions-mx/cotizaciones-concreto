@@ -41,6 +41,12 @@ export interface MaterialEntry {
   pricing_status?: 'pending' | 'reviewed';
   reviewed_by?: string;
   reviewed_at?: string;
+  // Price adjustment audit (for PO credits)
+  price_adjusted_at?: string | null; // When entry price was adjusted due to PO credit
+  price_adjusted_by?: string | null; // User who triggered the adjustment
+  original_unit_price?: number | null; // Original unit_price before PO credit adjustment
+  // FIFO consumption tracking
+  remaining_quantity_kg?: number | null; // Remaining inventory from this entry layer (for FIFO)
   // Optional joined data
   material?: {
     id: string;

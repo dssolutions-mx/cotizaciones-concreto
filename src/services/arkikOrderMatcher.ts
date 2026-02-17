@@ -616,7 +616,7 @@ export class ArkikOrderMatcher {
     try {
       console.log(`[ArkikOrderMatcher] Adding ${remisiones.length} remisiones to existing order ${orderId} (bulk mode: ${useBulkMode})`);
       
-      // Filter out excluded remisiones (materials-only duplicates, etc.)
+      // Filter out excluded remisiones (skip/omit, materials-only duplicates, etc.)
       const remisionesToProcess = remisiones.filter(remision => {
         if (remision.is_excluded_from_import) {
           console.log(`[ArkikOrderMatcher] Skipping excluded remision ${remision.remision_number}`);
@@ -624,6 +624,10 @@ export class ArkikOrderMatcher {
         }
         if (remision.duplicate_strategy === 'materials_only') {
           console.log(`[ArkikOrderMatcher] Skipping materials-only duplicate ${remision.remision_number}`);
+          return false;
+        }
+        if (remision.duplicate_strategy === 'skip') {
+          console.log(`[ArkikOrderMatcher] Skipping omit/skip remision ${remision.remision_number}`);
           return false;
         }
         return true;

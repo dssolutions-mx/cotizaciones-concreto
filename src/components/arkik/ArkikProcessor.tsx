@@ -627,6 +627,11 @@ Fin del reporte
           console.log(`[ArkikProcessor] Excluding remision ${remision.remision_number} due to status processing:`, remision.status_processing_action);
           return false;
         }
+        // CRITICAL: Never include omit/skip duplicates in order creation
+        if (remision.duplicate_strategy === 'skip') {
+          console.log(`[ArkikProcessor] Excluding omit/skip remision ${remision.remision_number} from order creation`);
+          return false;
+        }
         
         // Must have all required IDs for order creation
         const hasClientId = !!remision.client_id;
@@ -1015,6 +1020,7 @@ Fin del reporte
       }
 
       // If there are any materials-only updates among duplicates, process them immediately
+      // CRITICAL: Only process materials_only - exclude skip/omit (defensive)
       const materialsOnlyUpdates = updated.filter(r => r.duplicate_strategy === 'materials_only');
       if (materialsOnlyUpdates.length > 0) {
         try {
@@ -1137,6 +1143,11 @@ Fin del reporte
       }
 
       for (const remision of updatedRemisiones) {
+        // CRITICAL: Never process skip/omit remisiones - only materials_only
+        if (remision.duplicate_strategy === 'skip') {
+          console.log(`[ArkikProcessor] Skipping omit/skip remision ${remision.remision_number} in materials update`);
+          continue;
+        }
         if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
           console.log(`[ArkikProcessor] Processing materials for remision ${remision.remision_number} (ID: ${remision.existing_remision_id})`);
           try {
