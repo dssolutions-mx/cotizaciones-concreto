@@ -14,6 +14,12 @@ import Link from 'next/link';
 
 type DeliveredFilter = 'all' | 'delivered' | 'pending';
 
+interface CreatorOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
 interface OrdersListProps {
   filterStatus?: string;
   onOrderClick?: (orderId: string) => void;
@@ -22,6 +28,14 @@ interface OrdersListProps {
   statusFilter?: OrderStatus;
   creditStatusFilter?: CreditStatus;
   clientFilter?: string;
+  // Controlled list filters (when provided, filters are in OrdersNavigation)
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
+  creatorFilter?: string;
+  onCreatorFilterChange?: (value: string) => void;
+  deliveredFilter?: DeliveredFilter;
+  onDeliveredFilterChange?: (value: DeliveredFilter) => void;
+  onCreatorsLoaded?: (creators: CreatorOption[]) => void;
 }
 
 interface GroupedOrders {
@@ -38,7 +52,7 @@ interface GroupedOrders {
 function getStatusColor(status: string) {
   switch (status) {
     case 'created':
-      return 'bg-blue-500 text-white';
+      return 'bg-gray-500/20 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600';
     case 'validated':
       return 'bg-green-500 text-white';
     case 'scheduled':
@@ -95,12 +109,7 @@ function getSiteAccessLabel(rating?: string | null) {
 }
 
 function getPaymentTypeIndicator(requiresInvoice: boolean | undefined) {
-  if (requiresInvoice === true) {
-    return 'bg-indigo-100 text-indigo-800 border border-indigo-300';
-  } else if (requiresInvoice === false) {
-    return 'bg-green-100 text-green-800 border border-green-300';
-  }
-  return 'bg-gray-100 text-gray-800 border border-gray-300';
+  return 'bg-gray-100 text-gray-700 border border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600';
 }
 
 function getAccessDotClass(rating?: string | null) {
@@ -405,12 +414,26 @@ export default function OrdersList({
   maxItems,
   statusFilter,
   creditStatusFilter,
-  clientFilter
+  clientFilter,
+  searchQuery: controlledSearchQuery,
+  onSearchQueryChange,
+  creatorFilter: controlledCreatorFilter,
+  onCreatorFilterChange,
+  deliveredFilter: controlledDeliveredFilter,
+  onDeliveredFilterChange,
+  onCreatorsLoaded
 }: OrdersListProps) {
-  // Estados para los filtros
-  const [searchQuery, setSearchQuery] = useState(clientFilter || '');
-  const [deliveredFilter, setDeliveredFilter] = useState<DeliveredFilter>('all');
-  const [creatorFilter, setCreatorFilter] = useState<string>('all');
+  // Use controlled props when provided, otherwise internal state
+  const [internalSearchQuery, setInternalSearchQuery] = useState(clientFilter || '');
+  const [internalDeliveredFilter, setInternalDeliveredFilter] = useState<DeliveredFilter>('all');
+  const [internalCreatorFilter, setInternalCreatorFilter] = useState<string>('all');
+
+  const searchQuery = controlledSearchQuery ?? internalSearchQuery;
+  const setSearchQuery = onSearchQueryChange ?? setInternalSearchQuery;
+  const creatorFilter = controlledCreatorFilter ?? internalCreatorFilter;
+  const setCreatorFilter = onCreatorFilterChange ?? setInternalCreatorFilter;
+  const deliveredFilter = controlledDeliveredFilter ?? internalDeliveredFilter;
+  const setDeliveredFilter = onDeliveredFilterChange ?? setInternalDeliveredFilter;
   
   const router = useRouter();
   const { profile } = useAuthBridge();
@@ -932,6 +955,13 @@ export default function OrdersList({
     return Array.from(creatorMap.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [orders]);
 
+  // Report creators to parent when using controlled filters (for merged filter card)
+  useEffect(() => {
+    if (onCreatorsLoaded && availableCreators.length >= 0) {
+      onCreatorsLoaded(availableCreators);
+    }
+  }, [availableCreators, onCreatorsLoaded]);
+
   // Función para aplicar filtros a los datos
   const applyFilters = useCallback(() => {
     if (orders.length === 0) return;
@@ -1238,96 +1268,96 @@ export default function OrdersList({
         </div>
       )}
       
-      {/* Filtros */}
-      <div className="bg-white rounded-lg overflow-hidden shadow-sm p-4 border border-gray-200">
-        {/* Búsqueda unificada */}
-        <div className="mb-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Buscar órdenes:</h3>
-          <form onSubmit={handleSearchQuerySubmit} className="flex flex-wrap gap-2">
-            <div className="flex-1 min-w-[300px]">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchQueryChange}
-                placeholder="Buscar por número de orden, cliente, sitio, estado, fecha, hora..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              Buscar
-            </button>
-            {searchQuery && (
+      {/* List filters moved to OrdersNavigation (single unified card) when onSearchQueryChange provided */}
+      {!onSearchQueryChange && (
+        <div className="glass-thin rounded-2xl border border-white/20 p-4">
+          <div className="mb-4">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Buscar órdenes</h3>
+            <form onSubmit={handleSearchQuerySubmit} className="flex flex-wrap gap-2">
+              <div className="flex-1 min-w-[300px]">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={handleSearchQueryChange}
+                  placeholder="Buscar por número de orden, cliente, sitio, estado, fecha, hora..."
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin placeholder:text-muted-foreground"
+                />
+              </div>
               <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                Limpiar
+                Buscar
               </button>
-            )}
-          </form>
-        </div>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                >
+                  Limpiar
+                </button>
+              )}
+            </form>
+          </div>
 
-        {/* Filtros específicos */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por creador:</h3>
-            <select
-              value={creatorFilter}
-              onChange={(e) => setCreatorFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">Todos los creadores</option>
-              {availableCreators.map(creator => (
-                <option key={creator.id} value={creator.id}>
-                  {creator.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por entrega:</h3>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleDeliveredFilterChange('all')}
-                className={`px-3 py-1.5 text-sm rounded-md ${
-                  deliveredFilter === 'all' 
-                    ? 'bg-blue-100 text-blue-800 border border-blue-300' 
-                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-                }`}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Creador</h3>
+              <select
+                value={creatorFilter}
+                onChange={(e) => setCreatorFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin"
               >
-                Todos
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeliveredFilterChange('delivered')}
-                className={`px-3 py-1.5 text-sm rounded-md ${
-                  deliveredFilter === 'delivered' 
-                    ? 'bg-green-100 text-green-800 border border-green-300' 
-                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-                }`}
-              >
-                Entregados
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeliveredFilterChange('pending')}
-                className={`px-3 py-1.5 text-sm rounded-md ${
-                  deliveredFilter === 'pending' 
-                    ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
-                    : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
-                }`}
-              >
-                Pendientes
-              </button>
+                <option value="all">Todos los creadores</option>
+                {availableCreators.map(creator => (
+                  <option key={creator.id} value={creator.id}>
+                    {creator.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Entrega</h3>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDeliveredFilterChange('all')}
+                  className={`px-3 py-1.5 text-sm rounded-md ${
+                    deliveredFilter === 'all' 
+                      ? 'bg-blue-100 text-blue-800 border border-blue-300' 
+                      : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  Todos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeliveredFilterChange('delivered')}
+                  className={`px-3 py-1.5 text-sm rounded-md ${
+                    deliveredFilter === 'delivered' 
+                      ? 'bg-green-100 text-green-800 border border-green-300' 
+                      : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  Entregados
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeliveredFilterChange('pending')}
+                  className={`px-3 py-1.5 text-sm rounded-md ${
+                    deliveredFilter === 'pending' 
+                      ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
+                      : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+                  }`}
+                >
+                  Pendientes
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
       
       {/* Contador de resultados con información de filtro */}
       {!loading && (
@@ -1347,7 +1377,7 @@ export default function OrdersList({
       )}
       
       {filteredOrders.length === 0 ? (
-        <div className="text-center p-12 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="text-center p-12 glass-base rounded-2xl">
           <div className="text-gray-400 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -1383,8 +1413,8 @@ export default function OrdersList({
             const group = groupedOrders[groupKey];
             const isPriorityGroup = ['mañana', 'hoy', 'ayer', 'anteayer'].includes(groupKey);
             const headerClass = isPriorityGroup 
-              ? "bg-gray-50 px-4 py-3 border-b border-gray-200 font-bold text-lg" 
-              : "bg-gray-50 px-4 py-3 border-b border-gray-200";
+? "glass-thin rounded-t-2xl px-4 py-3 border-b border-gray-200/50 font-bold text-lg"
+              : "glass-thin rounded-t-2xl px-4 py-3 border-b border-gray-200/50";
               
             return (
               <motion.div

@@ -11,7 +11,6 @@ import ScheduleOrderForm from '@/components/orders/ScheduleOrderForm';
 import RejectedOrdersTab from '@/components/orders/RejectedOrdersTab';
 import OrdersCalendarView from '@/components/orders/OrdersCalendarView';
 import OrdersNavigation from '@/components/orders/OrdersNavigation';
-import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { GlassDashboardLayout } from '@/components/orders/GlassDashboardLayout';
 import { OrdersErrorBoundary } from '@/components/orders/OrdersErrorBoundary';
 import { OrderStatus, CreditStatus } from '@/types/orders';
@@ -66,6 +65,12 @@ function OrdersContent() {
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(
     savedState.selectedQuoteId || null
   );
+
+  // List-specific filters (merged into single card with Estado/Crédito)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [creatorFilter, setCreatorFilter] = useState('all');
+  const [deliveredFilter, setDeliveredFilter] = useState<'all' | 'delivered' | 'pending'>('all');
+  const [availableCreators, setAvailableCreators] = useState<Array<{ id: string; name: string; email: string }>>([]);
 
   // Refresh key to force child components to reload when plant changes
   const [refreshKey, setRefreshKey] = useState(0);
@@ -258,17 +263,24 @@ function OrdersContent() {
   const renderAllTabs = useMemo(() => (
     <div className="relative">
       {/* List Tab - Always mounted */}
-      <div className={currentTab === 'list' ? 'block' : 'hidden'}>
+      <div id="orders-panel-list" role="tabpanel" aria-labelledby="orders-tab-list" aria-hidden={currentTab !== 'list'} className={currentTab === 'list' ? 'block' : 'hidden'}>
         <OrdersList
           key={`list-${refreshKey}`}
           onCreateOrder={handleCreateOrderFromQuote}
           statusFilter={statusFilter}
           creditStatusFilter={creditStatusFilter}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          creatorFilter={creatorFilter}
+          onCreatorFilterChange={setCreatorFilter}
+          deliveredFilter={deliveredFilter}
+          onDeliveredFilterChange={setDeliveredFilter}
+          onCreatorsLoaded={setAvailableCreators}
         />
       </div>
 
       {/* Calendar Tab - Always mounted */}
-      <div className={currentTab === 'calendar' ? 'block' : 'hidden'}>
+      <div id="orders-panel-calendar" role="tabpanel" aria-labelledby="orders-tab-calendar" aria-hidden={currentTab !== 'calendar'} className={currentTab === 'calendar' ? 'block' : 'hidden'}>
         <OrdersCalendarView
           key={`calendar-${refreshKey}`}
           statusFilter={statusFilter}
@@ -278,7 +290,7 @@ function OrdersContent() {
 
       {/* Create Tab - Only mount when needed to avoid unnecessary state */}
       {currentTab === 'create' && (
-        <div className="block">
+        <div id="orders-panel-create" role="tabpanel" aria-labelledby="orders-tab-create" className="block">
           <ScheduleOrderForm
             preSelectedQuoteId={selectedQuoteId || selectedQuoteData.quoteId || undefined}
             preSelectedClientId={selectedQuoteData.clientId}
@@ -289,7 +301,7 @@ function OrdersContent() {
 
       {/* Credit Validation Tab - Only mount when needed */}
       {currentTab === 'credit' && (
-        <div className="block">
+        <div id="orders-panel-credit" role="tabpanel" aria-labelledby="orders-tab-credit" className="block">
           <RoleGuard allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}>
             <CreditValidationTab />
           </RoleGuard>
@@ -298,7 +310,7 @@ function OrdersContent() {
 
       {/* Rejected Orders Tab - Only mount when needed */}
       {currentTab === 'rejected' && (
-        <div className="block">
+        <div id="orders-panel-rejected" role="tabpanel" aria-labelledby="orders-tab-rejected" className="block">
           <RoleGuard allowedRoles={['EXECUTIVE', 'PLANT_MANAGER']}>
             <RejectedOrdersTab />
           </RoleGuard>
@@ -320,21 +332,20 @@ function OrdersContent() {
     <OrdersErrorBoundary>
       <GlassDashboardLayout
         header={
-          <div className="flex flex-col gap-4">
-            {/* Plant Context Display - Subtle StatusBar */}
-            <div className="flex items-center justify-between">
-              <PlantContextDisplay showLabel={true} />
-            </div>
-            
-            {/* Navigation and Filters */}
-            <OrdersNavigation 
-              currentTab={currentTab}
-              estadoFilter={estadoFilter}
-              creditoFilter={creditoFilter}
-              onTabChange={handleTabChange}
-              onFilterChange={handleFilterChange}
-            />
-          </div>
+          <OrdersNavigation
+            currentTab={currentTab}
+            estadoFilter={estadoFilter}
+            creditoFilter={creditoFilter}
+            onTabChange={handleTabChange}
+            onFilterChange={handleFilterChange}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            creatorFilter={creatorFilter}
+            onCreatorFilterChange={setCreatorFilter}
+            deliveredFilter={deliveredFilter}
+            onDeliveredFilterChange={setDeliveredFilter}
+            availableCreators={availableCreators}
+          />
         }
       >
         {renderAllTabs}

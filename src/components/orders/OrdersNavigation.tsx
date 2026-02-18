@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,6 +33,13 @@ interface TabItem {
   badge?: number;
 }
 
+// Creator type for list filter
+interface CreatorOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
 // Define props for better type safety
 interface OrdersNavigationProps {
   currentTab?: OrderTab;
@@ -40,6 +47,14 @@ interface OrdersNavigationProps {
   creditoFilter?: string;
   onTabChange?: (tab: OrderTab) => void;
   onFilterChange?: (type: 'estado' | 'credito', value: string) => void;
+  // List-specific filters (merged into single card when currentTab === 'list')
+  searchQuery?: string;
+  onSearchQueryChange?: (value: string) => void;
+  creatorFilter?: string;
+  onCreatorFilterChange?: (value: string) => void;
+  deliveredFilter?: 'all' | 'delivered' | 'pending';
+  onDeliveredFilterChange?: (value: 'all' | 'delivered' | 'pending') => void;
+  availableCreators?: CreatorOption[];
 }
 
 /**
@@ -68,7 +83,14 @@ const OrdersNavigation = memo(function OrdersNavigation({
   estadoFilter: externalEstadoFilter,
   creditoFilter: externalCreditoFilter,
   onTabChange,
-  onFilterChange
+  onFilterChange,
+  searchQuery = '',
+  onSearchQueryChange,
+  creatorFilter = 'all',
+  onCreatorFilterChange,
+  deliveredFilter = 'all',
+  onDeliveredFilterChange,
+  availableCreators = []
 }: OrdersNavigationProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -167,12 +189,12 @@ const OrdersNavigation = memo(function OrdersNavigation({
   // Example statuses and credit statuses (replace with actual data sources)
   // Move these outside component or memoize them
   const statuses = React.useMemo(() => 
-    ['todos', 'creada', 'aprobada', 'en_validacion', 'rechazada'], 
+    ['todos', 'creada', 'aprobada', 'en_validacion', 'completada', 'rechazada'], 
     []
   );
   
   const creditStatuses = React.useMemo(() => 
-    ['todos', 'aprobado', 'pendiente', 'rechazado'], 
+    ['todos', 'aprobado', 'pendiente', 'rechazado', 'rechazado_por_validador'], 
     []
   );
 
@@ -293,17 +315,24 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
   const [isFilterExpanded, setIsFilterExpanded] = useState(true);
 
+  const showFilters = (currentTab === 'list' || currentTab === 'calendar');
+  const showListFilters = currentTab === 'list' && onSearchQueryChange;
+
   return (
-    <div className="space-y-4">
-      {/* Floating Segmented Control - Pill Design */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden">
+      {/* Integrated Top Bar: Tabs + Crear Orden */}
+      <div className="flex items-center justify-between gap-3 flex-wrap p-4">
         <div className="flex-1 flex justify-center min-w-0">
-          <div className="glass-thick rounded-full p-1.5 inline-flex gap-1 shadow-lg max-w-full overflow-x-auto">
+          <div role="tablist" className="glass-thin rounded-full p-1.5 inline-flex gap-1 shadow-md max-w-full overflow-x-auto">
             {tabs.map((tab) => {
               const isActive = currentTab === tab.id;
               return (
                 <motion.button
                   key={tab.id}
+                  id={`orders-tab-${tab.id}`}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`orders-panel-${tab.id}`}
                   onClick={() => navigate(tab.id)}
                   className={cn(
                     'relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
@@ -365,9 +394,10 @@ const OrdersNavigation = memo(function OrdersNavigation({
             className="shrink-0"
           >
             <Button
+              variant="ghost"
               onClick={() => navigate('create')}
-              className="!bg-systemGreen hover:!bg-systemGreen/90 !text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100"
-              style={{ backgroundColor: '#34C759', color: 'white' }}
+              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95"
+              style={{ backgroundColor: '#34C759' }}
             >
               <PlusIcon className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Crear Orden</span>
@@ -377,13 +407,9 @@ const OrdersNavigation = memo(function OrdersNavigation({
         )}
       </div>
 
-      {/* Dynamic Filter Bar - Expandable */}
-      {(currentTab === 'list' || currentTab === 'calendar') && (
-        <motion.div
-          initial={false}
-          animate={{ height: isFilterExpanded ? 'auto' : 'auto' }}
-          className="glass-thin rounded-2xl p-4 border border-white/20"
-        >
+      {/* Integrated Filter Section - Same card, below tabs */}
+      {showFilters && (
+        <div className="border-t border-white/20 px-4 py-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
               <MixerHorizontalIcon className="h-5 w-5" />
@@ -392,19 +418,21 @@ const OrdersNavigation = memo(function OrdersNavigation({
             <button
               onClick={() => setIsFilterExpanded(!isFilterExpanded)}
               className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+              aria-expanded={isFilterExpanded}
+              aria-controls="orders-filter-content"
             >
               {isFilterExpanded ? 'Ocultar' : 'Mostrar'}
             </button>
           </div>
 
-          <AnimatePresence>
-            {isFilterExpanded && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="space-y-3"
-              >
+          <motion.div
+            id="orders-filter-content"
+            initial={false}
+            animate={{ height: isFilterExpanded ? 'auto' : 0, opacity: isFilterExpanded ? 1 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Estado Filter */}
                   <StableDropdownMenu
@@ -425,6 +453,49 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   />
                 </div>
 
+                {/* List-specific filters: Search, Creador, Entrega - unified in same card */}
+                {showListFilters && (
+                  <div className="space-y-3 pt-3 border-t border-white/20">
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => onSearchQueryChange?.(e.target.value)}
+                        placeholder="Buscar por orden, cliente, obra, estado..."
+                        className="flex-1 min-w-[200px] px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin placeholder:text-muted-foreground"
+                      />
+                      <select
+                        value={creatorFilter}
+                        onChange={(e) => onCreatorFilterChange?.(e.target.value)}
+                        className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin min-w-[160px]"
+                      >
+                        <option value="all">Todos los creadores</option>
+                        {availableCreators.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                      <div className="flex gap-1">
+                        {(['all', 'delivered', 'pending'] as const).map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => onDeliveredFilterChange?.(opt)}
+                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                              deliveredFilter === opt
+                                ? opt === 'all' ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600'
+                                : opt === 'delivered' ? 'bg-green-100 text-green-800 border border-green-300 dark:border-green-600'
+                                : 'bg-yellow-100 text-yellow-800 border border-yellow-300 dark:border-yellow-600'
+                                : 'glass-thin border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:glass-interactive'
+                            }`}
+                          >
+                            {opt === 'all' ? 'Todos' : opt === 'delivered' ? 'Entregados' : 'Pendientes'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Active Filter Chips */}
                 <div className="flex flex-wrap gap-2">
                   {estadoFilter !== 'todos' && (
@@ -441,13 +512,33 @@ const OrdersNavigation = memo(function OrdersNavigation({
                       onRemove={() => handleFilterChange('credito', 'todos')}
                     />
                   )}
+                  {showListFilters && searchQuery && (
+                    <FilterChip
+                      label="Búsqueda"
+                      value={searchQuery}
+                      onRemove={() => onSearchQueryChange?.('')}
+                    />
+                  )}
+                  {showListFilters && creatorFilter !== 'all' && (
+                    <FilterChip
+                      label="Creador"
+                      value={availableCreators.find((c) => c.id === creatorFilter)?.name || creatorFilter}
+                      onRemove={() => onCreatorFilterChange?.('all')}
+                    />
+                  )}
+                  {showListFilters && deliveredFilter !== 'all' && (
+                    <FilterChip
+                      label="Entrega"
+                      value={deliveredFilter === 'delivered' ? 'Entregados' : 'Pendientes'}
+                      onRemove={() => onDeliveredFilterChange?.('all')}
+                    />
+                  )}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+            </div>
+          </motion.div>
 
           {/* Always show active filters as chips when collapsed */}
-          {!isFilterExpanded && (estadoFilter !== 'todos' || creditoFilter !== 'todos') && (
+          {!isFilterExpanded && (estadoFilter !== 'todos' || creditoFilter !== 'todos' || (showListFilters && (!!searchQuery || creatorFilter !== 'all' || deliveredFilter !== 'all'))) && (
             <div className="flex flex-wrap gap-2">
               {estadoFilter !== 'todos' && (
                 <FilterChip
@@ -463,9 +554,18 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   onRemove={() => handleFilterChange('credito', 'todos')}
                 />
               )}
+              {showListFilters && searchQuery && (
+                <FilterChip label="Búsqueda" value={searchQuery} onRemove={() => onSearchQueryChange?.('')} />
+              )}
+              {showListFilters && creatorFilter !== 'all' && (
+                <FilterChip label="Creador" value={availableCreators.find((c) => c.id === creatorFilter)?.name || creatorFilter} onRemove={() => onCreatorFilterChange?.('all')} />
+              )}
+              {showListFilters && deliveredFilter !== 'all' && (
+                <FilterChip label="Entrega" value={deliveredFilter === 'delivered' ? 'Entregados' : 'Pendientes'} onRemove={() => onDeliveredFilterChange?.('all')} />
+              )}
             </div>
           )}
-        </motion.div>
+        </div>
       )}
     </div>
   );
