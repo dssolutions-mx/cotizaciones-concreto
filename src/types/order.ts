@@ -1,4 +1,6 @@
 // Definiciones de tipos para órdenes y productos relacionados
+// Re-export shared status enums from orders.ts
+export { OrderStatus, CreditStatus } from './orders';
 
 export interface OrderProduct {
   id: string;
@@ -73,6 +75,3 @@ export interface OrderWithDetails extends Order {
     };
   };
 }
-
-export type OrderStatus = 'created' | 'validated' | 'scheduled' | 'completed' | 'cancelled';
-export type CreditStatus = 'pending' | 'approved' | 'rejected' | 'rejected_by_validator'; 

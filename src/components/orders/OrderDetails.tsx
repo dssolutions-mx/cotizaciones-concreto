@@ -5,7 +5,6 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
 import { clientService } from '@/lib/supabase/clients';
-import { fetchAvailableRecipes } from '@/services/recipeService';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -20,6 +19,22 @@ import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
 import { Button } from '@/components/ui/button';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Copy, CalculatorIcon, Beaker } from 'lucide-react';
+import QualityOverview from './QualityOverview';
+import CreditContextPanel from '@/components/credit/CreditContextPanel';
+import { supabase } from '@/lib/supabase';
+import { masterRecipeService } from '@/lib/services/masterRecipeService';
+import { toast } from 'sonner';
 
 // Component to handle signed URL fetching for evidence images
 function EvidenceImage({ path }: { path: string }) {
@@ -67,27 +82,6 @@ function EvidenceImage({ path }: { path: string }) {
     />
   );
 }
-import { // Shadcn Dialog components
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose, 
-} from "@/components/ui/dialog";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Copy, CalculatorIcon, Beaker, FileText } from 'lucide-react';
-import QualityOverview from './QualityOverview';
-import { toast } from 'sonner';
-import CreditContextPanel from '@/components/credit/CreditContextPanel';
-import { supabase } from '@/lib/supabase';
-import { masterRecipeService } from '@/lib/services/masterRecipeService';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -492,6 +486,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         return 'bg-green-500 text-white';
       case 'rejected':
         return 'bg-red-500 text-white';
+      case 'rejected_by_validator':
+        return 'bg-orange-500 text-white';
       default:
         return 'bg-gray-500 text-white';
     }
@@ -505,6 +501,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         return 'Aprobado';
       case 'rejected':
         return 'Rechazado';
+      case 'rejected_by_validator':
+        return 'Rechazado por validador';
       default:
         return status;
     }
@@ -1864,9 +1862,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {/* Edit Order button */}
         {canEditOrder && !isEditing && (
           <Button
+            variant="glassProminent"
+            size="capsule"
             onClick={handleEditClick}
-            className="!bg-systemBlue hover:!bg-systemBlue/90 !text-white !opacity-100 shadow-md"
-            style={{ backgroundColor: '#007AFF', color: 'white', opacity: 1 }}
+            className="text-sm"
           >
             Editar Orden
           </Button>
@@ -1877,7 +1876,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
           onClick={handleRecalculateAmount}
           disabled={isRecalculating}
-          className="px-3 py-2 rounded-xl text-sm font-medium border-2 border-gray-400 bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-100 dark:hover:bg-gray-700"
+          className="glass-thin text-gray-800 dark:text-gray-100 border border-white/30 dark:border-white/10 rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center"
           showDisabled={true}
           disabledMessage="No tienes permiso para recalcular"
         >
@@ -1898,10 +1897,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {deleteAuthorized && (
           isCreator ? (
             <Button
+              variant="danger"
+              size="capsule"
               onClick={() => setShowConfirmDelete(true)}
               disabled={isDeleting || deleteDisabled}
               title={deleteDisabled ? deleteDisabledReason : undefined}
-              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="text-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
             </Button>
@@ -1912,7 +1913,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               disabled={isDeleting || deleteDisabled}
               showDisabled={true}
               disabledMessage={deleteDisabled ? deleteDisabledReason : 'No tienes permiso para eliminar'}
-              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="rounded-full h-10 px-4 py-2.5 text-sm font-medium bg-red-600 text-white hover:bg-red-700 shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
             </RoleProtectedButton>
@@ -1924,7 +1925,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           <RoleProtectedButton
             allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]}
             onClick={() => setIsPaymentDialogOpen(true)}
-            className="px-3 py-2 rounded-xl text-sm font-medium border-2 border-gray-400 bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-100 dark:hover:bg-gray-700"
+            className="glass-thin text-gray-800 dark:text-gray-100 border border-white/30 dark:border-white/10 rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center"
           >
             Registrar Pago
           </RoleProtectedButton>
@@ -2039,45 +2040,43 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       ) : order ? (
         <>
           <div className="mb-6">
-            {/* Glass Tab Navigation - Apple HIG Style */}
-            <div className="glass-thin rounded-2xl p-1.5 inline-flex gap-1 shadow-md">
-              <button
-                onClick={() => setActiveTab('details')}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  activeTab === 'details'
-                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
-                }`}
-                style={activeTab === 'details' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
-              >
-                Detalles de Orden
-              </button>
-              <button
-                onClick={() => setActiveTab('remisiones')}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  activeTab === 'remisiones'
-                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
-                }`}
-                style={activeTab === 'remisiones' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
-              >
-                Remisiones
-              </button>
-              <button
-                onClick={() => setActiveTab('calidad')}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  activeTab === 'calidad'
-                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
-                }`}
-                style={activeTab === 'calidad' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
-              >
-                Calidad
-              </button>
+            {/* Glass Tab Navigation */}
+            <div role="tablist" aria-label="Secciones de la orden" className="glass-thin rounded-2xl p-1.5 inline-flex gap-1 shadow-md">
+              {(['details', 'remisiones', 'calidad'] as const).map((tab, index) => {
+                const isActive = activeTab === tab;
+                const labels = { details: 'Detalles de Orden', remisiones: 'Remisiones', calidad: 'Calidad' };
+                return (
+                  <button
+                    key={tab}
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`order-panel-${tab}`}
+                    id={`order-tab-${tab}`}
+                    tabIndex={isActive ? 0 : -1}
+                    onClick={() => setActiveTab(tab)}
+                    onKeyDown={(e) => {
+                      let next: typeof tab | null = null;
+                      if (e.key === 'ArrowLeft') next = (['details', 'remisiones', 'calidad'] as const)[Math.max(0, index - 1)];
+                      else if (e.key === 'ArrowRight') next = (['details', 'remisiones', 'calidad'] as const)[Math.min(2, index + 1)];
+                      else if (e.key === 'Home') next = 'details';
+                      else if (e.key === 'End') next = 'calidad';
+                      if (next && next !== activeTab) {
+                        e.preventDefault();
+                        setActiveTab(next);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                      isActive ? 'bg-systemBlue text-white shadow-md' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
+                    }`}
+                  >
+                    {labels[tab]}
+                  </button>
+                );
+              })}
             </div>
                   
             {activeTab === 'details' ? (
-              <div className="mt-6">
+              <div id="order-panel-details" role="tabpanel" aria-labelledby="order-tab-details" className="mt-6">
                 <div className="glass-thick rounded-2xl p-6 shadow-lg">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Estado de la Orden</h3>
                   
@@ -2140,10 +2139,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
                   {/* Credit Context Panel - Show for credit validators and executives */}
                   {/* Always show credit terms - they're important and useful even after delivery */}
-                  {(isCreditValidator || isManager) && order && (order.client?.id || order.client_id) && (
+                  {(isCreditValidator || isManager) && order?.client_id && (
                     <div className="mt-6">
                       <CreditContextPanel
-                        clientId={order.client?.id || order.client_id}
+                        clientId={order.client_id}
                         clientName={order.client?.business_name || 'Cliente'}
                         orderAmount={order.total_amount || 0}
                         compact={false}
@@ -2166,8 +2165,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         onClick={openRejectReasonModal}
                         variant="destructive"
                         disabled={isApprovingCredit || isRejectingCredit}
+                        title="La orden permanece; el rechazo puede revertirse"
                       >
-                        Rechazar Crédito
+                        Rechazar (reversible)
                       </Button>
                       {isManager && (
                         <Button
@@ -2175,40 +2175,39 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           variant="destructive"
                           className="bg-red-800 hover:bg-red-900"
                           disabled={isApprovingCredit || isRejectingCredit}
+                          title="Cancela la orden; no se puede deshacer"
                         >
-                          Rechazar Definitivamente
+                          Rechazar definitivamente
                         </Button>
                       )}
                     </div>
                   )}
                 </div>
 
-                <div className="px-4 py-5 sm:px-6">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">Información de Entrega</h3>
-                </div>
-                <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
+                <div className="mt-6 glass-thick rounded-2xl p-6 shadow-lg overflow-hidden">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Información de Entrega</h3>
                   <dl className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Fecha de Entrega</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {order.delivery_date ? formatDate(order.delivery_date) : 'No especificada'}
                       </dd>
                     </div>
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Hora de Entrega</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {order.delivery_time ? formatTime(order.delivery_time) : 'No especificada'}
                       </dd>
                     </div>
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Fecha de Creación</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {order.created_at ? formatTimestamp(order.created_at, 'PPp') : 'No disponible'}
                       </dd>
                     </div>
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Tipo de Orden</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {order.requires_invoice ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                             ✓ FISCAL (con factura)
@@ -2222,11 +2221,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     </div>
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Obra</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{order.construction_site || 'No especificada'}</dd>
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">{order.construction_site || 'No especificada'}</dd>
                     </div>
                     <div className="sm:col-span-2">
                       <dt className="text-sm font-medium text-gray-500">Requerimientos Especiales</dt>
-                      <dd className="mt-1 text-sm text-gray-900">
+                      <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                         {order.special_requirements || 'Ninguno'}
                       </dd>
                     </div>
@@ -2269,16 +2268,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </div>
                     </div>
                   )}
-                  {/* Order actions buttons */}
-                  <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
-                    {/* Buttons removed to avoid duplication - actions are available in the bottom actions section */}
-                  </div>
                 </div>
 
-                <div className="px-4 py-5 sm:px-6 bg-gray-50">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">Productos</h3>
-                </div>
-                <div className="overflow-x-auto">
+                <div className="mt-6 glass-thick rounded-2xl shadow-lg overflow-hidden">
+                  <div className="px-6 py-4 border-b border-white/20">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Productos</h3>
+                  </div>
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -2583,7 +2579,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 </div>
 
                 {shouldShowFinancialInfo() && (
-                  <div className="flex justify-end mt-4">
+                  <div className="flex justify-end mt-4 px-6 pb-4">
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Total:</p>
                       <p className="text-xl font-bold">{formatCurrency(order.total_amount)}</p>
@@ -2611,7 +2607,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 )}
 
                 {isEditing && (
-                  <div className="mt-6 space-y-5">
+                  <div className="mt-6 space-y-5 px-6 pb-6">
                     {!canEditProducts && (
                       <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
                         <div className="flex">
@@ -2991,9 +2987,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             ) : activeTab === 'remisiones' ? (
-              <div className="mt-6 space-y-6">
+              <div id="order-panel-remisiones" role="tabpanel" aria-labelledby="order-tab-remisiones" className="mt-6 space-y-6">
                 {hasRemisiones && (
                   <div className="flex justify-end mb-4">
                     <Button 
@@ -3027,7 +3024,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 />
               </div>
             ) : activeTab === 'calidad' ? (
-              <div className="mt-6">
+              <div id="order-panel-calidad" role="tabpanel" aria-labelledby="order-tab-calidad" className="mt-6">
                 <QualityOverview orderId={order.id} />
               </div>
             ) : null}
@@ -3038,8 +3035,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
           {/* Información Financiera: only in Details tab (not Remisiones or Calidad) */}
           {shouldShowFinancialInfo() && activeTab === 'details' && (
-            <div className="mt-6 border-t pt-6">
-              <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
+            <div className="mt-6 glass-thick rounded-2xl p-6 shadow-lg overflow-hidden">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Información Financiera</h2>
               <OrderDetailsBalance
                 orderId={orderId}
                 clientId={order.client_id}
@@ -3050,8 +3047,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           )}
         </>
       ) : (
-        <div className="text-center py-12">
-          <p className="text-lg text-gray-600">Orden no encontrada</p>
+        <div className="glass-base rounded-2xl p-12 text-center">
+          <p className="text-lg text-gray-600 dark:text-gray-400">Orden no encontrada</p>
         </div>
       )}
 
@@ -3102,7 +3099,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               Cancelar
             </Button>
             <Button variant="destructive" onClick={handleManagerReject}>
-              Rechazar Definitivamente
+              Rechazar definitivamente
             </Button>
           </DialogFooter>
         </DialogContent>

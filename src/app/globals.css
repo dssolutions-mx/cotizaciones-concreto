@@ -340,6 +340,17 @@
     backdrop-filter: blur(8px) saturate(140%);
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+    transition: background 0.2s ease;
+  }
+  .glass-thin:hover {
+    background: rgba(255, 255, 255, 0.72);
+  }
+  .dark .glass-thin {
+    background: rgba(28, 28, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .dark .glass-thin:hover {
+    background: rgba(28, 28, 30, 0.75);
   }
   .glass-interactive {
     background: rgba(255, 255, 255, 0.75);
@@ -354,6 +365,30 @@
     transform: translateY(-1px);
     box-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.14), inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
   }
+  /* HIG-aligned tinted blue: solid accent for primary actions */
+  .glass-tinted-blue {
+    background: rgba(0, 122, 255, 1);
+    color: rgba(255, 255, 255, 1);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .glass-tinted-blue:hover {
+    background: rgba(0, 122, 255, 1);
+    color: rgba(255, 255, 255, 1);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
+    box-shadow: none;
+  }
+  .dark .glass-tinted-blue {
+    background: rgba(10, 132, 255, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+  .dark .glass-tinted-blue:hover {
+    background: rgba(10, 132, 255, 0.75);
+  }
   .dark .glass-base { background: rgba(28, 28, 30, 0.7); border: 1px solid rgba(255,255,255,0.1); }
   .dark .glass-thick { background: rgba(28, 28, 30, 0.8); border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 8px 32px 0 rgba(0,0,0,0.3), inset 0 1px 0 0 rgba(255,255,255,0.1); }
 
@@ -363,12 +398,20 @@
       background: rgb(255, 255, 255);
       backdrop-filter: none;
     }
+    .glass-tinted-blue {
+      background: rgb(0, 122, 255);
+      backdrop-filter: none;
+    }
     .dark .glass-base, .dark .glass-thick, .dark .glass-thin, .dark .glass-interactive {
       background: rgb(28, 28, 30);
     }
+    .dark .glass-tinted-blue {
+      background: rgb(10, 132, 255);
+    }
   }
   @media (prefers-reduced-motion: reduce) {
-    .glass-interactive:hover {
+    .glass-interactive:hover,
+    .glass-tinted-blue:hover {
       transform: none;
       transition: none;
     }
