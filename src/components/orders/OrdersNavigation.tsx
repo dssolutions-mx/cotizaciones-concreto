@@ -408,7 +408,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
             <Button
               variant="ghost"
               onClick={() => navigate('create')}
-              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95 bg-systemGreen"
+              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95 bg-systemGreen hover:bg-systemGreen"
             >
               <PlusIcon className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Crear Orden</span>
