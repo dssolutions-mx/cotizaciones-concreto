@@ -3036,8 +3036,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           {/* Always show order actions, not just for financial users */}
           {renderOrderActions()}
 
-          {/* Información Financiera: amounts, impact, payment history (balance at top in Details tab) */}
-          {shouldShowFinancialInfo() && activeTab !== 'calidad' && (
+          {/* Información Financiera: only in Details tab (not Remisiones or Calidad) */}
+          {shouldShowFinancialInfo() && activeTab === 'details' && (
             <div className="mt-6 border-t pt-6">
               <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
               <OrderDetailsBalance
