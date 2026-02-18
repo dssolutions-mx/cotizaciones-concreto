@@ -15,8 +15,8 @@ import { renderTracker } from '@/lib/performance/renderTracker';
 import { formatTimestamp } from '@/lib/utils';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
-import OrderDetailsBalance from './OrderDetailsBalance';
 import PaymentForm from '../clients/PaymentForm';
+import ClientBalanceSummary from '../clients/ClientBalanceSummary';
 import { Button } from '@/components/ui/button';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 
@@ -2159,6 +2159,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     </div>
                   )}
                   
+                  {shouldShowFinancialInfo() && (
+                    <div className="mt-4 border-t pt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Balance Actual del Cliente</h4>
+                      <ClientBalanceSummary
+                        clientId={order.client_id}
+                      />
+                    </div>
+                  )}
                   <div className="mt-4 flex flex-col sm:flex-row sm:justify-between">
                     <div className="mb-2 sm:mb-0">
                       <span className="text-sm text-gray-500">Estado de Orden:</span>
@@ -3072,18 +3080,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           {/* Always show order actions, not just for financial users */}
           {renderOrderActions()}
 
-          {/* Only show financial info when not in quality tab */}
-          {shouldShowFinancialInfo() && activeTab !== 'calidad' && (
-            <div className="mt-6 border-t pt-6">
-              <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
-              
-              <OrderDetailsBalance
-                orderId={orderId}
-                clientId={order.client_id}
-                constructionSite={order.construction_site}
-              />
-            </div>
-          )}
         </>
       ) : (
         <div className="text-center py-12">
