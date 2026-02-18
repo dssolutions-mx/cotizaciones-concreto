@@ -9,7 +9,8 @@ import {
   TrendingDown, 
   FileText, 
   BarChart3,
-  Plus
+  Plus,
+  Clock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -44,6 +45,12 @@ const navItems: NavItem[] = [
     icon: BarChart3,
     roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS']
   },
+  {
+    href: '/production-control/reloj-checador',
+    label: 'Reloj Checador',
+    icon: Clock,
+    roles: ['DOSIFICADOR', 'EXECUTIVE', 'ADMIN_OPERATIONS']
+  },
 ]
 
 export default function InventoryNavigation() {
@@ -59,6 +66,9 @@ export default function InventoryNavigation() {
   const isActive = (href: string) => {
     if (href === '/production-control/advanced-dashboard') {
       return pathname === href || pathname?.startsWith('/production-control/advanced-dashboard')
+    }
+    if (href === '/production-control/reloj-checador') {
+      return pathname === href || pathname?.startsWith('/production-control/reloj-checador')
     }
     return pathname === href
   }

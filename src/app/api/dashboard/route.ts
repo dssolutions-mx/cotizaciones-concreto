@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { financialService } from '@/lib/supabase/financial';
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 interface DashboardMetrics {
@@ -230,9 +231,8 @@ export async function GET(request: Request) {
     // credit_status = 'pending' means orders waiting for credit approval
     const pendingCreditOrders = creditOrdersResult.count || 0;
     
-    // For outstanding balance, we need to get actual credit orders that are delivered but unpaid
-    // For now, let's use a simple approach - we'll improve this later if needed
-    const totalOutstandingBalance = 0; // Placeholder - would need payment tracking
+    // Outstanding balance from client_balances (construction_site null = general balances)
+    const totalOutstandingBalance = await financialService.getTotalOutstandingBalance(serviceClient);
     
     // Prepare comprehensive dashboard metrics
     const metrics: DashboardMetrics = {

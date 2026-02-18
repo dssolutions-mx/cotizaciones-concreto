@@ -1,12 +1,11 @@
 import { Suspense } from 'react';
 import { format, subDays } from 'date-fns';
-import { FaDollarSign, FaCreditCard, FaUsers, FaClipboardList } from 'react-icons/fa';
+import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { financialService } from '@/lib/supabase/financial';
 import { formatCurrency } from '@/lib/utils';
 import { ClientBalanceTable } from '@/components/finanzas/ClientBalanceTable';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { orderService } from '@/lib/supabase/orders';
 import type { OrderWithClient } from '@/types/orders';
 import { CreditOrdersSection } from '@/components/finanzas/CreditOrdersSection';
@@ -22,8 +21,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
 import { ExportBalancesExcelButton } from '@/components/finanzas/ExportBalancesExcelButton';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { BarChart, PieChart, TrendingUp } from 'lucide-react';
 
 // Enable ISR with 5-minute revalidation interval
 export const revalidate = 300; // 5 minutes in seconds
@@ -51,95 +48,82 @@ export default async function FinancialHubPage() {
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
       <div className="container mx-auto p-6">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Centro Financiero</h1>
-          <div className="flex items-center space-x-2">
-            <QuickAddPaymentButton />
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="text-large-title text-gray-900">Centro Financiero</h1>
+            <p className="text-footnote text-muted-foreground mt-1">Cartera CxC, crédito, ventas y pagos</p>
           </div>
+          <QuickAddPaymentButton />
         </div>
         
-        {/* Quick Navigation Section */}
+        {/* Quick Navigation - glass-interactive like Comercial */}
         <div className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Reportes y Análisis</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <h2 className="text-title-3 text-gray-800 mb-4">Accesos Rápidos</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <Link href="/finanzas/produccion">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-purple-500">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">Reporte de Producción</CardTitle>
-                    <BarChart className="h-5 w-5 text-purple-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <BarChart2 className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Reporte de Producción</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
                     Análisis de costos de materiales y producción por resistencia
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </Link>
-            
             <Link href="/finanzas/ventas">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-green-500">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">Reporte de Ventas</CardTitle>
-                    <PieChart className="h-5 w-5 text-green-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <PieChart className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Reporte de Ventas</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
                     Análisis de ventas mensuales y tendencias
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </Link>
-            
             <Link href="/finanzas/remisiones">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-blue-500">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">Remisiones por Cliente</CardTitle>
-                    <FaClipboardList className="h-5 w-5 text-blue-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <FileBarChart2 className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Remisiones por Cliente</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
                     Consulta de remisiones y entregas por cliente
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </Link>
-            
             <Link href="/finanzas/pagos-diarios">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-orange-500">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">Pagos Diarios</CardTitle>
-                    <FaDollarSign className="h-5 w-5 text-orange-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <DollarSign className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Pagos Diarios</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
                     Registro y seguimiento de pagos diarios
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </Link>
-
             <Link href="/finanzas/credito-validacion">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-indigo-500">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">Validación de Crédito</CardTitle>
-                    <TrendingUp className="h-5 w-5 text-indigo-500" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <TrendingUp className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Validación de Crédito</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
                     Gestión de términos de crédito y límites de clientes
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </Link>
           </div>
         </div>
@@ -163,22 +147,20 @@ export default async function FinancialHubPage() {
               
               {/* Client Balances Tab */}
               <TabsContent value="balances" className="space-y-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                <div className="glass-base rounded-2xl p-6">
+                  <div className="flex flex-row items-start justify-between gap-4 pb-4">
                     <div>
-                      <CardTitle>Balances de Clientes</CardTitle>
-                      <CardDescription>
+                      <h3 className="text-title-3 text-gray-900">Balances de Clientes</h3>
+                      <p className="text-footnote text-muted-foreground mt-1">
                         Visualiza los saldos pendientes de todos los clientes
-                      </CardDescription>
+                      </p>
                     </div>
                     <ExportBalancesExcelButton />
-                  </CardHeader>
-                  <CardContent>
-                    <Suspense fallback={<ClientBalanceTableSkeleton />}>
-                      <ClientBalancesSection supabaseClient={supabase} />
-                    </Suspense>
-                  </CardContent>
-                </Card>
+                  </div>
+                  <Suspense fallback={<ClientBalanceTableSkeleton />}>
+                    <ClientBalancesSection supabaseClient={supabase} />
+                  </Suspense>
+                </div>
               </TabsContent>
               
               {/* Credit Approval Tab */}
@@ -187,19 +169,15 @@ export default async function FinancialHubPage() {
                   allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}
                   action="ver y gestionar aprobaciones de crédito"
                 >
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Órdenes Pendientes de Aprobación de Crédito</CardTitle>
-                      <CardDescription>
-                        Gestiona las órdenes que requieren aprobación de crédito antes de ser procesadas
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Suspense fallback={<CreditApprovalSkeleton />}>
-                        <CreditApprovalSection supabaseClient={supabase} />
-                      </Suspense>
-                    </CardContent>
-                  </Card>
+                  <div className="glass-base rounded-2xl p-6">
+                    <h3 className="text-title-3 text-gray-900">Órdenes Pendientes de Aprobación de Crédito</h3>
+                    <p className="text-footnote text-muted-foreground mt-1 mb-4">
+                      Gestiona las órdenes que requieren aprobación de crédito antes de ser procesadas
+                    </p>
+                    <Suspense fallback={<CreditApprovalSkeleton />}>
+                      <CreditApprovalSection supabaseClient={supabase} />
+                    </Suspense>
+                  </div>
                 </RoleProtectedSection>
               </TabsContent>
             </Tabs>
@@ -214,19 +192,14 @@ export default async function FinancialHubPage() {
 async function FinancialMetricsLoader() {
   return (
     <section>
-      <h2 className="text-2xl font-semibold mb-4">Resumen Financiero</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <h2 className="text-title-3 text-gray-800 mb-4">Resumen Financiero</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="h-full border-s-4 border-s-gray-300 @container">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-              <Skeleton className="h-5 w-32" />
-              <Skeleton className="h-5 w-5 rounded-full" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-24 mb-1" />
-              <Skeleton className="h-4 w-40" />
-            </CardContent>
-          </Card>
+          <div key={i} className="glass-base rounded-2xl p-5 animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-2/3 mb-3" />
+            <div className="h-8 bg-gray-200 rounded w-1/2 mb-2" />
+            <div className="h-4 bg-gray-200 rounded w-full" />
+          </div>
         ))}
       </div>
     </section>
@@ -273,73 +246,71 @@ async function FinancialMetrics() {
 
   return (
     <section>
-      <h2 className="text-2xl font-semibold mb-4">Resumen Financiero</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <h2 className="text-title-3 text-gray-800 mb-4">Resumen Financiero</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Outstanding balance */}
-        <Card className="h-full border-s-4 border-s-red-500 @container">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-            <CardTitle className="text-sm font-medium">Saldo Total Pendiente</CardTitle>
-            <FaDollarSign className="h-5 w-5 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl @md:text-2xl font-bold mb-1 break-words">
-              <span className={metricsData.totalOutstandingBalance > 0 ? "text-red-600" : "text-green-600"}>
-                {formatCurrency(metricsData.totalOutstandingBalance)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
+        <div className="glass-base rounded-2xl p-5 flex items-start gap-4 h-full">
+          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+            <DollarSign className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-footnote text-muted-foreground">Saldo Total Pendiente</p>
+            <p className={`text-xl @md:text-2xl font-bold mt-1 ${metricsData.totalOutstandingBalance > 0 ? "text-red-600" : "text-green-600"}`}>
+              {formatCurrency(metricsData.totalOutstandingBalance)}
+            </p>
+            <p className="text-footnote text-muted-foreground mt-1">
               Total de saldos pendientes por cobrar
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
         
         {/* Payments received */}
-        <Card className="h-full border-s-4 border-s-green-500 @container">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-            <CardTitle className="text-sm font-medium">Pagos Recibidos (30 días)</CardTitle>
-            <FaCreditCard className="h-5 w-5 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl @md:text-2xl font-bold mb-1 text-green-600 break-words">
+        <div className="glass-base rounded-2xl p-5 flex items-start gap-4 h-full">
+          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+            <CreditCard className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-footnote text-muted-foreground">Pagos Recibidos (30 días)</p>
+            <p className="text-xl @md:text-2xl font-bold text-green-600 mt-1">
               {formatCurrency(metricsData.paymentsLastThirtyDays.totalAmount)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {metricsData.paymentsLastThirtyDays.count} pagos en los últimos 30 días (todas las obras)
             </p>
-          </CardContent>
-        </Card>
+            <p className="text-footnote text-muted-foreground mt-1">
+              {metricsData.paymentsLastThirtyDays.count} pagos en los últimos 30 días
+            </p>
+          </div>
+        </div>
         
         {/* Clients with balances */}
-        <Card className="h-full border-s-4 border-s-blue-500 @container">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-            <CardTitle className="text-sm font-medium">Clientes con Saldo Pendiente</CardTitle>
-            <FaUsers className="h-5 w-5 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl @md:text-2xl font-bold mb-1 text-blue-600">
+        <div className="glass-base rounded-2xl p-5 flex items-start gap-4 h-full">
+          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+            <Users className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-footnote text-muted-foreground">Clientes con Saldo</p>
+            <p className="text-xl @md:text-2xl font-bold text-gray-900 mt-1">
               {metricsData.overdueClientsCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
+            </p>
+            <p className="text-footnote text-muted-foreground mt-1">
               Clientes con balance mayor a cero
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
         
         {/* Orders pending credit approval */}
-        <Card className="h-full border-s-4 border-s-amber-500 @container">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
-            <CardTitle className="text-sm font-medium">Órdenes Pendientes de Crédito</CardTitle>
-            <FaClipboardList className="h-5 w-5 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl @md:text-2xl font-bold mb-1 text-amber-600">
+        <div className="glass-base rounded-2xl p-5 flex items-start gap-4 h-full">
+          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+            <ClipboardList className="h-5 w-5 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-footnote text-muted-foreground">Crédito Pendiente</p>
+            <p className="text-xl @md:text-2xl font-bold text-gray-900 mt-1">
               {metricsData.pendingCreditOrdersCount}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Órdenes que requieren aprobación de crédito
             </p>
-          </CardContent>
-        </Card>
+            <p className="text-footnote text-muted-foreground mt-1">
+              Órdenes por aprobar
+            </p>
+          </div>
+        </div>
       </div>
     </section>
   );

@@ -24,7 +24,7 @@ export const clientService = {
     try {
       let query = supabase
         .from('clients')
-        .select('id, business_name, client_code, approval_status, valid_until')
+        .select('id, business_name, client_code, approval_status, valid_until, credit_status')
         .order('business_name');
 
       if (approvedOnly) {

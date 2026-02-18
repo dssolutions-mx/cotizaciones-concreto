@@ -8,7 +8,7 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function CreateUserPage() {
   return (
-    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE']} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="mb-6">
           <Link

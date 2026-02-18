@@ -10,7 +10,7 @@ import { AdminDashboard } from '@/components/admin/AdminDashboard';
 
 export default function AdminPage() {
   return (
-    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE']} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="mb-8">
           <h1 className="text-large-title text-gray-900 mb-2">Administración</h1>

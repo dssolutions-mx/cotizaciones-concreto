@@ -80,7 +80,7 @@ export default function RoleManagementPage() {
   }, [searchTerm]);
 
   return (
-    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE']} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold">Gestión de Roles</h1>

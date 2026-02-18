@@ -40,7 +40,8 @@ import {
   Clock,
   Layers,
   GitBranch,
-  ShieldCheck
+  ShieldCheck,
+  Briefcase
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -84,7 +85,7 @@ const finanzasSubMenuItems = [
     IconComponent: BarChart,
   },
   {
-    title: "Balances de Clientes",
+    title: "Cartera CxC",
     href: "/finanzas/clientes",
     IconComponent: Users,
   },
@@ -99,14 +100,9 @@ const finanzasSubMenuItems = [
     IconComponent: TrendingUp,
   },
   {
-    title: "Reporte Diario",
+    title: "Reporte Diario (Ventas y Pagos)",
     href: "/finanzas/ventas-diarias",
     IconComponent: BarChart,
-  },
-  {
-    title: "Pagos Diarios",
-    href: "/finanzas/pagos-diarios", 
-    IconComponent: CreditCard,
   },
   {
     title: "Remisiones por Cliente",
@@ -114,39 +110,41 @@ const finanzasSubMenuItems = [
     IconComponent: FileBarChart2,
   },
   {
-    title: "Reportes Dinámicos",
+    title: "Reportes PDF",
     href: "/finanzas/reportes-clientes",
     IconComponent: FileSpreadsheet,
-  },
-  {
-    title: "Gobierno de Precios",
-    href: "/finanzas/gobierno-precios",
-    IconComponent: ShieldCheck,
   },
 ];
 
 function getFinanzasSubMenuItemsForRole(userRole?: string) {
   if (userRole === 'ADMIN_OPERATIONS') {
-    // Restrict to: Reporte de Ventas, Datos Históricos, Reporte Diario, Remisiones por Cliente, Reportes Dinámicos
     return [
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Datos Históricos", href: "/finanzas/historical-data", IconComponent: TrendingUp },
-      { title: "Reporte Diario", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
+      { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
-      { title: "Reportes Dinámicos", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
     ];
   }
   if (userRole === 'SALES_AGENT') {
-    // Sales agents focus on client management, quotes, and sales reports
     return [
-      { title: "Balances de Clientes", href: "/finanzas/clientes", IconComponent: Users },
+      { title: "Cartera CxC", href: "/finanzas/clientes", IconComponent: Users },
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
-      { title: "Reportes Dinámicos", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
     ];
   }
   return finanzasSubMenuItems;
 }
+
+// Define Comercial submenu items
+const comercialSubMenuItems = [
+  { title: "Clientes", href: "/clients", IconComponent: Users },
+  { title: "Cotizaciones", href: "/quotes", IconComponent: ClipboardList },
+  { title: "Precios", href: "/prices", IconComponent: DollarSign },
+  { title: "Autorización", href: "/finanzas/gobierno-precios", IconComponent: ShieldCheck },
+  { title: "Crédito", href: "/finanzas/credito-validacion", IconComponent: CreditCard },
+];
 
 // Define RH submenu items
 const rhSubMenuItems = [
@@ -154,6 +152,11 @@ const rhSubMenuItems = [
     title: "Remisiones Semanal",
     href: "/rh/remisiones-semanal",
     IconComponent: BarChart3,
+  },
+  {
+    title: "Reloj Checador",
+    href: "/production-control/reloj-checador",
+    IconComponent: Clock,
   },
 ];
 
@@ -196,11 +199,12 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
   { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
-  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
+  { type: 'group', title: "Laboratorio" },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
+  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
+  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
+  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
+  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
 ];
 
 // Quality submenu for QUALITY_TEAM (without dashboard)
@@ -219,11 +223,12 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
   { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
-  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
+  { type: 'group', title: "Laboratorio" },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
+  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
+  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
+  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
+  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
 ];
 
 // Quality submenu for QUALITY_TEAM in specific plants (P002, P003, P004) - limited access
@@ -236,11 +241,48 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
   { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
   { type: 'group', title: "Gestión" },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
+  { type: 'group', title: "Laboratorio" },
+  { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
+  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
+  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
+  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
 ];
+
+// Canonical navigation config: ordered array filtered by role
+type NavItemDef = {
+  href: string;
+  label: string;
+  IconComponent: React.ElementType;
+  roles: string[];
+};
+
+const COMERCIAL_ROLES = ['CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'];
+
+const CANONICAL_NAV_ITEMS: NavItemDef[] = [
+  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
+  { href: '/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
+  { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
+  { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
+  { href: '/admin', label: 'Administración', IconComponent: UserCog, roles: ['EXECUTIVE'] },
+];
+
+function getNavItemsForRole(role: string | undefined): Array<{ href: string; label: string; IconComponent: React.ElementType }> {
+  if (!role) return [];
+  const items = CANONICAL_NAV_ITEMS
+    .filter((item) => item.roles.includes(role))
+    .map(({ href, label, IconComponent }) => ({ href, label, IconComponent }));
+  // Remove top-level Recipes when Quality section exists (recetas in quality submenu)
+  const hasQuality = items.some((i) => i.href === '/quality');
+  if (hasQuality) {
+    return items.filter((i) => i.href !== '/recipes');
+  }
+  return items;
+}
 
 // Helper function to check if QUALITY_TEAM user is in restricted plant
 export function isQualityTeamInRestrictedPlant(userRole: string | undefined, plantCode: string | undefined): boolean {
@@ -282,6 +324,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const isAdminRoute = pathname?.startsWith('/admin');
   const isInventoryRoute = pathname?.startsWith('/production-control');
   const isRhRoute = pathname?.startsWith('/rh');
+  const isComercialRoute =
+    pathname?.startsWith('/comercial') ||
+    pathname?.startsWith('/clients') ||
+    pathname?.startsWith('/quotes') ||
+    pathname?.startsWith('/prices') ||
+    pathname?.startsWith('/finanzas/gobierno-precios') ||
+    pathname?.startsWith('/finanzas/credito-validacion');
 
   // Persist collapsed state (default collapsed)
   useEffect(() => {
@@ -356,140 +405,21 @@ function Navigation({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // Determinar los elementos de navegación basados en el rol
-  const navItems: Array<{ href: string; label: string; IconComponent: React.ElementType; }> = [];
-
-  // Añadir elementos de menú basados en el rol
-  if (profile) {
-    const role = profile.role;
-    
-    // Elementos comunes para todos los roles (excepto QUALITY_TEAM que no debe ver el Dashboard)
-    if (role !== 'QUALITY_TEAM') {
-      navItems.push({ href: '/dashboard', label: 'Dashboard', IconComponent: Home });
-    }
-    
-    // Flag to check if Finanzas link should be added
-    let addFinanzasLink = false;
-    // Flag to check if Quality link should be added
-    let addQualityLink = false;
-    // Flag to check if Admin link should be added
-    let addAdminLink = false;
-    // Flag to check if RH link should be added
-    // RH is intended for all internal roles (exclude external client portal users)
-    let addRhLink = role !== 'EXTERNAL_CLIENT';
-
-    // Específicos por rol
-    switch (role) {
-      case 'DOSIFICADOR':
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
-        addQualityLink = true;
-        break;
-        
-      case 'CREDIT_VALIDATOR':
-        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        addFinanzasLink = true;
-        break;
-      
-      case 'EXTERNAL_SALES_AGENT':
-        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        break;
-        
-      case 'SALES_AGENT':
-        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
-        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
-        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        addFinanzasLink = true;
-        break;
-        
-      case 'PLANT_MANAGER':
-        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
-        navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
-        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
-        addFinanzasLink = true;
-        addQualityLink = true;
-        break;
-        
-      case 'EXECUTIVE':
-        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
-        navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
-        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
-        addAdminLink = true;
-        addFinanzasLink = true;
-        addQualityLink = true;
-        break;
-
-      case 'ADMIN_OPERATIONS':
-        // New administrative role with access to Production Control and Finanzas
-        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
-        addFinanzasLink = true;
-        break;
-
-      case 'ADMINISTRATIVE':
-        // Administrative role with access to Finanzas and accounting functions
-        addFinanzasLink = true;
-        break;
-        
-      case 'QUALITY_TEAM':
-        // QUALITY_TEAM only has access to quality module, no other sections
-        addQualityLink = true;
-        break;
-        
-      default:
-        break;
-    }
-
-    // Add RH link for all internal roles
-    if (addRhLink) {
-      navItems.push({ href: '/rh', label: 'RH', IconComponent: Users });
-    }
-
-    // Add Finanzas link if applicable
-    if (addFinanzasLink) {
-      navItems.push({ href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign });
-    }
-    
-    // Add Quality link if applicable
-    if (addQualityLink) {
-      navItems.push({ href: '/quality', label: 'Calidad', IconComponent: Beaker });
-    }
-
-    // Add Admin link if applicable
-    if (addAdminLink) {
-      navItems.push({ href: '/admin', label: 'Administración', IconComponent: UserCog });
-    }
-
-    // Remove top-level Recipes when Quality section exists to prevent duplication
-    if (addQualityLink) {
-      for (let i = navItems.length - 1; i >= 0; i--) {
-        if (navItems[i].href === '/recipes') navItems.splice(i, 1);
-      }
-    }
-  }
+  // Determinar los elementos de navegación basados en el rol (declarative config)
+  const navItems = profile ? getNavItemsForRole(profile.role) : [];
 
   // Define preferred items for mobile bottom navigation
-  const preferredBottomNavOrder = ['/orders', '/clients', '/quotes', '/finanzas'];
+  const preferredBottomNavOrder = ['/orders', '/comercial', '/finanzas'];
   const mobileBottomNavItems = preferredBottomNavOrder
     .map(href => navItems.find(item => item.href === href))
     .filter(item => item !== undefined) as typeof navItems;
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar - collapsible */}
+      {/* Sidebar - collapsible with glass */}
       <aside
         className={cn(
-          "hidden md:flex flex-col bg-white shadow-md transition-all duration-300 ease-in-out",
+          "hidden md:flex flex-col glass-thin transition-all duration-300 ease-in-out",
           isSidebarCollapsed ? "w-16" : "w-64"
         )}
       >
@@ -528,12 +458,15 @@ function Navigation({ children }: { children: React.ReactNode }) {
               const isFinanzasMainLink = item.href === '/finanzas';
               const isQualityMainLink = item.href === '/quality';
               const isRhMainLink = item.href === '/rh';
+              const isComercialMainLink = item.href === '/comercial';
               const isActive = isFinanzasMainLink
                 ? isFinanzasRoute
                 : isQualityMainLink
                 ? isQualityRoute
                 : isRhMainLink
                 ? isRhRoute
+                : isComercialMainLink
+                ? isComercialRoute
                 : item.href === '/admin'
                 ? isAdminRoute
                 : pathname === item.href;
@@ -544,8 +477,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   <Link
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-2 py-2 px-3 rounded transition-colors w-full",
-                      isActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                      "flex items-center gap-2 py-2 px-3 rounded transition-colors w-full text-footnote border-l-4",
+                      isActive ? "bg-primary/15 border-primary text-gray-900 font-medium" : "border-transparent text-gray-700 hover:bg-muted/50"
                     )}
                   >
                     <span className="mr-1.5">{Icon && <Icon size={18} />}</span>
@@ -561,10 +494,33 @@ function Navigation({ children }: { children: React.ReactNode }) {
                             key={`subnav-${subIndex}`}
                             href={subItem.href}
                             className={cn(
-                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
                               pathname === subItem.href
-                                ? "bg-gray-200 text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-gray-100"
+                                ? "bg-primary/10 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-muted/50"
+                            )}
+                          >
+                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                            {subItem.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isComercialMainLink && isComercialRoute && (
+                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                      {comercialSubMenuItems.map((subItem, subIndex) => {
+                        const SubIcon = subItem.IconComponent;
+                        return (
+                          <Link
+                            key={`comercial-subnav-${subIndex}`}
+                            href={subItem.href}
+                            className={cn(
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
+                              pathname === subItem.href
+                                ? "bg-primary/10 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-muted/50"
                             )}
                           >
                             <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -584,10 +540,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
                             key={`rh-subnav-${subIndex}`}
                             href={subItem.href}
                             className={cn(
-                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
                               pathname === subItem.href
-                                ? "bg-gray-200 text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-gray-100"
+                                ? "bg-primary/10 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-muted/50"
                             )}
                           >
                             <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -612,17 +568,17 @@ function Navigation({ children }: { children: React.ReactNode }) {
                           );
                         }
                         const SubIcon = subItem.IconComponent;
-                        return (
-                          <Link
-                            key={`quality-subnav-${subIndex}`}
-                            href={subItem.href}
-                            className={cn(
-                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
-                              pathname === subItem.href
-                                ? "bg-gray-200 text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-gray-100"
-                            )}
-                          >
+                            return (
+                              <Link
+                                key={`quality-subnav-${subIndex}`}
+                                href={subItem.href}
+                                className={cn(
+                                  "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
+                                  pathname === subItem.href
+                                    ? "bg-primary/10 text-gray-900 font-medium"
+                                    : "text-gray-600 hover:bg-muted/50"
+                                )}
+                              >
                             <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
                             {subItem.title}
                           </Link>
@@ -650,10 +606,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
                             key={`inventory-subnav-${subIndex}`}
                             href={subItem.href}
                             className={cn(
-                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
                               pathname === subItem.href
-                                ? "bg-gray-200 text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-gray-100"
+                                ? "bg-primary/10 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-muted/50"
                             )}
                           >
                             <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -675,10 +631,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
                           key={`admin-subnav-${subIndex}`}
                           href={subItem.href}
                           className={cn(
-                            "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                            "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
                             pathname === subItem.href
-                              ? "bg-gray-200 text-gray-900 font-medium"
-                              : "text-gray-600 hover:bg-gray-100"
+                              ? "bg-primary/10 text-gray-900 font-medium"
+                              : "text-gray-600 hover:bg-muted/50"
                           )}
                         >
                           <span className="mr-2">{subItem.IconComponent && <subItem.IconComponent size={16} />}</span>
@@ -699,12 +655,15 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 const isQualityMainLink = item.href === '/quality';
                 const isAdminMainLink = item.href === '/admin';
                 const isRhMainLink = item.href === '/rh';
+                const isComercialMainLink = item.href === '/comercial';
                 const isActive = isFinanzasMainLink
                   ? isFinanzasRoute
                   : isQualityMainLink
                   ? isQualityRoute
                   : isRhMainLink
                   ? isRhRoute
+                  : isComercialMainLink
+                  ? isComercialRoute
                   : isAdminMainLink
                   ? isAdminRoute
                   : pathname === item.href;
@@ -714,8 +673,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   <Link
                     href={item.href}
                     className={cn(
-                      "flex items-center justify-center py-2 rounded-md transition-colors",
-                      isActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                      "flex items-center justify-center py-2 rounded-md transition-colors border-l-4",
+                      isActive ? "bg-primary/15 border-primary text-gray-900" : "border-transparent text-gray-700 hover:bg-muted/50"
                     )}
                     aria-label={item.label}
                   >
@@ -736,6 +695,32 @@ function Navigation({ children }: { children: React.ReactNode }) {
                           {getFinanzasSubMenuItemsForRole(profile?.role).map((subItem, subIndex) => (
                             <Link
                               key={`fin-sub-${subIndex}`}
+                              href={subItem.href}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded text-sm",
+                                pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
+                              )}
+                            >
+                              <subItem.IconComponent size={16} />
+                              {subItem.title}
+                            </Link>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                if (isComercialMainLink) {
+                  return (
+                    <Tooltip key={`nav-col-${index}`}>
+                      <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
+                      <TooltipContent sideOffset={8} side="right" className="p-0">
+                        <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Comercial</div>
+                          {comercialSubMenuItems.map((subItem, subIndex) => (
+                            <Link
+                              key={`comercial-sub-${subIndex}`}
                               href={subItem.href}
                               className={cn(
                                 "flex items-center gap-2 px-3 py-2 rounded text-sm",
@@ -981,8 +966,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
-                        "flex items-center py-2.5 px-3 rounded-md mb-1",
-                        isCurrentItemActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                        "flex items-center py-2.5 px-3 rounded-md mb-1 text-footnote border-l-4",
+                        isCurrentItemActive ? "bg-primary/15 border-primary text-gray-900 font-medium" : "border-transparent text-gray-700 hover:bg-muted/50"
                       )}
                     >
                       <span className="mr-2">{Icon && <Icon size={18} />}</span>
@@ -1000,8 +985,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-sm",
-                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
+                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                               )}
                             >
                               <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -1023,8 +1008,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-sm",
-                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
+                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                               )}
                             >
                               <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -1056,8 +1041,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-sm",
-                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
+                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                               )}
                             >
                               <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -1089,8 +1074,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-sm",
-                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
+                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                               )}
                             >
                               <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
@@ -1114,8 +1099,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               href={subItem.href}
                               onClick={() => setMobileMenuOpen(false)}
                               className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-sm",
-                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
+                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                               )}
                             >
                               <span className="mr-2">{subItem.IconComponent && <subItem.IconComponent size={16} />}</span>

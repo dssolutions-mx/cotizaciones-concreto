@@ -182,7 +182,7 @@ function ClientPortalUsersContent() {
   }, [handleRefresh]);
 
   return (
-    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE']} redirectTo="/access-denied">
       <ErrorBoundary>
         <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
