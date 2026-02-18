@@ -19,7 +19,6 @@ import {
   UserCog,
   Package,
   Home,
-  LineChart,
   FileBarChart2,
   Beaker,
   FlaskConical,
@@ -65,11 +64,6 @@ import { BotIdClient } from 'botid/client';
 // Define Finanzas submenu items with component types
 const finanzasSubMenuItems = [
   {
-    title: "Dashboard Finanzas",
-    href: "/finanzas",
-    IconComponent: LineChart,
-  },
-  {
     title: "Compras / PO",
     href: "/finanzas/po",
     IconComponent: ClipboardList,
@@ -95,11 +89,6 @@ const finanzasSubMenuItems = [
     IconComponent: BarChart2,
   },
   {
-    title: "Datos Históricos",
-    href: "/finanzas/historical-data",
-    IconComponent: TrendingUp,
-  },
-  {
     title: "Reporte Diario (Ventas y Pagos)",
     href: "/finanzas/ventas-diarias",
     IconComponent: BarChart,
@@ -120,7 +109,6 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
   if (userRole === 'ADMIN_OPERATIONS') {
     return [
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
-      { title: "Datos Históricos", href: "/finanzas/historical-data", IconComponent: TrendingUp },
       { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
       { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
