@@ -319,7 +319,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
   const showListFilters = currentTab === 'list' && onSearchQueryChange;
 
   return (
-    <div className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden">
+    <div className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-visible relative z-10">
       {/* Integrated Top Bar: Tabs + Crear Orden */}
       <div className="flex items-center justify-between gap-3 flex-wrap p-4">
         <div className="flex-1 flex justify-center min-w-0">
@@ -396,8 +396,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
             <Button
               variant="ghost"
               onClick={() => navigate('create')}
-              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95"
-              style={{ backgroundColor: '#34C759' }}
+              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95 bg-systemGreen"
             >
               <PlusIcon className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Crear Orden</span>
@@ -409,7 +408,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
       {/* Integrated Filter Section - Same card, below tabs */}
       {showFilters && (
-        <div className="border-t border-white/20 px-4 py-4">
+        <div className="border-t border-white/20 px-6 py-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
               <MixerHorizontalIcon className="h-5 w-5" />
@@ -432,8 +431,8 @@ const OrdersNavigation = memo(function OrdersNavigation({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
+            <div className="space-y-4 pt-2 px-4 pb-4">
+                <div className="flex flex-wrap items-center gap-4">
                   {/* Estado Filter */}
                   <StableDropdownMenu
                     label="Estado"
@@ -455,26 +454,26 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
                 {/* List-specific filters: Search, Creador, Entrega - unified in same card */}
                 {showListFilters && (
-                  <div className="space-y-3 pt-3 border-t border-white/20 min-w-0 overflow-hidden">
-                    <div className="flex flex-wrap gap-2 items-center min-w-0">
+                  <div className="space-y-4 pt-4 border-t border-white/20 min-w-0 overflow-visible">
+                    <div className="flex flex-wrap gap-4 items-center min-w-0">
                       <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => onSearchQueryChange?.(e.target.value)}
                         placeholder="Buscar por orden, cliente, obra, estado..."
-                        className="flex-1 min-w-[200px] px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin placeholder:text-muted-foreground"
+                        className="flex-1 min-w-[200px] px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 glass-thin placeholder:text-muted-foreground"
                       />
                       <select
                         value={creatorFilter}
                         onChange={(e) => onCreatorFilterChange?.(e.target.value)}
-                        className="px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin min-w-[160px]"
+                        className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 glass-thin min-w-[160px]"
                       >
                         <option value="all">Todos los creadores</option>
                         {availableCreators.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
-                      <div className="flex gap-1">
+                      <div className="flex gap-2">
                         {(['all', 'delivered', 'pending'] as const).map((opt) => (
                           <button
                             key={opt}
@@ -497,7 +496,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
                 )}
 
                 {/* Active Filter Chips */}
-                <div className="flex flex-wrap gap-2 min-w-0">
+                <div className="flex flex-wrap gap-3 min-w-0">
                   {estadoFilter !== 'todos' && (
                     <FilterChip
                       label="Estado"
@@ -539,7 +538,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
           {/* Always show active filters as chips when collapsed */}
           {!isFilterExpanded && (estadoFilter !== 'todos' || creditoFilter !== 'todos' || (showListFilters && (!!searchQuery || creatorFilter !== 'all' || deliveredFilter !== 'all'))) && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3 px-4 pt-2 pb-4">
               {estadoFilter !== 'todos' && (
                 <FilterChip
                   label="Estado"

@@ -78,15 +78,27 @@ export default function RejectedOrdersTab() {
   }
 
   if (loading) {
-    return <div className="flex justify-center p-4">Cargando órdenes rechazadas...</div>;
+    return (
+      <div className="glass-base rounded-2xl p-8 flex justify-center">
+        <span className="text-muted-foreground">Cargando órdenes rechazadas...</span>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="text-red-500 p-4">{error}</div>;
+    return (
+      <div className="glass-base rounded-2xl p-6 border border-red-200/50">
+        <p className="text-red-600 dark:text-red-400">{error}</p>
+      </div>
+    );
   }
 
   if (orders.length === 0) {
-    return <div className="text-center p-4">No hay órdenes rechazadas.</div>;
+    return (
+      <div className="glass-base rounded-2xl p-12 text-center">
+        <p className="text-muted-foreground">No hay órdenes rechazadas.</p>
+      </div>
+    );
   }
 
   // Agrupar órdenes por fecha
@@ -108,12 +120,12 @@ export default function RejectedOrdersTab() {
     <div className="space-y-8">
       {sortedDates.map(date => (
         <div key={date} className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 bg-gray-100 p-2 rounded">
+          <h2 className="text-lg font-semibold mb-3 glass-thin p-2 rounded-xl">
             {formatDate(date)}
           </h2>
           <div className="space-y-4">
             {ordersByDate[date].map((order) => (
-              <div key={order.id} className="border rounded-lg shadow-xs hover:shadow-md transition-shadow bg-white">
+              <div key={order.id} className="glass-base rounded-2xl shadow-sm hover:shadow-md transition-shadow">
                 <div className="p-4">
                   <div className="flex flex-col md:flex-row justify-between">
                     <div className="flex-1">
