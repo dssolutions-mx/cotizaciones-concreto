@@ -7,6 +7,8 @@ interface OrderDetailsBalanceProps {
   orderId: string;
   clientId: string;
   constructionSite: string;
+  /** When true, omit ClientBalanceSummary (shown elsewhere at top) */
+  hideBalanceSummary?: boolean;
 }
 
 // Define a basic type for the order data needed
@@ -32,7 +34,8 @@ interface OrderData {
 const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({ 
   orderId, 
   clientId, 
-  constructionSite 
+  constructionSite,
+  hideBalanceSummary = false 
 }) => {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -229,8 +232,8 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
         </div>
       </div>
 
-      {/* Display client balance summary */}
-      <ClientBalanceSummary clientId={clientId} />
+      {/* Display client balance summary (omit when shown at top in OrderDetails) */}
+      {!hideBalanceSummary && <ClientBalanceSummary clientId={clientId} />}
 
       <div className="mt-4">
         {/* Display recent payment history for the specific site */}

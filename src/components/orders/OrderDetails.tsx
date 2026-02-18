@@ -15,6 +15,7 @@ import { renderTracker } from '@/lib/performance/renderTracker';
 import { formatTimestamp } from '@/lib/utils';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
+import OrderDetailsBalance from './OrderDetailsBalance';
 import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
 import { Button } from '@/components/ui/button';
@@ -3080,6 +3081,18 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           {/* Always show order actions, not just for financial users */}
           {renderOrderActions()}
 
+          {/* Información Financiera: amounts, impact, payment history (balance at top in Details tab) */}
+          {shouldShowFinancialInfo() && activeTab !== 'calidad' && (
+            <div className="mt-6 border-t pt-6">
+              <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
+              <OrderDetailsBalance
+                orderId={orderId}
+                clientId={order.client_id}
+                constructionSite={order.construction_site}
+                hideBalanceSummary
+              />
+            </div>
+          )}
         </>
       ) : (
         <div className="text-center py-12">
