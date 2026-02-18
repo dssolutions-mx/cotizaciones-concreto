@@ -97,8 +97,25 @@ export interface ClientResearchOrder {
   order_number: string;
   construction_site: string;
   final_amount: number;
+  vat_rate_pct: number;
+  vat_amount: number;
   amount_con_iva: number;
   delivery_date: string;
+  requires_invoice: boolean;
+  invoice_amount: number | null;
+}
+
+export interface ClientResearchOrderItem {
+  order_number: string;
+  construction_site: string;
+  delivery_date: string;
+  product_type: string;
+  volume: number;
+  unit_price: number;
+  subtotal: number;
+  pump_price: number;
+  empty_truck_price: number;
+  total_line: number;
 }
 
 export interface ClientResearchPayment {
@@ -121,6 +138,7 @@ export interface ClientResearchData {
   client_id: string;
   client_name: string;
   orders: ClientResearchOrder[];
+  order_items: ClientResearchOrderItem[];
   payments: ClientResearchPayment[];
   adjustments: ClientResearchAdjustment[];
   summary: {
@@ -146,24 +164,49 @@ export function exportClientResearchToExcel(data: ClientResearchData) {
 
     const wb = XLSX.utils.book_new();
 
-    // Orders sheet
+    // Orders sheet - accounting verification: subtotal, VAT%, IVA, total
     const orderRows = data.orders.map((o) => ({
       'Número Orden': o.order_number,
       'Obra': o.construction_site,
-      'Monto Final': formatNum(o.final_amount),
-      'Monto con IVA': formatNum(o.amount_con_iva),
       'Fecha Entrega': formatDateCell(o.delivery_date),
+      'Subtotal (sin IVA)': formatNum(o.final_amount),
+      'Requiere Factura': o.requires_invoice ? 'Sí' : 'No',
+      '% IVA': formatNum(o.vat_rate_pct * 100),
+      'IVA': formatNum(o.vat_amount),
+      'Total (con IVA)': formatNum(o.amount_con_iva),
+      'Monto Factura': o.invoice_amount != null ? formatNum(o.invoice_amount) : '',
     }));
     orderRows.push({
       'Número Orden': 'TOTAL CONSUMIDO',
       'Obra': '',
-      'Monto Final': formatNum(data.summary.total_consumed),
-      'Monto con IVA': '',
       'Fecha Entrega': '',
+      'Subtotal (sin IVA)': '',
+      'Requiere Factura': '',
+      '% IVA': '',
+      'IVA': '',
+      'Total (con IVA)': formatNum(data.summary.total_consumed),
+      'Monto Factura': '',
     });
     const wsOrders = XLSX.utils.json_to_sheet(orderRows);
-    wsOrders['!cols'] = [{ wch: 18 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+    wsOrders['!cols'] = [{ wch: 18 }, { wch: 25 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 16 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(wb, wsOrders, 'Órdenes');
+
+    // Order Items / Detalle sheet - line items for accounting reconciliation
+    const itemRows = data.order_items.map((i) => ({
+      'Número Orden': i.order_number,
+      'Obra': i.construction_site,
+      'Fecha Entrega': formatDateCell(i.delivery_date),
+      'Producto': i.product_type,
+      'Volumen (m³)': formatNum(i.volume),
+      'Precio Unitario': formatNum(i.unit_price),
+      'Subtotal Línea': formatNum(i.subtotal),
+      'Bombeo': formatNum(i.pump_price),
+      'Vacío Olla': formatNum(i.empty_truck_price),
+      'Total Línea': formatNum(i.total_line),
+    }));
+    const wsItems = XLSX.utils.json_to_sheet(itemRows.length > 0 ? itemRows : [{ 'Número Orden': 'Sin detalle', Obra: '', 'Fecha Entrega': '', Producto: '', 'Volumen (m³)': '', 'Precio Unitario': '', 'Subtotal Línea': '', Bombeo: '', 'Vacío Olla': '', 'Total Línea': '' }]);
+    wsItems['!cols'] = [{ wch: 18 }, { wch: 25 }, { wch: 12 }, { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsItems, 'Detalle Líneas');
 
     // Payments sheet
     const paymentRows = data.payments.map((p) => ({

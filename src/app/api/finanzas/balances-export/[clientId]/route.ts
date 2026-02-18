@@ -3,6 +3,7 @@ import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/
 import type {
   ClientResearchData,
   ClientResearchOrder,
+  ClientResearchOrderItem,
   ClientResearchPayment,
   ClientResearchAdjustment,
 } from '@/utils/balancesExport';
@@ -51,20 +52,37 @@ export async function GET(
       return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
     }
 
-    // Delivered order ids
-    const { data: remData } = await serviceClient
-      .from('remisiones')
-      .select('order_id');
-
-    const deliveredOrderIds = new Set((remData || []).map((r: { order_id: string }) => r.order_id).filter(Boolean));
-
-    // Orders with VAT
-    const { data: ordersRaw } = await serviceClient
+    // Delivered order ids for this client (paginate remisiones to avoid limits)
+    const { data: clientOrders } = await serviceClient
       .from('orders')
-      .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id, delivery_date')
+      .select('id')
       .eq('client_id', clientId)
-      .neq('order_status', 'cancelled')
-      .in('id', Array.from(deliveredOrderIds));
+      .neq('order_status', 'cancelled');
+    const clientOrderIds = (clientOrders || []).map((o: { id: string }) => o.id);
+
+    const deliveredOrderIdsSet = new Set<string>();
+    const REM_CHUNK = 2000;
+    for (let i = 0; i < clientOrderIds.length; i += REM_CHUNK) {
+      const chunk = clientOrderIds.slice(i, i + REM_CHUNK);
+      const { data: remChunk } = await serviceClient
+        .from('remisiones')
+        .select('order_id')
+        .in('order_id', chunk);
+      (remChunk || []).forEach((r: { order_id: string }) => {
+        if (r.order_id) deliveredOrderIdsSet.add(r.order_id);
+      });
+    }
+    const deliveredOrderIds = Array.from(deliveredOrderIdsSet);
+
+    // Orders with VAT and full accounting fields
+    const { data: ordersRaw } = deliveredOrderIds.length > 0
+      ? await serviceClient
+          .from('orders')
+          .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id, delivery_date')
+          .eq('client_id', clientId)
+          .neq('order_status', 'cancelled')
+          .in('id', deliveredOrderIds)
+      : { data: [] };
 
     const plantIds = Array.from(new Set((ordersRaw || []).map((o: { plant_id: string | null }) => o.plant_id).filter(Boolean)));
     const { data: plantsData } = await serviceClient.from('plants').select('id, business_unit_id').in('id', plantIds);
@@ -76,7 +94,9 @@ export async function GET(
     const buRateMap = new Map<string, number>();
     (buData || []).forEach((bu: { id: string; vat_rate: number }) => buRateMap.set(bu.id, Number(bu.vat_rate) ?? 0.16));
 
+    const orderIdToOrder = new Map<string, { order_number: string; construction_site: string; delivery_date: string }>();
     const orders: ClientResearchOrder[] = (ordersRaw || []).map((o: {
+      id: string;
       order_number: string;
       construction_site: string;
       final_amount: number;
@@ -85,23 +105,78 @@ export async function GET(
       plant_id: string | null;
       delivery_date: string;
     }) => {
-      let amountConIva = Number(o.final_amount) || 0;
+      const finalAmt = Number(o.final_amount) || 0;
+      const rate = o.plant_id ? buRateMap.get(plantBuMap.get(o.plant_id) || '') ?? 0.16 : 0.16;
+      let amountConIva = finalAmt;
       if (o.invoice_amount != null) {
         amountConIva = Number(o.invoice_amount);
       } else if (o.requires_invoice && o.plant_id) {
-        const rate = buRateMap.get(plantBuMap.get(o.plant_id) || '') ?? 0.16;
-        amountConIva = (Number(o.final_amount) || 0) * (1 + rate);
+        amountConIva = finalAmt * (1 + rate);
       }
+      const vatAmount = amountConIva - finalAmt;
+      orderIdToOrder.set(o.id, {
+        order_number: o.order_number,
+        construction_site: o.construction_site || '',
+        delivery_date: o.delivery_date || '',
+      });
       return {
         order_number: o.order_number,
         construction_site: o.construction_site || '',
-        final_amount: Number(o.final_amount) || 0,
+        final_amount: finalAmt,
+        vat_rate_pct: rate,
+        vat_amount: vatAmount,
         amount_con_iva: amountConIva,
         delivery_date: o.delivery_date || '',
+        requires_invoice: !!o.requires_invoice,
+        invoice_amount: o.invoice_amount != null ? Number(o.invoice_amount) : null,
       };
     });
 
     const totalConsumed = orders.reduce((s, o) => s + o.amount_con_iva, 0);
+
+    // Order items for line-level accounting verification (chunk to avoid URL limits)
+    const orderItems: ClientResearchOrderItem[] = [];
+    const ITEM_CHUNK = 300;
+    for (let i = 0; i < deliveredOrderIds.length; i += ITEM_CHUNK) {
+      const chunk = deliveredOrderIds.slice(i, i + ITEM_CHUNK);
+      const { data: itemsData } = await serviceClient
+        .from('order_items')
+        .select('order_id, product_type, volume, unit_price, total_price, has_pump_service, pump_price, has_empty_truck_charge, empty_truck_price')
+        .in('order_id', chunk);
+
+      (itemsData || []).forEach((item: {
+        order_id: string;
+        product_type: string;
+        volume: number;
+        unit_price: number;
+        total_price: number;
+        has_pump_service: boolean;
+        pump_price: number | null;
+        has_empty_truck_charge: boolean;
+        empty_truck_price: number | null;
+      }) => {
+        const ord = orderIdToOrder.get(item.order_id);
+        if (!ord) return;
+        const vol = Number(item.volume) || 0;
+        const up = Number(item.unit_price) || 0;
+        const subtotal = vol * up;
+        const pump = (item.has_pump_service && item.pump_price != null) ? Number(item.pump_price) : 0;
+        const empty = (item.has_empty_truck_charge && item.empty_truck_price != null) ? Number(item.empty_truck_price) : 0;
+        const totalLine = Number(item.total_price) || (subtotal + pump + empty);
+        orderItems.push({
+          order_number: ord.order_number,
+          construction_site: ord.construction_site,
+          delivery_date: ord.delivery_date,
+          product_type: item.product_type || '',
+          volume: vol,
+          unit_price: up,
+          subtotal,
+          pump_price: pump,
+          empty_truck_price: empty,
+          total_line: totalLine,
+        });
+      });
+    }
 
     // Payments
     const { data: hasDist } = await serviceClient.from('client_payment_distributions').select('id').limit(1);
@@ -207,6 +282,7 @@ export async function GET(
       client_id: clientId,
       client_name: clientData.business_name || 'Cliente',
       orders,
+      order_items: orderItems,
       payments,
       adjustments,
       summary: {
