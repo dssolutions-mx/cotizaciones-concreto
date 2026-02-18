@@ -276,16 +276,28 @@ const ConcreteMixCalculator = () => {
       });
       
       // Validate and categorize materials with their prices
+      // Use case-insensitive, space-tolerant subcategory matching for agregados
+      const isAgregadoFino = (m: { category: string; subcategory?: string | null }) => {
+        if (m.category !== 'agregado') return false;
+        const sub = (m.subcategory || '').toLowerCase().replace(/\s+/g, '_').trim();
+        return sub === 'agregado_fino';
+      };
+      const isAgregadoGrueso = (m: { category: string; subcategory?: string | null }) => {
+        if (m.category !== 'agregado') return false;
+        const sub = (m.subcategory || '').toLowerCase().replace(/\s+/g, '_').trim();
+        return sub === 'agregado_grueso';
+      };
+
       const categorized = {
         cements: materials?.filter(m => m.category === 'cemento').map(m => ({
           ...m,
           cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
-        sands: materials?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino').map(m => ({
+        sands: materials?.filter(isAgregadoFino).map(m => ({
           ...m,
           cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
-        gravels: materials?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso').map(m => ({
+        gravels: materials?.filter(isAgregadoGrueso).map(m => ({
           ...m,
           cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
