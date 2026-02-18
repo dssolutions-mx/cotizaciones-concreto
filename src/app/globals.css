@@ -45,6 +45,11 @@
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
 
+  --color-systemBlue: #007AFF;
+  --color-systemGreen: #34C759;
+  --color-systemOrange: #FF9500;
+  --color-systemRed: #FF3B30;
+
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));

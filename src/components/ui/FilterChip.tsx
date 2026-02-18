@@ -28,8 +28,8 @@ export const FilterChip: React.FC<FilterChipProps> = ({
       className={cn(
         'inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium',
         active
-          ? 'glass-interactive border border-white/30 text-gray-900 dark:text-gray-100 shadow-md'
-          : 'glass-thin border border-gray-200/50 text-gray-600 dark:text-gray-400',
+          ? 'glass-interactive border border-white/30 text-gray-900 dark:text-gray-100 shadow-[0_1px_3px_0_rgba(0,0,0,0.04),0_4px_12px_-2px_rgba(0,0,0,0.05)]'
+          : 'glass-thin border border-gray-200/50 text-gray-600 dark:text-gray-400 shadow-[0_1px_2px_0_rgba(0,0,0,0.03)]',
         'transition-all duration-200',
         className
       )}

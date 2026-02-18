@@ -1898,12 +1898,25 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           </Button>
         )}
         
+        {/* Cancel Order button - when order can be cancelled and no remisiones */}
+        {canCancelOrder && (
+          <RoleProtectedButton
+            allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+            onClick={() => setShowConfirmCancel(true)}
+            showDisabled={true}
+            disabledMessage="No tienes permiso para cancelar órdenes"
+            className="px-3 py-2 rounded text-sm border-2 border-amber-500 text-amber-700 hover:bg-amber-50"
+          >
+            Cancelar Orden
+          </RoleProtectedButton>
+        )}
+
         {/* Recalculate button with role protection */}
         <RoleProtectedButton
           allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
           onClick={handleRecalculateAmount}
           disabled={isRecalculating}
-          className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+          className="px-3 py-2 rounded-xl text-sm font-medium border-2 border-gray-400 bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-100 dark:hover:bg-gray-700"
           showDisabled={true}
           disabledMessage="No tienes permiso para recalcular"
         >
@@ -1950,7 +1963,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           <RoleProtectedButton
             allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]}
             onClick={() => setIsPaymentDialogOpen(true)}
-            className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+            className="px-3 py-2 rounded-xl text-sm font-medium border-2 border-gray-400 bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-800 dark:border-gray-500 dark:text-gray-100 dark:hover:bg-gray-700"
           >
             Registrar Pago
           </RoleProtectedButton>
@@ -1982,12 +1995,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   <Badge 
                     variant="outline" 
                     className="bg-systemBlue/10 text-systemBlue border-systemBlue/30 hover:bg-systemBlue/20 cursor-pointer font-semibold"
-                    onClick={() => {
-                      const samplingInfoElement = document.querySelector('[data-sampling-info]');
-                      if (samplingInfoElement) {
-                        samplingInfoElement.scrollIntoView({ behavior: 'smooth' });
-                      }
-                    }}
+                    onClick={() => setActiveTab('calidad')}
                   >
                     <Beaker className="h-3 w-3 mr-1" />
                     Calidad
@@ -3092,60 +3100,58 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         </div>
       )}
 
-      {isRejectReasonModalOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Razón del rechazo</h3>
-            <p className="mb-4">Por favor, indique la razón por la que se rechaza el crédito:</p>
-            <textarea
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md mb-4"
-              rows={3}
-              placeholder="Ejemplo: Cliente con pagos pendientes"
-            />
-            <div className="flex justify-end space-x-2">
-              <button 
-                onClick={() => setIsRejectReasonModalOpen(false)}
-                disabled={isRejectingCredit}
-                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleValidatorReject}
-                disabled={!rejectionReason.trim() || isRejectingCredit}
-                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
-              >
-                {isRejectingCredit ? 'Rechazando...' : 'Confirmar Rechazo'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={isRejectReasonModalOpen} onOpenChange={setIsRejectReasonModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Razón del rechazo</DialogTitle>
+            <DialogDescription>
+              Por favor, indique la razón por la que se rechaza el crédito:
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            value={rejectionReason}
+            onChange={(e) => setRejectionReason(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md"
+            rows={3}
+            placeholder="Ejemplo: Cliente con pagos pendientes"
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsRejectReasonModalOpen(false)}
+              disabled={isRejectingCredit}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleValidatorReject}
+              disabled={!rejectionReason.trim() || isRejectingCredit}
+            >
+              {isRejectingCredit ? 'Rechazando...' : 'Confirmar Rechazo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {isConfirmModalOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Confirmar rechazo definitivo</h3>
-            <p className="mb-4">¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción cancelará la orden y no se puede deshacer.</p>
-            <div className="flex justify-end space-x-2">
-              <button 
-                onClick={() => setIsConfirmModalOpen(false)}
-                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleManagerReject}
-                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-              >
-                Rechazar Definitivamente
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar rechazo definitivo</DialogTitle>
+            <DialogDescription>
+              ¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción cancelará la orden y no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsConfirmModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleManagerReject}>
+              Rechazar Definitivamente
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cancel order confirmation dialog */}
       <Dialog open={showConfirmCancel} onOpenChange={setShowConfirmCancel}>
@@ -3200,6 +3206,28 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               {isDeleting ? 'Eliminando...' : 'Sí, Eliminar Orden'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment registration dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Registrar Pago</DialogTitle>
+            <DialogDescription>
+              Registra un pago para esta orden. El cliente y obra se asignan automáticamente.
+            </DialogDescription>
+          </DialogHeader>
+          {order?.client_id && (
+            <PaymentForm
+              clientId={order.client_id}
+              sites={clientSites}
+              onSuccess={handlePaymentSuccess}
+              onCancel={() => setIsPaymentDialogOpen(false)}
+              defaultConstructionSite={order.construction_site}
+              currentBalance={currentClientBalance}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

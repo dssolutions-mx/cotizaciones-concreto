@@ -124,14 +124,9 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
   const concreteDelivered = Number(concreteVolumeDelivered) || 0;
   const pumpDelivered = Number(pumpVolumeDelivered) || 0;
 
-  // Payment type indicator
+  // Payment type indicator - neutral gray to avoid color overload
   const getPaymentTypeIndicator = (requiresInvoice: boolean | undefined) => {
-    if (requiresInvoice === true) {
-      return 'bg-systemBlue/20 text-systemBlue border border-systemBlue/30';
-    } else if (requiresInvoice === false) {
-      return 'bg-systemGreen/20 text-systemGreen border border-systemGreen/30';
-    }
-    return 'bg-gray-500/20 text-gray-700 border border-gray-300/30';
+    return 'bg-gray-500/15 text-gray-700 dark:text-gray-300 border border-gray-300/50 dark:border-gray-600/50';
   };
 
   function handleContextMenu(e: React.MouseEvent) {

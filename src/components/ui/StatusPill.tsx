@@ -13,9 +13,9 @@ interface StatusPillProps {
 
 const statusColors: Record<string, { bg: string; text: string; glow: string }> = {
   created: {
-    bg: 'bg-systemBlue/20',
-    text: 'text-systemBlue dark:text-systemBlue/80',
-    glow: 'shadow-systemBlue/50'
+    bg: 'bg-gray-500/15',
+    text: 'text-gray-700 dark:text-gray-300',
+    glow: 'shadow-gray-400/30'
   },
   validated: {
     bg: 'bg-systemGreen/20',
