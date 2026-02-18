@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle2, AlertCircle, XCircle, ChevronRight } from 'lucide-react';
 import OrderDetailClient from '@/components/orders/OrderDetailClient';
-import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { GlassDashboardLayout } from '@/components/orders/GlassDashboardLayout';
 
 // Component to show success/error messages when redirected from email actions
@@ -73,16 +72,13 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   return (
     <GlassDashboardLayout
       header={
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link href="/orders" className="hover:text-foreground transition-colors">
-              Pedidos
-            </Link>
-            <ChevronRight className="h-4 w-4 shrink-0" />
-            <span className="text-foreground font-medium">Orden #{shortId}</span>
-          </nav>
-          <PlantContextDisplay showLabel={true} />
-        </div>
+        <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Link href="/orders" className="hover:text-foreground transition-colors">
+            Pedidos
+          </Link>
+          <ChevronRight className="h-4 w-4 shrink-0" />
+          <span className="text-foreground font-medium">Orden #{shortId}</span>
+        </nav>
       }
     >
       <ActionMessage />

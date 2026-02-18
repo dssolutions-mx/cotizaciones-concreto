@@ -324,7 +324,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
       <div className="flex items-center justify-between gap-3 flex-wrap p-4">
         <div className="flex-1 flex justify-center min-w-0">
           <div role="tablist" className="glass-thin rounded-full p-1.5 inline-flex gap-1 shadow-md max-w-full overflow-x-auto">
-            {tabs.map((tab) => {
+            {tabs.map((tab, index) => {
               const isActive = currentTab === tab.id;
               return (
                 <motion.button
@@ -333,7 +333,19 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   role="tab"
                   aria-selected={isActive}
                   aria-controls={`orders-panel-${tab.id}`}
+                  tabIndex={isActive ? 0 : -1}
                   onClick={() => navigate(tab.id)}
+                  onKeyDown={(e) => {
+                    let nextTab: OrderTab | null = null;
+                    if (e.key === 'ArrowLeft') nextTab = tabs[Math.max(0, index - 1)]?.id ?? tab.id;
+                    else if (e.key === 'ArrowRight') nextTab = tabs[Math.min(tabs.length - 1, index + 1)]?.id ?? tab.id;
+                    else if (e.key === 'Home') nextTab = tabs[0]?.id ?? tab.id;
+                    else if (e.key === 'End') nextTab = tabs[tabs.length - 1]?.id ?? tab.id;
+                    if (nextTab && nextTab !== currentTab) {
+                      e.preventDefault();
+                      navigate(nextTab);
+                    }
+                  }}
                   className={cn(
                     'relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
                     'flex items-center gap-2 whitespace-nowrap z-0',
