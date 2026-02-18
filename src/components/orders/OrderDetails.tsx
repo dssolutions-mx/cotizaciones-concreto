@@ -143,8 +143,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [hasRemisiones, setHasRemisiones] = useState<boolean>(false);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isApprovingCredit, setIsApprovingCredit] = useState(false);
@@ -272,12 +270,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const canEditOrder = order && 
     order.order_status !== 'completed' && 
     order.order_status !== 'cancelled' &&
-    !isDosificador;
-  
-  // Check if order can be cancelled (any status but must not have remisiones)
-  const canCancelOrder = order && 
-    order.order_status !== 'cancelled' && 
-    !hasRemisiones && 
     !isDosificador;
   
   // Check if the order can be edited based on multiple conditions
@@ -1654,24 +1646,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     ) || false;
   }, [order?.products]);
 
-  async function handleCancelOrder() {
-    if (!order) return;
-    
-    try {
-      setIsCancelling(true);
-      await orderService.cancelOrder(orderId);
-      // Reload order details after cancelling
-      await loadOrderDetails();
-      setShowConfirmCancel(false);
-      toast.success('Orden cancelada exitosamente');
-    } catch (err) {
-      console.error('Error cancelling order:', err);
-      setError('Error al cancelar la orden. Por favor, intente nuevamente.');
-    } finally {
-      setIsCancelling(false);
-    }
-  }
-
   // Add this function to check if financial info should be shown
   const shouldShowFinancialInfo = () => {
     // Credit validators, managers, and executives can see financial info
@@ -1898,19 +1872,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           </Button>
         )}
         
-        {/* Cancel Order button - when order can be cancelled and no remisiones */}
-        {canCancelOrder && (
-          <RoleProtectedButton
-            allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
-            onClick={() => setShowConfirmCancel(true)}
-            showDisabled={true}
-            disabledMessage="No tienes permiso para cancelar órdenes"
-            className="px-3 py-2 rounded text-sm border-2 border-amber-500 text-amber-700 hover:bg-amber-50"
-          >
-            Cancelar Orden
-          </RoleProtectedButton>
-        )}
-
         {/* Recalculate button with role protection */}
         <RoleProtectedButton
           allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
@@ -2006,12 +1967,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 Cliente: <span className="text-gray-900 dark:text-gray-100">{order?.client?.business_name}</span>
               </p>
             </div>
-            <button
-              onClick={handleGoBack}
-              className="inline-flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors min-h-[44px]"
-            >
-              Volver
-            </button>
           </div>
         </div>
       </div>
@@ -3148,34 +3103,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             </Button>
             <Button variant="destructive" onClick={handleManagerReject}>
               Rechazar Definitivamente
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Cancel order confirmation dialog */}
-      <Dialog open={showConfirmCancel} onOpenChange={setShowConfirmCancel}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirmar Cancelación</DialogTitle>
-            <DialogDescription>
-              ¿Estás seguro de que deseas cancelar esta orden? Esta acción no se puede deshacer.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowConfirmCancel(false)}
-              disabled={isCancelling}
-            >
-              No, Mantener
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleCancelOrder}
-              disabled={isCancelling}
-            >
-              {isCancelling ? 'Cancelando...' : 'Sí, Cancelar Orden'}
             </Button>
           </DialogFooter>
         </DialogContent>
