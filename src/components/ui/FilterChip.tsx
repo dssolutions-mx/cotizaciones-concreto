@@ -34,7 +34,7 @@ export const FilterChip: React.FC<FilterChipProps> = ({
         className
       )}
     >
-      <span>{label}: {value}</span>
+      <span className="min-w-0 truncate max-w-[200px]">{label}: {value}</span>
       {onRemove && (
         <button
           onClick={onRemove}

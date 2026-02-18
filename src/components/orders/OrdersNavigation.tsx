@@ -455,8 +455,8 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
                 {/* List-specific filters: Search, Creador, Entrega - unified in same card */}
                 {showListFilters && (
-                  <div className="space-y-3 pt-3 border-t border-white/20">
-                    <div className="flex flex-wrap gap-2 items-center">
+                  <div className="space-y-3 pt-3 border-t border-white/20 min-w-0 overflow-hidden">
+                    <div className="flex flex-wrap gap-2 items-center min-w-0">
                       <input
                         type="text"
                         value={searchQuery}
@@ -497,7 +497,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
                 )}
 
                 {/* Active Filter Chips */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 min-w-0">
                   {estadoFilter !== 'todos' && (
                     <FilterChip
                       label="Estado"

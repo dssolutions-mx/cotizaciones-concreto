@@ -325,7 +325,10 @@ function OrdersContent() {
     selectedQuoteId,
     selectedQuoteData,
     handleOrderCreated,
-    refreshKey
+    refreshKey,
+    searchQuery,
+    creatorFilter,
+    deliveredFilter
   ]);
 
   return (
