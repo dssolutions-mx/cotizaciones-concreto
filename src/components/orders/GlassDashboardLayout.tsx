@@ -22,7 +22,7 @@ export const GlassDashboardLayout: React.FC<GlassDashboardLayoutProps> = ({
         <motion.div
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className="sticky top-0 z-40 mb-6"
+          className="mb-6"
         >
           <div className="glass-thick backdrop-blur-xl border-b border-white/20 shadow-lg">
             <div className="container mx-auto px-4 py-4">

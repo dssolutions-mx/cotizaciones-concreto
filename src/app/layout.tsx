@@ -403,11 +403,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
     .filter(item => item !== undefined) as typeof navItems;
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar - collapsible with glass */}
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar - fixed, collapsible with glass */}
       <aside
         className={cn(
-          "hidden md:flex flex-col glass-thin transition-all duration-300 ease-in-out",
+          "hidden md:flex flex-col shrink-0 h-screen sticky top-0 glass-thin transition-all duration-300 ease-in-out",
           isSidebarCollapsed ? "w-16" : "w-64"
         )}
       >
@@ -870,8 +870,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
         {/* No explicit footer handle; logo toggles sidebar */}
       </aside>
 
-      {/* Contenido principal */}
-      <main className="flex-1 bg-gray-100 p-4 md:p-6 overflow-y-auto pb-24 md:pb-6">
+      {/* Contenido principal - scroll independiente del sidebar */}
+      <main className="flex-1 min-h-0 overflow-y-auto bg-gray-100 p-4 md:p-6 pb-24 md:pb-6">
         {/* Header móvil */}
         <div className="md:hidden flex items-center justify-between mb-4">
           <Link href="/dashboard">
