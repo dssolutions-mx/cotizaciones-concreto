@@ -20,6 +20,7 @@ import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashb
 import { ClientBalanceTableSkeleton, CreditApprovalSkeleton } from '@/components/finanzas/FinancialMetricsSkeleton';
 import { Skeleton } from '@/components/ui/skeleton';
 import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
+import { ExportBalancesExcelButton } from '@/components/finanzas/ExportBalancesExcelButton';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { BarChart, PieChart, TrendingUp } from 'lucide-react';
@@ -163,11 +164,14 @@ export default async function FinancialHubPage() {
               {/* Client Balances Tab */}
               <TabsContent value="balances" className="space-y-4">
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Balances de Clientes</CardTitle>
-                    <CardDescription>
-                      Visualiza los saldos pendientes de todos los clientes
-                    </CardDescription>
+                  <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+                    <div>
+                      <CardTitle>Balances de Clientes</CardTitle>
+                      <CardDescription>
+                        Visualiza los saldos pendientes de todos los clientes
+                      </CardDescription>
+                    </div>
+                    <ExportBalancesExcelButton />
                   </CardHeader>
                   <CardContent>
                     <Suspense fallback={<ClientBalanceTableSkeleton />}>

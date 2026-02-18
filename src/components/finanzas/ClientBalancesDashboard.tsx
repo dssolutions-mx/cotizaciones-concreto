@@ -10,6 +10,7 @@ import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Calendar, DollarSi
 import Link from 'next/link';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
+import { ExportBalancesExcelButton } from '@/components/finanzas/ExportBalancesExcelButton';
 import {
   Collapsible,
   CollapsibleContent,
@@ -310,7 +311,9 @@ export default function ClientBalancesDashboard({
           <h1 className="text-2xl font-bold tracking-tight">Análisis de Clientes</h1>
           <p className="text-sm text-muted-foreground">Análisis detallado del rendimiento individual de cada cliente</p>
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex items-center gap-4">
+          <ExportBalancesExcelButton />
+          <div className="flex gap-4 text-sm text-muted-foreground">
           <span>Total: {summary.totalClients}</span>
           <span className="text-red-600">Con saldo: {summary.clientsWithBalance}</span>
           <span className="text-green-600">Con anticipos: {summary.clientsWithAdvances}</span>
@@ -321,6 +324,7 @@ export default function ClientBalancesDashboard({
               Cargando datos adicionales...
             </span>
           )}
+          </div>
         </div>
       </div>
 

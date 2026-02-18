@@ -56,6 +56,7 @@ import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
+import { ExportClientResearchButton } from '@/components/finanzas/ExportClientResearchButton';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -573,7 +574,7 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 }
 
 // Componente para mostrar balance del cliente (Refactored with Shadcn Card)
-function ClientBalanceSummary({ balances }: { balances: ClientBalance[] }) {
+function ClientBalanceSummary({ clientId, balances }: { clientId: string; balances: ClientBalance[] }) {
   const generalBalance = balances.find(balance => balance.construction_site === null);
   const siteBalances = balances.filter(balance => balance.construction_site !== null);
   const [netAdjustments, setNetAdjustments] = useState<number>(0);
@@ -616,13 +617,16 @@ function ClientBalanceSummary({ balances }: { balances: ClientBalance[] }) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Balance del Cliente</CardTitle>
-        {generalBalance?.last_updated && (
-          <CardDescription>
-            Última actualización: {formatDate(generalBalance.last_updated, 'PPP p')}
-          </CardDescription>
-        )}
+      <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle>Balance del Cliente</CardTitle>
+          {generalBalance?.last_updated && (
+            <CardDescription>
+              Última actualización: {formatDate(generalBalance.last_updated, 'PPP p')}
+            </CardDescription>
+          )}
+        </div>
+        <ExportClientResearchButton clientId={clientId} />
       </CardHeader>
       <CardContent className="space-y-4">
         {/* General Balance */}
@@ -2246,7 +2250,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         <div className="lg:col-span-1">
-          <ClientBalanceSummary balances={balances} />
+          <ClientBalanceSummary clientId={clientId} balances={balances} />
         </div>
 
         <div className="lg:col-span-2 xl:col-span-3 space-y-6">
