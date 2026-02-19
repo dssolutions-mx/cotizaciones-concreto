@@ -9,7 +9,7 @@ describe('parseArkikCodeToSpecs', () => {
     expect(result!.specification.age_hours).toBeUndefined();
     expect(result!.specification.slump).toBe(14);
     expect(result!.specification.placement_type).toBe('BOMBEADO');
-    expect(result!.specification.max_aggregate_size).toBe(30); // TMA factor 2 → 30mm
+    expect(result!.specification.max_aggregate_size).toBe(20); // TMA factor 2 → 20mm
     expect(result!.specification.recipe_type).toBe('FC');
     expect(result!.masterCode).toBe('5-250-2-B-28-14-B');
     expect(result!.variantSuffix).toBe('2-000');

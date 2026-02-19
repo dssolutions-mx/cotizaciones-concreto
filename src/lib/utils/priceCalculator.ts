@@ -84,14 +84,28 @@ async function getRecipeVersionWithMaterials(recipeId: string): Promise<{
 }
 
 /**
+ * Resolve recipe's plant_id from recipes table
+ */
+async function getRecipePlantId(recipeId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .select('plant_id')
+    .eq('id', recipeId)
+    .single();
+  if (error || !data?.plant_id) return null;
+  return data.plant_id;
+}
+
+/**
  * Calculate base price for a recipe:
- * - Materials from latest variant (by updated_at) × material prices
+ * - Materials from latest variant × material prices (UUID-only, plant-filtered, latest per material)
  * - Plus administrative expenses per m³
  * - Note: Margin is applied separately, not included in base price
  */
 export const calculateBasePrice = async (
   recipeId: string,
-  materials?: MaterialQuantity[] // Optional: if not provided, fetch latest variant materials
+  materials?: MaterialQuantity[], // Optional: if not provided, fetch latest variant materials
+  plantId?: string | null
 ): Promise<number> => {
   try {
     let materialsToUse = materials;
@@ -103,28 +117,33 @@ export const calculateBasePrice = async (
       console.log(`[priceCalculator] Using materials from version ${versionId} for recipe ${recipeId}`);
     }
 
-    // Get current material prices
-    const { data: currentPrices, error: pricesError } = await priceService.getCurrentMaterialPrices();
-    if (pricesError || !currentPrices) {
+    // Resolve plant if not provided
+    let resolvedPlantId = plantId;
+    if (!resolvedPlantId) {
+      resolvedPlantId = await getRecipePlantId(recipeId);
+    }
+    if (!resolvedPlantId) {
+      throw new Error('No se pudo determinar la planta para el cálculo de precios. Verifique que la receta tenga plant_id asignado.');
+    }
+
+    // Get material prices for plant (UUID-only, latest per material_id)
+    const { data: priceMap, error: pricesError } = await priceService.getMaterialPricesForPlant(resolvedPlantId);
+    if (pricesError || !priceMap) {
       throw new Error('No se encontraron precios de materiales');
     }
 
-    // Calculate material cost: materials × material prices
+    // Calculate material cost: materials × material prices (UUID-only matching)
     let materialCost = 0;
     for (const material of materialsToUse) {
-      // Try to find price by material_id first (newer system), then fallback to material_type
-      let price = null;
-      if (material.material_id) {
-        price = currentPrices.find(p => p.material_id === material.material_id);
+      if (!material.material_id) {
+        console.warn(`Material sin material_id (UUID), omitido: ${material.material_type}`);
+        continue;
       }
-      if (!price) {
-        price = currentPrices.find(p => p.material_type === material.material_type);
-      }
-      
-      if (price) {
-        materialCost += material.quantity * price.price_per_unit;
+      const pricePerUnit = priceMap.get(material.material_id);
+      if (pricePerUnit !== undefined) {
+        materialCost += material.quantity * pricePerUnit;
       } else {
-        console.warn(`Price not found for material: ${material.material_id || material.material_type}`);
+        console.warn(`Price not found for material_id: ${material.material_id}`);
       }
     }
 
@@ -157,7 +176,8 @@ export const calculateBasePrice = async (
  */
 export const calculateBasePriceBreakdown = async (
   recipeId: string,
-  materials?: MaterialQuantity[]
+  materials?: MaterialQuantity[],
+  plantId?: string | null
 ): Promise<{
   materialCost: number;
   administrativeCosts: number;
@@ -173,25 +193,28 @@ export const calculateBasePriceBreakdown = async (
       console.log(`[priceCalculator] Using materials from version ${versionId} for recipe ${recipeId} (breakdown)`);
     }
 
-    // Get current material prices
-    const { data: currentPrices, error: pricesError } = await priceService.getCurrentMaterialPrices();
-    if (pricesError || !currentPrices) {
+    // Resolve plant if not provided
+    let resolvedPlantId = plantId;
+    if (!resolvedPlantId) {
+      resolvedPlantId = await getRecipePlantId(recipeId);
+    }
+    if (!resolvedPlantId) {
+      throw new Error('No se pudo determinar la planta para el cálculo de precios. Verifique que la receta tenga plant_id asignado.');
+    }
+
+    // Get material prices for plant (UUID-only, latest per material_id)
+    const { data: priceMap, error: pricesError } = await priceService.getMaterialPricesForPlant(resolvedPlantId);
+    if (pricesError || !priceMap) {
       throw new Error('No se encontraron precios de materiales');
     }
 
-    // Calculate material cost
+    // Calculate material cost (UUID-only matching)
     let materialCost = 0;
     for (const material of materialsToUse) {
-      let price = null;
-      if (material.material_id) {
-        price = currentPrices.find(p => p.material_id === material.material_id);
-      }
-      if (!price) {
-        price = currentPrices.find(p => p.material_type === material.material_type);
-      }
-      
-      if (price) {
-        materialCost += material.quantity * price.price_per_unit;
+      if (!material.material_id) continue;
+      const pricePerUnit = priceMap.get(material.material_id);
+      if (pricePerUnit !== undefined) {
+        materialCost += material.quantity * pricePerUnit;
       }
     }
 

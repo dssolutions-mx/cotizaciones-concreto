@@ -5,7 +5,7 @@ import type { RecipeSpecification } from '@/types/recipes';
 const TMA_FACTOR_TO_MM: Record<string, number> = {
   '0': 6,   // < 7mm
   '1': 13,  // 7-19mm
-  '2': 30,  // 20-39mm
+  '2': 20,  // 20-39mm (20mm es el valor típico)
   '4': 40,  // >= 40mm
 };
 

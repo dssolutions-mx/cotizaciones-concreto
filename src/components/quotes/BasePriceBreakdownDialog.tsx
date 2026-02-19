@@ -13,6 +13,7 @@ interface BasePriceBreakdownDialogProps {
   recipeCode: string;
   basePrice: number;
   distanceInfo: DistanceCalculation | null;
+  plantId?: string | null;
 }
 
 export function BasePriceBreakdownDialog({
@@ -22,6 +23,7 @@ export function BasePriceBreakdownDialog({
   recipeCode,
   basePrice,
   distanceInfo,
+  plantId,
 }: BasePriceBreakdownDialogProps) {
   const [breakdown, setBreakdown] = useState<{
     materialCost: number;
@@ -35,13 +37,13 @@ export function BasePriceBreakdownDialog({
     if (open && recipeId) {
       loadBreakdown();
     }
-  }, [open, recipeId]);
+  }, [open, recipeId, plantId]);
 
   const loadBreakdown = async () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await calculateBasePriceBreakdown(recipeId);
+      const result = await calculateBasePriceBreakdown(recipeId, undefined, plantId ?? undefined);
       setBreakdown(result);
     } catch (err) {
       console.error('Error loading breakdown:', err);

@@ -168,6 +168,37 @@ export const priceService = {
       .order('material_type');
   },
 
+  /**
+   * Get material prices for a plant, UUID-only (material_id IS NOT NULL).
+   * Returns Map<material_id, price_per_unit> with latest price per material (max effective_date).
+   * Use this for QuoteBuilder base price calculation — no ambiguity.
+   */
+  async getMaterialPricesForPlant(plantId: string): Promise<{
+    data: Map<string, number>;
+    error: Error | null;
+  }> {
+    const { data: rows, error } = await supabase
+      .from('material_prices')
+      .select('material_id, price_per_unit, effective_date')
+      .eq('plant_id', plantId)
+      .not('material_id', 'is', null)
+      .is('end_date', null)
+      .order('effective_date', { ascending: false });
+
+    if (error) {
+      return { data: new Map(), error };
+    }
+
+    // Dedupe by material_id — keep first (latest) per material
+    const priceMap = new Map<string, number>();
+    for (const row of rows || []) {
+      if (row.material_id && !priceMap.has(row.material_id)) {
+        priceMap.set(row.material_id, Number(row.price_per_unit) || 0);
+      }
+    }
+    return { data: priceMap, error: null };
+  },
+
   async getCurrentAdminCosts() {
     return await supabase
       .from('administrative_costs')

@@ -250,17 +250,35 @@ export default function QuoteBuilder() {
       }
 
       // Fetch variants for this master
-      const { data: variants, error: variantsError } = await supabase
+      const { data: variantsRaw, error: variantsError } = await supabase
         .from('recipes')
         .select('id, recipe_code, plant_id')
-        .eq('master_recipe_id', masterId)
-        .order('recipe_code', { ascending: true });
+        .eq('master_recipe_id', masterId);
       if (variantsError) throw variantsError;
 
-      if (!variants || variants.length === 0) {
+      if (!variantsRaw || variantsRaw.length === 0) {
         toast.error('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
         return;
       }
+
+      // Order variants by latest version's created_at DESC (RecipeGovernance alignment)
+      // Prefer the variant with the most recently updated version (e.g. 2-02L over 2-00M)
+      const { data: versions } = await supabase
+        .from('recipe_versions')
+        .select('recipe_id, created_at')
+        .in('recipe_id', variantsRaw.map((v: { id: string }) => v.id))
+        .order('created_at', { ascending: false });
+      const latestVersionByRecipe = new Map<string, string>();
+      for (const v of versions || []) {
+        if (!latestVersionByRecipe.has(v.recipe_id)) {
+          latestVersionByRecipe.set(v.recipe_id, v.created_at);
+        }
+      }
+      const variants = [...variantsRaw].sort((a, b) => {
+        const aDate = latestVersionByRecipe.get(a.id) || '';
+        const bDate = latestVersionByRecipe.get(b.id) || '';
+        return bDate.localeCompare(aDate); // newest first
+      });
 
       // IMPORTANT: Quote builder always calculates fresh prices from materials
       // product_prices table is ONLY for storing approved prices after a quote is approved
@@ -275,7 +293,7 @@ export default function QuoteBuilder() {
       for (const variant of variants) {
         triedVariants.push(variant.recipe_code || variant.id);
         try {
-          basePrice = await calculateBasePrice(variant.id);
+          basePrice = await calculateBasePrice(variant.id, undefined, variant.plant_id ?? undefined);
           chosenVariant = variant;
           if (triedVariants.length > 1) {
             console.log(
@@ -595,7 +613,7 @@ export default function QuoteBuilder() {
       // Calculate base price using latest variant materials
       // calculateBasePrice will fetch the latest variant automatically if materials not provided
       // IMPORTANT: Always calculate fresh, don't use any cached/stale values
-      let basePriceWithoutTransport = await calculateBasePrice(recipeId);
+      let basePriceWithoutTransport = await calculateBasePrice(recipeId, undefined, recipe.plant_id);
       
       // Add transport cost if distance info is available
       // Use current distanceInfo, not stale data
@@ -1144,7 +1162,11 @@ export default function QuoteBuilder() {
           productsToUpdate.map(async (product) => {
             try {
               // Get base price without transport (fresh calculation)
-              const basePriceWithoutTransport = await calculateBasePrice(product.recipe.id || '');
+              const basePriceWithoutTransport = await calculateBasePrice(
+                product.recipe.id || '',
+                undefined,
+                product.recipe.plant_id
+              );
               const basePriceWithTransport = basePriceWithoutTransport + transportCostPerM3;
               
               // Only update base price if it wasn't manually edited
@@ -2092,6 +2114,7 @@ export default function QuoteBuilder() {
           }
           basePrice={quoteProducts[breakdownDialogProductIndex].basePrice}
           distanceInfo={distanceInfo}
+          plantId={quoteProducts[breakdownDialogProductIndex].recipe.plant_id}
         />
       )}
     </div>
