@@ -307,7 +307,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const isLandingRoute = pathname?.startsWith('/landing');
   const isAuthRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth') || pathname?.startsWith('/reset-password') || pathname?.startsWith('/update-password');
-  const isFinanzasRoute = pathname?.startsWith('/finanzas');
+  const isGobiernoPreciosOrCredito =
+    pathname?.startsWith('/finanzas/gobierno-precios') ||
+    pathname?.startsWith('/finanzas/credito-validacion');
+  const isFinanzasRoute =
+    pathname?.startsWith('/finanzas') && !isGobiernoPreciosOrCredito;
   const isQualityRoute = pathname?.startsWith('/quality');
   const isAdminRoute = pathname?.startsWith('/admin');
   const isInventoryRoute = pathname?.startsWith('/production-control');
@@ -317,8 +321,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     pathname?.startsWith('/clients') ||
     pathname?.startsWith('/quotes') ||
     pathname?.startsWith('/prices') ||
-    pathname?.startsWith('/finanzas/gobierno-precios') ||
-    pathname?.startsWith('/finanzas/credito-validacion');
+    isGobiernoPreciosOrCredito;
 
   // Persist collapsed state (default collapsed)
   useEffect(() => {
