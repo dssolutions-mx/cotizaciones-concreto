@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
 import { ArkikDuplicateHandler } from '@/services/arkikDuplicateHandler';
@@ -20,6 +21,7 @@ import type {
 import StatusProcessingDialog from './StatusProcessingDialog';
 import ManualAssignmentInterface from './ManualAssignmentInterface';
 import DuplicateHandlingInterface from './DuplicateHandlingInterface';
+import { CreateRecipeFromArkikModal } from './CreateRecipeFromArkikModal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -47,6 +49,7 @@ const PLANT_3_TIJUANA_ID = 'baf175a7-fcf7-4e71-b18f-e952d8802129';
 
 export default function ArkikProcessor() {
   const { currentPlant } = usePlantContext();
+  const { profile } = useAuthBridge();
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -64,6 +67,7 @@ export default function ArkikProcessor() {
   const [siteNames, setSiteNames] = useState<Map<string, string>>(new Map());
   const [recipeNames, setRecipeNames] = useState<Map<string, string>>(new Map());
   const [namesLoading, setNamesLoading] = useState(false);
+  const [createRecipeModalCode, setCreateRecipeModalCode] = useState<string | null>(null);
 
   // Processing state
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1605,6 +1609,22 @@ Fin del reporte
     }
   };
 
+  const revalidateAfterRecipeCreation = async () => {
+    if (!currentPlant || !stagingData.length) return;
+    try {
+      const validator = new DebugArkikValidator(currentPlant.id);
+      const { validated, errors } = await validator.validateBatch(stagingData);
+      setResult((prev) =>
+        prev
+          ? { ...prev, validated, errors }
+          : null
+      );
+      if (validated.length > 0) loadNamesFromDatabase(validated);
+    } catch (e) {
+      console.error('[ArkikProcessor] Revalidation error:', e);
+    }
+  };
+
   const toggleRowSelection = (rowId: string) => {
     const newSelected = new Set(selectedRows);
     if (newSelected.has(rowId)) {
@@ -2101,14 +2121,25 @@ Fin del reporte
                         </p>
                         <div className="bg-white border rounded p-3 max-h-32 overflow-y-auto">
                           {summary.missingRecipes.map((recipe, idx) => (
-                            <div key={idx} className="font-mono text-sm py-1">
-                              {recipe}
+                            <div key={idx} className="flex items-center justify-between gap-2 py-1">
+                              <span className="font-mono text-sm">{recipe}</span>
+                              {['EXECUTIVE', 'PLANT_MANAGER', 'QUALITY_TEAM'].includes(profile?.role || '') && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setCreateRecipeModalCode(recipe)}
+                                >
+                                  Crear receta
+                                </Button>
+                              )}
                             </div>
                           ))}
                         </div>
-                        <p className="text-sm text-gray-600 mt-2">
-                          <strong>Acción:</strong> Contacta al equipo de calidad para registrar estas recetas
-                        </p>
+                        {!['EXECUTIVE', 'PLANT_MANAGER', 'QUALITY_TEAM'].includes(profile?.role || '') && (
+                          <p className="text-sm text-gray-600 mt-2">
+                            <strong>Acción:</strong> Contacta al equipo de calidad para registrar estas recetas
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600 mt-1">
                           <strong>⚠️ Nota:</strong> Después de registrar cada receta, también necesitarás configurar un precio para ella.
                         </p>
@@ -3290,6 +3321,18 @@ Fin del reporte
           : []}
         onSaveDecision={handleSaveStatusDecision}
       />
+
+      {/* Create Recipe from Arkik Modal (EXECUTIVE only) */}
+      {createRecipeModalCode && currentPlant?.id && (
+        <CreateRecipeFromArkikModal
+          isOpen={!!createRecipeModalCode}
+          arkikCode={createRecipeModalCode}
+          sourceRows={result?.validated || []}
+          plantId={currentPlant.id}
+          onSuccess={revalidateAfterRecipeCreation}
+          onCancel={() => setCreateRecipeModalCode(null)}
+        />
+      )}
     </div>
   );
 }

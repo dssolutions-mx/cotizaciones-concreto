@@ -11,8 +11,12 @@ export interface CreateRecipeFromArkikParams {
   variantSuffix: string | null;
 }
 
+export interface DeriveMaterialWithName extends MaterialSelection {
+  material_name?: string;
+}
+
 export interface DeriveMaterialsResult {
-  materials: MaterialSelection[];
+  materials: DeriveMaterialWithName[];
   unmapped: string[];
 }
 
@@ -46,10 +50,11 @@ export async function deriveMaterialsFromArkikRow(
     throw new Error(`Error al cargar mapeo de materiales: ${mapError.message}`);
   }
 
-  const mappingByCode = new Map<string, { material_id: string; category?: string; unit_of_measure?: string }>();
-  (mappings || []).forEach((m: { arkik_code: string; material_id: string; category?: string; unit_of_measure?: string }) => {
+  const mappingByCode = new Map<string, { material_id: string; material_name?: string; category?: string; unit_of_measure?: string }>();
+  (mappings || []).forEach((m: { arkik_code: string; material_id: string; material_name?: string; category?: string; unit_of_measure?: string }) => {
     mappingByCode.set(m.arkik_code, {
       material_id: m.material_id,
+      material_name: m.material_name,
       category: m.category,
       unit_of_measure: m.unit_of_measure,
     });
@@ -75,6 +80,7 @@ export async function deriveMaterialsFromArkikRow(
       material_id: mapping.material_id,
       quantity: Math.round(qtyPerM3 * 100) / 100,
       unit,
+      material_name: mapping.material_name,
     });
   }
 
