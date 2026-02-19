@@ -2123,7 +2123,7 @@ Fin del reporte
                           {summary.missingRecipes.map((recipe, idx) => (
                             <div key={idx} className="flex items-center justify-between gap-2 py-1">
                               <span className="font-mono text-sm">{recipe}</span>
-                              {['EXECUTIVE', 'PLANT_MANAGER', 'QUALITY_TEAM'].includes(profile?.role || '') && (
+                              {profile?.role === 'EXECUTIVE' && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2135,9 +2135,9 @@ Fin del reporte
                             </div>
                           ))}
                         </div>
-                        {!['EXECUTIVE', 'PLANT_MANAGER', 'QUALITY_TEAM'].includes(profile?.role || '') && (
+                        {profile?.role !== 'EXECUTIVE' && (
                           <p className="text-sm text-gray-600 mt-2">
-                            <strong>Acción:</strong> Contacta al equipo de calidad para registrar estas recetas
+                            <strong>Acción:</strong> Solo un ejecutivo puede crear recetas desde Arkik. Contacta a un ejecutivo para registrar estas recetas
                           </p>
                         )}
                         <p className="text-sm text-gray-600 mt-1">

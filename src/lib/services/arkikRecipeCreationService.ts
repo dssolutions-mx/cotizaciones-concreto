@@ -116,6 +116,20 @@ export async function createRecipeFromArkikData(
 ): Promise<{ id: string; recipe_code: string; updated?: boolean }> {
   const { arkikCode, plantId, specification, materials, masterCode, variantSuffix, masterId: paramMasterId } = params;
 
+  // Solo ejecutivos pueden crear recetas desde Arkik
+  const { data: { user }, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    throw new Error('Usuario no autenticado');
+  }
+  const { data: profile, error: profileErr } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+  if (profileErr || !profile || profile.role !== 'EXECUTIVE') {
+    throw new Error('Solo usuarios con rol ejecutivo pueden crear recetas desde Arkik');
+  }
+
   if (materials.length === 0) {
     throw new Error('Se requiere al menos un material para crear la receta');
   }
