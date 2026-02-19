@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { CheckCircle, RefreshCw, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { usePlantContext } from '@/contexts/PlantContext';
+import { calculateRoadDistance } from '@/lib/services/distanceService';
 import { ClientApprovalCard } from '@/components/finanzas/ClientApprovalCard';
 import { SiteApprovalCard } from '@/components/finanzas/SiteApprovalCard';
 import { PriceGovernanceTable } from '@/components/finanzas/PriceGovernanceTable';
@@ -25,11 +27,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type PendingClient = { id: string; business_name: string; client_code: string | null; rfc: string | null; created_at: string };
-type PendingSite = { id: string; name: string; location: string | null; client_id: string; created_at: string; clients?: { business_name: string } | null };
+type PendingSite = {
+  id: string;
+  name: string;
+  location: string | null;
+  client_id: string;
+  created_at: string;
+  clients?: { business_name: string } | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distance_km?: number | null;
+  distance_plant_name?: string | null;
+};
 
 export default function GobiernoPreciosPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const [clients, setClients] = useState<PendingClient[]>([]);
   const [constructionSites, setConstructionSites] = useState<PendingSite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,18 +52,11 @@ export default function GobiernoPreciosPage() {
   const [rejectSiteTarget, setRejectSiteTarget] = useState<PendingSite | null>(null);
   const [approveAllOpen, setApproveAllOpen] = useState(false);
   const [approveAllSitesOpen, setApproveAllSitesOpen] = useState(false);
+  const [siteDistances, setSiteDistances] = useState<Record<string, { distance_km: number; plant_name: string }>>({});
 
   const canAccess = ['EXECUTIVE', 'PLANT_MANAGER'].includes(profile?.role || '');
 
-  useEffect(() => {
-    if (!canAccess) {
-      router.push('/finanzas');
-      return;
-    }
-    loadPending();
-  }, [canAccess, router]);
-
-  async function loadPending() {
+  const loadPending = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/governance/pending');
@@ -64,7 +71,52 @@ export default function GobiernoPreciosPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!canAccess) {
+      router.push('/finanzas');
+      return;
+    }
+    loadPending();
+  }, [canAccess, router, loadPending]);
+
+  // Calcular distancias en el cliente (como QuoteBuilder) para que funcione con la sesión del usuario
+  useEffect(() => {
+    if (!currentPlant?.id || !currentPlant?.name) {
+      setSiteDistances({});
+      return;
+    }
+    const sites = constructionSites.filter(
+      (s) => s.latitude != null && s.longitude != null
+    );
+    if (sites.length === 0) {
+      setSiteDistances({});
+      return;
+    }
+    let cancelled = false;
+    const next: Record<string, { distance_km: number; plant_name: string }> = {};
+    Promise.all(
+      sites.map(async (site) => {
+        if (cancelled) return;
+        try {
+          const km = await calculateRoadDistance(currentPlant.id, site.id);
+          if (cancelled) return;
+          next[site.id] = {
+            distance_km: Math.round(km * 100) / 100,
+            plant_name: currentPlant.name ?? '',
+          };
+        } catch {
+          // Ignorar errores por sitio
+        }
+      })
+    ).then(() => {
+      if (!cancelled) setSiteDistances(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [constructionSites, currentPlant?.id, currentPlant?.name]);
 
   async function approve(id: string) {
     try {
@@ -301,7 +353,11 @@ export default function GobiernoPreciosPage() {
               {constructionSites.map((s) => (
                 <SiteApprovalCard
                   key={s.id}
-                  site={s}
+                  site={{
+                    ...s,
+                    distance_km: siteDistances[s.id]?.distance_km ?? null,
+                    distance_plant_name: siteDistances[s.id]?.plant_name ?? null,
+                  }}
                   onApprove={() => approveSite(s.id)}
                   onReject={() => setRejectSiteTarget(s)}
                   isActing={acting === s.id}

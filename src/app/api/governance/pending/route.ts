@@ -25,7 +25,7 @@ export async function GET() {
         .order('created_at', { ascending: false }),
       supabase
         .from('construction_sites')
-        .select('id, name, location, client_id, created_at, clients(business_name)')
+        .select('id, name, location, client_id, created_at, latitude, longitude, clients(business_name)')
         .eq('approval_status', 'PENDING_APPROVAL')
         .order('created_at', { ascending: false }),
     ]);

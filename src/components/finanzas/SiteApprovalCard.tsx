@@ -4,7 +4,8 @@ import React from 'react';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, XCircle, MapPin } from 'lucide-react';
+import { CheckCircle, XCircle, MapPin, ExternalLink } from 'lucide-react';
+import { generateGoogleMapsUrl } from '@/components/orders/ScheduleOrderForm';
 
 interface PendingSite {
   id: string;
@@ -13,6 +14,10 @@ interface PendingSite {
   client_id: string;
   created_at: string;
   clients?: { business_name: string } | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distance_km?: number | null;
+  distance_plant_name?: string | null;
 }
 
 interface SiteApprovalCardProps {
@@ -29,6 +34,8 @@ export function SiteApprovalCard({ site, onApprove, onReject, isActing }: SiteAp
     year: 'numeric',
   });
   const clientName = (site.clients as { business_name?: string } | null)?.business_name ?? 'Cliente';
+  const hasCoordinates = site.latitude != null && site.longitude != null;
+  const mapUrl = hasCoordinates ? generateGoogleMapsUrl(String(site.latitude), String(site.longitude)) : null;
 
   return (
     <Card className="hover:shadow-md transition-shadow border-l-4 border-l-blue-400">
@@ -54,6 +61,24 @@ export function SiteApprovalCard({ site, onApprove, onReject, isActing }: SiteAp
             <span className="truncate">{site.location}</span>
           </div>
         )}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-sm text-slate-600">
+            {site.distance_km != null
+              ? `${site.distance_km} km${site.distance_plant_name ? ` a ${site.distance_plant_name}` : ''}`
+              : '—'}
+          </span>
+          {mapUrl && (
+            <a
+              href={mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Ver en mapa
+            </a>
+          )}
+        </div>
       </CardContent>
       <CardFooter className="flex gap-2 pt-0">
         <Button
