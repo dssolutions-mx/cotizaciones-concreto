@@ -732,6 +732,7 @@ export class MaterialsPersistenceError extends Error {
 
   constructor(message: string, retryTargets: MaterialRetryVersionTarget[]) {
     super(message);
+    Object.setPrototypeOf(this, MaterialsPersistenceError.prototype);
     this.name = 'MaterialsPersistenceError';
     this.retryTargets = retryTargets;
   }
@@ -1268,7 +1269,12 @@ export async function retryPopulateMaterialsForSavedVersions(
   plantId: string,
   retryTargets: MaterialRetryVersionTarget[],
   selection?: CalculatorMaterialSelection
-): Promise<{ updatedVersions: number; skippedVersions: number }> {
+): Promise<{
+  updatedVersions: number;
+  skippedVersions: number;
+  dryMaterialsInserted: number;
+  sssMaterialsInserted: number;
+}> {
   const recipeDecisionPairs = recipes
     .map((recipe, idx) => ({ recipe, decision: decisions[idx] }))
     .filter((entry): entry is { recipe: CalculatorRecipe; decision: CalculatorSaveDecision } => Boolean(entry.decision));
@@ -1313,7 +1319,12 @@ export async function retryPopulateMaterialsForSavedVersions(
   });
 
   if (targetVersionIds.length === 0) {
-    return { updatedVersions: 0, skippedVersions: versionIds.length };
+    return {
+      updatedVersions: 0,
+      skippedVersions: versionIds.length,
+      dryMaterialsInserted: 0,
+      sssMaterialsInserted: 0
+    };
   }
 
   await supabase
@@ -1345,6 +1356,8 @@ export async function retryPopulateMaterialsForSavedVersions(
 
   return {
     updatedVersions: targetVersionIds.length,
-    skippedVersions: versionIds.length - targetVersionIds.length
+    skippedVersions: versionIds.length - targetVersionIds.length,
+    dryMaterialsInserted: allMaterialQuantities.length,
+    sssMaterialsInserted: allSSMaterials.length
   };
 }

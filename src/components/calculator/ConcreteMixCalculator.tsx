@@ -212,6 +212,10 @@ const ConcreteMixCalculator = () => {
   const [successOpen, setSuccessOpen] = useState(false);
   const [successRecipeCodes, setSuccessRecipeCodes] = useState<string[]>([]);
   const [successDecisions, setSuccessDecisions] = useState<CalculatorSaveDecision[]>([]);
+  const [successEvidenceLoading, setSuccessEvidenceLoading] = useState(false);
+  const [successEvidenceByCode, setSuccessEvidenceByCode] = useState<
+    Record<string, { dryCount: number; sssCount: number }>
+  >({});
   const [exportType, setExportType] = useState<'new' | 'update'>('new');
   // Batch preflight for variant governance
   const [conflictsOpen, setConflictsOpen] = useState(false);
@@ -258,6 +262,10 @@ const ConcreteMixCalculator = () => {
     retryTargets: MaterialRetryVersionTarget[];
     errorMessage: string;
   } | null>(null);
+  const [materialsRetryStatusLoading, setMaterialsRetryStatusLoading] = useState(false);
+  const [materialsRetryStatusByVersion, setMaterialsRetryStatusByVersion] = useState<
+    Record<string, { dryCount: number; sssCount: number }>
+  >({});
 
   // Load available materials from database
   const loadAvailableMaterials = async () => {
@@ -1760,10 +1768,9 @@ const ConcreteMixCalculator = () => {
 
       toast({
         title: "Materiales guardados correctamente",
-        description:
-          retryResult.updatedVersions > 0
-            ? `Se completó el guardado de materiales para ${retryResult.updatedVersions} variante(s).`
-            : `Las variantes ya tenían materiales guardados. No fue necesario reintentar.`,
+        description: retryResult.updatedVersions > 0
+          ? `Se actualizaron ${retryResult.updatedVersions} variante(s) con ${retryResult.dryMaterialsInserted} materiales secos y ${retryResult.sssMaterialsInserted} materiales SSS.`
+          : `Las variantes ya tenían materiales guardados. No fue necesario reintentar.`,
         variant: "default",
       });
     } catch (error) {
@@ -1778,6 +1785,135 @@ const ConcreteMixCalculator = () => {
       setRetryingMaterials(false);
     }
   };
+
+  useEffect(() => {
+    const loadMaterialsRetryEvidence = async () => {
+      if (!materialsRetryOpen || !materialsRetryContext || materialsRetryContext.retryTargets.length === 0) {
+        return;
+      }
+      try {
+        setMaterialsRetryStatusLoading(true);
+        const versionIds = materialsRetryContext.retryTargets.map(t => t.versionId);
+
+        const [{ data: dryRows, error: dryErr }, { data: sssRows, error: sssErr }] = await Promise.all([
+          supabase
+            .from('material_quantities')
+            .select('recipe_version_id')
+            .in('recipe_version_id', versionIds),
+          supabase
+            .from('recipe_reference_materials')
+            .select('recipe_version_id')
+            .in('recipe_version_id', versionIds)
+        ]);
+        if (dryErr) throw dryErr;
+        if (sssErr) throw sssErr;
+
+        const status: Record<string, { dryCount: number; sssCount: number }> = {};
+        versionIds.forEach(versionId => {
+          status[versionId] = { dryCount: 0, sssCount: 0 };
+        });
+        (dryRows || []).forEach((row: any) => {
+          if (!status[row.recipe_version_id]) status[row.recipe_version_id] = { dryCount: 0, sssCount: 0 };
+          status[row.recipe_version_id].dryCount += 1;
+        });
+        (sssRows || []).forEach((row: any) => {
+          if (!status[row.recipe_version_id]) status[row.recipe_version_id] = { dryCount: 0, sssCount: 0 };
+          status[row.recipe_version_id].sssCount += 1;
+        });
+        setMaterialsRetryStatusByVersion(status);
+      } catch (err) {
+        console.error('[Materials Retry Evidence Error]', err);
+      } finally {
+        setMaterialsRetryStatusLoading(false);
+      }
+    };
+
+    loadMaterialsRetryEvidence();
+  }, [materialsRetryOpen, materialsRetryContext]);
+
+  useEffect(() => {
+    const loadSuccessEvidence = async () => {
+      if (!successOpen || !currentPlant?.id || successRecipeCodes.length === 0) return;
+      try {
+        setSuccessEvidenceLoading(true);
+
+        const { data: recipeRows, error: recipeErr } = await supabase
+          .from('recipes')
+          .select('id, recipe_code')
+          .eq('plant_id', currentPlant.id)
+          .in('recipe_code', successRecipeCodes);
+        if (recipeErr) throw recipeErr;
+
+        const recipeIdByCode = new Map<string, string>();
+        (recipeRows || []).forEach((r: any) => {
+          recipeIdByCode.set(r.recipe_code, r.id);
+        });
+
+        const recipeIds = Array.from(recipeIdByCode.values());
+        if (recipeIds.length === 0) {
+          setSuccessEvidenceByCode({});
+          return;
+        }
+
+        const { data: versionRows, error: versionErr } = await supabase
+          .from('recipe_versions')
+          .select('id, recipe_id')
+          .eq('is_current', true)
+          .in('recipe_id', recipeIds);
+        if (versionErr) throw versionErr;
+
+        const versionIdByCode = new Map<string, string>();
+        (versionRows || []).forEach((v: any) => {
+          const code = Array.from(recipeIdByCode.entries()).find(([, recipeId]) => recipeId === v.recipe_id)?.[0];
+          if (code) versionIdByCode.set(code, v.id);
+        });
+
+        const versionIds = Array.from(versionIdByCode.values());
+        if (versionIds.length === 0) {
+          setSuccessEvidenceByCode({});
+          return;
+        }
+
+        const [{ data: dryRows, error: dryErr }, { data: sssRows, error: sssErr }] = await Promise.all([
+          supabase
+            .from('material_quantities')
+            .select('recipe_version_id')
+            .in('recipe_version_id', versionIds),
+          supabase
+            .from('recipe_reference_materials')
+            .select('recipe_version_id')
+            .in('recipe_version_id', versionIds)
+        ]);
+        if (dryErr) throw dryErr;
+        if (sssErr) throw sssErr;
+
+        const dryByVersion = new Map<string, number>();
+        const sssByVersion = new Map<string, number>();
+        (dryRows || []).forEach((row: any) => {
+          dryByVersion.set(row.recipe_version_id, (dryByVersion.get(row.recipe_version_id) || 0) + 1);
+        });
+        (sssRows || []).forEach((row: any) => {
+          sssByVersion.set(row.recipe_version_id, (sssByVersion.get(row.recipe_version_id) || 0) + 1);
+        });
+
+        const byCode: Record<string, { dryCount: number; sssCount: number }> = {};
+        successRecipeCodes.forEach(code => {
+          const versionId = versionIdByCode.get(code);
+          byCode[code] = {
+            dryCount: versionId ? (dryByVersion.get(versionId) || 0) : 0,
+            sssCount: versionId ? (sssByVersion.get(versionId) || 0) : 0
+          };
+        });
+        setSuccessEvidenceByCode(byCode);
+      } catch (err) {
+        console.error('[Success Evidence Error]', err);
+      } finally {
+        setSuccessEvidenceLoading(false);
+      }
+    };
+
+    loadSuccessEvidence();
+  }, [successOpen, successRecipeCodes, currentPlant?.id]);
 
   // Removed ARKIK modal handlers to enforce save-first workflow
 
@@ -3142,19 +3278,30 @@ const ConcreteMixCalculator = () => {
                   console.error('[Save Error]', e);
                   const maybeMaterialsError = e as {
                     type?: string;
+                    name?: string;
                     retryTargets?: MaterialRetryVersionTarget[];
                     message?: string;
                   };
 
-                  if (maybeMaterialsError?.type === 'materials_persistence' && Array.isArray(maybeMaterialsError.retryTargets)) {
+                  const isMaterialsPersistenceFailure =
+                    (maybeMaterialsError?.type === 'materials_persistence' ||
+                      maybeMaterialsError?.name === 'MaterialsPersistenceError' ||
+                      (typeof maybeMaterialsError?.message === 'string' &&
+                        maybeMaterialsError.message.toLowerCase().includes('reintentar solo materiales'))) &&
+                    Array.isArray(maybeMaterialsError.retryTargets);
+
+                  if (isMaterialsPersistenceFailure) {
+                    const retryTargets = maybeMaterialsError.retryTargets as MaterialRetryVersionTarget[];
                     const retryErrorMessage = maybeMaterialsError.message || 'No se pudieron guardar materiales en todas las variantes.';
                     setMaterialsRetryContext({
-                      payload: payload as unknown as CalculatorRecipe[],
+                      payload,
                       decisions,
                       selectionMap,
-                      retryTargets: maybeMaterialsError.retryTargets,
+                      retryTargets,
                       errorMessage: retryErrorMessage,
                     });
+                    // Ensure retry modal is visible and not hidden behind conflicts modal.
+                    setConflictsOpen(false);
                     setMaterialsRetryOpen(true);
                     toast({
                       title: "Guardado parcial detectado",
@@ -3203,13 +3350,24 @@ const ConcreteMixCalculator = () => {
               </Alert>
 
               <div className="rounded border p-3">
-                <p className="text-sm font-semibold mb-2">Variantes pendientes de materiales</p>
+                <p className="text-sm font-semibold mb-2">Evidencia de materiales por variante</p>
                 <div className="max-h-48 overflow-y-auto space-y-1">
-                  {(materialsRetryContext?.retryTargets || []).map((target, idx) => (
-                    <div key={`${target.versionId}-${idx}`} className="text-xs font-mono bg-gray-50 rounded px-2 py-1">
-                      {target.recipeCode}
-                    </div>
-                  ))}
+                  {materialsRetryStatusLoading ? (
+                    <div className="text-xs text-gray-600">Cargando estado de materiales...</div>
+                  ) : (
+                    (materialsRetryContext?.retryTargets || []).map((target, idx) => {
+                      const status = materialsRetryStatusByVersion[target.versionId] || { dryCount: 0, sssCount: 0 };
+                      const hasAny = status.dryCount > 0 || status.sssCount > 0;
+                      return (
+                        <div key={`${target.versionId}-${idx}`} className="text-xs bg-gray-50 rounded px-2 py-2 border">
+                          <div className="font-mono">{target.recipeCode}</div>
+                          <div className="text-[11px] text-gray-700 mt-1">
+                            Secos: <strong>{status.dryCount}</strong> | SSS: <strong>{status.sssCount}</strong> | Estado: {hasAny ? 'Parcial/Con datos' : 'Sin materiales'}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -3298,7 +3456,18 @@ const ConcreteMixCalculator = () => {
                         <div className="space-y-1">
                           {codes.map((code, idx) => (
                             <div key={idx} className="p-2 border rounded bg-white font-mono text-sm">
-                              {code}
+                              <div>{code}</div>
+                              <div className="font-sans text-[11px] text-gray-600 mt-1">
+                                {successEvidenceLoading ? (
+                                  'Verificando materiales...'
+                                ) : (
+                                  (() => {
+                                    const evidence = successEvidenceByCode[code] || { dryCount: 0, sssCount: 0 };
+                                    const hasAny = evidence.dryCount > 0 || evidence.sssCount > 0;
+                                    return `Secos: ${evidence.dryCount} | SSS: ${evidence.sssCount} | Estado: ${hasAny ? 'Con materiales' : 'Sin materiales'}`;
+                                  })()
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
