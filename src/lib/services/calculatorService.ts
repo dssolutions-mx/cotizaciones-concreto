@@ -737,12 +737,17 @@ export async function saveRecipesWithDecisions(
   arkik?: ArkikDefaults,
   onProgress?: (current: number, total: number, recipeName: string) => void
 ): Promise<void> {
-  // Build maps for lookup
-  const decisionByCode = new Map<string, CalculatorSaveDecision>();
-  decisions.forEach(d => decisionByCode.set(d.recipeCode, d));
-  
-  const recipeByCode = new Map<string, CalculatorRecipe>();
-  recipes.forEach(r => recipeByCode.set(r.code, r));
+  // Keep recipe<->decision pairing positional to support multiple variants for the same base recipe.
+  const recipeDecisionPairs = recipes
+    .map((recipe, idx) => ({ recipe, decision: decisions[idx] }))
+    .filter((entry): entry is { recipe: CalculatorRecipe; decision: CalculatorSaveDecision } => Boolean(entry.decision));
+
+  if (recipeDecisionPairs.length !== recipes.length) {
+    console.warn(
+      `[Calculator] Mismatch between recipes (${recipes.length}) and decisions (${decisions.length}). ` +
+      `Only ${recipeDecisionPairs.length} paired entries will be processed.`
+    );
+  }
 
   // Fetch all materials once
   const { data: allMaterials } = await supabase.from('materials').select('*').eq('plant_id', plantId);
@@ -765,10 +770,7 @@ export async function saveRecipesWithDecisions(
   const newRecipes: Array<{ recipe: CalculatorRecipe; decision: CalculatorSaveDecision; finalCode: string; needsMaster: boolean }> = [];
   const newMasters: Array<{ recipe: CalculatorRecipe; decision: CalculatorSaveDecision; masterCode: string }> = [];
 
-  for (let i = 0; i < totalRecipes; i++) {
-    const r = recipes[i];
-    const decision = decisionByCode.get(r.code);
-    if (!decision) continue;
+  for (const { recipe: r, decision } of recipeDecisionPairs) {
 
     const finalCode = decision.finalArkikCode || r.code;
 
@@ -1008,7 +1010,7 @@ export async function saveRecipesWithDecisions(
       effective_date: new Date().toISOString(),
       is_current: true,
       notes: `Actualizado por calculadora automática - ${recipe.recipeType === 'MR' ? 'MR' : 'FC'}`,
-      recipeCode: recipe.code
+      recipeCode: finalCode
     });
   });
 
@@ -1024,7 +1026,7 @@ export async function saveRecipesWithDecisions(
       effective_date: new Date().toISOString(),
       is_current: true,
       notes: `Generado por calculadora automática - ${recipe.recipeType === 'MR' ? 'MR' : 'FC'}`,
-      recipeCode: recipe.code
+      recipeCode: finalCode
     });
   });
 
@@ -1045,13 +1047,13 @@ export async function saveRecipesWithDecisions(
 
     // Map recipe IDs to recipe codes (for both updates and new recipes)
     const recipeIdToCode = new Map<string, string>();
-    updateRecipes.forEach(({ recipe, decision }) => {
-      recipeIdToCode.set(decision.existingRecipeId!, recipe.code);
+    updateRecipes.forEach(({ decision, finalCode }) => {
+      recipeIdToCode.set(decision.existingRecipeId!, finalCode);
     });
-    newRecipes.forEach(({ recipe, finalCode }) => {
+    newRecipes.forEach(({ finalCode }) => {
       const recipeId = recipeCodeToId.get(finalCode);
       if (recipeId) {
-        recipeIdToCode.set(recipeId, recipe.code);
+        recipeIdToCode.set(recipeId, finalCode);
       }
     });
 
@@ -1060,11 +1062,7 @@ export async function saveRecipesWithDecisions(
       const recipeCode = recipeIdToCode.get(v.recipe_id);
       if (recipeCode) {
         recipeCodeToVersionId.set(recipeCode, v.id);
-        const recipeId = updateRecipes.find(u => u.recipe.code === recipeCode)?.decision.existingRecipeId 
-          || recipeCodeToId.get(newRecipes.find(n => n.recipe.code === recipeCode)?.finalCode || '');
-        if (recipeId) {
-          recipeCodeToRecipeId.set(recipeCode, recipeId);
-        }
+        recipeCodeToRecipeId.set(recipeCode, v.recipe_id);
       }
     });
 
@@ -1073,7 +1071,7 @@ export async function saveRecipesWithDecisions(
       const versionId = recipeCodeToVersionId.get(record.recipeCode);
       const recipeId = recipeCodeToRecipeId.get(record.recipeCode);
       if (versionId && recipeId) {
-        const isNew = newRecipes.some(n => n.recipe.code === record.recipeCode);
+        const isNew = newRecipes.some(n => n.finalCode === record.recipeCode);
         createdVersions.push({ recipeCode: record.recipeCode, versionId, recipeId, isNew });
       }
     });
@@ -1088,13 +1086,11 @@ export async function saveRecipesWithDecisions(
   const allMaterialQuantities: any[] = [];
   const allSSMaterials: any[] = [];
 
-  for (let i = 0; i < totalRecipes; i++) {
-    const r = recipes[i];
-    const decision = decisionByCode.get(r.code);
-    if (!decision) continue;
+  for (let i = 0; i < recipeDecisionPairs.length; i++) {
+    const { recipe: r, decision } = recipeDecisionPairs[i];
 
     const finalCode = decision.finalArkikCode || r.code;
-    const versionId = recipeCodeToVersionId.get(r.code);
+    const versionId = recipeCodeToVersionId.get(finalCode);
     
     if (!versionId) {
       console.error(`[Calculator] Version ID not found for recipe ${r.code}`);
@@ -1114,7 +1110,7 @@ export async function saveRecipesWithDecisions(
 
     // Report progress
     if (onProgress) {
-      onProgress(i + 1, totalRecipes, r.code);
+      onProgress(i + 1, recipeDecisionPairs.length, r.code);
     }
   }
 

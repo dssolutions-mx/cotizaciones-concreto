@@ -69,26 +69,25 @@ export interface AvailableMaterial {
 /**
  * Validate recipe materials and return issues.
  * Recipes are relevant for the quotation system only when used by QuoteBuilder.
+ * Non-QuoteBuilder variants are not shown validation issues (no warnings or errors).
  * @param materials - The materials to validate
- * @param isQuoteBuilderVariant - Whether this variant is used by QuoteBuilder. Errors are only errors if true.
+ * @param isQuoteBuilderVariant - Whether this variant is used by QuoteBuilder. Only QB variants get issues.
  */
 function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuoteBuilderVariant: boolean = false): MaterialValidationIssue[] {
+  if (!isQuoteBuilderVariant) {
+    return [];
+  }
+
   const issues: MaterialValidationIssue[] = [];
-  
-  // Determine severity based on whether this variant is used by QuoteBuilder
-  const getSeverity = (shouldBeError: boolean): 'error' | 'warning' => {
-    // Only show as error if it's the QuoteBuilder variant, otherwise show as warning
-    return (shouldBeError && isQuoteBuilderVariant) ? 'error' : 'warning';
-  };
+  const getSeverity = (shouldBeError: boolean): 'error' | 'warning' =>
+    shouldBeError ? 'error' : 'warning';
   
   if (materials.length === 0) {
     issues.push({
       type: 'too_few_materials',
       severity: getSeverity(true),
       message: 'No hay materiales definidos',
-      details: isQuoteBuilderVariant
-        ? 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos'
-        : 'Esta variante no tiene materiales definidos. No afecta cotizaciones (no la usa QuoteBuilder).',
+      details: 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos',
     });
     return issues;
   }
@@ -135,23 +134,8 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
       type: 'missing_cement',
       severity: getSeverity(true),
       message: 'Falta material de cemento',
-      details: isQuoteBuilderVariant
-        ? 'El cemento es obligatorio. Esta variante se usa en QuoteBuilder y debe tener cemento definido'
-        : 'El cemento es obligatorio. No afecta cotizaciones (esta variante no la usa QuoteBuilder).',
+      details: 'El cemento es obligatorio. Esta variante se usa en QuoteBuilder y debe tener cemento definido',
     });
-  } else {
-    // Check cement quantity (only error if <= 0)
-    const cementQty = cementMaterial.quantity || 0;
-    if (cementQty <= 0) {
-      issues.push({
-        type: 'invalid_quantities',
-        severity: getSeverity(true),
-        message: `Cantidad de cemento inválida: ${cementQty.toFixed(2)} kg/m³`,
-        details: isQuoteBuilderVariant
-          ? `El cemento debe tener una cantidad mayor a 0. Valor actual: ${cementQty.toFixed(2)} kg/m³. Esta variante se usa en QuoteBuilder.`
-          : `El cemento debe tener una cantidad mayor a 0. Valor actual: ${cementQty.toFixed(2)} kg/m³`,
-      });
-    }
   }
 
   // Check for missing water (required)
@@ -160,35 +144,7 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
       type: 'missing_water',
       severity: getSeverity(true),
       message: 'Falta material de agua',
-      details: isQuoteBuilderVariant
-        ? 'El agua es obligatoria. Esta variante se usa en QuoteBuilder y debe tener agua definida'
-        : 'El agua es obligatoria. No afecta cotizaciones (esta variante no la usa QuoteBuilder).',
-    });
-  } else {
-    // Check water quantity (only error if <= 0)
-    const waterQty = waterMaterial.quantity || 0;
-    if (waterQty <= 0) {
-      issues.push({
-        type: 'invalid_quantities',
-        severity: getSeverity(true),
-        message: `Cantidad de agua inválida: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
-        details: isQuoteBuilderVariant
-          ? `El agua debe tener una cantidad mayor a 0. Valor actual: ${waterQty.toFixed(2)} ${waterMaterial.unit}. Esta variante se usa en QuoteBuilder.`
-          : `El agua debe tener una cantidad mayor a 0. Valor actual: ${waterQty.toFixed(2)} ${waterMaterial.unit}`,
-      });
-    }
-  }
-
-  // Check for invalid quantities (zero or negative) in all materials
-  const invalidMaterials = materials.filter(m => !m.quantity || m.quantity <= 0);
-  if (invalidMaterials.length > 0) {
-    issues.push({
-      type: 'invalid_quantities',
-      severity: getSeverity(true),
-      message: `${invalidMaterials.length} material${invalidMaterials.length !== 1 ? 'es' : ''} con cantidad cero o negativa`,
-      details: isQuoteBuilderVariant
-        ? `${invalidMaterials.map(m => m.material?.material_name || m.material_type).join(', ')}. Esta variante se usa en QuoteBuilder.`
-        : invalidMaterials.map(m => `${m.material?.material_name || m.material_type}`).join(', '),
+      details: 'El agua es obligatoria. Esta variante se usa en QuoteBuilder y debe tener agua definida',
     });
   }
 
@@ -483,20 +439,18 @@ export const recipeGovernanceService = {
             ? (materialsByVersion.get(latestVersion.id) || [])
             : [];
 
-          // Validate materials and get issues
-          // Only show errors if this is the QuoteBuilder variant
-          const validationIssues = materials.length > 0 
-            ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
-            : latestVersion 
-              ? [{
-                  type: 'too_few_materials' as const,
-                  severity: isQuoteBuilderVariant ? ('error' as const) : ('warning' as const),
-                  message: 'No hay materiales definidos para esta versión',
-                  details: isQuoteBuilderVariant
-                    ? 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos'
-                    : 'Esta variante no tiene materiales definidos. No afecta cotizaciones (no la usa QuoteBuilder).',
-                }]
-              : [];
+          // Validate materials and get issues (only for QuoteBuilder variants)
+          const validationIssues =
+            materials.length > 0
+              ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
+              : latestVersion && isQuoteBuilderVariant
+                ? [{
+                    type: 'too_few_materials' as const,
+                    severity: 'error' as const,
+                    message: 'No hay materiales definidos para esta versión',
+                    details: 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos',
+                  }]
+                : [];
 
           return {
             variantId: r.id,

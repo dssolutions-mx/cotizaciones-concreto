@@ -2245,14 +2245,25 @@ const ConcreteMixCalculator = () => {
               const totalVariants = conflicts.reduce((sum, c) => sum + c.variants.length, 0);
               const readyCount = conflicts.reduce((sum, c) => {
                 return sum + c.variants.filter(v => {
+                  const duplicateInRecipe = c.variants.some(
+                    otherV => otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                  );
+
                   if (v.decision === 'updateVariant') {
-                    return v.selectedExistingId;
+                    return Boolean(v.selectedExistingId) && !duplicateInRecipe;
                   } else if (v.decision === 'createVariant') {
-                    const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
-                    const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
-                    return hasMaster && codeOk;
+                    const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
+                    const invalidNewMasterCode = v.masterMode === 'new' && (!v.newMasterCode || v.newMasterCode.split('-').length < 6);
+                    const codeIssue =
+                      (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                      c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                    return !missingMaster && !invalidNewMasterCode && !codeIssue && !duplicateInRecipe;
                   } else {
-                    return !c.codeCollision || v.overrideCode !== c.intendedCode;
+                    const invalidNewMasterCode = !v.newMasterCode || v.newMasterCode.split('-').length < 6;
+                    const codeIssue =
+                      (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                      c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                    return !invalidNewMasterCode && !codeIssue && !duplicateInRecipe;
                   }
                 }).length;
               }, 0);
@@ -2293,14 +2304,25 @@ const ConcreteMixCalculator = () => {
               {conflicts.map((c, conflictIdx) => {
                 // Calculate overall validation status for this recipe (all variants must be valid)
                 const allVariantsValid = c.variants.every(v => {
+                  const duplicateInRecipe = c.variants.some(
+                    otherV => otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                  );
+
                   if (v.decision === 'updateVariant') {
-                    return v.selectedExistingId;
+                    return Boolean(v.selectedExistingId) && !duplicateInRecipe;
                   } else if (v.decision === 'createVariant') {
-                    const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
-                    const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
-                    return hasMaster && codeOk;
+                    const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
+                    const invalidNewMasterCode = v.masterMode === 'new' && (!v.newMasterCode || v.newMasterCode.split('-').length < 6);
+                    const codeIssue =
+                      (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                      c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                    return !missingMaster && !invalidNewMasterCode && !codeIssue && !duplicateInRecipe;
                   } else {
-                    return !c.codeCollision || v.overrideCode !== c.intendedCode;
+                    const invalidNewMasterCode = !v.newMasterCode || v.newMasterCode.split('-').length < 6;
+                    const codeIssue =
+                      (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                      c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                    return !invalidNewMasterCode && !codeIssue && !duplicateInRecipe;
                   }
                 });
                 
@@ -2366,14 +2388,25 @@ const ConcreteMixCalculator = () => {
                     {c.variants.map((v, variantIdx) => {
                       // Calculate validation status for this variant
                       const hasIssues = (() => {
+                        const duplicateInRecipe = c.variants.some(
+                          otherV => otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                        );
+
                         if (v.decision === 'updateVariant') {
-                          return !v.selectedExistingId;
+                          return !v.selectedExistingId || duplicateInRecipe;
                         } else if (v.decision === 'createVariant') {
                           const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
-                          const codeIssue = c.codeCollision && v.overrideCode === c.intendedCode;
-                          return missingMaster || codeIssue;
+                          const invalidNewMasterCode = v.masterMode === 'new' && (!v.newMasterCode || v.newMasterCode.split('-').length < 6);
+                          const codeIssue =
+                            (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                            c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                          return missingMaster || invalidNewMasterCode || codeIssue || duplicateInRecipe;
                         } else {
-                          return c.codeCollision && v.overrideCode === c.intendedCode;
+                          const invalidNewMasterCode = !v.newMasterCode || v.newMasterCode.split('-').length < 6;
+                          const codeIssue =
+                            (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                            c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                          return invalidNewMasterCode || codeIssue || duplicateInRecipe;
                         }
                       })();
                       
@@ -2429,8 +2462,21 @@ const ConcreteMixCalculator = () => {
                                 {v.decision === 'createVariant' && (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId && (
                                   <div>• Debes <strong>seleccionar un maestro</strong> o cambiar a "Nuevo maestro"</div>
                                 )}
+                                {((v.decision === 'createVariant' && v.masterMode === 'new') || v.decision === 'newMaster') &&
+                                  (!v.newMasterCode || v.newMasterCode.split('-').length < 6) && (
+                                  <div>• El <strong>código maestro</strong> debe tener al menos 6 secciones separadas por guiones</div>
+                                )}
                                 {c.codeCollision && (v.decision === 'createVariant' || v.decision === 'newMaster') && v.overrideCode === c.intendedCode && (
                                   <div>• El código <strong className="font-mono">{v.overrideCode}</strong> ya existe. Cambia la última parte (ej: "000" → "001")</div>
+                                )}
+                                {(v.decision === 'createVariant' || v.decision === 'newMaster') &&
+                                  c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode) && (
+                                  <div>• El código <strong className="font-mono">{v.overrideCode}</strong> ya existe en las variantes candidatas. Usa un código diferente</div>
+                                )}
+                                {c.variants.some(
+                                  otherV => otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                                ) && (
+                                  <div>• El código <strong className="font-mono">{v.overrideCode}</strong> está duplicado entre variantes de esta receta</div>
                                 )}
                               </AlertDescription>
                             </Alert>
@@ -2767,14 +2813,24 @@ const ConcreteMixCalculator = () => {
                   // Disable button if any variant has issues
                   return conflicts.some(c => 
                     c.variants.some(v => {
+                      const duplicateInRecipe = c.variants.some(
+                        otherV => otherV.id !== v.id && otherV.overrideCode === v.overrideCode && v.overrideCode !== ''
+                      );
                       if (v.decision === 'updateVariant') {
-                        return !v.selectedExistingId;
+                        return !v.selectedExistingId || duplicateInRecipe;
                       } else if (v.decision === 'createVariant') {
                         const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
-                        const codeIssue = c.codeCollision && (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode));
-                        return missingMaster || codeIssue;
+                        const invalidNewMasterCode = v.masterMode === 'new' && (!v.newMasterCode || v.newMasterCode.split('-').length < 6);
+                        const codeIssue =
+                          (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                          c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                        return missingMaster || invalidNewMasterCode || codeIssue || duplicateInRecipe;
                       } else {
-                        return c.codeCollision && (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode));
+                        const invalidNewMasterCode = !v.newMasterCode || v.newMasterCode.split('-').length < 6;
+                        const codeIssue =
+                          (c.codeCollision && v.overrideCode === c.intendedCode) ||
+                          c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode);
+                        return invalidNewMasterCode || codeIssue || duplicateInRecipe;
                       }
                     }) ||
                     // Also check for duplicate codes within same recipe
@@ -2842,11 +2898,11 @@ const ConcreteMixCalculator = () => {
                         });
                         throw new Error(`Receta ${c.baseCode}: Código duplicado entre variantes.`);
                       }
-                      // CRITICAL: For new variants and new masters, code MUST be different if there's a collision
-                      if ((v.decision === 'createVariant' || v.decision === 'newMaster') && c.codeCollision) {
+                      // CRITICAL: For new variants and new masters, final code must not collide
+                      if (v.decision === 'createVariant' || v.decision === 'newMaster') {
                         const finalArkikCode = v.overrideCode || c.intendedCode;
                         
-                        if (finalArkikCode === c.intendedCode) {
+                        if (c.codeCollision && finalArkikCode === c.intendedCode) {
                           toast({
                             title: "Código duplicado",
                             description: `Receta ${c.baseCode}, Variante: El código "${finalArkikCode}" ya existe. Cambia la última sección del código (ej: "000" → "001").`,
@@ -2882,7 +2938,7 @@ const ConcreteMixCalculator = () => {
                     
                     for (const v of c.variants) {
                       const finalCode = v.overrideCode || c.intendedCode;
-                      payload.push({ ...baseRecipe, recipeType: designType, recipe_code: finalCode });
+                      payload.push({ ...baseRecipe, code: finalCode, recipeType: designType, recipe_code: finalCode });
                       
                       if (v.decision === 'updateVariant' && v.selectedExistingId) {
                         decisions.push({ 
