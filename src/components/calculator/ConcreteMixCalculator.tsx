@@ -70,7 +70,14 @@ import { MaterialSelection } from './MaterialSelection';
 import { DesignParameters } from './DesignParameters';
 import { RecipeTable } from './RecipeTable';
 import { MaterialConfiguration } from './MaterialConfiguration';
-import { calculatorService, CalculatorMaterials, CalculatorRecipe, saveRecipesWithDecisions } from '@/lib/services/calculatorService';
+import {
+  calculatorService,
+  CalculatorMaterials,
+  CalculatorRecipe,
+  saveRecipesWithDecisions,
+  retryPopulateMaterialsForSavedVersions,
+  type MaterialRetryVersionTarget
+} from '@/lib/services/calculatorService';
 import type { CalculatorSaveDecision } from '@/types/masterRecipes';
 import { computeArkikCodes } from '@/lib/utils/masterRecipeUtils';
 import { CONCRETE_TYPES, ConcreteTypeCode, getDefaultConcreteTypeForDesignType } from '@/config/concreteTypes';
@@ -235,6 +242,22 @@ const ConcreteMixCalculator = () => {
       newMasterCode?: string;
     }>;
   }>>([]);
+
+  // Materials-only retry context (avoids recalculation and avoids rewriting variants)
+  const [materialsRetryOpen, setMaterialsRetryOpen] = useState(false);
+  const [retryingMaterials, setRetryingMaterials] = useState(false);
+  const [materialsRetryContext, setMaterialsRetryContext] = useState<{
+    payload: CalculatorRecipe[];
+    decisions: CalculatorSaveDecision[];
+    selectionMap: {
+      cementId?: string;
+      sandIds: string[];
+      gravelIds: string[];
+      additiveIds: string[];
+    };
+    retryTargets: MaterialRetryVersionTarget[];
+    errorMessage: string;
+  } | null>(null);
 
   // Load available materials from database
   const loadAvailableMaterials = async () => {
@@ -1058,11 +1081,10 @@ const ConcreteMixCalculator = () => {
     // When user edits FCR, they're editing the already-adjusted FCR value
     // Use it directly for A/C calculation without applying adjustment again
     const newACRatio = calculateACRatio(
-      newFCR, 
+      newFCR,
       designParams.resistanceFactors,
       undefined, // Don't apply adjustment - value is already adjusted
-      undefined, // Don't apply adjustment - value is already adjusted
-      undefined  // Don't need strength for edited values
+      undefined // Don't apply adjustment - value is already adjusted
     );
     
     // Recalculate cement quantity (rounded UP to nearest multiple of 5)
@@ -1710,6 +1732,50 @@ const ConcreteMixCalculator = () => {
       });
       
       setSaving(false);
+    }
+  };
+
+  const handleRetryMaterialsOnly = async () => {
+    if (!materialsRetryContext || !currentPlant?.id) return;
+
+    try {
+      setRetryingMaterials(true);
+      const retryResult = await retryPopulateMaterialsForSavedVersions(
+        materialsRetryContext.payload,
+        materialsRetryContext.decisions,
+        currentPlant.id,
+        materialsRetryContext.retryTargets,
+        materialsRetryContext.selectionMap
+      );
+
+      const createdCodes = materialsRetryContext.decisions.map(d => d.finalArkikCode);
+      setMaterialsRetryOpen(false);
+      setMaterialsRetryContext(null);
+      setConflictsOpen(false);
+      setSaveOpen(false);
+      setSaving(false);
+      setSuccessRecipeCodes(createdCodes);
+      setSuccessDecisions(materialsRetryContext.decisions);
+      setSuccessOpen(true);
+
+      toast({
+        title: "Materiales guardados correctamente",
+        description:
+          retryResult.updatedVersions > 0
+            ? `Se completó el guardado de materiales para ${retryResult.updatedVersions} variante(s).`
+            : `Las variantes ya tenían materiales guardados. No fue necesario reintentar.`,
+        variant: "default",
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error reintentando guardado de materiales';
+      setMaterialsRetryContext(prev => prev ? { ...prev, errorMessage } : prev);
+      toast({
+        title: "Error al reintentar materiales",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setRetryingMaterials(false);
     }
   };
 
@@ -2842,6 +2908,19 @@ const ConcreteMixCalculator = () => {
                   );
                 })()}
                 onClick={async () => {
+                let payload: CalculatorRecipe[] = [];
+                let decisions: CalculatorSaveDecision[] = [];
+                let selectionMap: {
+                  cementId?: string;
+                  sandIds: string[];
+                  gravelIds: string[];
+                  additiveIds: string[];
+                } = {
+                  cementId: undefined,
+                  sandIds: [],
+                  gravelIds: [],
+                  additiveIds: []
+                };
                 try {
                   setSaving(true);
                   const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
@@ -2929,8 +3008,8 @@ const ConcreteMixCalculator = () => {
                   }
                   
                   // Flatten variants: create one payload entry and decision per variant
-                  const payload: any[] = [];
-                  const decisions: CalculatorSaveDecision[] = [];
+                  payload = [];
+                  decisions = [];
                   
                   for (const c of conflicts) {
                     const baseRecipe = recipeMap.get(c.baseCode);
@@ -2938,7 +3017,7 @@ const ConcreteMixCalculator = () => {
                     
                     for (const v of c.variants) {
                       const finalCode = v.overrideCode || c.intendedCode;
-                      payload.push({ ...baseRecipe, code: finalCode, recipeType: designType, recipe_code: finalCode });
+                      payload.push({ ...baseRecipe, code: finalCode, recipeType: designType });
                       
                       if (v.decision === 'updateVariant' && v.selectedExistingId) {
                         decisions.push({ 
@@ -2974,7 +3053,7 @@ const ConcreteMixCalculator = () => {
                       }
                     }
                   }
-                  const selectionMap = {
+                  selectionMap = {
                     cementId: selectedMaterials.cement ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement) : undefined,
                     sandIds: selectedMaterials.sands.map(id => String(id)),
                     gravelIds: selectedMaterials.gravels.map(id => String(id)),
@@ -3001,7 +3080,7 @@ const ConcreteMixCalculator = () => {
                   }
                   
                   await saveRecipesWithDecisions(
-                    payload as unknown as CalculatorRecipe[],
+                    payload,
                     decisions,
                     currentPlant.id,
                     profile.id,
@@ -3061,6 +3140,31 @@ const ConcreteMixCalculator = () => {
                   });
                 } catch (e) {
                   console.error('[Save Error]', e);
+                  const maybeMaterialsError = e as {
+                    type?: string;
+                    retryTargets?: MaterialRetryVersionTarget[];
+                    message?: string;
+                  };
+
+                  if (maybeMaterialsError?.type === 'materials_persistence' && Array.isArray(maybeMaterialsError.retryTargets)) {
+                    const retryErrorMessage = maybeMaterialsError.message || 'No se pudieron guardar materiales en todas las variantes.';
+                    setMaterialsRetryContext({
+                      payload: payload as unknown as CalculatorRecipe[],
+                      decisions,
+                      selectionMap,
+                      retryTargets: maybeMaterialsError.retryTargets,
+                      errorMessage: retryErrorMessage,
+                    });
+                    setMaterialsRetryOpen(true);
+                    toast({
+                      title: "Guardado parcial detectado",
+                      description: "Las recetas se crearon, pero faltó guardar materiales. Puedes reintentar solo materiales.",
+                      variant: "destructive",
+                    });
+                    setSaving(false);
+                    return;
+                  }
+
                   const errorMessage = e instanceof Error ? e.message : 'Error desconocido al guardar recetas';
                   
                   // Show detailed error toast
@@ -3075,6 +3179,62 @@ const ConcreteMixCalculator = () => {
                   setSaving(false);
                 }
               }}>{saving ? 'Guardando...' : 'Confirmar'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Materials Retry Modal - retry persistence only, without recalculation */}
+        <Dialog open={materialsRetryOpen} onOpenChange={setMaterialsRetryOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                No se pudieron guardar materiales
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <Alert className="border-amber-300 bg-amber-50">
+                <AlertTriangle className="h-4 w-4 text-amber-700" />
+                <AlertDescription className="text-amber-900">
+                  Las variantes ya fueron creadas/actualizadas, pero faltó persistir materiales en una o más versiones.
+                  Puedes reintentar <strong>solo el guardado de materiales</strong> sin recalcular ni sobrescribir variantes.
+                </AlertDescription>
+              </Alert>
+
+              <div className="rounded border p-3">
+                <p className="text-sm font-semibold mb-2">Variantes pendientes de materiales</p>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {(materialsRetryContext?.retryTargets || []).map((target, idx) => (
+                    <div key={`${target.versionId}-${idx}`} className="text-xs font-mono bg-gray-50 rounded px-2 py-1">
+                      {target.recipeCode}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {materialsRetryContext?.errorMessage && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                  {materialsRetryContext.errorMessage}
+                </p>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setMaterialsRetryOpen(false)}
+                disabled={retryingMaterials}
+              >
+                Cerrar
+              </Button>
+              <Button
+                onClick={handleRetryMaterialsOnly}
+                disabled={retryingMaterials || !materialsRetryContext}
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                {retryingMaterials ? 'Reintentando materiales...' : 'Reintentar solo materiales'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

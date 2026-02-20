@@ -720,6 +720,23 @@ async function insertWithRetry(
   }
 }
 
+export interface MaterialRetryVersionTarget {
+  recipeCode: string;
+  versionId: string;
+  recipeId: string;
+}
+
+export class MaterialsPersistenceError extends Error {
+  type: 'materials_persistence' = 'materials_persistence';
+  retryTargets: MaterialRetryVersionTarget[];
+
+  constructor(message: string, retryTargets: MaterialRetryVersionTarget[]) {
+    super(message);
+    this.name = 'MaterialsPersistenceError';
+    this.retryTargets = retryTargets;
+  }
+}
+
 // Extended save with decisions for master/variant governance
 // PERFORMANCE OPTIMIZED: Batches ALL operations (72-144 queries → ~8-10 queries)
 // - Batch master creation
@@ -769,6 +786,27 @@ export async function saveRecipesWithDecisions(
   // Fetch all materials once
   const { data: allMaterials } = await supabase.from('materials').select('*').eq('plant_id', plantId);
   const materialMap = new Map((allMaterials || []).map(m => [m.id, m]));
+
+  // Fail fast before any DB writes if a recipe would produce zero dry materials.
+  const dryMaterialPrecheck = recipeDecisionPairs.map(({ recipe, decision }) => {
+    const finalCode = decision.finalArkikCode || recipe.code;
+    const preview = buildMaterialsForRecipe(
+      recipe,
+      '00000000-0000-0000-0000-000000000000',
+      allMaterials || [],
+      selection
+    );
+    return { finalCode, materialCount: preview.materialQuantities.length };
+  });
+  const recipesWithoutDryMaterials = dryMaterialPrecheck
+    .filter(entry => entry.materialCount === 0)
+    .map(entry => entry.finalCode);
+  if (recipesWithoutDryMaterials.length > 0) {
+    throw new Error(
+      `No se puede guardar: las siguientes recetas no tienen materiales secos calculados (${recipesWithoutDryMaterials.join(', ')}). ` +
+      `Verifica selección de materiales y dosificaciones antes de confirmar.`
+    );
+  }
 
   const totalRecipes = recipes.length;
   console.log(`[Calculator] Starting OPTIMIZED batch save of ${totalRecipes} recipes`);
@@ -1147,53 +1185,19 @@ export async function saveRecipesWithDecisions(
       console.log(`[Calculator] Successfully batch inserted ${allSSMaterials.length} SSS materials`);
     }
   } catch (err: any) {
-    // Rollback: Delete newly created entities if material insertion failed
-    console.error(`[Calculator] Material insertion failed, attempting rollback...`, err);
-    
-    try {
-      // Delete newly created versions first (foreign key constraint)
-      const newVersionsToDelete = createdVersions.filter(v => v.isNew);
-      if (newVersionsToDelete.length > 0) {
-        console.log(`[Calculator] Rolling back ${newVersionsToDelete.length} newly created versions`);
-        const versionIdsToDelete = newVersionsToDelete.map(v => v.versionId);
-        await supabase
-          .from('recipe_versions')
-          .delete()
-          .in('id', versionIdsToDelete);
-      }
-      
-      // Delete newly created recipes
-      if (createdRecipes.length > 0) {
-        console.log(`[Calculator] Rolling back ${createdRecipes.length} newly created recipes`);
-        const recipeIdsToDelete = createdRecipes.map(r => r.id);
-        await supabase
-          .from('recipes')
-          .delete()
-          .in('id', recipeIdsToDelete);
-      }
-      
-      // Delete newly created masters (only if no recipes reference them)
-      if (createdMasters.length > 0) {
-        console.log(`[Calculator] Rolling back ${createdMasters.length} newly created masters`);
-        const masterIdsToDelete = createdMasters.map(m => m.id);
-        await supabase
-          .from('master_recipes')
-          .delete()
-          .in('id', masterIdsToDelete);
-      }
-      
-      console.log(`[Calculator] Rollback completed`);
-    } catch (rollbackErr) {
-      console.error(`[Calculator] Rollback failed:`, rollbackErr);
-      // Continue to throw original error
-    }
-    
-    // Provide detailed error message
+    console.error(`[Calculator] Material insertion failed. Recipes/versions were kept for material-only retry.`, err);
+
     const errorMessage = err.message?.includes('timeout') || err.code === '504'
-      ? `Timeout al insertar materiales. Por favor intenta de nuevo. Si el problema persiste, reduce el número de recetas o contacta al administrador.`
-      : `Error al insertar materiales: ${err.message || 'Error desconocido'}`;
-    
-    throw new Error(errorMessage);
+      ? `Timeout al insertar materiales. Puedes reintentar el guardado de materiales sin recalcular recetas.`
+      : `Error al insertar materiales: ${err.message || 'Error desconocido'}. Puedes reintentar solo materiales.`;
+
+    const retryTargets: MaterialRetryVersionTarget[] = createdVersions.map(v => ({
+      recipeCode: v.recipeCode,
+      versionId: v.versionId,
+      recipeId: v.recipeId
+    }));
+
+    throw new MaterialsPersistenceError(errorMessage, retryTargets);
   }
 
   // Step 3: Validate all recipes were created successfully (non-blocking, batched)
@@ -1256,4 +1260,91 @@ export async function saveRecipesWithDecisions(
   }
 
   console.log(`[Calculator] Successfully saved ${totalRecipes} recipes using optimized batch operations (masters, recipes, versions, and materials)`);
+}
+
+export async function retryPopulateMaterialsForSavedVersions(
+  recipes: CalculatorRecipe[],
+  decisions: CalculatorSaveDecision[],
+  plantId: string,
+  retryTargets: MaterialRetryVersionTarget[],
+  selection?: CalculatorMaterialSelection
+): Promise<{ updatedVersions: number; skippedVersions: number }> {
+  const recipeDecisionPairs = recipes
+    .map((recipe, idx) => ({ recipe, decision: decisions[idx] }))
+    .filter((entry): entry is { recipe: CalculatorRecipe; decision: CalculatorSaveDecision } => Boolean(entry.decision));
+
+  const versionByCode = new Map(retryTargets.map(t => [t.recipeCode, t.versionId]));
+  const { data: allMaterials } = await supabase
+    .from('materials')
+    .select('*')
+    .eq('plant_id', plantId);
+
+  const rowsByVersion = new Map<string, { materialQuantities: any[]; ssMaterials: any[] }>();
+  for (const { recipe, decision } of recipeDecisionPairs) {
+    const finalCode = decision.finalArkikCode || recipe.code;
+    const versionId = versionByCode.get(finalCode);
+    if (!versionId) continue;
+    rowsByVersion.set(versionId, buildMaterialsForRecipe(recipe, versionId, allMaterials || [], selection));
+  }
+
+  const versionIds = Array.from(rowsByVersion.keys());
+  if (versionIds.length === 0) {
+    throw new Error('No se encontraron versiones para reintentar guardado de materiales.');
+  }
+
+  const { data: existingMaterialRows, error: existingErr } = await supabase
+    .from('material_quantities')
+    .select('recipe_version_id')
+    .in('recipe_version_id', versionIds);
+  if (existingErr) throw existingErr;
+
+  const existingCountByVersion = new Map<string, number>();
+  (existingMaterialRows || []).forEach((row: any) => {
+    existingCountByVersion.set(
+      row.recipe_version_id,
+      (existingCountByVersion.get(row.recipe_version_id) || 0) + 1
+    );
+  });
+
+  const targetVersionIds = versionIds.filter(versionId => {
+    const expected = rowsByVersion.get(versionId)?.materialQuantities.length || 0;
+    const existing = existingCountByVersion.get(versionId) || 0;
+    return expected > 0 && existing < expected;
+  });
+
+  if (targetVersionIds.length === 0) {
+    return { updatedVersions: 0, skippedVersions: versionIds.length };
+  }
+
+  await supabase
+    .from('material_quantities')
+    .delete()
+    .in('recipe_version_id', targetVersionIds);
+  await supabase
+    .from('recipe_reference_materials')
+    .delete()
+    .in('recipe_version_id', targetVersionIds);
+
+  const allMaterialQuantities: any[] = [];
+  const allSSMaterials: any[] = [];
+  targetVersionIds.forEach(versionId => {
+    const rows = rowsByVersion.get(versionId);
+    if (!rows) return;
+    allMaterialQuantities.push(...rows.materialQuantities);
+    allSSMaterials.push(...rows.ssMaterials);
+  });
+
+  if (allMaterialQuantities.length === 0) {
+    throw new Error('No hay materiales secos para insertar en el reintento.');
+  }
+
+  await insertWithRetry('material_quantities', allMaterialQuantities);
+  if (allSSMaterials.length > 0) {
+    await insertWithRetry('recipe_reference_materials', allSSMaterials);
+  }
+
+  return {
+    updatedVersions: targetVersionIds.length,
+    skippedVersions: versionIds.length - targetVersionIds.length
+  };
 }

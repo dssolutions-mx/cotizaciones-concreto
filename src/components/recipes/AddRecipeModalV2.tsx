@@ -322,6 +322,10 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
       setError('Código de receta inválido');
       return;
     }
+    if (selectedMaterials.length === 0) {
+      setError('Agrega al menos un material antes de guardar');
+      return;
+    }
     
     setLoading(true);
     setError(null);
@@ -407,12 +411,25 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
         quantity: parsedQuantity(m.quantity_regular),
         unit: m.unit
       }));
+      if (regularMaterialRows.length === 0) {
+        throw new Error('No se detectaron materiales para guardar en la receta.');
+      }
       
       const { error: mqErr } = await supabase
         .from('material_quantities')
         .insert(regularMaterialRows);
       
       if (mqErr) throw mqErr;
+
+      // Safety net: verify this version actually has dry materials persisted.
+      const { count: persistedMaterials, error: countErr } = await supabase
+        .from('material_quantities')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipe_version_id', version.id);
+      if (countErr) throw countErr;
+      if (!persistedMaterials || persistedMaterials <= 0) {
+        throw new Error('La receta se creó, pero no se guardaron materiales. Intenta nuevamente.');
+      }
 
       // Insert SSS reference materials (one row per material)
       const ssMaterialRows = selectedMaterials
@@ -460,7 +477,7 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
         }
       }
       
-      toast.success('Receta creada exitosamente');
+      toast.success(`Receta creada exitosamente con ${persistedMaterials} material(es)`);
       onSuccess();
       handleClose();
     } catch (e: any) {
