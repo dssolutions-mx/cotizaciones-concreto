@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  const allowed = ['EXECUTIVE', 'ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+  const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
   if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { searchParams } = new URL(request.url);

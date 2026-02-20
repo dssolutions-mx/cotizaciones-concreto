@@ -64,14 +64,9 @@ import { BotIdClient } from 'botid/client';
 // Define Finanzas submenu items with component types
 const finanzasSubMenuItems = [
   {
-    title: "Compras / PO",
-    href: "/finanzas/po",
-    IconComponent: ClipboardList,
-  },
-  {
-    title: "Cuentas por Pagar",
-    href: "/finanzas/cxp",
-    IconComponent: CreditCard,
+    title: "Procurement Workspace",
+    href: "/finanzas/procurement",
+    IconComponent: Briefcase,
   },
   {
     title: "Reporte de Producción",
@@ -106,8 +101,11 @@ const finanzasSubMenuItems = [
 ];
 
 function getFinanzasSubMenuItemsForRole(userRole?: string) {
+  const procurementWorkspaceItem = { title: "Procurement Workspace", href: "/finanzas/procurement", IconComponent: Briefcase };
+
   if (userRole === 'ADMIN_OPERATIONS') {
     return [
+      procurementWorkspaceItem,
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
@@ -116,6 +114,7 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
   }
   if (userRole === 'SALES_AGENT') {
     return [
+      procurementWorkspaceItem,
       { title: "Cartera CxC", href: "/finanzas/clientes", IconComponent: Users },
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
@@ -248,13 +247,13 @@ type NavItemDef = {
 const COMERCIAL_ROLES = ['CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'];
 
 const CANONICAL_NAV_ITEMS: NavItemDef[] = [
-  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
   { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
   { href: '/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
   { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
-  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
-  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
   { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
   { href: '/admin', label: 'Administración', IconComponent: UserCog, roles: ['EXECUTIVE'] },
 ];

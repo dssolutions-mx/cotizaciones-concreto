@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       date_to: searchParams.get('date_to') || undefined,
       material_id: searchParams.get('material_id') || undefined,
       pricing_status: searchParams.get('pricing_status') || undefined,
+      po_id: searchParams.get('po_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
     };
@@ -131,6 +132,11 @@ export async function GET(request: NextRequest) {
     if (queryParams.pricing_status) {
       console.log('Filtering by pricing_status:', queryParams.pricing_status);
       query = query.eq('pricing_status', queryParams.pricing_status);
+    }
+
+    if (queryParams.po_id) {
+      console.log('Filtering by po_id:', queryParams.po_id);
+      query = query.eq('po_id', queryParams.po_id);
     }
 
     console.log('About to execute query...');
@@ -561,7 +567,7 @@ export async function PUT(request: NextRequest) {
       }
 
       // Remaining validation based on native UoM
-      const alreadyReceivedNative = Number(poItem.qty_received_native || 0);
+      const alreadyReceivedNative = Number(poItem.qty_received ?? poItem.qty_received_native ?? 0);
       const orderedNative = Number(poItem.qty_ordered || 0);
 
       // Compute previous native from current entry to find delta
@@ -650,19 +656,19 @@ export async function PUT(request: NextRequest) {
       if (updateData.po_item_id && (__po_delta_native > 0 || __po_delta_kg > 0)) {
         const { data: poItem2, error: poErr2 } = await supabase
           .from('purchase_order_items')
-          .select('qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
           .eq('id', result.po_item_id)
           .single();
         if (!poErr2 && poItem2) {
-          const newReceivedNative = Number(poItem2.qty_received_native || 0) + __po_delta_native;
-          const newReceivedKg = Number(poItem2.qty_received_kg || 0) + __po_delta_kg;
+          const currentNative = Number(poItem2.qty_received ?? poItem2.qty_received_native ?? 0) + __po_delta_native;
+          const currentKg = Number(poItem2.qty_received_kg ?? 0) + __po_delta_kg;
           // Determine status using native comparison for materials and services
           const orderedNative = Number(poItem2.qty_ordered || 0);
           let newStatus = 'partial';
-          if (newReceivedNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
 
-          const updateFields: Record<string, any> = { qty_received_native: newReceivedNative, status: newStatus };
-          if (__po_delta_kg > 0) updateFields.qty_received_kg = newReceivedKg;
+          const updateFields: Record<string, any> = { qty_received: currentNative, status: newStatus };
+          if (__po_delta_kg > 0) updateFields.qty_received_kg = currentKg;
 
           const { error: updPoItemErr } = await supabase
             .from('purchase_order_items')
@@ -732,25 +738,22 @@ export async function PUT(request: NextRequest) {
         return payable.id as string;
       };
 
-      // Upsert material payable item
-      const nativeUom = result.received_uom || null;
-      const nativeQty = result.received_qty_entered || null;
-      const volUsed = result.volumetric_weight_kg_per_m3 || null;
-      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * (nativeQty || 0)));
+      // Upsert material payable item (payable_items schema: payable_id, entry_id, amount, cost_category, po_item_id)
+      const nativeQty = result.received_qty_entered ?? result.quantity_received ?? 0;
+      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * Number(nativeQty)));
       let materialPayableId: string | null = null;
       if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
         materialPayableId = await upsertPayable(result.supplier_id, result.plant_id, result.supplier_invoice, result.ap_due_date_material, result.id);
+        const materialItemPayload: Record<string, unknown> = {
+          payable_id: materialPayableId,
+          entry_id: result.id,
+          amount: amountMaterial,
+          cost_category: 'material',
+        };
+        if (result.po_item_id) materialItemPayload.po_item_id = result.po_item_id;
         const { error: itemErr } = await supabase
           .from('payable_items')
-          .upsert({
-            payable_id: materialPayableId,
-            entry_id: result.id,
-            amount: amountMaterial,
-            cost_category: 'material',
-            native_uom: nativeUom,
-            native_qty: nativeQty,
-            volumetric_weight_used: volUsed,
-          }, { onConflict: 'entry_id,cost_category' });
+          .upsert(materialItemPayload, { onConflict: 'entry_id,cost_category' });
         if (itemErr) throw new Error(`Error al registrar partida CXP material: ${itemErr.message}`);
       }
 
@@ -782,8 +785,16 @@ export async function PUT(request: NextRequest) {
         }
       }
     } catch (apError) {
-      console.error('AP upsert error (non-fatal):', apError);
-      // We do not fail the entire request if AP upsert fails; client can retry from CXP UI
+      console.error('AP upsert error:', apError);
+      // Atomic policy: if AP upsert fails, fail the entire request to avoid entry/payable drift
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Error al crear/actualizar cuentas por pagar. La entrada no se actualizó. Intente de nuevo.',
+          details: apError instanceof Error ? apError.message : String(apError),
+        },
+        { status: 500 }
+      );
     }
 
     const json: Record<string, unknown> = {

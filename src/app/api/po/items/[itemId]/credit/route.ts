@@ -31,8 +31,8 @@ export async function POST(
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check permissions (EXECUTIVE, ADMIN_OPERATIONS, ADMINISTRATIVE)
-    const allowedRoles = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'];
+    // Check permissions (EXECUTIVE, ADMIN_OPERATIONS)
+    const allowedRoles = ['EXECUTIVE', 'ADMIN_OPERATIONS'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json(
         { error: 'Sin permisos para aplicar créditos a órdenes de compra' },

@@ -27,7 +27,6 @@ export default function FinanzasLayout({
         profile.role === "PLANT_MANAGER" || 
         profile.role === "CREDIT_VALIDATOR" ||
         profile.role === "SALES_AGENT" ||
-        profile.role === "ADMINISTRATIVE" ||
         profile.role === "ADMIN_OPERATIONS";
       
       if (!canAccessFinanzas) {

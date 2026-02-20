@@ -24,6 +24,7 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
   const [loading, setLoading] = useState(false)
   const [payments, setPayments] = useState<Array<{ id: string; payment_date: string; amount: number; method?: string; reference?: string }>>([])
   const [loadingPayments, setLoadingPayments] = useState(true)
+  const [threeWayWarnings, setThreeWayWarnings] = useState<string[]>([])
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -45,6 +46,27 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
       }
     }
     fetchPayments()
+    return () => { cancelled = true }
+  }, [payable.id])
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchValidate() {
+      try {
+        const res = await fetch(`/api/ap/payables/${payable.id}/validate`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (!cancelled && Array.isArray(data.warnings)) {
+          setThreeWayWarnings(data.warnings.map((w: any) => {
+            if (w && typeof w === 'object' && 'amount' in w && 'expected' in w) {
+              return `Factura excede valor esperado: monto ${mxn.format(Number(w.amount))} vs esperado ${mxn.format(Number(w.expected))}. Revisar créditos o ajustes aplicados.`
+            }
+            return String(w)
+          }))
+        }
+      } catch { /* ignore */ }
+    }
+    fetchValidate()
     return () => { cancelled = true }
   }, [payable.id])
 
@@ -87,6 +109,19 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
             <CardTitle>Registrar Pago</CardTitle>
           </CardHeader>
           <CardContent>
+            {threeWayWarnings.length > 0 && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md" role="alert">
+                <div className="text-xs font-semibold text-amber-800 mb-1">Validación 3 vías: discrepancias detectadas</div>
+                <ul className="text-xs text-amber-800 space-y-1">
+                  {threeWayWarnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-700 mt-2">
+                  Acción sugerida: verificar créditos aplicados, ajustes o diferencias de redondeo antes de registrar el pago.
+                </p>
+              </div>
+            )}
             <div className="space-y-2 text-sm text-gray-600 mb-4">
               <div><b>Factura:</b> {payable.invoice_number}</div>
               <div><b>Total:</b> {mxn.format(payable.total)}</div>

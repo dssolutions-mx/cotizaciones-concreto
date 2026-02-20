@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,7 +20,13 @@ import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from '.
 import EntriesStatistics from './EntriesStatistics'
 
 export default function MaterialEntriesPage() {
+  const searchParams = useSearchParams()
+  const poIdFromUrl = searchParams.get('po_id') || undefined
   const [activeTab, setActiveTab] = useState('new')
+
+  useEffect(() => {
+    if (poIdFromUrl) setActiveTab('list')
+  }, [poIdFromUrl])
   const [refreshList, setRefreshList] = useState(0)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   // Default to last 7 days for entries list
@@ -207,6 +214,7 @@ export default function MaterialEntriesPage() {
               <EntriesStatistics entries={entries} dateRange={dateRange} />
               <MaterialEntriesList 
                 dateRange={dateRange}
+                poId={poIdFromUrl}
                 isEditing={true}
                 key={refreshList}
                 onEntriesLoaded={setEntries}

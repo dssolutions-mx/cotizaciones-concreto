@@ -26,6 +26,7 @@ import { toast } from 'sonner'
 interface MaterialEntriesListProps {
   date?: Date
   dateRange?: { from: Date | undefined; to: Date | undefined }
+  poId?: string
   isEditing: boolean
   onEntriesLoaded?: (entries: MaterialEntry[]) => void
 }
@@ -132,35 +133,28 @@ function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: 
   )
 }
 
-export default function MaterialEntriesList({ date, dateRange, isEditing, onEntriesLoaded }: MaterialEntriesListProps) {
+export default function MaterialEntriesList({ date, dateRange, poId, isEditing, onEntriesLoaded }: MaterialEntriesListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchEntries()
-  }, [date, dateRange])
+  }, [date, dateRange, poId])
 
   const fetchEntries = async () => {
     setLoading(true)
     try {
-      let url = '/api/inventory/entries?'
-      
+      const params = new URLSearchParams()
       if (dateRange?.from && dateRange?.to) {
-        // Use date range
-        const fromStr = format(dateRange.from, 'yyyy-MM-dd')
-        const toStr = format(dateRange.to, 'yyyy-MM-dd')
-        url += `date_from=${fromStr}&date_to=${toStr}`
+        params.set('date_from', format(dateRange.from, 'yyyy-MM-dd'))
+        params.set('date_to', format(dateRange.to, 'yyyy-MM-dd'))
       } else if (date) {
-        // Use single date
-        const dateStr = format(date, 'yyyy-MM-dd')
-        url += `date=${dateStr}`
+        params.set('date', format(date, 'yyyy-MM-dd'))
       } else {
-        // Default to today
-        const todayStr = format(new Date(), 'yyyy-MM-dd')
-        url += `date=${todayStr}`
+        params.set('date', format(new Date(), 'yyyy-MM-dd'))
       }
-      
-      const response = await fetch(url)
+      if (poId) params.set('po_id', poId)
+      const response = await fetch(`/api/inventory/entries?${params.toString()}`)
       
       if (response.ok) {
         const data = await response.json()

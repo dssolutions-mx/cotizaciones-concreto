@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { format, subDays } from 'date-fns';
-import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2 } from 'lucide-react';
+import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2, Package, Truck, BarChart3, Briefcase } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { financialService } from '@/lib/supabase/financial';
 import { formatCurrency } from '@/lib/utils';
@@ -60,6 +60,19 @@ export default async function FinancialHubPage() {
         <div className="mb-8">
           <h2 className="text-title-3 text-gray-800 mb-4">Accesos Rápidos</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Link href="/finanzas/procurement">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg border border-primary/20">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <Briefcase className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Procurement Workspace</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
+                    Vista unificada de PO, CXP y análisis de proveedores
+                  </p>
+                </div>
+              </div>
+            </Link>
             <Link href="/finanzas/produccion">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
@@ -121,6 +134,45 @@ export default async function FinancialHubPage() {
                   <h3 className="text-title-3 text-gray-900">Validación de Crédito</h3>
                   <p className="text-footnote text-muted-foreground mt-1">
                     Gestión de términos de crédito y límites de clientes
+                  </p>
+                </div>
+              </div>
+            </Link>
+            <Link href="/finanzas/po">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <Package className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Órdenes de Compra</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
+                    Gestión de POs, entradas y facturas de proveedores
+                  </p>
+                </div>
+              </div>
+            </Link>
+            <Link href="/finanzas/cxp">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <Truck className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Cuentas por Pagar</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
+                    Facturas pendientes y pagos a proveedores
+                  </p>
+                </div>
+              </div>
+            </Link>
+            <Link href="/finanzas/proveedores/analisis">
+              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <BarChart3 className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-title-3 text-gray-900">Análisis de Proveedores</h3>
+                  <p className="text-footnote text-muted-foreground mt-1">
+                    KPIs, tendencias y drill-down por proveedor
                   </p>
                 </div>
               </div>

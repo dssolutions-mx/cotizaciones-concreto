@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,11 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { usePlantContext } from '@/contexts/PlantContext'
-import { Package, Truck, ChevronDown, ChevronUp, Edit2 } from 'lucide-react'
+import Link from 'next/link'
+import { Package, Truck, ChevronDown, ChevronUp, Edit2, ExternalLink, FileText, AlertTriangle } from 'lucide-react'
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
 
 export default function PurchaseOrdersPage() {
+  const searchParams = useSearchParams()
+  const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
+  const poIdFromUrl = searchParams.get('po_id') || undefined
   const { currentPlant, availablePlants } = usePlantContext()
   const [loading, setLoading] = useState(false)
   const [pos, setPos] = useState<any[]>([])
@@ -25,20 +30,39 @@ export default function PurchaseOrdersPage() {
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null)
   const [expandedPo, setExpandedPo] = useState<string | null>(null)
   const [poItems, setPoItems] = useState<Record<string, any[]>>({})
+  const [error, setError] = useState<string | null>(null)
   const [poSummaries, setPoSummaries] = useState<Record<string, { total_ordered_value: number; total_received_value: number; total_credits: number; net_total: number }>>({})
+  const [relatedPayablesCount, setRelatedPayablesCount] = useState<Record<string, number>>({})
 
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
 
   const fetchPOs = async () => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams()
       if (plant) params.set('plant_id', plant)
       if (supplier) params.set('supplier_id', supplier)
-      if (status && status !== 'all') params.set('status', status)
+      if (status && status !== 'all' && status !== 'completed') params.set('status', status)
       const res = await fetch(`/api/po?${params.toString()}`)
+      if (!res.ok) throw new Error('Error al cargar órdenes')
       const data = await res.json()
-      setPos(data.purchase_orders || [])
+      let rows = data.purchase_orders || []
+      if (status === 'completed') {
+        rows = rows.filter((po: any) => po.status === 'fulfilled' || po.status === 'closed')
+      }
+      if (poIdFromUrl) {
+        rows = rows.filter((po: any) => po.id === poIdFromUrl)
+      }
+      setPos(rows)
+      if (poIdFromUrl && rows.length > 0) {
+        setExpandedPo(rows[0].id)
+        fetchPOItems(rows[0].id)
+        fetchPOSummary(rows[0].id)
+        fetchRelatedPayables(rows[0].id)
+      }
+    } catch (e) {
+      setError('No se pudieron cargar las órdenes de compra')
     } finally {
       setLoading(false)
     }
@@ -66,6 +90,16 @@ export default function PurchaseOrdersPage() {
     } catch { /* ignore */ }
   }
 
+  const fetchRelatedPayables = async (poId: string) => {
+    if (relatedPayablesCount[poId] !== undefined) return
+    try {
+      const res = await fetch(`/api/po/${poId}/related-payables`)
+      const data = await res.json()
+      const count = (data.payables || []).length
+      setRelatedPayablesCount(prev => ({ ...prev, [poId]: count }))
+    } catch { /* ignore */ }
+  }
+
   const toggleExpanded = (poId: string) => {
     if (expandedPo === poId) {
       setExpandedPo(null)
@@ -73,10 +107,12 @@ export default function PurchaseOrdersPage() {
       setExpandedPo(poId)
       fetchPOItems(poId)
       fetchPOSummary(poId)
+      fetchRelatedPayables(poId)
     }
   }
 
-  useEffect(() => { fetchPOs() }, [plant, supplier, status])
+  useEffect(() => { if (supplierIdFromUrl) setSupplier(supplierIdFromUrl) }, [supplierIdFromUrl])
+  useEffect(() => { fetchPOs() }, [plant, supplier, status, poIdFromUrl])
 
   // Fetch suppliers for filter (optionally by plant)
   useEffect(() => {
@@ -84,8 +120,8 @@ export default function PurchaseOrdersPage() {
     fetch(url).then(res => res.ok ? res.json() : { suppliers: [] })
       .then(data => setSuppliers(data.suppliers || []))
       .catch(() => setSuppliers([]))
-    if (!plant) setSupplier('')
-  }, [plant])
+    if (!plant && !supplierIdFromUrl) setSupplier('')
+  }, [plant, supplierIdFromUrl])
 
   const statusColors: Record<string, string> = {
     open: 'bg-blue-100 text-blue-800',
@@ -111,6 +147,9 @@ export default function PurchaseOrdersPage() {
           <p className="text-sm text-muted-foreground mt-1">Gestione pedidos a proveedores, materiales y servicios</p>
         </div>
         <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/finanzas/procurement?tab=po">Workspace</Link>
+          </Button>
           <Button variant="outline" onClick={fetchPOs}>Actualizar</Button>
           <Button onClick={() => setCreateOpen(true)}>Nueva Orden de Compra</Button>
         </div>
@@ -162,7 +201,9 @@ export default function PurchaseOrdersPage() {
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="open">Abierta</SelectItem>
                   <SelectItem value="partial">Parcial</SelectItem>
-                  <SelectItem value="fulfilled">Completada</SelectItem>
+                  <SelectItem value="completed">Completadas</SelectItem>
+                  <SelectItem value="fulfilled">Completada (fulfilled)</SelectItem>
+                  <SelectItem value="closed">Completada (closed)</SelectItem>
                   <SelectItem value="cancelled">Cancelada</SelectItem>
                 </SelectContent>
               </Select>
@@ -185,12 +226,24 @@ export default function PurchaseOrdersPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-12 text-gray-500">Cargando órdenes...</div>
+            <div className="space-y-3">
+              <div className="animate-pulse h-20 bg-gray-200 rounded-lg" />
+              <div className="animate-pulse h-20 bg-gray-200 rounded-lg" />
+              <div className="animate-pulse h-20 bg-gray-200 rounded-lg" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-3" />
+              <p className="text-sm font-medium text-gray-900">{error}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={fetchPOs}>Reintentar</Button>
+            </div>
           ) : pos.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <Package className="h-12 w-12 mx-auto mb-3 text-gray-400" />
               <p>No hay órdenes de compra</p>
-              <p className="text-sm mt-1">Cree una nueva orden para comenzar</p>
+              <p className="text-sm mt-1">
+                {(plant || supplier || (status && status !== 'all')) ? 'No hay resultados con los filtros seleccionados.' : 'Cree una nueva orden para comenzar'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -286,6 +339,22 @@ export default function PurchaseOrdersPage() {
                                   <Truck className="h-4 w-4" />
                                   {serviceItems.length} servicio{serviceItems.length > 1 ? 's' : ''}
                                 </div>
+                              )}
+                              <Link
+                                href={`/production-control/entries?po_id=${po.id}`}
+                                className="flex items-center gap-1 text-primary hover:underline text-sm"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                                Ver entradas
+                              </Link>
+                              {relatedPayablesCount[po.id] !== undefined && (
+                                <Link
+                                  href={`/finanzas/cxp?po_id=${po.id}`}
+                                  className="flex items-center gap-1 text-primary hover:underline text-sm"
+                                >
+                                  <FileText className="h-4 w-4" />
+                                  {relatedPayablesCount[po.id]} factura{relatedPayablesCount[po.id] !== 1 ? 's' : ''} relacionada{relatedPayablesCount[po.id] !== 1 ? 's' : ''}
+                                </Link>
                               )}
                             </div>
 

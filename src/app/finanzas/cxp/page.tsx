@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,9 +11,10 @@ import { Badge } from '@/components/ui/badge'
 import { format, isAfter, isBefore, addDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
-import { DollarSign, TrendingUp, AlertTriangle, CheckCircle, Clock, Truck, Package } from 'lucide-react'
+import { DollarSign, TrendingUp, AlertTriangle, FileText, Clock, Truck, Package, ExternalLink } from 'lucide-react'
 import type { Payable, PayableStatus } from '@/types/finance'
 import RecordPaymentModal from '@/components/finanzas/RecordPaymentModal'
+import { usePlantContext } from '@/contexts/PlantContext'
 
 type PayableWithSupplier = Payable & {
   supplier_name?: string
@@ -19,9 +22,15 @@ type PayableWithSupplier = Payable & {
 }
 
 export default function CxpPage() {
+  const searchParams = useSearchParams()
+  const poIdFromUrl = searchParams.get('po_id') || undefined
+  const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
+  const { availablePlants } = usePlantContext()
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [payables, setPayables] = useState<PayableWithSupplier[]>([])
   const [status, setStatus] = useState<PayableStatus | 'all'>('all')
+  const [plant, setPlant] = useState<string>('')
   const [dueFrom, setDueFrom] = useState<string>('')
   const [dueTo, setDueTo] = useState<string>('')
   const [invoice, setInvoice] = useState<string>('')
@@ -75,18 +84,26 @@ export default function CxpPage() {
   }, [payables])
 
   useEffect(() => {
+    if (poIdFromUrl) setPlant('') // Clear plant when filtering by PO
+  }, [poIdFromUrl])
+
+  useEffect(() => {
     fetchPayables()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, dueFrom, dueTo, invoice, refreshKey])
+  }, [status, plant, dueFrom, dueTo, invoice, poIdFromUrl, supplierIdFromUrl, refreshKey])
 
   const fetchPayables = async () => {
     setLoading(true)
+    setError(null)
     try {
       const params = new URLSearchParams()
       if (status && status !== 'all') params.set('status', status)
+      if (plant) params.set('plant_id', plant)
       if (dueFrom) params.set('due_from', dueFrom)
       if (dueTo) params.set('due_to', dueTo)
       if (invoice) params.set('invoice_number', invoice)
+      if (poIdFromUrl) params.set('po_id', poIdFromUrl)
+      if (supplierIdFromUrl) params.set('supplier_id', supplierIdFromUrl)
 
       params.set('include', 'items')
       const res = await fetch(`/api/ap/payables?${params.toString()}`)
@@ -95,6 +112,7 @@ export default function CxpPage() {
       setPayables(data.payables || [])
     } catch (e) {
       console.error(e)
+      setError('No se pudieron cargar las cuentas por pagar')
       toast.error('No se pudieron cargar las cuentas por pagar')
     } finally {
       setLoading(false)
@@ -132,7 +150,12 @@ export default function CxpPage() {
             Las cuentas aparecen cuando se registran entradas de material con factura del proveedor y fecha de vencimiento. No todas las órdenes de compra generan CXP hasta que se reciba el material y se capture la factura.
           </p>
         </div>
-        <Button onClick={() => setRefreshKey(k => k + 1)}>Actualizar</Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline">
+            <Link href="/finanzas/procurement?tab=cxp">Workspace</Link>
+          </Button>
+          <Button onClick={() => setRefreshKey(k => k + 1)}>Actualizar</Button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -209,7 +232,21 @@ export default function CxpPage() {
           <CardDescription>Filtra las cuentas por pagar por estado, fecha de vencimiento o número de factura</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div>
+              <label className="text-xs text-gray-500">Planta</label>
+              <Select value={plant || '_all'} onValueChange={(v) => setPlant(v === '_all' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_all">Todas las plantas</SelectItem>
+                  {availablePlants.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <label className="text-xs text-gray-500">Estatus</label>
               <Select value={status} onValueChange={(v) => setStatus(v as PayableStatus | 'all')}>
@@ -265,16 +302,35 @@ export default function CxpPage() {
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-12">
+              <div className="space-y-3">
+                <div className="animate-pulse flex gap-4">
+                  <div className="h-24 bg-gray-200 rounded-lg flex-1" />
+                  <div className="h-24 bg-gray-200 rounded-lg flex-1" />
+                </div>
+                <div className="animate-pulse flex gap-4">
+                  <div className="h-32 bg-gray-200 rounded-lg flex-1" />
+                  <div className="h-32 bg-gray-200 rounded-lg flex-1" />
+                </div>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="text-sm text-gray-500">Cargando cuentas por pagar...</div>
+                <AlertTriangle className="h-12 w-12 text-red-500 mx-auto mb-3" />
+                <div className="text-sm font-medium text-gray-900">{error}</div>
+                <Button variant="outline" size="sm" className="mt-3" onClick={fetchPayables}>
+                  Reintentar
+                </Button>
               </div>
             </div>
           ) : payables.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-3" />
                 <div className="text-sm font-medium text-gray-900">No hay cuentas por pagar</div>
-                <div className="text-xs text-gray-500 mt-1">Intenta ajustar los filtros o agregar nuevas entradas</div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {(status !== 'all' || plant || dueFrom || dueTo || invoice || poIdFromUrl) ? 'No hay resultados con los filtros seleccionados. Pruebe ampliar el rango o limpiar filtros.' : 'Intenta ajustar los filtros o agregar nuevas entradas'}
+                </div>
               </div>
             </div>
           ) : (
@@ -400,16 +456,24 @@ export default function CxpPage() {
                                         <span className="font-mono text-sm">{it.entry.entry_number}</span>
                                       )}
                                       {/* Material PO reference */}
-                                      {!isFleet && it.entry?.po_id && it.entry?.po_item && (
-                                        <span className="ml-2 text-xs text-gray-500 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                                          PO-M: {String(it.entry.po_item.po?.id || '').slice(0,8)}
-                                        </span>
+                                      {!isFleet && it.entry?.po_id && (
+                                        <Link
+                                          href={`/finanzas/po?po_id=${it.entry.po_id}`}
+                                          className="ml-2 inline-flex items-center gap-1 text-xs text-primary bg-green-50 px-2 py-0.5 rounded border border-green-200 hover:underline"
+                                        >
+                                          <ExternalLink className="h-3 w-3" />
+                                          Ver PO
+                                        </Link>
                                       )}
                                       {/* Fleet PO reference */}
-                                      {isFleet && it.entry?.fleet_po_id && it.entry?.fleet_po_item && (
-                                        <span className="ml-2 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                                          PO-F: {String(it.entry.fleet_po_item.po?.id || '').slice(0,8)}
-                                        </span>
+                                      {isFleet && it.entry?.fleet_po_id && (
+                                        <Link
+                                          href={`/finanzas/po?po_id=${it.entry.fleet_po_id}`}
+                                          className="ml-2 inline-flex items-center gap-1 text-xs text-primary bg-blue-50 px-2 py-0.5 rounded border border-blue-200 hover:underline"
+                                        >
+                                          <ExternalLink className="h-3 w-3" />
+                                          Ver PO Flota
+                                        </Link>
                                       )}
                                       {!isFleet && it.entry?.entry_date && (
                                         <span className="text-xs text-gray-500">

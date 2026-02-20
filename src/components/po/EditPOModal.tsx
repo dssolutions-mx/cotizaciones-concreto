@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { X, Plus, Trash2, Edit2, Save, Package, Truck, DollarSign } from 'lucide-react'
+import { X, Plus, Trash2, Edit2, Save, Package, Truck, DollarSign, ChevronDown, ChevronUp, History } from 'lucide-react'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
@@ -72,7 +74,29 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
   const [poInfo, setPoInfo] = useState<{ po_number?: string; status?: string } | null>(null)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [creditHistoryExpanded, setCreditHistoryExpanded] = useState<string | null>(null)
+  const [creditHistoryData, setCreditHistoryData] = useState<Record<string, { history: any[]; creditInfo: any }>>({})
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
+
+  const fetchCreditHistory = async (itemId: string) => {
+    if (creditHistoryData[itemId]) return
+    try {
+      const res = await fetch(`/api/po/items/${itemId}/credit`)
+      const data = await res.json()
+      if (data.success) {
+        setCreditHistoryData(prev => ({ ...prev, [itemId]: { history: data.history || [], creditInfo: data.creditInfo || {} } }))
+      }
+    } catch { /* ignore */ }
+  }
+
+  const toggleCreditHistory = (itemId: string) => {
+    if (creditHistoryExpanded === itemId) {
+      setCreditHistoryExpanded(null)
+    } else {
+      setCreditHistoryExpanded(itemId)
+      fetchCreditHistory(itemId)
+    }
+  }
 
   const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMINISTRATIVE') &&
     poInfo?.status !== 'cancelled' && !items.some(it => Number(it.qty_received || 0) > 0)
@@ -135,8 +159,8 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
     try {
       const res = await fetch(`/api/suppliers?plant_id=${plantId}`)
       const data = await res.json()
-      if (data.success && data.data) {
-        setSuppliers(data.data || [])
+      if (data.suppliers) {
+        setSuppliers(data.suppliers || [])
       }
     } catch (err) {
       console.error('Error fetching suppliers:', err)
@@ -396,17 +420,59 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                         )}
                       </div>
                       {/* Credit Info */}
-                      {item.credit_amount && (
+                      {item.credit_amount && item.id && (
                         <div className="mt-2 p-2 bg-orange-50 rounded border border-orange-200">
-                          <div className="flex items-center gap-2 text-xs">
-                            <DollarSign className="h-3 w-3 text-orange-600" />
-                            <span className="text-orange-800 font-medium">
-                              Crédito aplicado: {mxn.format(item.credit_amount)}
-                            </span>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 text-xs">
+                                <DollarSign className="h-3 w-3 text-orange-600" />
+                                <span className="text-orange-800 font-medium">
+                                  Crédito aplicado: {mxn.format(item.credit_amount)}
+                                </span>
+                              </div>
+                              {item.original_unit_price && (
+                                <div className="text-xs text-orange-700 mt-1">
+                                  Precio original: {mxn.format(item.original_unit_price)} → Actual: {mxn.format(item.unit_price)}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => toggleCreditHistory(item.id!)}
+                              className="text-xs text-orange-700 hover:underline flex items-center gap-1"
+                            >
+                              <History className="h-3 w-3" />
+                              {creditHistoryExpanded === item.id ? 'Ocultar historial' : 'Ver historial'}
+                              {creditHistoryExpanded === item.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                            </button>
                           </div>
-                          {item.original_unit_price && (
-                            <div className="text-xs text-orange-700 mt-1">
-                              Precio original: {mxn.format(item.original_unit_price)} → Actual: {mxn.format(item.unit_price)}
+                          {creditHistoryExpanded === item.id && creditHistoryData[item.id] && (
+                            <div className="mt-2 pt-2 border-t border-orange-200">
+                              <div className="text-xs font-semibold text-orange-800 mb-1">Historial de créditos</div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-left text-orange-700">
+                                      <th className="py-1 pr-2">Fecha</th>
+                                      <th className="py-1 pr-2">Monto</th>
+                                      <th className="py-1 pr-2">P.U. antes</th>
+                                      <th className="py-1 pr-2">P.U. después</th>
+                                      <th className="py-1 pr-2">Acumulado</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {creditHistoryData[item.id].history.map((h: any) => (
+                                      <tr key={h.id} className="border-t border-orange-100">
+                                        <td className="py-1 pr-2">{h.applied_at ? format(new Date(h.applied_at), 'dd MMM yyyy HH:mm', { locale: es }) : '-'}</td>
+                                        <td className="py-1 pr-2 font-medium">{mxn.format(h.applied_amount || 0)}</td>
+                                        <td className="py-1 pr-2">{mxn.format(h.unit_price_before || 0)}</td>
+                                        <td className="py-1 pr-2">{mxn.format(h.unit_price_after || 0)}</td>
+                                        <td className="py-1 pr-2">{mxn.format(h.cumulative_amount_after || 0)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
                             </div>
                           )}
                         </div>
