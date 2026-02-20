@@ -192,14 +192,185 @@ function getQuoteBuilderVariantId(
   return { variantId: null, variantCode: null, versionCreatedAt: null };
 }
 
+/**
+ * Legacy path when DB views are unavailable: fetch all versions in chunks,
+ * compute latest client-side, then fetch materials and build governance data.
+ */
+async function getMasterGovernanceDataLegacy(
+  plantId: string,
+  masters: any[],
+  variantIds: string[],
+  startTime: number
+): Promise<MasterGovernanceData[]> {
+  const versionChunkSize = 200;
+  let allVersions: any[] = [];
+  for (let i = 0; i < variantIds.length; i += versionChunkSize) {
+    const chunk = variantIds.slice(i, i + versionChunkSize);
+    const { data, error } = await supabase
+      .from('recipe_versions')
+      .select('id, recipe_id, version_number, created_at, effective_date, is_current')
+      .in('recipe_id', chunk)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    allVersions = allVersions.concat(data || []);
+  }
+
+  const versionDate = (v: any) =>
+    v.created_at ? new Date(v.created_at).getTime() : (v.effective_date ? new Date(v.effective_date).getTime() : 0);
+  const latestVersionMap = new Map<string, any>();
+  const versionMap = new Map<string, any[]>();
+
+  allVersions.forEach((v: any) => {
+    const recipeId = v.recipe_id;
+    if (!versionMap.has(recipeId)) versionMap.set(recipeId, []);
+    versionMap.get(recipeId)!.push(v);
+    const existing = latestVersionMap.get(recipeId);
+    if (!existing || versionDate(v) > versionDate(existing)) {
+      latestVersionMap.set(recipeId, v);
+    }
+  });
+
+  const latestVersionIds = Array.from(latestVersionMap.values()).map((v: any) => v.id).filter(Boolean);
+  let materialQuantities: any[] = [];
+  if (latestVersionIds.length > 0) {
+    const chunkSize = 100;
+    for (let i = 0; i < latestVersionIds.length; i += chunkSize) {
+      const chunk = latestVersionIds.slice(i, i + chunkSize);
+      const { data, error } = await supabase
+        .from('material_quantities')
+        .select('id, recipe_version_id, material_type, material_id, quantity, unit')
+        .in('recipe_version_id', chunk);
+      if (error) {
+        console.error('Error fetching material quantities:', error);
+        continue;
+      }
+      materialQuantities = materialQuantities.concat(data || []);
+    }
+
+    const materialIds = Array.from(new Set(materialQuantities.map((m: any) => m.material_id).filter((id: any): id is string => !!id)));
+    const materialDetailsMap = new Map<string, any>();
+    if (materialIds.length > 0) {
+      const detailChunkSize = 200;
+      for (let i = 0; i < materialIds.length; i += detailChunkSize) {
+        const chunk = materialIds.slice(i, i + detailChunkSize);
+        const { data, error } = await supabase.from('materials').select('id, material_name, material_code, category').in('id', chunk);
+        if (error) {
+          console.warn('Error fetching material details:', error);
+          continue;
+        }
+        (data || []).forEach((m: any) => materialDetailsMap.set(m.id, m));
+      }
+    }
+    materialQuantities = materialQuantities.map((mq: any) => {
+      const d = mq.material_id ? materialDetailsMap.get(mq.material_id) : undefined;
+      return { ...mq, material: d || (mq.material_type ? { id: null, material_name: mq.material_type, material_code: mq.material_type, category: 'legacy' } : undefined) };
+    });
+  }
+
+  const materialsByVersion = new Map<string, MaterialQuantityWithDetails[]>();
+  materialQuantities.forEach((mq: any) => {
+    const vid = mq.recipe_version_id;
+    if (!materialsByVersion.has(vid)) materialsByVersion.set(vid, []);
+    materialsByVersion.get(vid)!.push({
+      id: mq.id, recipe_version_id: mq.recipe_version_id, material_type: mq.material_type, material_id: mq.material_id,
+      quantity: mq.quantity, unit: mq.unit,
+      material: mq.material ? { id: mq.material.id, material_name: mq.material.material_name, material_code: mq.material.material_code, category: mq.material.category } : undefined,
+    });
+  });
+
+  const fetchTime = performance.now() - startTime;
+  console.log(`[RecipeGovernance] Legacy fetch in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${materialQuantities.length} materials`);
+
+  return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, null);
+}
+
+
+function buildGovernanceData(
+  masters: any[],
+  latestVersionMap: Map<string, any>,
+  versionMap: Map<string, any[]>,
+  materialsByVersion: Map<string, MaterialQuantityWithDetails[]>,
+  qbVariantByMaster: Map<string, string> | null
+): MasterGovernanceData[] {
+  return masters.map((m: any) => {
+    const recipeVariants = m.recipes || [];
+    let quoteBuilderVariantId: string | null = qbVariantByMaster ? (qbVariantByMaster.get(m.id) ?? null) : null;
+    if (quoteBuilderVariantId === null) {
+      const result = getQuoteBuilderVariantId(recipeVariants, latestVersionMap, materialsByVersion);
+      quoteBuilderVariantId = result.variantId;
+    }
+
+    const variants: VariantVersionStatus[] = recipeVariants.map((r: any) => {
+      const latestVersion = latestVersionMap.get(r.id);
+      const allVersionsForRecipe = versionMap.get(r.id) || [];
+      const sortedVersions = [...allVersionsForRecipe].sort((a: any, b: any) =>
+        (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0)
+      );
+
+      let status: VariantVersionStatus['status'] = 'no-version';
+      const isQuoteBuilderVariant = r.id === quoteBuilderVariantId;
+
+      if (latestVersion) {
+        const currentVersions = allVersionsForRecipe.filter((v: any) => v.is_current === true);
+        const isLatestByCreatedAt = latestVersion.id === sortedVersions[0]?.id;
+        const isMarkedCurrent = latestVersion.is_current === true;
+        if (currentVersions.length > 1) status = 'inconsistent';
+        else if (isLatestByCreatedAt && isMarkedCurrent) status = 'up-to-date';
+        else status = 'outdated';
+      }
+
+      const materials = latestVersion ? (materialsByVersion.get(latestVersion.id) || []) : [];
+      const validationIssues =
+        materials.length > 0
+          ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
+          : latestVersion && isQuoteBuilderVariant
+            ? [{ type: 'too_few_materials' as const, severity: 'error' as const, message: 'No hay materiales definidos para esta versión', details: 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos' }]
+            : [];
+
+      return {
+        variantId: r.id,
+        recipeCode: r.recipe_code,
+        variantSuffix: r.variant_suffix,
+        latestVersion: latestVersion ? { id: latestVersion.id, versionNumber: latestVersion.version_number, createdAt: latestVersion.created_at, isCurrent: latestVersion.is_current } : null,
+        materials,
+        status,
+        isQuoteBuilderVariant,
+        validationIssues,
+      };
+    });
+
+    const summary = {
+      totalVariants: variants.length,
+      upToDateCount: variants.filter(v => v.status === 'up-to-date').length,
+      outdatedCount: variants.filter(v => v.status === 'outdated').length,
+      noVersionCount: variants.filter(v => v.status === 'no-version').length,
+      validationErrors: variants.reduce((sum, v) => sum + (v.validationIssues?.filter(i => i.severity === 'error').length || 0), 0),
+      validationWarnings: variants.reduce((sum, v) => sum + (v.validationIssues?.filter(i => i.severity === 'warning').length || 0), 0),
+    };
+
+    return {
+      masterId: m.id,
+      masterCode: m.master_code,
+      strengthFc: m.strength_fc,
+      placementType: m.placement_type,
+      slump: m.slump,
+      maxAggregateSize: m.max_aggregate_size,
+      variants,
+      summary,
+    };
+  });
+}
+
 export const recipeGovernanceService = {
   /**
-   * Get all master recipes with their variants and latest version status
+   * Get all master recipes with their variants and latest version status.
+   * Uses DB views (recipe_latest_version_summary, master_quotebuilder_variant) when available
+   * for compact reads; falls back to app-layer logic if views are missing.
    */
   async getMasterGovernanceData(plantId: string): Promise<MasterGovernanceData[]> {
     try {
       const startTime = performance.now();
-      
+
       // 1. Fetch masters with variants in one query
       const { data: masters, error: masterError } = await supabase
         .from('master_recipes')
@@ -256,45 +427,52 @@ export const recipeGovernanceService = {
         }));
       }
 
-      // 3. Fetch all versions in controlled chunks to avoid row-cap truncation
-      // and avoid large/bursty requests to Supabase.
-      let allVersions: any[] = [];
-      const versionChunkSize = 200;
-      for (let i = 0; i < variantIds.length; i += versionChunkSize) {
-        const chunk = variantIds.slice(i, i + versionChunkSize);
-        const { data, error } = await supabase
-          .from('recipe_versions')
-          .select('id, recipe_id, version_number, created_at, effective_date, is_current')
-          .in('recipe_id', chunk)
-          .order('created_at', { ascending: false });
-        if (error) throw error;
-        allVersions = allVersions.concat(data || []);
+      // 3. Use DB views for compact latest-version and QB-variant data
+      let latestVersionMap = new Map<string, any>();
+      const versionMap = new Map<string, any[]>();
+      let qbVariantByMaster = new Map<string, string>();
+
+      const { data: qbVariants, error: qbErr } = await supabase
+        .from('master_quotebuilder_variant')
+        .select('master_id, variant_id')
+        .eq('plant_id', plantId);
+
+      if (!qbErr && qbVariants) {
+        qbVariants.forEach((row: { master_id: string; variant_id: string }) => {
+          qbVariantByMaster.set(row.master_id, row.variant_id);
+        });
       }
 
-      const versionDate = (v: any) =>
-        v.created_at ? new Date(v.created_at).getTime() : (v.effective_date ? new Date(v.effective_date).getTime() : 0);
-
-      // 4. Group versions by recipe_id and get latest (by created_at, fallback effective_date)
-      const latestVersionMap = new Map<string, any>();
-      const versionMap = new Map<string, any[]>();
-
-      allVersions.forEach((v: any) => {
-        const recipeId = v.recipe_id;
-
-        if (!versionMap.has(recipeId)) {
-          versionMap.set(recipeId, []);
+      const summaryChunkSize = 200;
+      let summaryRows: any[] = [];
+      for (let i = 0; i < variantIds.length; i += summaryChunkSize) {
+        const chunk = variantIds.slice(i, i + summaryChunkSize);
+        const { data, error } = await supabase
+          .from('recipe_latest_version_summary')
+          .select('version_id, recipe_id, version_number, created_at, effective_date, is_current, material_count, has_materials')
+          .in('recipe_id', chunk);
+        if (error) {
+          return getMasterGovernanceDataLegacy(plantId, masters, variantIds, startTime);
         }
-        versionMap.get(recipeId)!.push(v);
+        summaryRows = summaryRows.concat(data || []);
+      }
 
-        const existing = latestVersionMap.get(recipeId);
-        if (!existing || versionDate(v) > versionDate(existing)) {
-          latestVersionMap.set(recipeId, v);
-        }
+      summaryRows.forEach((row: any) => {
+        const v = {
+          id: row.version_id,
+          recipe_id: row.recipe_id,
+          version_number: row.version_number,
+          created_at: row.created_at,
+          effective_date: row.effective_date,
+          is_current: row.is_current,
+        };
+        latestVersionMap.set(row.recipe_id, v);
+        versionMap.set(row.recipe_id, [v]);
       });
 
-      // 5. Get latest version IDs and fetch material quantities + details in parallel
+      // 5. Get latest version IDs and fetch material quantities + details
       const latestVersionIds = Array.from(latestVersionMap.values())
-        .map(v => v.id)
+        .map((v: any) => v.id)
         .filter(Boolean);
 
       let materialQuantities: any[] = [];
@@ -352,9 +530,6 @@ export const recipeGovernanceService = {
           };
         });
       }
-      
-      const fetchTime = performance.now() - startTime;
-      console.log(`[RecipeGovernance] Fetched data in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${latestVersionIds.length} versions, ${materialQuantities.length} materials`);
 
       // 6. Group materials by recipe_version_id
       const materialsByVersion = new Map<string, MaterialQuantityWithDetails[]>();
@@ -379,115 +554,10 @@ export const recipeGovernanceService = {
         });
       });
 
-      // 7. Build governance data structure
-      const governanceData: MasterGovernanceData[] = masters.map((m: any) => {
-        const recipeVariants = m.recipes || [];
-
-        // Determine which variant QuoteBuilder would actually use: sort by latest
-        // version date DESC, then pick first variant with materials (aligns with
-        // QuoteBuilder.addMasterToQuote + calculateBasePrice fallback)
-        const { variantId: quoteBuilderVariantId, variantCode: quoteBuilderVariantCode, versionCreatedAt: quoteBuilderVersionCreatedAt } =
-          getQuoteBuilderVariantId(recipeVariants, latestVersionMap, materialsByVersion);
-
-        // Debug logging for QuoteBuilder variant identification
-        if (quoteBuilderVariantId) {
-          console.log(`[RecipeGovernance] Master ${m.master_code}: QuoteBuilder variant = ${quoteBuilderVariantCode} (ID: ${quoteBuilderVariantId}, version date: ${quoteBuilderVersionCreatedAt?.toISOString()})`);
-        } else {
-          console.warn(`[RecipeGovernance] Master ${m.master_code}: No QuoteBuilder variant found (no variant with materials)`);
-        }
-        
-        const variants: VariantVersionStatus[] = recipeVariants.map((r: any) => {
-          const latestVersion = latestVersionMap.get(r.id);
-          const allVersionsForRecipe = versionMap.get(r.id) || [];
-          
-          // Determine status based on QuoteBuilder logic
-          // QuoteBuilder uses latest version by created_at (not is_current flag)
-          // Sort versions by created_at DESC to match QuoteBuilder's logic
-          const sortedVersions = [...allVersionsForRecipe].sort((a, b) => 
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
-          
-          let status: VariantVersionStatus['status'] = 'no-version';
-          const isQuoteBuilderVariant = r.id === quoteBuilderVariantId;
-          
-          if (latestVersion) {
-            const currentVersions = allVersionsForRecipe.filter((v: any) => v.is_current === true);
-            
-            // Check if this is the latest by created_at (what QuoteBuilder uses)
-            const isLatestByCreatedAt = latestVersion.id === sortedVersions[0]?.id;
-            const isMarkedCurrent = latestVersion.is_current === true;
-            
-            if (currentVersions.length > 1) {
-              status = 'inconsistent'; // Multiple versions marked as current
-            } else if (isLatestByCreatedAt && isMarkedCurrent) {
-              status = 'up-to-date'; // Latest by created_at AND marked as current - perfect alignment
-            } else if (isLatestByCreatedAt && !isMarkedCurrent) {
-              status = 'outdated'; // Latest by created_at but NOT marked as current (QuoteBuilder will use this, but flag is wrong - needs fix)
-            } else {
-              status = 'outdated'; // Not the latest by created_at
-            }
-          }
-
-          const materials = latestVersion 
-            ? (materialsByVersion.get(latestVersion.id) || [])
-            : [];
-
-          // Validate materials and get issues (only for QuoteBuilder variants)
-          const validationIssues =
-            materials.length > 0
-              ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
-              : latestVersion && isQuoteBuilderVariant
-                ? [{
-                    type: 'too_few_materials' as const,
-                    severity: 'error' as const,
-                    message: 'No hay materiales definidos para esta versión',
-                    details: 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos',
-                  }]
-                : [];
-
-          return {
-            variantId: r.id,
-            recipeCode: r.recipe_code,
-            variantSuffix: r.variant_suffix,
-            latestVersion: latestVersion ? {
-              id: latestVersion.id,
-              versionNumber: latestVersion.version_number,
-              createdAt: latestVersion.created_at,
-              isCurrent: latestVersion.is_current,
-            } : null,
-            materials,
-            status,
-            isQuoteBuilderVariant, // Mark which variant QuoteBuilder uses
-            validationIssues, // Smart management state flags
-          };
-        });
-
-        const summary = {
-          totalVariants: variants.length,
-          upToDateCount: variants.filter(v => v.status === 'up-to-date').length,
-          outdatedCount: variants.filter(v => v.status === 'outdated').length,
-          noVersionCount: variants.filter(v => v.status === 'no-version').length,
-          validationErrors: variants.reduce((sum, v) => 
-            sum + (v.validationIssues?.filter(i => i.severity === 'error').length || 0), 0
-          ),
-          validationWarnings: variants.reduce((sum, v) => 
-            sum + (v.validationIssues?.filter(i => i.severity === 'warning').length || 0), 0
-          ),
-        };
-
-        return {
-          masterId: m.id,
-          masterCode: m.master_code,
-          strengthFc: m.strength_fc,
-          placementType: m.placement_type,
-          slump: m.slump,
-          maxAggregateSize: m.max_aggregate_size,
-          variants,
-          summary,
-        };
-      });
-
-      return governanceData;
+      // 7. Build governance data from view-based data
+      const fetchTime = performance.now() - startTime;
+      console.log(`[RecipeGovernance] Fetched (views) in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${latestVersionIds.length} versions, ${materialQuantities.length} materials`);
+      return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, qbVariantByMaster);
     } catch (error) {
       console.error('Error fetching master governance data:', error);
       throw error;

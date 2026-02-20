@@ -249,81 +249,90 @@ export default function QuoteBuilder() {
         return;
       }
 
-      // Fetch variants for this master.
-      // Main factor: the variant whose LATEST VERSION has the most recent created_at.
-      // A 10-month-old variant that was just updated (new version) takes priority.
-      const { data: variantsRaw, error: variantsError } = await supabase
-        .from('recipes')
-        .select('id, recipe_code, plant_id')
-        .eq('master_recipe_id', masterId);
-      if (variantsError) throw variantsError;
+      // Prefer DB view (master_quotebuilder_variant) as source of truth
+      const { data: qbRow, error: qbErr } = await supabase
+        .from('master_quotebuilder_variant')
+        .select('variant_id, recipe_code, recipe_plant_id')
+        .eq('master_id', masterId)
+        .maybeSingle();
 
-      if (!variantsRaw || variantsRaw.length === 0) {
-        toast.error('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
-        return;
-      }
-
-      // Get the latest version per variant and sort by version created_at DESC
-      const { data: versionRows } = await supabase
-        .from('recipe_versions')
-        .select('recipe_id, created_at, effective_date')
-        .in('recipe_id', variantsRaw.map((v: { id: string }) => v.id))
-        .order('created_at', { ascending: false });
-
-      const latestVersionDateByVariant = new Map<string, number>();
-      for (const v of versionRows || []) {
-        if (!latestVersionDateByVariant.has(v.recipe_id)) {
-          const ts = v.created_at
-            ? new Date(v.created_at).getTime()
-            : v.effective_date
-              ? new Date(v.effective_date).getTime()
-              : 0;
-          latestVersionDateByVariant.set(v.recipe_id, ts);
-        }
-      }
-
-      const variants = [...variantsRaw].sort((a, b) => {
-        const aTs = latestVersionDateByVariant.get(a.id) ?? 0;
-        const bTs = latestVersionDateByVariant.get(b.id) ?? 0;
-        return bTs - aTs; // newest version first
-      });
-
-      // IMPORTANT: Quote builder always calculates fresh prices from materials
-      // product_prices table is ONLY for storing approved prices after a quote is approved
-      // It should NOT be used when creating new quotes
-      
-      // Try variants until finding one with materials
-      // This ensures: materials × current prices + admin costs (NO transport)
-      let chosenVariant = variants[0];
+      let chosenVariant: { id: string; recipe_code: string; plant_id?: string } | null = null;
       let basePrice: number | null = null;
       const triedVariants: string[] = [];
 
-      for (const variant of variants) {
-        triedVariants.push(variant.recipe_code || variant.id);
+      if (!qbErr && qbRow?.variant_id) {
+        chosenVariant = { id: qbRow.variant_id, recipe_code: qbRow.recipe_code || '', plant_id: qbRow.recipe_plant_id || undefined };
+        triedVariants.push(chosenVariant.recipe_code || chosenVariant.id);
         try {
-          basePrice = await calculateBasePrice(variant.id, undefined, variant.plant_id ?? undefined);
-          chosenVariant = variant;
-          if (triedVariants.length > 1) {
-            console.log(
-              `[QuoteBuilder] Fallback: Variant ${triedVariants[0]} had no materials, ` +
-              `using variant ${variant.recipe_code || variant.id} (${triedVariants.length - 1} variants skipped)`
-            );
-          }
-          break; // Found a variant with materials
-        } catch (error: any) {
-          // Check if error is about missing materials
-          if (error?.message?.includes('No materials found')) {
-            console.warn(
-              `[QuoteBuilder] Variant ${variant.recipe_code || variant.id} has no materials, trying next variant`
-            );
-            continue; // Try next variant
-          }
-          // If it's a different error, throw it
-          throw error;
+          basePrice = await calculateBasePrice(chosenVariant.id, undefined, chosenVariant.plant_id);
+        } catch (err: any) {
+          if (!err?.message?.includes('No materials found')) throw err;
+          chosenVariant = null;
+          basePrice = null;
         }
       }
 
-      if (basePrice === null) {
+      if (!chosenVariant || basePrice === null) {
+        const { data: variantsRaw, error: variantsError } = await supabase
+          .from('recipes')
+          .select('id, recipe_code, plant_id')
+          .eq('master_recipe_id', masterId);
+        if (variantsError) throw variantsError;
+
+        if (!variantsRaw || variantsRaw.length === 0) {
+          toast.error('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
+          return;
+        }
+
+        const variantIds = variantsRaw.map((v: { id: string }) => v.id);
+        const versionChunkSize = 200;
+        let allVersionRows: Array<{ recipe_id: string; created_at?: string | null; effective_date?: string | null }> = [];
+        for (let i = 0; i < variantIds.length; i += versionChunkSize) {
+          const chunk = variantIds.slice(i, i + versionChunkSize);
+          const { data: chunkRows, error: versionErr } = await supabase
+            .from('recipe_versions')
+            .select('recipe_id, created_at, effective_date')
+            .in('recipe_id', chunk)
+            .order('created_at', { ascending: false });
+          if (versionErr) throw versionErr;
+          allVersionRows = allVersionRows.concat(chunkRows || []);
+        }
+
+        const latestVersionDateByVariant = new Map<string, number>();
+        for (const v of allVersionRows) {
+          if (!latestVersionDateByVariant.has(v.recipe_id)) {
+            const ts = v.created_at
+              ? new Date(v.created_at).getTime()
+              : v.effective_date
+                ? new Date(v.effective_date).getTime()
+                : 0;
+            latestVersionDateByVariant.set(v.recipe_id, ts);
+          }
+        }
+
+        const variants = [...variantsRaw].sort((a, b) => {
+          const aTs = latestVersionDateByVariant.get(a.id) ?? 0;
+          const bTs = latestVersionDateByVariant.get(b.id) ?? 0;
+          return bTs - aTs;
+        });
+
+        for (const variant of variants) {
+          triedVariants.push(variant.recipe_code || variant.id);
+          try {
+            basePrice = await calculateBasePrice(variant.id, undefined, variant.plant_id ?? undefined);
+            chosenVariant = variant;
+            if (triedVariants.length > 1) {
+              console.log(`[QuoteBuilder] Fallback: Variant ${triedVariants[0]} had no materials, using variant ${variant.recipe_code || variant.id}`);
+            }
+            break;
+          } catch (error: any) {
+            if (error?.message?.includes('No materials found')) continue;
+            throw error;
+          }
+        }
+      }
+
+      if (!chosenVariant || basePrice === null) {
         const variantCodes = triedVariants.join(', ');
         throw new Error(
           `No se encontraron materiales para ninguna variante del maestro ${master.master_code}. ` +
@@ -354,7 +363,7 @@ export default function QuoteBuilder() {
       const newProduct: QuoteProduct = {
         recipe: {
           id: chosenVariant.id,
-          recipe_code: (variants?.find(v => v.id === chosenVariant.id) as any)?.recipe_code || '',
+          recipe_code: chosenVariant.recipe_code || '',
           strength_fc: master.strength_fc,
           placement_type: master.placement_type,
           slump: master.slump,

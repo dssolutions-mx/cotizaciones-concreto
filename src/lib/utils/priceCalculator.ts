@@ -18,10 +18,13 @@ async function getRecipeVersionWithMaterials(recipeId: string): Promise<{
   versionId: string;
   materials: MaterialQuantity[];
 }> {
+  // Newest-first; explicit ordering and bounded limit to avoid row-cap issues
   const { data: versionsRaw, error: versionsError } = await supabase
     .from('recipe_versions')
     .select('id, created_at, effective_date')
-    .eq('recipe_id', recipeId);
+    .eq('recipe_id', recipeId)
+    .order('created_at', { ascending: false })
+    .limit(50);
   if (versionsError) throw versionsError;
 
   const versionDate = (v: { created_at?: string | null; effective_date?: string | null }) =>
