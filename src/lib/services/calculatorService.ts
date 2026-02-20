@@ -749,6 +749,23 @@ export async function saveRecipesWithDecisions(
     );
   }
 
+  const duplicateFinalCodes = Array.from(
+    recipeDecisionPairs.reduce((acc, { recipe, decision }) => {
+      const finalCode = decision.finalArkikCode || recipe.code;
+      acc.set(finalCode, (acc.get(finalCode) || 0) + 1);
+      return acc;
+    }, new Map<string, number>()).entries()
+  )
+    .filter(([, count]) => count > 1)
+    .map(([code]) => code);
+
+  if (duplicateFinalCodes.length > 0) {
+    throw new Error(
+      `Se detectaron códigos ARKIK duplicados en el lote: ${duplicateFinalCodes.join(', ')}. ` +
+      `Cada variante debe usar un código final único.`
+    );
+  }
+
   // Fetch all materials once
   const { data: allMaterials } = await supabase.from('materials').select('*').eq('plant_id', plantId);
   const materialMap = new Map((allMaterials || []).map(m => [m.id, m]));
