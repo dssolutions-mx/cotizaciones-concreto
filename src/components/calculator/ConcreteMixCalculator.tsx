@@ -2246,7 +2246,7 @@ const ConcreteMixCalculator = () => {
               const readyCount = conflicts.reduce((sum, c) => {
                 return sum + c.variants.filter(v => {
                   if (v.decision === 'updateVariant') {
-                    return v.selectedExistingId && (!c.codeCollision || v.overrideCode !== c.intendedCode);
+                    return v.selectedExistingId;
                   } else if (v.decision === 'createVariant') {
                     const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
                     const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
@@ -2294,7 +2294,7 @@ const ConcreteMixCalculator = () => {
                 // Calculate overall validation status for this recipe (all variants must be valid)
                 const allVariantsValid = c.variants.every(v => {
                   if (v.decision === 'updateVariant') {
-                    return v.selectedExistingId && (!c.codeCollision || v.overrideCode !== c.intendedCode);
+                    return v.selectedExistingId;
                   } else if (v.decision === 'createVariant') {
                     const hasMaster = (v.masterMode === 'existing' && v.selectedMasterId) || v.masterMode === 'new';
                     const codeOk = !c.codeCollision || v.overrideCode !== c.intendedCode;
@@ -2367,7 +2367,7 @@ const ConcreteMixCalculator = () => {
                       // Calculate validation status for this variant
                       const hasIssues = (() => {
                         if (v.decision === 'updateVariant') {
-                          return !v.selectedExistingId || (c.codeCollision && v.overrideCode === c.intendedCode);
+                          return !v.selectedExistingId;
                         } else if (v.decision === 'createVariant') {
                           const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
                           const codeIssue = c.codeCollision && v.overrideCode === c.intendedCode;
@@ -2768,7 +2768,7 @@ const ConcreteMixCalculator = () => {
                   return conflicts.some(c => 
                     c.variants.some(v => {
                       if (v.decision === 'updateVariant') {
-                        return !v.selectedExistingId || (c.codeCollision && v.overrideCode === c.intendedCode);
+                        return !v.selectedExistingId;
                       } else if (v.decision === 'createVariant') {
                         const missingMaster = (v.masterMode === 'existing' || !v.masterMode) && !v.selectedMasterId;
                         const codeIssue = c.codeCollision && (v.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === v.overrideCode));

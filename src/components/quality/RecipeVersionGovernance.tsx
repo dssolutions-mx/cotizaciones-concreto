@@ -417,6 +417,15 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
 
   return (
     <div className="space-y-6">
+      {/* Relevance notice */}
+      <Card className="border-blue-200 bg-blue-50/50">
+        <CardContent className="p-4">
+          <p className="text-sm text-blue-900">
+            <strong>Importante:</strong> Las recetas solo son relevantes para el sistema de cotizaciones cuando las usa QuoteBuilder. QuoteBuilder selecciona la primera variante (ordenada por fecha de versión) que tenga materiales definidos.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Critical Issues Dashboard */}
       {criticalIssues.length > 0 && (
         <Card className="border-red-300 bg-gradient-to-r from-red-50 to-orange-50 shadow-lg">
@@ -431,7 +440,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
               </Badge>
             </div>
             <p className="text-sm text-red-700 mt-2">
-              Estas variantes se usan en QuoteBuilder y tienen problemas que afectan las cotizaciones
+              Estas variantes se usan en QuoteBuilder y tienen problemas que afectan las cotizaciones. Las recetas solo son relevantes para el sistema de cotizaciones cuando las usa QuoteBuilder.
             </p>
           </CardHeader>
           <CardContent>
@@ -538,8 +547,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                 </TooltipTrigger>
                 <TooltipContent>
                   <p className="max-w-xs">
-                    Errores críticos en variantes usadas por QuoteBuilder. 
-                    Solo las variantes activas en QuoteBuilder pueden tener errores.
+                    Errores críticos en variantes usadas por QuoteBuilder. Las recetas solo son relevantes para cotizaciones cuando las usa QuoteBuilder.
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -549,10 +557,21 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
         </Card>
         <Card className="border-yellow-200 bg-yellow-50">
           <CardContent className="p-4">
-            <div className="text-sm text-yellow-600 flex items-center gap-1">
-              <AlertTriangle className="w-4 h-4" />
-              Advertencias
-            </div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-sm text-yellow-600 flex items-center gap-1 cursor-help">
+                    <AlertTriangle className="w-4 h-4" />
+                    Advertencias
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs">
+                    Advertencias informativas. Las que afectan cotizaciones son solo las de variantes usadas por QuoteBuilder.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <div className="text-2xl font-bold text-yellow-700">{overallSummary.validationWarnings}</div>
           </CardContent>
         </Card>
@@ -595,7 +614,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                     <div>
                       <h4 className="text-sm font-semibold text-gray-700">Severidad</h4>
                       <p className="text-xs text-gray-500 mt-1">
-                        Los errores solo se aplican a variantes usadas por QuoteBuilder
+                        Las recetas solo son relevantes para cotizaciones cuando las usa QuoteBuilder
                       </p>
                     </div>
                     <div className="space-y-2">
@@ -957,7 +976,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                                   <p className="max-w-xs">
                                                     {variant.isQuoteBuilderVariant
                                                       ? 'Errores críticos que afectan las cotizaciones. Esta variante se usa en QuoteBuilder.'
-                                                      : 'Estos problemas se muestran como errores porque afectarían las cotizaciones si esta variante fuera usada por QuoteBuilder.'}
+                                                      : 'Esta variante no es usada por QuoteBuilder, por lo que no afecta cotizaciones.'}
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>
@@ -1016,8 +1035,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                                 </TooltipTrigger>
                                                 <TooltipContent>
                                                   <p className="max-w-xs">
-                                                    Esta variante tiene la versión más reciente de todas las variantes del maestro. 
-                                                    El QuoteBuilder usa los materiales de esta variante para calcular precios.
+                                                    Esta variante es la que QuoteBuilder usa para cotizar: la primera (por fecha de versión) con materiales definidos. Las recetas solo son relevantes para cotizaciones cuando las usa QuoteBuilder.
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>
@@ -1033,7 +1051,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                                 </TooltipTrigger>
                                                 <TooltipContent>
                                                   <p className="max-w-xs">
-                                                    El QuoteBuilder usa otra variante de este maestro con versión más reciente.
+                                                    QuoteBuilder usa otra variante (la primera con materiales, ordenada por fecha). Esta variante no afecta las cotizaciones.
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>

@@ -67,7 +67,8 @@ export interface AvailableMaterial {
 }
 
 /**
- * Validate recipe materials and return issues
+ * Validate recipe materials and return issues.
+ * Recipes are relevant for the quotation system only when used by QuoteBuilder.
  * @param materials - The materials to validate
  * @param isQuoteBuilderVariant - Whether this variant is used by QuoteBuilder. Errors are only errors if true.
  */
@@ -85,9 +86,9 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
       type: 'too_few_materials',
       severity: getSeverity(true),
       message: 'No hay materiales definidos',
-      details: isQuoteBuilderVariant 
+      details: isQuoteBuilderVariant
         ? 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos'
-        : 'Esta variante no tiene materiales definidos',
+        : 'Esta variante no tiene materiales definidos. No afecta cotizaciones (no la usa QuoteBuilder).',
     });
     return issues;
   }
@@ -136,7 +137,7 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
       message: 'Falta material de cemento',
       details: isQuoteBuilderVariant
         ? 'El cemento es obligatorio. Esta variante se usa en QuoteBuilder y debe tener cemento definido'
-        : 'El cemento es obligatorio en todas las recetas',
+        : 'El cemento es obligatorio. No afecta cotizaciones (esta variante no la usa QuoteBuilder).',
     });
   } else {
     // Check cement quantity (only error if <= 0)
@@ -192,6 +193,44 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
   }
 
   return issues;
+}
+
+/**
+ * Determine which variant QuoteBuilder would actually use for a master.
+ * QuoteBuilder sorts variants by latest version created_at DESC, then picks
+ * the first variant whose latest version has materials (can calculate base price).
+ * Matches logic in QuoteBuilder.addMasterToQuote and calculateBasePrice.
+ * Recipes are relevant for the quotation system only when used by QuoteBuilder.
+ */
+function getQuoteBuilderVariantId(
+  recipeVariants: Array<{ id: string; recipe_code: string }>,
+  latestVersionMap: Map<string, any>,
+  materialsByVersion: Map<string, MaterialQuantityWithDetails[]>
+): { variantId: string | null; variantCode: string | null; versionCreatedAt: Date | null } {
+  const variantsWithLatest = recipeVariants
+    .map((r: any) => ({
+      variant: r,
+      latestVersion: latestVersionMap.get(r.id),
+    }))
+    .filter((v) => v.latestVersion)
+    .sort(
+      (a, b) =>
+        new Date(b.latestVersion.created_at).getTime() -
+        new Date(a.latestVersion.created_at).getTime()
+    );
+
+  for (const { variant, latestVersion } of variantsWithLatest) {
+    const materials = materialsByVersion.get(latestVersion.id) || [];
+    if (materials.length > 0) {
+      return {
+        variantId: variant.id,
+        variantCode: variant.recipe_code,
+        versionCreatedAt: new Date(latestVersion.created_at),
+      };
+    }
+  }
+
+  return { variantId: null, variantCode: null, versionCreatedAt: null };
 }
 
 export const recipeGovernanceService = {
@@ -394,30 +433,18 @@ export const recipeGovernanceService = {
       // 7. Build governance data structure
       const governanceData: MasterGovernanceData[] = masters.map((m: any) => {
         const recipeVariants = m.recipes || [];
-        
-        // For each master, determine which variant QuoteBuilder would use
-        // QuoteBuilder uses the variant with the most recent version (by created_at)
-        let quoteBuilderVariantId: string | null = null;
-        let quoteBuilderVersionCreatedAt: Date | null = null;
-        let quoteBuilderVariantCode: string | null = null;
-        
-        recipeVariants.forEach((r: any) => {
-          const variantLatestVersion = latestVersionMap.get(r.id);
-          if (variantLatestVersion) {
-            const versionDate = new Date(variantLatestVersion.created_at);
-            if (!quoteBuilderVersionCreatedAt || versionDate > quoteBuilderVersionCreatedAt) {
-              quoteBuilderVersionCreatedAt = versionDate;
-              quoteBuilderVariantId = r.id;
-              quoteBuilderVariantCode = r.recipe_code;
-            }
-          }
-        });
-        
+
+        // Determine which variant QuoteBuilder would actually use: sort by latest
+        // version date DESC, then pick first variant with materials (aligns with
+        // QuoteBuilder.addMasterToQuote + calculateBasePrice fallback)
+        const { variantId: quoteBuilderVariantId, variantCode: quoteBuilderVariantCode, versionCreatedAt: quoteBuilderVersionCreatedAt } =
+          getQuoteBuilderVariantId(recipeVariants, latestVersionMap, materialsByVersion);
+
         // Debug logging for QuoteBuilder variant identification
         if (quoteBuilderVariantId) {
-          console.log(`[RecipeGovernance] Master ${m.master_code}: QuoteBuilder variant = ${quoteBuilderVariantCode} (ID: ${quoteBuilderVariantId}, latest version date: ${quoteBuilderVersionCreatedAt?.toISOString()})`);
+          console.log(`[RecipeGovernance] Master ${m.master_code}: QuoteBuilder variant = ${quoteBuilderVariantCode} (ID: ${quoteBuilderVariantId}, version date: ${quoteBuilderVersionCreatedAt?.toISOString()})`);
         } else {
-          console.warn(`[RecipeGovernance] Master ${m.master_code}: No QuoteBuilder variant found (no versions)`);
+          console.warn(`[RecipeGovernance] Master ${m.master_code}: No QuoteBuilder variant found (no variant with materials)`);
         }
         
         const variants: VariantVersionStatus[] = recipeVariants.map((r: any) => {
