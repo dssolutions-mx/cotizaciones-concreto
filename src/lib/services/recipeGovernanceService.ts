@@ -257,11 +257,13 @@ export const recipeGovernanceService = {
       }
 
       // 3. Fetch all versions (created_at is main factor; effective_date fallback for older schema)
+      // NOTE: explicit limit override — plant can have 1000+ versions, exceeding PostgREST's default 1000-row cap
       const { data: allVersions, error: versionsError } = await supabase
         .from('recipe_versions')
         .select('id, recipe_id, version_number, created_at, effective_date, is_current')
         .in('recipe_id', variantIds)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(10000);
 
       if (versionsError) throw versionsError;
 
@@ -293,8 +295,10 @@ export const recipeGovernanceService = {
 
       let materialQuantities: any[] = [];
       if (latestVersionIds.length > 0) {
-        // Fetch material quantities for latest versions in parallel chunks
-        const chunkSize = 200; // Increased chunk size for better performance
+        // Chunk size kept at 50 so each chunk stays well under PostgREST's 1000-row default limit.
+        // With ~6 materials/version on average, 50 versions → ~300 rows per chunk (safe margin).
+        // Each chunk also gets an explicit .limit(2000) to override the default cap entirely.
+        const chunkSize = 50;
         const materialPromises: Promise<any[]>[] = [];
         
         for (let i = 0; i < latestVersionIds.length; i += chunkSize) {
@@ -304,6 +308,7 @@ export const recipeGovernanceService = {
               .from('material_quantities')
               .select('id, recipe_version_id, material_type, material_id, quantity, unit')
               .in('recipe_version_id', chunk)
+              .limit(2000)
               .then(({ data, error }) => {
                 if (error) {
                   console.error('Error fetching material quantities:', error);
@@ -324,7 +329,7 @@ export const recipeGovernanceService = {
         
         let materialDetailsMap = new Map<string, any>();
         if (materialIds.length > 0) {
-          const detailChunkSize = 100; // Increased chunk size
+          const detailChunkSize = 100;
           const detailPromises: Promise<any[]>[] = [];
           
           for (let i = 0; i < materialIds.length; i += detailChunkSize) {
@@ -334,6 +339,7 @@ export const recipeGovernanceService = {
                 .from('materials')
                 .select('id, material_name, material_code, category')
                 .in('id', chunk)
+                .limit(500)
                 .then(({ data, error }) => {
                   if (error) {
                     console.warn('Error fetching material details:', error);
