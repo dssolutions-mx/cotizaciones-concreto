@@ -20,6 +20,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 
 // Componentes
+import { ApprovalTasksSection } from '@/components/dashboard/ApprovalTasksSection';
 import { Badge } from '@/components/ui/badge';
 import { 
   LineChart, Line,
@@ -473,6 +474,8 @@ function DashboardContent() {
           />
         ))}
       </div>
+
+      <ApprovalTasksSection />
 
       {/* Charts section - only Ventas Mensuales prominent (hidden for DOSIFICADOR) */}
       {profile?.role !== 'DOSIFICADOR' && (
