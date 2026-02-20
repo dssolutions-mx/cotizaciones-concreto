@@ -565,19 +565,14 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                     // Clear local state
                     setSingleStdDevInput('');
                     
-                    // Allow empty (keep current), 0, or any positive value
+                    // Allow empty (keep current); save any finite number including negative
                     if (inputValue === '' || numValue === null) {
                       // Keep current value if empty on blur
                       return;
-                    } else if (numValue >= 0) {
-                      // Save valid value (any positive number including 0) - create new object reference to ensure React detects change
-                      console.log(`[StdDev] Saving single value ${numValue}`);
-                      onDesignParamsChange({ standardDeviation: numValue });
-                    } else {
-                      // Reset to default if negative
-                      console.log(`[StdDev] Invalid value (negative), resetting to default 23`);
-                      onDesignParamsChange({ standardDeviation: 23 });
                     }
+                    // Save valid value (any number including negative) - create new object reference to ensure React detects change
+                    console.log(`[StdDev] Saving single value ${numValue}`);
+                    onDesignParamsChange({ standardDeviation: numValue });
                   }}
                   onFocus={(e) => {
                     const currentValue = designParams.standardDeviation !== undefined ? designParams.standardDeviation.toString() : '';
@@ -587,7 +582,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                   placeholder="23"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Este valor se aplicará a todas las resistencias (cualquier valor positivo o 0)
+                  Este valor se aplicará a todas las resistencias (puede ser positivo, negativo o 0)
                 </p>
               </div>
             ) : (
@@ -645,44 +640,34 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                                 return updated;
                               });
                               
-                              // Allow empty (keep current), 0, or any positive value
+                              // Allow empty (keep current); save any finite number including negative
                               if (inputValue === '' || numValue === null) {
                                 // Keep current value if empty on blur
                                 return;
-                              } else if (numValue >= 0) {
-                                // Save valid value (any positive number including 0)
-                                // Create new object reference to ensure React detects change
-                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
-                                  ? {} 
-                                  : { ...designParams.standardDeviation }; // Spread to create new reference
-                                // Create new object with the updated value
-                                // Ensure numeric keys are used (not string keys)
-                                const updated: Record<number, number> = {};
-                                // Copy existing values
-                                Object.keys(stdDevRecord).forEach(key => {
-                                  updated[Number(key)] = stdDevRecord[Number(key)];
-                                });
-                                // Set the new value with numeric key
-                                updated[strength] = numValue;
-                                console.log(`[StdDev] Saving value ${numValue} for strength ${strength}`, {
-                                  updated,
-                                  keys: Object.keys(updated),
-                                  strength,
-                                  strengthType: typeof strength,
-                                  numValue,
-                                  numValueType: typeof numValue
-                                });
-                                onDesignParamsChange({ standardDeviation: updated });
-                              } else {
-                                // Invalid value (negative) - remove custom value
-                                // Create new object reference to ensure React detects change
-                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
-                                  ? {} 
-                                  : { ...designParams.standardDeviation }; // Spread to create new reference
-                                const updated = { ...stdDevRecord }; // Create new object
-                                delete updated[strength];
-                                onDesignParamsChange({ standardDeviation: updated });
                               }
+                              // Save valid value (any number including negative)
+                              // Create new object reference to ensure React detects change
+                              const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                                ? {} 
+                                : { ...designParams.standardDeviation }; // Spread to create new reference
+                              // Create new object with the updated value
+                              // Ensure numeric keys are used (not string keys)
+                              const updated: Record<number, number> = {};
+                              // Copy existing values
+                              Object.keys(stdDevRecord).forEach(key => {
+                                updated[Number(key)] = stdDevRecord[Number(key)];
+                              });
+                              // Set the new value with numeric key
+                              updated[strength] = numValue;
+                              console.log(`[StdDev] Saving value ${numValue} for strength ${strength}`, {
+                                updated,
+                                keys: Object.keys(updated),
+                                strength,
+                                strengthType: typeof strength,
+                                numValue,
+                                numValueType: typeof numValue
+                              });
+                              onDesignParamsChange({ standardDeviation: updated });
                             }}
                             onFocus={(e) => {
                               // When focusing, set local state to current value for editing

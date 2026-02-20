@@ -63,33 +63,36 @@ export async function POST(
       );
     }
 
-    // Validate credit amount doesn't exceed PO total
-    const originalTotal = Number(poItem.qty_ordered) * Number(poItem.unit_price);
-    if (payload.credit_amount > originalTotal) {
+    // Always compute against the ABSOLUTE original price (first-ever price before any credits)
+    const absoluteOriginalUnitPrice = poItem.original_unit_price
+      ? Number(poItem.original_unit_price)
+      : Number(poItem.unit_price);
+    const absoluteOriginalTotal = Number(poItem.qty_ordered) * absoluteOriginalUnitPrice;
+
+    // Cumulative credit: add new credit to any existing credit amount
+    const existingCredit = poItem.credit_amount ? Number(poItem.credit_amount) : 0;
+    const cumulativeCredit = existingCredit + payload.credit_amount;
+
+    if (cumulativeCredit > absoluteOriginalTotal) {
       return NextResponse.json(
         {
-          error: `El crédito ($${payload.credit_amount.toLocaleString('es-MX')}) no puede exceder el total del PO ($${originalTotal.toLocaleString('es-MX')})`,
+          error: `El crédito acumulado ($${cumulativeCredit.toLocaleString('es-MX')}) no puede exceder el total original del PO ($${absoluteOriginalTotal.toLocaleString('es-MX')}). Crédito previo aplicado: $${existingCredit.toLocaleString('es-MX')}`,
         },
         { status: 400 }
       );
     }
 
-    // Calculate new unit price proportionally
-    const newTotal = originalTotal - payload.credit_amount;
+    // New unit price calculated from absolute original minus cumulative credit
+    const newTotal = absoluteOriginalTotal - cumulativeCredit;
     const newUnitPrice = newTotal / Number(poItem.qty_ordered);
 
-    // Store original unit price if not already set
-    const originalUnitPrice = poItem.original_unit_price
-      ? Number(poItem.original_unit_price)
-      : Number(poItem.unit_price);
-
-    // Update PO item
+    // Update PO item — store cumulative credit and preserve absolute original
     const { error: updatePoItemError } = await supabase
       .from('purchase_order_items')
       .update({
         unit_price: newUnitPrice,
-        original_unit_price: originalUnitPrice,
-        credit_amount: payload.credit_amount,
+        original_unit_price: absoluteOriginalUnitPrice,
+        credit_amount: cumulativeCredit,
         credit_applied_at: new Date().toISOString(),
         credit_applied_by: user.id,
         credit_notes: payload.credit_notes || null,
@@ -103,6 +106,17 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    // C1 — Insert credit history record (gap C2)
+    await supabase.from('po_item_credit_history').insert({
+      po_item_id: itemId,
+      applied_amount: payload.credit_amount,
+      cumulative_amount_after: cumulativeCredit,
+      unit_price_before: Number(poItem.unit_price),
+      unit_price_after: newUnitPrice,
+      notes: payload.credit_notes || null,
+      applied_by: user.id,
+    });
 
     // Find all material entries linked to this PO item
     const { data: linkedEntries, error: entriesError } = await supabase
@@ -122,7 +136,7 @@ export async function POST(
         // Store original unit price if not already set
         const entryOriginalPrice = entry.original_unit_price
           ? Number(entry.original_unit_price)
-          : (entry.unit_price ? Number(entry.unit_price) : originalUnitPrice);
+          : (entry.unit_price ? Number(entry.unit_price) : absoluteOriginalUnitPrice);
 
         // Calculate new total cost based on received quantity
         const receivedQty = entry.received_qty_kg
@@ -163,10 +177,11 @@ export async function POST(
         item: updatedPoItem,
         entriesUpdated,
         creditApplied: {
-          amount: payload.credit_amount,
+          appliedAmount: payload.credit_amount,
+          cumulativeCredit: cumulativeCredit,
           newUnitPrice: newUnitPrice,
-          originalUnitPrice: originalUnitPrice,
-          originalTotal: originalTotal,
+          originalUnitPrice: absoluteOriginalUnitPrice,
+          originalTotal: absoluteOriginalTotal,
           newTotal: newTotal,
         },
       },
@@ -229,6 +244,13 @@ export async function GET(
       return NextResponse.json({ error: 'Item de PO no encontrado' }, { status: 404 });
     }
 
+    // C2 — Fetch full credit history (gap C2)
+    const { data: history } = await supabase
+      .from('po_item_credit_history')
+      .select('id, applied_amount, cumulative_amount_after, unit_price_before, unit_price_after, notes, applied_by, applied_at')
+      .eq('po_item_id', itemId)
+      .order('applied_at', { ascending: true });
+
     return NextResponse.json({
       success: true,
       creditInfo: {
@@ -240,6 +262,7 @@ export async function GET(
         currentUnitPrice: poItem.unit_price,
         appliedBy: poItem.credit_applied_by_user,
       },
+      history: history || [],
     });
   } catch (error: any) {
     console.error('Error fetching PO credit info:', error);

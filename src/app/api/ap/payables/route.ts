@@ -37,11 +37,12 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
     const include = searchParams.get('include');
 
-    // Base query with supplier join and optional items
-    const baseSelect = include === 'items'
-      ? `*, supplier:suppliers!supplier_id (name), items:payable_items (*, native_uom, native_qty, volumetric_weight_used, entry:material_entries!entry_id (quantity_received, received_uom, received_qty_entered, volumetric_weight_kg_per_m3, unit_price, entry_number, entry_date, po_id, po_item_id, po_item:purchase_order_items!po_item_id (id, qty_ordered, qty_received_native, qty_received_kg, uom, is_service, po:purchase_orders!po_id (id), material:materials!material_id (density_kg_per_l, bulk_density_kg_per_m3)), fleet_po_id, fleet_po_item_id, fleet_qty_entered, fleet_uom, fleet_po_item:purchase_order_items!fleet_po_item_id (id, qty_ordered, qty_received_native, uom, is_service, service_description, po:purchase_orders!po_id (id))))`
-      : `*, supplier:suppliers!supplier_id (name)`;
-    let query = supabase.from('payables').select(baseSelect);
+    // Base select: payables + supplier
+    const baseSelectNoItems = `*, supplier:suppliers!supplier_id (name)`;
+    // Avoid materials join - bulk_density_kg_per_m3 does not exist in this schema
+    const baseSelectWithItems = `*, supplier:suppliers!supplier_id (name), items:payable_items (*, entry:material_entries!entry_id (quantity_received, received_uom, received_qty_entered, unit_price, entry_number, entry_date, po_id, po_item_id, fleet_po_id, fleet_po_item_id, fleet_qty_entered, fleet_uom))`;
+
+    let query = supabase.from('payables').select(include === 'items' ? baseSelectWithItems : baseSelectNoItems);
 
     // Role-based plant scoping
     if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
@@ -56,17 +57,63 @@ export async function GET(request: NextRequest) {
     if (due_from) query = query.gte('due_date', due_from);
     if (due_to) query = query.lte('due_date', due_to);
 
-    const { data, error } = await query
-      .order('due_date', { ascending: true })
-      .range(offset, offset + limit - 1);
+    let data: any[] | null = null;
+    let error: { message: string; details?: string } | null = null;
+
+    const result = await query.order('due_date', { ascending: true }).range(offset, offset + limit - 1);
+    data = result.data;
+    error = result.error;
+
+    // Fallback: if items query fails, retry without items
+    if (error && include === 'items') {
+      let fallbackQuery = supabase.from('payables').select(baseSelectNoItems);
+      if (profile.role === 'PLANT_MANAGER' && profile.plant_id) fallbackQuery = fallbackQuery.eq('plant_id', profile.plant_id);
+      else if (plant_id) fallbackQuery = fallbackQuery.eq('plant_id', plant_id);
+      if (status) fallbackQuery = fallbackQuery.eq('status', status);
+      if (supplier_id) fallbackQuery = fallbackQuery.eq('supplier_id', supplier_id);
+      if (invoice_number) fallbackQuery = fallbackQuery.ilike('invoice_number', `%${invoice_number}%`);
+      if (due_from) fallbackQuery = fallbackQuery.gte('due_date', due_from);
+      if (due_to) fallbackQuery = fallbackQuery.lte('due_date', due_to);
+      const fallback = await fallbackQuery.order('due_date', { ascending: true }).range(offset, offset + limit - 1);
+      if (!fallback.error) {
+        data = fallback.data;
+        error = null;
+        console.warn('GET /api/ap/payables: items join failed, falling back to payables without items:', (result.error as any)?.message);
+      }
+    }
 
     if (error) {
+      console.error('GET /api/ap/payables query error:', error.message, (error as any).details);
       return NextResponse.json({ error: 'Failed to fetch payables' }, { status: 500 });
     }
 
-    const enriched = (data || []).map((row: any) => ({
+    const payablesData = data || [];
+    const payableIds = payablesData.map((r: any) => r.id).filter(Boolean);
+
+    // Batch fetch payments to compute amount_paid per payable (best-effort)
+    let amountPaidByPayable: Record<string, number> = {};
+    if (payableIds.length > 0) {
+      try {
+        const { data: paymentsData, error: paymentsErr } = await supabase
+          .from('payments')
+          .select('payable_id, amount')
+          .in('payable_id', payableIds);
+        if (!paymentsErr && Array.isArray(paymentsData)) {
+          for (const p of paymentsData) {
+            const pid = p?.payable_id;
+            const amt = Number(p?.amount) || 0;
+            if (pid) amountPaidByPayable[pid] = (amountPaidByPayable[pid] ?? 0) + amt;
+          }
+        }
+      } catch (_e) {
+        // Ignore; amount_paid stays 0
+      }
+    }
+
+    const enriched = payablesData.map((row: any) => ({
       ...row,
       supplier_name: row?.supplier?.name ?? undefined,
+      amount_paid: amountPaidByPayable[String(row.id)] ?? 0,
     }));
     return NextResponse.json({ payables: enriched });
   } catch (err) {

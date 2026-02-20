@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
 import ApplyPOCreditModal from './ApplyPOCreditModal'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { PurchaseOrderItem } from '@/types/po'
 
@@ -68,7 +69,13 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
   const [materialSupplierId, setMaterialSupplierId] = useState('')
   const [suppliers, setSuppliers] = useState<any[]>([])
   const [poSupplierId, setPoSupplierId] = useState<string>('')
+  const [poInfo, setPoInfo] = useState<{ po_number?: string; status?: string } | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
+
+  const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMINISTRATIVE') &&
+    poInfo?.status !== 'cancelled' && !items.some(it => Number(it.qty_received || 0) > 0)
 
   // Check if user can apply credits
   const canApplyCredit = profile?.role === 'EXECUTIVE' || 
@@ -90,9 +97,37 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
       const data = await res.json()
       if (data.purchase_order) {
         setPoSupplierId(data.purchase_order.supplier_id || '')
+        setPoInfo({ po_number: data.purchase_order.po_number, status: data.purchase_order.status })
       }
     } catch (err) {
       console.error('Error fetching PO info:', err)
+    }
+  }
+
+  const handleCancelPO = async () => {
+    if (!cancelReason.trim()) {
+      toast.error('Ingrese la razón de cancelación')
+      return
+    }
+    try {
+      setLoading(true)
+      const res = await fetch(`/api/po/${poId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: poId, status: 'cancelled', cancellation_reason: cancelReason.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Error al cancelar')
+      }
+      toast.success('Orden de compra cancelada')
+      setCancelModalOpen(false)
+      setCancelReason('')
+      onSuccess()
+    } catch (err: any) {
+      toast.error(err.message || 'Error al cancelar')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -318,7 +353,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         <div className="flex items-center justify-between p-6 border-b">
           <div>
             <h2 className="text-xl font-semibold">Editar Orden de Compra</h2>
-            <p className="text-sm text-gray-500 mt-1">PO #{poId.slice(0, 8)}</p>
+            <p className="text-sm text-gray-500 mt-1">{poInfo?.po_number || `PO #${poId.slice(0, 8)}`}</p>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
             <X className="h-5 w-5" />
@@ -751,12 +786,22 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
             </p>
           </div>
           <div className="flex gap-3">
+            {canCancelPO && (
+              <Button
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => setCancelModalOpen(true)}
+                disabled={loading}
+              >
+                Cancelar OC
+              </Button>
+            )}
             <Button
               onClick={onClose}
               variant="outline"
               disabled={loading}
             >
-              Cancelar
+              Cerrar
             </Button>
             <Button
               onClick={handleSaveItems}
@@ -781,6 +826,29 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         }}
         poItem={selectedItemForCredit}
       />
+
+      <Dialog open={cancelModalOpen} onOpenChange={setCancelModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar Orden de Compra</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">Esta acción no se puede deshacer. Debe indicar la razón de cancelación.</p>
+          <Label>Razón de cancelación *</Label>
+          <Textarea
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Ej: Pedido duplicado, cambio de proveedor..."
+            rows={3}
+            maxLength={1000}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setCancelModalOpen(false)}>Volver</Button>
+            <Button variant="destructive" onClick={handleCancelPO} disabled={!cancelReason.trim() || loading}>
+              Confirmar cancelación
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

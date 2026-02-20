@@ -5,6 +5,7 @@ export type POItemUom = MaterialUom | ServiceUom;
 
 export interface PurchaseOrder {
   id: string;
+  po_number?: string | null; // Human-readable PO reference (auto-generated, e.g. PO-2026-00001)
   plant_id: string;
   supplier_id: string;
   currency: 'MXN';
@@ -13,6 +14,11 @@ export interface PurchaseOrder {
   created_by: string;
   approved_by?: string | null;
   created_at: string;
+  po_date?: string | null;
+  payment_terms_days?: number | null;
+  cancellation_reason?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
 }
 
 export interface PurchaseOrderItem {
@@ -43,4 +49,14 @@ export interface PurchaseOrderItem {
   qty_remaining?: number; // remaining in native UoM
 }
 
-
+export interface POCreditHistoryEntry {
+  id: string;
+  po_item_id: string;
+  applied_amount: number;
+  cumulative_amount_after: number;
+  unit_price_before: number;
+  unit_price_after: number;
+  notes?: string | null;
+  applied_by?: string | null;
+  applied_at: string;
+}

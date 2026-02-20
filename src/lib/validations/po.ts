@@ -12,6 +12,8 @@ export const POHeaderInputSchema = z.object({
   supplier_id: z.string().uuid('ID de proveedor debe ser un UUID válido'),
   currency: z.literal('MXN').optional().default('MXN'),
   notes: z.string().max(2000).optional(),
+  po_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  payment_terms_days: z.number().int().min(0).max(365).optional(),
 });
 
 export const POHeaderUpdateSchema = z.object({
@@ -19,6 +21,9 @@ export const POHeaderUpdateSchema = z.object({
   status: PurchaseOrderStatusSchema.optional(),
   notes: z.string().max(2000).optional(),
   approved_by: z.string().uuid('ID de usuario inválido').optional(),
+  po_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  payment_terms_days: z.number().int().min(0).max(365).optional(),
+  cancellation_reason: z.string().min(1, 'Razón de cancelación requerida').max(1000).optional(),
 });
 
 export const POItemInputSchema = z.object({

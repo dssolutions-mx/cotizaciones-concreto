@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
-  onSuccess?: () => void
+  onSuccess?: (warnings?: string[]) => void
   onCancel?: () => void
 }
 
@@ -22,6 +23,7 @@ interface Supplier {
 
 export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPricingFormProps) {
   const [loading, setLoading] = useState(false)
+  const [apiWarnings, setApiWarnings] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [formData, setFormData] = useState({
     unit_price: entry.unit_price?.toString() || '',
@@ -123,8 +125,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
       })
 
       if (response.ok) {
+        const data = await response.json()
+        const warnings = Array.isArray(data.warnings) ? data.warnings : []
         toast.success('Precios actualizados exitosamente')
-        onSuccess?.()
+        if (warnings.length > 0) {
+          setApiWarnings(warnings)
+          toast.warning(
+            <div className="space-y-2">
+              <p className="font-medium">Advertencias de conciliación 3 vías:</p>
+              <ul className="list-disc list-inside text-sm">
+                {warnings.map((w: string, i: number) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>,
+            { duration: 10000 }
+          )
+        }
+        onSuccess?.(warnings)
       } else {
         const error = await response.json()
         toast.error(error.error || 'Error al actualizar precios')
@@ -139,6 +157,19 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border">
+      {apiWarnings.length > 0 && (
+        <Alert className="border-amber-300 bg-amber-50 text-amber-800 [&>svg]:text-amber-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Advertencias de conciliación 3 vías</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-disc list-inside space-y-1 text-sm">
+              {apiWarnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Revisión de Precios</h3>
         <div className="text-sm text-gray-500">

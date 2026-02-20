@@ -1,15 +1,17 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import type { Payable } from '@/types/finance'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 interface Props {
-  payable: Payable
+  payable: Payable & { amount_paid?: number }
   onClose: () => void
   onSaved: () => void
 }
@@ -20,8 +22,31 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
   const [method, setMethod] = useState('')
   const [reference, setReference] = useState('')
   const [loading, setLoading] = useState(false)
+  const [payments, setPayments] = useState<Array<{ id: string; payment_date: string; amount: number; method?: string; reference?: string }>>([])
+  const [loadingPayments, setLoadingPayments] = useState(true)
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
+
+  const amountPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
+  const amountRemaining = payable.total - amountPaid
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchPayments() {
+      try {
+        const res = await fetch(`/api/ap/payments?payable_id=${payable.id}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        if (!cancelled) setPayments(data.payments || [])
+      } catch (err) {
+        if (!cancelled) setPayments([])
+      } finally {
+        if (!cancelled) setLoadingPayments(false)
+      }
+    }
+    fetchPayments()
+    return () => { cancelled = true }
+  }, [payable.id])
 
   const submit = async () => {
     if (!amount || !date) {
@@ -43,6 +68,8 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
       })
       if (!res.ok) throw new Error('Error al registrar pago')
       toast.success('Pago registrado')
+      const newPayment = { id: 'new', payment_date: date, amount: parseFloat(amount), method, reference }
+      setPayments(prev => [newPayment, ...prev])
       onSaved()
     } catch (e) {
       console.error(e)
@@ -63,7 +90,39 @@ export default function RecordPaymentModal({ payable, onClose, onSaved }: Props)
             <div className="space-y-2 text-sm text-gray-600 mb-4">
               <div><b>Factura:</b> {payable.invoice_number}</div>
               <div><b>Total:</b> {mxn.format(payable.total)}</div>
+              <div><b>Pagado:</b> {mxn.format(amountPaid)}</div>
+              <div><b>Pendiente:</b> {mxn.format(amountRemaining)}</div>
             </div>
+
+            {loadingPayments ? (
+              <div className="text-sm text-gray-500 py-2">Cargando historial...</div>
+            ) : payments.length > 0 ? (
+              <div className="mb-4">
+                <div className="text-xs font-semibold text-gray-700 mb-2">Historial de pagos</div>
+                <div className="border rounded overflow-hidden max-h-32 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left py-1.5 px-2 font-medium">Fecha</th>
+                        <th className="text-right py-1.5 px-2 font-medium">Monto</th>
+                        <th className="text-left py-1.5 px-2 font-medium">Método</th>
+                        <th className="text-left py-1.5 px-2 font-medium">Ref.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payments.map((p) => (
+                        <tr key={p.id} className="border-t">
+                          <td className="py-1 px-2">{format(new Date(p.payment_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</td>
+                          <td className="text-right py-1 px-2 font-medium">{mxn.format(p.amount)}</td>
+                          <td className="py-1 px-2 text-gray-600">{p.method || '-'}</td>
+                          <td className="py-1 px-2 text-gray-600">{p.reference || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid grid-cols-2 gap-4">
               <div>

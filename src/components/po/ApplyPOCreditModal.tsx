@@ -7,8 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { DollarSign, AlertCircle } from 'lucide-react'
-import { PurchaseOrderItem } from '@/types/po'
+import { DollarSign, AlertCircle, ChevronDown, ChevronUp, History } from 'lucide-react'
+import { PurchaseOrderItem, POCreditHistoryEntry } from '@/types/po'
 
 interface ApplyPOCreditModalProps {
   open: boolean
@@ -26,6 +26,8 @@ export default function ApplyPOCreditModal({
   const [loading, setLoading] = useState(false)
   const [creditAmount, setCreditAmount] = useState('')
   const [creditNotes, setCreditNotes] = useState('')
+  const [creditHistory, setCreditHistory] = useState<POCreditHistoryEntry[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const mxn = new Intl.NumberFormat('es-MX', {
     style: 'currency',
@@ -39,8 +41,23 @@ export default function ApplyPOCreditModal({
     if (!open) {
       setCreditAmount('')
       setCreditNotes('')
+      setCreditHistory([])
     }
   }, [open, poItem])
+
+  // E1 — Fetch credit history when modal opens
+  useEffect(() => {
+    if (open && poItem?.id) {
+      fetch(`/api/po/items/${poItem.id}/credit`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.history && Array.isArray(data.history)) {
+            setCreditHistory(data.history)
+          }
+        })
+        .catch(() => setCreditHistory([]))
+    }
+  }, [open, poItem?.id])
 
   if (!poItem) return null
 
@@ -165,6 +182,41 @@ export default function ApplyPOCreditModal({
             </div>
           )}
         </div>
+
+        {/* E1 — Historial de Créditos */}
+        {creditHistory.length > 0 && (
+          <div className="border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(!historyOpen)}
+              className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 text-left"
+            >
+              <span className="flex items-center gap-2 font-medium">
+                <History className="h-4 w-4" />
+                Historial de Créditos ({creditHistory.length})
+              </span>
+              {historyOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+            {historyOpen && (
+              <div className="divide-y max-h-40 overflow-y-auto">
+                {creditHistory.map((h, i) => (
+                  <div key={h.id} className="p-3 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        {new Date(h.applied_at).toLocaleString('es-MX')}
+                      </span>
+                      <span className="font-medium text-orange-600">-{mxn.format(h.applied_amount)}</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Acumulado: {mxn.format(h.cumulative_amount_after)} · Precio {mxn.format(h.unit_price_before)} → {mxn.format(h.unit_price_after)}
+                    </div>
+                    {h.notes && <div className="text-xs text-gray-600 mt-1">{h.notes}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Credit Form */}
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -37,6 +37,32 @@ export class FIFOPricingService {
       throw new Error('Quantity to consume must be positive');
     }
 
+    // B1 — Idempotency: if allocations already exist for this remision_material, restore and delete first
+    const { data: existingAllocs } = await supabase
+      .from('material_consumption_allocations')
+      .select('id, entry_id, quantity_consumed_kg')
+      .eq('remision_material_id', remisionMaterialId);
+
+    if (existingAllocs && existingAllocs.length > 0) {
+      for (const alloc of existingAllocs) {
+        const qty = Number(alloc.quantity_consumed_kg);
+        const { data: entry } = await supabase
+          .from('material_entries')
+          .select('remaining_quantity_kg')
+          .eq('id', alloc.entry_id)
+          .single();
+        const current = entry?.remaining_quantity_kg != null ? Number(entry.remaining_quantity_kg) : 0;
+        await supabase
+          .from('material_entries')
+          .update({ remaining_quantity_kg: current + qty })
+          .eq('id', alloc.entry_id);
+      }
+      await supabase
+        .from('material_consumption_allocations')
+        .delete()
+        .eq('remision_material_id', remisionMaterialId);
+    }
+
     // Fetch available entry layers (oldest first)
     // Include entries where remaining_quantity_kg is NULL (not yet initialized) or > 0
     const { data: entries, error: entriesError } = await supabase
@@ -194,6 +220,17 @@ export class FIFOPricingService {
 
     const totalCost = allocations.reduce((sum, a) => sum + a.cost, 0);
 
+    // B2 — Post-allocation write-back to remision_materiales (gap M1)
+    const weightedUnitCost = quantityToConsume > 0 ? totalCost / quantityToConsume : 0;
+    await supabase
+      .from('remision_materiales')
+      .update({
+        unit_cost_weighted: Number(weightedUnitCost.toFixed(4)),
+        total_cost_fifo: Number(totalCost.toFixed(2)),
+        fifo_allocated_at: new Date().toISOString(),
+      })
+      .eq('id', remisionMaterialId);
+
     return {
       totalCost: Number(totalCost.toFixed(2)),
       allocations,
@@ -336,3 +373,76 @@ export class FIFOPricingService {
 
 // Export singleton instance
 export const fifoPricingService = new FIFOPricingService();
+
+/**
+ * B3 — Auto-allocate FIFO for all materials in a remision (gap C1).
+ * Call this when a remision is confirmed/finalized.
+ */
+export async function autoAllocateRemisionFIFO(
+  remisionId: string,
+  userId: string
+): Promise<{
+  success: boolean;
+  allocationsCreated: number;
+  errors: Array<{ remisionMaterialId: string; materialId: string; error: string }>;
+  allocationResults: Array<{ remisionMaterialId: string; materialId: string; totalCost: number }>;
+}> {
+  const supabase = await createServerSupabaseClient();
+  const { data: remision, error: remisionError } = await supabase
+    .from('remisiones')
+    .select('id, plant_id, fecha')
+    .eq('id', remisionId)
+    .single();
+
+  if (remisionError || !remision) {
+    throw new Error(`Remisión ${remisionId} no encontrada`);
+  }
+
+  const { data: remisionMaterials, error: materialsError } = await supabase
+    .from('remision_materiales')
+    .select('id, material_id, cantidad_real')
+    .eq('remision_id', remisionId)
+    .not('material_id', 'is', null)
+    .gt('cantidad_real', 0);
+
+  if (materialsError) {
+    throw new Error(`Error al obtener materiales: ${materialsError.message}`);
+  }
+
+  const allocationResults: Array<{ remisionMaterialId: string; materialId: string; totalCost: number }> = [];
+  const errors: Array<{ remisionMaterialId: string; materialId: string; error: string }> = [];
+
+  for (const rm of remisionMaterials || []) {
+    try {
+      const materialId = rm.material_id;
+      const quantityKg = Number(rm.cantidad_real);
+      if (!materialId || quantityKg <= 0) continue;
+
+      const result = await fifoPricingService.allocateFIFOConsumption(
+        {
+          remisionId: remision.id,
+          remisionMaterialId: rm.id,
+          materialId,
+          plantId: remision.plant_id,
+          quantityToConsume: quantityKg,
+          consumptionDate: remision.fecha,
+        },
+        userId
+      );
+      allocationResults.push({ remisionMaterialId: rm.id, materialId, totalCost: result.totalCost });
+    } catch (err: any) {
+      errors.push({
+        remisionMaterialId: rm.id,
+        materialId: rm.material_id,
+        error: err?.message || 'Error desconocido',
+      });
+    }
+  }
+
+  return {
+    success: errors.length === 0,
+    allocationsCreated: allocationResults.length,
+    errors,
+    allocationResults,
+  };
+}

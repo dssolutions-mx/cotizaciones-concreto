@@ -798,7 +798,7 @@ export class InventoryDashboardService {
           remisionIds.length > 0
             ? this.supabase
                 .from('remision_materiales')
-                .select('material_id, remision_id, cantidad_real, cantidad_teorica')
+                .select('material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at')
                 .in('remision_id', remisionIds)
                 .in('material_id', materialIds)
             : Promise.resolve({ data: [] })
@@ -1196,7 +1196,7 @@ export class InventoryDashboardService {
       
       return await this.supabase
         .from('remision_materiales')
-        .select('material_id, remision_id, cantidad_real, cantidad_teorica')
+        .select('material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at')
         .in('material_id', materialIds)
         .in('remision_id', remisionIds);
     }
@@ -1229,7 +1229,7 @@ export class InventoryDashboardService {
         
         const { data, error } = await this.supabase
           .from('remision_materiales')
-          .select('material_id, remision_id, cantidad_real, cantidad_teorica')
+          .select('material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at')
           .in('material_id', materialIds)
           .in('remision_id', batchRemisionIds);
 
@@ -1440,7 +1440,10 @@ export class InventoryDashboardService {
         material_name: material.material_name,
         cantidad_teorica: Number(rm.cantidad_teorica) || 0,
         cantidad_real: Number(rm.cantidad_real) || 0,
-        variance: (Number(rm.cantidad_real) || 0) - (Number(rm.cantidad_teorica) || 0)
+        variance: (Number(rm.cantidad_real) || 0) - (Number(rm.cantidad_teorica) || 0),
+        unit_cost_weighted: rm.unit_cost_weighted != null ? Number(rm.unit_cost_weighted) : null,
+        total_cost_fifo: rm.total_cost_fifo != null ? Number(rm.total_cost_fifo) : null,
+        fifo_allocated_at: rm.fifo_allocated_at ?? null
       };
     }).filter(c => c.remision_date);
   }

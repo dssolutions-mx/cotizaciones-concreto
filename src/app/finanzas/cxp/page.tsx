@@ -15,12 +15,13 @@ import RecordPaymentModal from '@/components/finanzas/RecordPaymentModal'
 
 type PayableWithSupplier = Payable & {
   supplier_name?: string
+  amount_paid?: number
 }
 
 export default function CxpPage() {
   const [loading, setLoading] = useState(true)
   const [payables, setPayables] = useState<PayableWithSupplier[]>([])
-  const [status, setStatus] = useState<PayableStatus | 'all'>('open')
+  const [status, setStatus] = useState<PayableStatus | 'all'>('all')
   const [dueFrom, setDueFrom] = useState<string>('')
   const [dueTo, setDueTo] = useState<string>('')
   const [invoice, setInvoice] = useState<string>('')
@@ -91,7 +92,6 @@ export default function CxpPage() {
       const res = await fetch(`/api/ap/payables?${params.toString()}`)
       if (!res.ok) throw new Error('Error al cargar CXP')
       const data = await res.json()
-      console.log('Payables with items:', data.payables)
       setPayables(data.payables || [])
     } catch (e) {
       console.error(e)
@@ -107,13 +107,19 @@ export default function CxpPage() {
   }
 
   const statusBadge = (s: PayableStatus) => {
-    const map: Record<PayableStatus, string> = {
+    const colors: Record<PayableStatus, string> = {
       open: 'bg-yellow-100 text-yellow-800',
       partially_paid: 'bg-blue-100 text-blue-800',
       paid: 'bg-green-100 text-green-800',
       void: 'bg-gray-100 text-gray-700',
     }
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${map[s]}`}>{s}</span>
+    const labels: Record<PayableStatus, string> = {
+      open: 'Abierto',
+      partially_paid: 'Parcialmente Pagado',
+      paid: 'Pagado',
+      void: 'Anulado',
+    }
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[s]}`}>{labels[s] ?? s}</span>
   }
 
   return (
@@ -122,6 +128,9 @@ export default function CxpPage() {
         <div>
           <h1 className="text-2xl font-bold">Cuentas por Pagar</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestión de cuentas por pagar de materiales y flota</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Las cuentas aparecen cuando se registran entradas de material con factura del proveedor y fecha de vencimiento. No todas las órdenes de compra generan CXP hasta que se reciba el material y se capture la factura.
+          </p>
         </div>
         <Button onClick={() => setRefreshKey(k => k + 1)}>Actualizar</Button>
       </div>
@@ -342,6 +351,24 @@ export default function CxpPage() {
                             <div className="text-xs font-medium">{mxn.format(p.tax)}</div>
                             <div className="text-xs text-gray-500 mt-1 pt-1 border-t">Total</div>
                             <div className="text-base font-bold">{mxn.format(p.total)}</div>
+                            {(p.status === 'partially_paid' || p.status === 'paid') && (p as PayableWithSupplier).amount_paid != null && (
+                              <>
+                                <div className="text-xs text-gray-500 mt-1">Pagado</div>
+                                <div className="text-sm font-medium text-green-600">{mxn.format((p as PayableWithSupplier).amount_paid!)}</div>
+                                {p.status === 'partially_paid' && (
+                                  <>
+                                    <div className="text-xs text-gray-500 mt-0.5">Pendiente</div>
+                                    <div className="text-sm font-medium">{mxn.format(p.total - ((p as PayableWithSupplier).amount_paid ?? 0))}</div>
+                                  </>
+                                )}
+                              </>
+                            )}
+                            {p.status === 'open' && (
+                              <>
+                                <div className="text-xs text-gray-500 mt-0.5">Pendiente</div>
+                                <div className="text-sm font-medium">{mxn.format(p.total)}</div>
+                              </>
+                            )}
                           </div>
                           <div>
                             {(p.status === 'open' || p.status === 'partially_paid') && (
@@ -411,7 +438,7 @@ export default function CxpPage() {
                                         {/* Material PO progress */}
                                         {it.entry?.po_item && !isFleet && (
                                           <div className="text-[10px] text-gray-500 mt-0.5">
-                                            Avance PO: {Number(it.entry.po_item.qty_received_native || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {Number(it.entry.po_item.qty_ordered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.entry.po_item.uom || ''}
+                                            Avance PO: {Number(it.entry.po_item.qty_received_native ?? it.entry.po_item.qty_received ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {Number(it.entry.po_item.qty_ordered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.entry.po_item.uom || ''}
                                           </div>
                                         )}
                                         {/* Fleet PO progress */}

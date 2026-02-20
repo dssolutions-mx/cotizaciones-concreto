@@ -45,7 +45,7 @@ export default function EntryPricingReviewList({ onSuccess }: EntryPricingReview
     }
   }
 
-  const handlePricingSuccess = () => {
+  const handlePricingSuccess = (warnings?: string[]) => {
     setSelectedEntry(null)
     fetchPendingEntries()
     onSuccess?.()

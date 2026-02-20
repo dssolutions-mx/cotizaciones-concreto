@@ -24,14 +24,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const { data, error } = await supabase
     .from('purchase_order_items')
-    .select('*')
+    .select('*, material:materials!material_id (id, material_name, material_code)')
     .eq('po_id', id)
     .order('created_at', { ascending: true });
   if (error) return NextResponse.json({ error: 'Failed to fetch PO items' }, { status: 500 });
 
   const items = (data || []).map((it: any) => ({
     ...it,
-    qty_remaining_native: Number(it.qty_ordered || 0) - Number(it.qty_received_native || 0),
+    qty_remaining_native: Number(it.qty_ordered || 0) - Number(it.qty_received ?? it.qty_received_native ?? 0),
   }));
   return NextResponse.json({ items });
 }

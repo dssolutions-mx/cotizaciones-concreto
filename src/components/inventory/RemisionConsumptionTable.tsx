@@ -229,6 +229,7 @@ export default function RemisionConsumptionTable({ consumptionDetails }: Remisio
                 </Button>
               </TableHead>
               <TableHead className="text-center">Varianza %</TableHead>
+              <TableHead className="text-right">Costo FIFO</TableHead>
               <TableHead className="text-center">Estado</TableHead>
             </TableRow>
           </TableHeader>
@@ -272,6 +273,26 @@ export default function RemisionConsumptionTable({ consumptionDetails }: Remisio
                       {variancePercentage > 0 ? "+" : ""}{formatNumber(variancePercentage)}%
                     </span>
                   </TableCell>
+                  <TableCell className="text-right">
+                    {consumption.fifo_allocated_at ? (
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="font-mono text-sm">
+                          {consumption.unit_cost_weighted != null
+                            ? `$${Number(consumption.unit_cost_weighted).toFixed(4)}/kg`
+                            : '—'}
+                        </span>
+                        {consumption.total_cost_fifo != null && (
+                          <span className="text-xs text-gray-500">
+                            Total: ${formatNumber(consumption.total_cost_fifo)}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                        Pendiente FIFO
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-center">
                     <Badge 
                       variant={getVarianceColor(consumption.variance)}
@@ -290,7 +311,7 @@ export default function RemisionConsumptionTable({ consumptionDetails }: Remisio
             })}
             {filteredAndSortedConsumption.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                   {searchTerm || varianceFilter !== 'ALL' ? 
                     'No se encontraron registros que coincidan con los filtros' : 
                     'No hay datos de consumo disponibles'

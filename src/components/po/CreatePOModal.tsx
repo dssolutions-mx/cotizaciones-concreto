@@ -43,6 +43,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   const [plantId, setPlantId] = useState(defaultPlantId || '')
   const [supplierId, setSupplierId] = useState('')
   const [notes, setNotes] = useState('')
+  const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [paymentTermsDays, setPaymentTermsDays] = useState(30)
   
   // Items
   const [items, setItems] = useState<POItem[]>([])
@@ -106,6 +108,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       setPlantId(defaultPlantId || '')
       setSupplierId('')
       setNotes('')
+      setPoDate(new Date().toISOString().slice(0, 10))
+      setPaymentTermsDays(30)
       setItems([])
       setEditingItem(null)
       setIsEditing(false)
@@ -248,7 +252,9 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
           plant_id: plantId,
           supplier_id: supplierId,
           currency: 'MXN',
-          notes: notes || undefined
+          notes: notes || undefined,
+          po_date: poDate || undefined,
+          payment_terms_days: paymentTermsDays,
         })
       })
 
@@ -372,6 +378,36 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                         onChange={setSupplierId}
                         plantId={plantId || undefined}
                       />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <Label className="text-sm font-medium text-gray-700">Fecha de Orden</Label>
+                    <div className="mt-1.5">
+                      <Input
+                        type="date"
+                        value={poDate}
+                        onChange={(e) => setPoDate(e.target.value)}
+                        className="text-base"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium text-gray-700">Días de Pago</Label>
+                    <div className="mt-1.5">
+                      <Select value={String(paymentTermsDays)} onValueChange={(v) => setPaymentTermsDays(parseInt(v, 10))}>
+                        <SelectTrigger className="text-base">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">Contado</SelectItem>
+                          <SelectItem value="15">15 días</SelectItem>
+                          <SelectItem value="30">30 días</SelectItem>
+                          <SelectItem value="45">45 días</SelectItem>
+                          <SelectItem value="60">60 días</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                 </div>

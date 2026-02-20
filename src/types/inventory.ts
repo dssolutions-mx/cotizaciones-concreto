@@ -377,6 +377,9 @@ export interface RemisionMaterialConsumption {
   cantidad_teorica: number;
   cantidad_real: number;
   variance: number;
+  unit_cost_weighted?: number | null;
+  total_cost_fifo?: number | null;
+  fifo_allocated_at?: string | null;
 }
 
 export interface InventoryMovement {
