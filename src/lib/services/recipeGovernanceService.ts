@@ -35,9 +35,11 @@ export interface VariantVersionStatus {
     isCurrent: boolean;
   } | null;
   materials: MaterialQuantityWithDetails[];
+  /** From view when materials not fetched (non-QB variants); used for display until lazy-loaded */
+  materialCount?: number;
   status: 'up-to-date' | 'outdated' | 'no-version' | 'inconsistent';
-  isQuoteBuilderVariant?: boolean; // True if this is the variant QuoteBuilder uses for this master
-  validationIssues?: MaterialValidationIssue[]; // Smart management state flags
+  isQuoteBuilderVariant?: boolean;
+  validationIssues?: MaterialValidationIssue[];
 }
 
 export interface MasterGovernanceData {
@@ -278,10 +280,15 @@ async function getMasterGovernanceDataLegacy(
     });
   });
 
+  const materialCountByRecipe = new Map<string, number>();
+  latestVersionMap.forEach((v: any, recipeId: string) => {
+    materialCountByRecipe.set(recipeId, materialsByVersion.get(v.id)?.length ?? 0);
+  });
+
   const fetchTime = performance.now() - startTime;
   console.log(`[RecipeGovernance] Legacy fetch in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${materialQuantities.length} materials`);
 
-  return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, null);
+  return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, materialCountByRecipe, null);
 }
 
 
@@ -290,6 +297,7 @@ function buildGovernanceData(
   latestVersionMap: Map<string, any>,
   versionMap: Map<string, any[]>,
   materialsByVersion: Map<string, MaterialQuantityWithDetails[]>,
+  materialCountByRecipe: Map<string, number>,
   qbVariantByMaster: Map<string, string> | null
 ): MasterGovernanceData[] {
   return masters.map((m: any) => {
@@ -320,6 +328,7 @@ function buildGovernanceData(
       }
 
       const materials = latestVersion ? (materialsByVersion.get(latestVersion.id) || []) : [];
+      const materialCount = materialCountByRecipe.get(r.id);
       const validationIssues =
         materials.length > 0
           ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
@@ -333,6 +342,7 @@ function buildGovernanceData(
         variantSuffix: r.variant_suffix,
         latestVersion: latestVersion ? { id: latestVersion.id, versionNumber: latestVersion.version_number, createdAt: latestVersion.created_at, isCurrent: latestVersion.is_current } : null,
         materials,
+        materialCount: materialCount ?? (materials.length || 0),
         status,
         isQuoteBuilderVariant,
         validationIssues,
@@ -371,39 +381,38 @@ export const recipeGovernanceService = {
     try {
       const startTime = performance.now();
 
-      // 1. Fetch masters with variants in one query
-      const { data: masters, error: masterError } = await supabase
-        .from('master_recipes')
-        .select(`
-          id,
-          master_code,
-          strength_fc,
-          placement_type,
-          max_aggregate_size,
-          slump,
-          recipes!recipes_master_recipe_id_fkey(
+      // 1. Fetch masters + QB variants in parallel
+      const [mastersResult, qbResult] = await Promise.all([
+        supabase
+          .from('master_recipes')
+          .select(`
             id,
-            recipe_code,
-            variant_suffix,
-            created_at
-          )
-        `)
-        .eq('plant_id', plantId)
-        .eq('is_active', true)
-        .order('master_code');
+            master_code,
+            strength_fc,
+            placement_type,
+            max_aggregate_size,
+            slump,
+            recipes!recipes_master_recipe_id_fkey(
+              id,
+              recipe_code,
+              variant_suffix,
+              created_at
+            )
+          `)
+          .eq('plant_id', plantId)
+          .eq('is_active', true)
+          .order('master_code'),
+        supabase.from('master_quotebuilder_variant').select('master_id, variant_id').eq('plant_id', plantId),
+      ]);
 
+      const { data: masters, error: masterError } = mastersResult;
       if (masterError) throw masterError;
-      if (!masters || masters.length === 0) {
-        return [];
-      }
+      if (!masters || masters.length === 0) return [];
 
-      // 2. Collect all variant IDs
       const variantIds: string[] = [];
       masters.forEach((m: any) => {
         if (m.recipes && Array.isArray(m.recipes)) {
-          m.recipes.forEach((r: any) => {
-            if (r.id) variantIds.push(r.id);
-          });
+          m.recipes.forEach((r: any) => { if (r.id) variantIds.push(r.id); });
         }
       });
 
@@ -416,47 +425,38 @@ export const recipeGovernanceService = {
           slump: m.slump,
           maxAggregateSize: m.max_aggregate_size,
           variants: [],
-          summary: {
-            totalVariants: 0,
-            upToDateCount: 0,
-            outdatedCount: 0,
-            noVersionCount: 0,
-            validationErrors: 0,
-            validationWarnings: 0,
-          },
+          summary: { totalVariants: 0, upToDateCount: 0, outdatedCount: 0, noVersionCount: 0, validationErrors: 0, validationWarnings: 0 },
         }));
       }
 
-      // 3. Use DB views for compact latest-version and QB-variant data
-      let latestVersionMap = new Map<string, any>();
-      const versionMap = new Map<string, any[]>();
-      let qbVariantByMaster = new Map<string, string>();
-
-      const { data: qbVariants, error: qbErr } = await supabase
-        .from('master_quotebuilder_variant')
-        .select('master_id, variant_id')
-        .eq('plant_id', plantId);
-
-      if (!qbErr && qbVariants) {
-        qbVariants.forEach((row: { master_id: string; variant_id: string }) => {
-          qbVariantByMaster.set(row.master_id, row.variant_id);
-        });
+      const qbVariantByMaster = new Map<string, string>();
+      if (!qbResult.error && qbResult.data) {
+        qbResult.data.forEach((row: { master_id: string; variant_id: string }) => qbVariantByMaster.set(row.master_id, row.variant_id));
       }
+
+      // 2. Use DB view for compact latest-version data
+      const latestVersionMap = new Map<string, any>();
+      const versionMap = new Map<string, any[]>();
 
       const summaryChunkSize = 200;
-      let summaryRows: any[] = [];
+      const summaryChunks: Array<{ start: number; end: number }> = [];
       for (let i = 0; i < variantIds.length; i += summaryChunkSize) {
-        const chunk = variantIds.slice(i, i + summaryChunkSize);
-        const { data, error } = await supabase
+        summaryChunks.push({ start: i, end: Math.min(i + summaryChunkSize, variantIds.length) });
+      }
+      const summaryPromises = summaryChunks.map(({ start, end }) =>
+        supabase
           .from('recipe_latest_version_summary')
           .select('version_id, recipe_id, version_number, created_at, effective_date, is_current, material_count, has_materials')
-          .in('recipe_id', chunk);
-        if (error) {
-          return getMasterGovernanceDataLegacy(plantId, masters, variantIds, startTime);
-        }
-        summaryRows = summaryRows.concat(data || []);
+          .in('recipe_id', variantIds.slice(start, end))
+      );
+      const summaryResults = await Promise.all(summaryPromises);
+      let summaryRows: any[] = [];
+      for (const res of summaryResults) {
+        if (res.error) return getMasterGovernanceDataLegacy(plantId, masters, variantIds, startTime);
+        summaryRows = summaryRows.concat(res.data || []);
       }
 
+      const materialCountByRecipe = new Map<string, number>();
       summaryRows.forEach((row: any) => {
         const v = {
           id: row.version_id,
@@ -468,70 +468,53 @@ export const recipeGovernanceService = {
         };
         latestVersionMap.set(row.recipe_id, v);
         versionMap.set(row.recipe_id, [v]);
+        materialCountByRecipe.set(row.recipe_id, Number(row.material_count) || 0);
       });
 
-      // 5. Get latest version IDs and fetch material quantities + details
-      const latestVersionIds = Array.from(latestVersionMap.values())
-        .map((v: any) => v.id)
-        .filter(Boolean);
+      // 5. Fetch materials ONLY for QuoteBuilder variant versions (one per master ~= 242 vs 651)
+      const qbVersionIds = Array.from(qbVariantByMaster.values())
+        .map((vid) => latestVersionMap.get(vid)?.id)
+        .filter((id): id is string => !!id);
 
       let materialQuantities: any[] = [];
-      if (latestVersionIds.length > 0) {
-        // Fetch sequential chunks to reduce peak load and stay below PostgREST row caps.
-        const chunkSize = 100;
-        for (let i = 0; i < latestVersionIds.length; i += chunkSize) {
-          const chunk = latestVersionIds.slice(i, i + chunkSize);
-          const { data, error } = await supabase
-            .from('material_quantities')
-            .select('id, recipe_version_id, material_type, material_id, quantity, unit')
-            .in('recipe_version_id', chunk);
-          if (error) {
-            console.error('Error fetching material quantities:', error);
-            continue;
-          }
-          materialQuantities = materialQuantities.concat(data || []);
+      if (qbVersionIds.length > 0) {
+        const chunkSize = 150;
+        const concurrency = 3;
+        const chunks: string[][] = [];
+        for (let i = 0; i < qbVersionIds.length; i += chunkSize) {
+          chunks.push(qbVersionIds.slice(i, i + chunkSize));
         }
-        
-        // Fetch material details in parallel for all unique material IDs
-        const materialIds = Array.from(new Set(materialQuantities
-          .map((m: any) => m.material_id)
-          .filter((id: any): id is string => !!id)));
-        
-        let materialDetailsMap = new Map<string, any>();
-        if (materialIds.length > 0) {
-          const detailChunkSize = 200;
-          for (let i = 0; i < materialIds.length; i += detailChunkSize) {
-            const chunk = materialIds.slice(i, i + detailChunkSize);
-            const { data, error } = await supabase
-              .from('materials')
-              .select('id, material_name, material_code, category')
-              .in('id', chunk);
+        for (let i = 0; i < chunks.length; i += concurrency) {
+          const batch = chunks.slice(i, i + concurrency);
+          const results = await Promise.all(
+            batch.map((chunk) =>
+              supabase
+                .from('material_quantities')
+                .select(`
+                  id, recipe_version_id, material_type, material_id, quantity, unit,
+                  materials(id, material_name, material_code, category)
+                `)
+                .in('recipe_version_id', chunk)
+            )
+          );
+          for (const { data, error } of results) {
             if (error) {
-              console.warn('Error fetching material details:', error);
+              console.error('Error fetching material quantities:', error);
               continue;
             }
-            (data || []).forEach((m: any) => {
-              materialDetailsMap.set(m.id, m);
+            const rows = (data || []).map((mq: any) => {
+              const { materials, ...rest } = mq;
+              return {
+                ...rest,
+                material: materials ?? (rest.material_type ? { id: null, material_name: rest.material_type, material_code: rest.material_type, category: 'legacy' } : undefined),
+              };
             });
+            materialQuantities = materialQuantities.concat(rows);
           }
         }
-        
-        // Combine material quantities with their details
-        materialQuantities = materialQuantities.map((mq: any) => {
-          const materialDetail = mq.material_id ? materialDetailsMap.get(mq.material_id) : undefined;
-          return {
-            ...mq,
-            material: materialDetail || (mq.material_type ? {
-              id: null,
-              material_name: mq.material_type,
-              material_code: mq.material_type,
-              category: 'legacy',
-            } : undefined),
-          };
-        });
       }
 
-      // 6. Group materials by recipe_version_id
+      // 6. Group materials by recipe_version_id (sparse: only QB versions)
       const materialsByVersion = new Map<string, MaterialQuantityWithDetails[]>();
       materialQuantities.forEach((mq: any) => {
         const versionId = mq.recipe_version_id;
@@ -554,14 +537,41 @@ export const recipeGovernanceService = {
         });
       });
 
-      // 7. Build governance data from view-based data
       const fetchTime = performance.now() - startTime;
-      console.log(`[RecipeGovernance] Fetched (views) in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${latestVersionIds.length} versions, ${materialQuantities.length} materials`);
-      return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, qbVariantByMaster);
+      console.log(`[RecipeGovernance] Fetched (views) in ${fetchTime.toFixed(2)}ms: ${masters.length} masters, ${variantIds.length} variants, ${qbVersionIds.length} QB versions, ${materialQuantities.length} materials`);
+      return buildGovernanceData(masters, latestVersionMap, versionMap, materialsByVersion, materialCountByRecipe, qbVariantByMaster);
     } catch (error) {
       console.error('Error fetching master governance data:', error);
       throw error;
     }
+  },
+
+  /**
+   * Fetch materials for a single recipe version (lazy load for non-QB variants).
+   */
+  async getMaterialsForVersion(versionId: string): Promise<MaterialQuantityWithDetails[]> {
+    const { data: rows, error } = await supabase
+      .from('material_quantities')
+      .select(`
+        id, recipe_version_id, material_type, material_id, quantity, unit,
+        materials(id, material_name, material_code, category)
+      `)
+      .eq('recipe_version_id', versionId);
+    if (error) throw error;
+
+    return (rows || []).map((mq: any) => {
+      const { materials, ...rest } = mq;
+      const mat = materials ?? (rest.material_type ? { id: null, material_name: rest.material_type, material_code: rest.material_type, category: 'legacy' } : undefined);
+      return {
+        id: rest.id,
+        recipe_version_id: rest.recipe_version_id,
+        material_type: rest.material_type,
+        material_id: rest.material_id,
+        quantity: rest.quantity,
+        unit: rest.unit,
+        material: mat ? { id: mat.id, material_name: mat.material_name, material_code: mat.material_code, category: mat.category } : undefined,
+      };
+    });
   },
 
   /**

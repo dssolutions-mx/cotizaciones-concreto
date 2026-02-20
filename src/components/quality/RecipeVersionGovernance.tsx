@@ -110,14 +110,43 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
     setExpandedMasters(newExpanded);
   };
 
-  const toggleVariantExpansion = (variantId: string) => {
+  const [loadingMaterialsFor, setLoadingMaterialsFor] = useState<Set<string>>(new Set());
+
+  const toggleVariantExpansion = async (variant: VariantVersionStatus) => {
+    const variantId = variant.variantId;
     const newExpanded = new Set(expandedVariants);
     if (newExpanded.has(variantId)) {
       newExpanded.delete(variantId);
-    } else {
-      newExpanded.add(variantId);
+      setExpandedVariants(newExpanded);
+      return;
     }
+    newExpanded.add(variantId);
     setExpandedVariants(newExpanded);
+
+    // Lazy-load materials when expanding a non-QB variant that has materialCount but no materials yet
+    if (variant.materials.length === 0 && (variant.materialCount ?? 0) > 0 && variant.latestVersion?.id) {
+      setLoadingMaterialsFor((prev) => new Set(prev).add(variantId));
+      try {
+        const materials = await recipeGovernanceService.getMaterialsForVersion(variant.latestVersion.id);
+        setMasters((prev) =>
+          prev.map((m) => ({
+            ...m,
+            variants: m.variants.map((v) =>
+              v.variantId === variantId ? { ...v, materials } : v
+            ),
+          }))
+        );
+      } catch (err) {
+        console.warn('Error lazy-loading materials:', err);
+        toast.error('No se pudieron cargar los materiales');
+      } finally {
+        setLoadingMaterialsFor((prev) => {
+          const next = new Set(prev);
+          next.delete(variantId);
+          return next;
+        });
+      }
+    }
   };
 
   const handleMaterialSave = async (variantId: string, materials: MaterialQuantityWithDetails[]) => {
@@ -999,11 +1028,11 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                           <span>
                                             {format(new Date(variant.latestVersion.createdAt), "dd/MM/yyyy HH:mm", { locale: es })}
                                           </span>
-                                          {variant.materials.length > 0 && (
+                                          {((variant.materials.length || variant.materialCount || 0) > 0) && (
                                             <>
                                               <span className="mx-1">•</span>
                                               <span className="text-blue-600 font-medium">
-                                                {variant.materials.length} material{variant.materials.length !== 1 ? 'es' : ''}
+                                                {variant.materials.length || variant.materialCount || 0} material{(variant.materials.length || variant.materialCount || 0) !== 1 ? 'es' : ''}
                                               </span>
                                             </>
                                           )}
@@ -1090,7 +1119,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                       </Button>
                                     )}
                                     <Button
-                                      onClick={() => toggleVariantExpansion(variant.variantId)}
+                                      onClick={() => toggleVariantExpansion(variant)}
                                       variant="ghost"
                                       size="sm"
                                     >
@@ -1159,7 +1188,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                       </span>
                                       {!isEditing && (
                                         <Button
-                                          onClick={() => toggleVariantExpansion(variant.variantId)}
+                                          onClick={() => toggleVariantExpansion(variant)}
                                           variant="ghost"
                                           size="sm"
                                           className="h-6 text-xs"
@@ -1212,7 +1241,12 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                   />
                                 ) : isVariantExpanded && !variant.isQuoteBuilderVariant && (
                                   <div className="mt-4">
-                                    {variant.materials.length === 0 ? (
+                                    {loadingMaterialsFor.has(variant.variantId) ? (
+                                      <p className="text-sm text-gray-500 flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Cargando materiales…
+                                      </p>
+                                    ) : variant.materials.length === 0 ? (
                                       <p className="text-sm text-gray-500">No hay materiales definidos para esta versión.</p>
                                     ) : (
                                       <div className="overflow-x-auto">
