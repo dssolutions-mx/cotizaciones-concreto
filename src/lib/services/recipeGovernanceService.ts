@@ -162,7 +162,7 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
       message: 'Falta material de agua',
       details: isQuoteBuilderVariant
         ? 'El agua es obligatoria. Esta variante se usa en QuoteBuilder y debe tener agua definida'
-        : 'El agua es obligatoria en todas las recetas',
+        : 'El agua es obligatoria. No afecta cotizaciones (esta variante no la usa QuoteBuilder).',
     });
   } else {
     // Check water quantity (only error if <= 0)
@@ -488,13 +488,13 @@ export const recipeGovernanceService = {
           const validationIssues = materials.length > 0 
             ? validateRecipeMaterials(materials, isQuoteBuilderVariant)
             : latestVersion 
-              ? [{ 
-                  type: 'too_few_materials' as const, 
-                  severity: isQuoteBuilderVariant ? 'error' as const : 'warning' as const, 
+              ? [{
+                  type: 'too_few_materials' as const,
+                  severity: isQuoteBuilderVariant ? ('error' as const) : ('warning' as const),
                   message: 'No hay materiales definidos para esta versión',
                   details: isQuoteBuilderVariant
                     ? 'Esta variante se usa en QuoteBuilder y debe tener materiales definidos'
-                    : 'Esta variante no tiene materiales definidos',
+                    : 'Esta variante no tiene materiales definidos. No afecta cotizaciones (no la usa QuoteBuilder).',
                 }]
               : [];
 
