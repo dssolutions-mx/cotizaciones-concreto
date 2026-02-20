@@ -256,16 +256,20 @@ export const recipeGovernanceService = {
         }));
       }
 
-      // 3. Fetch all versions (created_at is main factor; effective_date fallback for older schema)
-      // NOTE: explicit limit override — plant can have 1000+ versions, exceeding PostgREST's default 1000-row cap
-      const { data: allVersions, error: versionsError } = await supabase
-        .from('recipe_versions')
-        .select('id, recipe_id, version_number, created_at, effective_date, is_current')
-        .in('recipe_id', variantIds)
-        .order('created_at', { ascending: false })
-        .limit(10000);
-
-      if (versionsError) throw versionsError;
+      // 3. Fetch all versions in controlled chunks to avoid row-cap truncation
+      // and avoid large/bursty requests to Supabase.
+      let allVersions: any[] = [];
+      const versionChunkSize = 200;
+      for (let i = 0; i < variantIds.length; i += versionChunkSize) {
+        const chunk = variantIds.slice(i, i + versionChunkSize);
+        const { data, error } = await supabase
+          .from('recipe_versions')
+          .select('id, recipe_id, version_number, created_at, effective_date, is_current')
+          .in('recipe_id', chunk)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        allVersions = allVersions.concat(data || []);
+      }
 
       const versionDate = (v: any) =>
         v.created_at ? new Date(v.created_at).getTime() : (v.effective_date ? new Date(v.effective_date).getTime() : 0);
@@ -295,65 +299,43 @@ export const recipeGovernanceService = {
 
       let materialQuantities: any[] = [];
       if (latestVersionIds.length > 0) {
-        // Chunk size kept at 50 so each chunk stays well under PostgREST's 1000-row default limit.
-        // With ~6 materials/version on average, 50 versions → ~300 rows per chunk (safe margin).
-        // Each chunk also gets an explicit .limit(2000) to override the default cap entirely.
-        const chunkSize = 50;
-        const materialPromises: Promise<any[]>[] = [];
-        
+        // Fetch sequential chunks to reduce peak load and stay below PostgREST row caps.
+        const chunkSize = 100;
         for (let i = 0; i < latestVersionIds.length; i += chunkSize) {
           const chunk = latestVersionIds.slice(i, i + chunkSize);
-          materialPromises.push(
-            supabase
-              .from('material_quantities')
-              .select('id, recipe_version_id, material_type, material_id, quantity, unit')
-              .in('recipe_version_id', chunk)
-              .limit(2000)
-              .then(({ data, error }) => {
-                if (error) {
-                  console.error('Error fetching material quantities:', error);
-                  return [];
-                }
-                return data || [];
-              })
-          );
+          const { data, error } = await supabase
+            .from('material_quantities')
+            .select('id, recipe_version_id, material_type, material_id, quantity, unit')
+            .in('recipe_version_id', chunk);
+          if (error) {
+            console.error('Error fetching material quantities:', error);
+            continue;
+          }
+          materialQuantities = materialQuantities.concat(data || []);
         }
         
-        const materialChunks = await Promise.all(materialPromises);
-        materialQuantities = materialChunks.flat();
-        
         // Fetch material details in parallel for all unique material IDs
-        const materialIds = [...new Set(materialQuantities
+        const materialIds = Array.from(new Set(materialQuantities
           .map((m: any) => m.material_id)
-          .filter((id: any): id is string => !!id))];
+          .filter((id: any): id is string => !!id)));
         
         let materialDetailsMap = new Map<string, any>();
         if (materialIds.length > 0) {
-          const detailChunkSize = 100;
-          const detailPromises: Promise<any[]>[] = [];
-          
+          const detailChunkSize = 200;
           for (let i = 0; i < materialIds.length; i += detailChunkSize) {
             const chunk = materialIds.slice(i, i + detailChunkSize);
-            detailPromises.push(
-              supabase
-                .from('materials')
-                .select('id, material_name, material_code, category')
-                .in('id', chunk)
-                .limit(500)
-                .then(({ data, error }) => {
-                  if (error) {
-                    console.warn('Error fetching material details:', error);
-                    return [];
-                  }
-                  return data || [];
-                })
-            );
+            const { data, error } = await supabase
+              .from('materials')
+              .select('id, material_name, material_code, category')
+              .in('id', chunk);
+            if (error) {
+              console.warn('Error fetching material details:', error);
+              continue;
+            }
+            (data || []).forEach((m: any) => {
+              materialDetailsMap.set(m.id, m);
+            });
           }
-          
-          const detailChunks = await Promise.all(detailPromises);
-          detailChunks.flat().forEach((m: any) => {
-            materialDetailsMap.set(m.id, m);
-          });
         }
         
         // Combine material quantities with their details
