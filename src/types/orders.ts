@@ -59,6 +59,7 @@ export interface OrderItem {
   pump_price?: number;
   pump_volume?: number;
   has_empty_truck_charge: boolean;
+  billing_type?: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT' | null;
   empty_truck_volume?: number;
   empty_truck_price?: number;
   created_at: string;
@@ -90,6 +91,7 @@ export interface Order {
   created_by: string;
   created_at: string;
   updated_at?: string;
+  effective_for_balance?: boolean;
 }
 
 /**

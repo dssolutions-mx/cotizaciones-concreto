@@ -76,15 +76,27 @@ export async function GET() {
     }
     const deliveredOrderIds = Array.from(deliveredOrderIdsSet);
 
-    if (deliveredOrderIds.length === 0) {
+    // Include concept-only orders explicitly marked effective for balance
+    const { data: effectiveOrders } = await serviceClient
+      .from('orders')
+      .select('id')
+      .eq('effective_for_balance', true)
+      .eq('credit_status', 'approved')
+      .neq('order_status', 'cancelled');
+    (effectiveOrders || []).forEach((o: { id: string }) => {
+      if (o.id) deliveredOrderIdsSet.add(o.id);
+    });
+    const effectiveDeliveredOrderIds = Array.from(deliveredOrderIdsSet);
+
+    if (effectiveDeliveredOrderIds.length === 0) {
       return NextResponse.json({ rows: [], message: 'No hay órdenes con remisiones' });
     }
 
     // Build client list from delivered orders - chunk to avoid URL limits
     const clientIdSet = new Set<string>();
     const ID_CHUNK = 500;
-    for (let i = 0; i < deliveredOrderIds.length; i += ID_CHUNK) {
-      const chunk = deliveredOrderIds.slice(i, i + ID_CHUNK);
+    for (let i = 0; i < effectiveDeliveredOrderIds.length; i += ID_CHUNK) {
+      const chunk = effectiveDeliveredOrderIds.slice(i, i + ID_CHUNK);
       const { data: ordersChunk } = await serviceClient
         .from('orders')
         .select('id, client_id')
@@ -155,8 +167,8 @@ export async function GET() {
       const paidByClientFb = new Map<string, number>();
       const CHUNK_SIZE = 200;
       const allOrderRows: Array<{ client_id: string; final_amount: number; invoice_amount: number | null; requires_invoice: boolean; plant_id: string | null }> = [];
-      for (let i = 0; i < deliveredOrderIds.length; i += CHUNK_SIZE) {
-        const chunk = deliveredOrderIds.slice(i, i + CHUNK_SIZE);
+      for (let i = 0; i < effectiveDeliveredOrderIds.length; i += CHUNK_SIZE) {
+        const chunk = effectiveDeliveredOrderIds.slice(i, i + CHUNK_SIZE);
         const { data: chunkData } = await serviceClient
           .from('orders')
           .select('client_id, final_amount, invoice_amount, requires_invoice, plant_id')

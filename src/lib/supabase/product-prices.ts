@@ -279,8 +279,10 @@ export const productPriceService = {
       throw new Error('Quote not found');
     }
     if (!quoteData.quote_details || quoteData.quote_details.length === 0) {
-      console.error(`[handleQuoteApproval] Quote has no details: ${quoteId}`);
-      throw new Error('Quote has no details');
+      // Valid scenario for quotes composed only of additional products.
+      // There are no concrete/pump rows to persist in product_prices.
+      console.log(`[handleQuoteApproval] Quote ${quoteId} has no quote_details. Skipping product price history generation.`);
+      return;
     }
 
     // Log the raw quote data structure

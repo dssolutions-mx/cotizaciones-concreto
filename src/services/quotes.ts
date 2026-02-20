@@ -286,6 +286,8 @@ function generateQuoteNumber(rangeCode: string): string {
 
 export const createQuote = async (quoteData: CreateQuoteData) => {
   try {
+    const safeDetails = quoteData.details || [];
+
     // Get current user's ID from the auth session
     const { data: authData } = await supabase.auth.getSession();
     
@@ -344,7 +346,7 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     let marginPercentage = quoteData.margin_percentage || 0;
     
     // Calculate totals for margin calculation
-    const concreteSubtotal = quoteData.details.reduce((sum, detail) => {
+    const concreteSubtotal = safeDetails.reduce((sum, detail) => {
       const transportCost = distanceInfo?.transport_cost_per_m3 || 0;
       const pricePerM3 = detail.base_price + transportCost;
       return sum + (pricePerM3 * detail.volume);
@@ -358,14 +360,14 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     const totalBeforeMargin = concreteSubtotal + specialProductsSubtotal + totalPerTrip;
 
     // If margin not provided, calculate from profit_margin in details
-    if (!quoteData.margin_percentage && quoteData.details.length > 0) {
+    if (!quoteData.margin_percentage && safeDetails.length > 0) {
       // Use average margin from details as overall margin
-      const avgMargin = quoteData.details.reduce((sum, d) => sum + d.profit_margin, 0) / quoteData.details.length;
+      const avgMargin = safeDetails.reduce((sum, d) => sum + d.profit_margin, 0) / safeDetails.length;
       marginPercentage = avgMargin;
     }
 
     // Determine IVA status from details
-    const requiresIVA = quoteData.details.length > 0 && quoteData.details.every(d => d.includes_vat);
+    const requiresIVA = safeDetails.length > 0 && safeDetails.every(d => d.includes_vat);
 
     // AUTO-APPROVAL DISABLED: All quotes require manual approval
     // Conditional auto-approval threshold based on IVA status
@@ -432,7 +434,7 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     // Include transport cost in final_price calculation
     const transportCostPerM3 = distanceInfo?.transport_cost_per_m3 || 0;
     
-    const detailsWithQuoteId = details.map(detail => {
+    const detailsWithQuoteId = (details || []).map(detail => {
       // Price per m³ = base_price + transport_cost_per_m3
       const pricePerM3 = detail.base_price + transportCostPerM3;
       // Final price includes margin
@@ -450,14 +452,16 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       };
     });
     
-    const { error: detailsError } = await supabase
-      .from('quote_details')
-      .insert(detailsWithQuoteId);
-      
-    if (detailsError) {
-      const errorMessage = handleError(detailsError, 'createQuoteDetails');
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+    if (detailsWithQuoteId.length > 0) {
+      const { error: detailsError } = await supabase
+        .from('quote_details')
+        .insert(detailsWithQuoteId);
+        
+      if (detailsError) {
+        const errorMessage = handleError(detailsError, 'createQuoteDetails');
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
     }
     
     // NOTE: Auto-approval product_prices creation is now handled by the caller

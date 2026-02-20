@@ -57,6 +57,7 @@ interface AdditionalProduct {
   unitPrice: number;
   totalPrice: number;
   quoteId: string;
+  billingType?: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
 }
 
 interface Quote {
@@ -573,12 +574,14 @@ export default function ScheduleOrderForm({
               margin_percentage,
               unit_price,
               total_price,
+              billing_type,
               notes,
               additional_products (
                 id,
                 name,
                 code,
-                unit
+                unit,
+                billing_type
               )
             `)
             .in('quote_id', quoteIdsForAdditional);
@@ -610,7 +613,12 @@ export default function ScheduleOrderForm({
           }
         }
         
-        if (uniqueQuoteIds.length === 0) {
+        const additionalQuoteIds = Array.from(
+          new Set(Array.from(latestAdditionalProducts.values()).map((ap: any) => ap.quote_id).filter(Boolean))
+        );
+        const quoteIdsForFetch = Array.from(new Set([...uniqueQuoteIds, ...additionalQuoteIds])).filter(Boolean);
+
+        if (quoteIdsForFetch.length === 0) {
           console.log('No quotes found with active recipe prices or standalone pumping services.');
           setAvailableQuotes([]);
           setSelectedProducts([]);
@@ -685,7 +693,7 @@ export default function ScheduleOrderForm({
               )
             )
           `)
-          .in('id', uniqueQuoteIds)
+          .in('id', quoteIdsForFetch)
           .eq('status', 'APPROVED')
           .eq('is_active', true); // Ensure the linked quotes are still approved and site-active
           
@@ -856,11 +864,7 @@ export default function ScheduleOrderForm({
           return formattedQuote;
         });
         
-        // Remove any quotes that don't have any products after filtering
-        const nonEmptyQuotes = formattedQuotes.filter(quote => quote.products.length > 0);
-        console.log(`Filtered out ${formattedQuotes.length - nonEmptyQuotes.length} empty quotes`);
-        
-        // Add latest additional products to all quotes (they're shared across quotes for the client/site)
+        // Build latest additional products (shared across quotes for the same client/site)
         const latestAdditionalProductsArray: AdditionalProduct[] = Array.from(latestAdditionalProducts.values()).map((ap: any) => ({
           id: ap.id,
           quoteAdditionalProductId: ap.id,
@@ -871,8 +875,13 @@ export default function ScheduleOrderForm({
           quantity: ap.quantity, // This is the multiplier per m³
           unitPrice: ap.unit_price,
           totalPrice: ap.total_price, // This is the quoted total, but will be recalculated based on delivered volume
-          quoteId: ap.quote_id
+          quoteId: ap.quote_id,
+          billingType: ap.billing_type || ap.additional_products?.billing_type || 'PER_M3'
         }));
+
+        // Keep quotes with concrete/pump products OR quotes with available additional products
+        const nonEmptyQuotes = formattedQuotes.filter(quote => quote.products.length > 0 || latestAdditionalProductsArray.length > 0);
+        console.log(`Filtered out ${formattedQuotes.length - nonEmptyQuotes.length} empty quotes`);
         
         // Add additional products to all quotes (they're available for any quote from this client/site)
         nonEmptyQuotes.forEach(quote => {
@@ -1241,9 +1250,15 @@ export default function ScheduleOrderForm({
     selectedAdditionalProducts.forEach(apId => {
       const ap = allAdditionalProducts.find(a => a.quoteAdditionalProductId === apId);
       if (ap) {
-        // Multiply quantity (rate per m³) by concrete volume and unit price
-        // quantity is the multiplier per m³, so: quantity * volume * unit_price
-        total += ap.quantity * totalConcreteVolume * ap.unitPrice;
+        const billingType = ap.billingType || 'PER_M3';
+        if (billingType === 'PER_ORDER_FIXED') {
+          total += ap.unitPrice;
+        } else if (billingType === 'PER_UNIT') {
+          total += ap.quantity * ap.unitPrice;
+        } else {
+          // quantity is multiplier per m³ for PER_M3
+          total += ap.quantity * totalConcreteVolume * ap.unitPrice;
+        }
       }
     });
     
@@ -1306,8 +1321,10 @@ export default function ScheduleOrderForm({
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Only require selected products when NOT in pumping-only mode
-    if (selectedProducts.length === 0 && orderType !== 'pumping') {
+    const hasConceptOnlySelection = selectedProducts.length === 0 && selectedAdditionalProducts.size > 0;
+
+    // Require at least one concrete/pump/concept item
+    if (selectedProducts.length === 0 && orderType !== 'pumping' && !hasConceptOnlySelection) {
       setError('Debe seleccionar al menos un producto para crear la orden');
       return;
     }
@@ -1415,11 +1432,16 @@ export default function ScheduleOrderForm({
           );
           quoteId = quoteWithPump?.id;
         }
-      } else {
+      } else if (selectedProducts.length > 0) {
         // For normal mode, get quote from selected products
         quoteId = availableQuotes.find(q => 
           q.products.some(p => p.quoteDetailId === selectedProducts[0].quoteDetailId)
         )?.id;
+      } else if (hasConceptOnlySelection) {
+        // Concept-only order: resolve quote from selected additional product
+        const allAdditionalProducts = getAllAdditionalProducts();
+        const firstSelectedAdditionalId = Array.from(selectedAdditionalProducts)[0];
+        quoteId = allAdditionalProducts.find(ap => ap.quoteAdditionalProductId === firstSelectedAdditionalId)?.quoteId;
       }
       
       if (!quoteId) {
@@ -2189,7 +2211,7 @@ export default function ScheduleOrderForm({
             <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 mt-4">
               <h3 className="text-lg font-semibold text-gray-800 mb-4">Productos Adicionales</h3>
               <p className="text-sm text-gray-600 mb-4">
-                Seleccione los productos adicionales que desea incluir en esta orden. Estos productos se multiplicarán por los metros cúbicos de concreto entregados.
+                Seleccione productos adicionales para la orden. El cálculo depende del tipo de cobro del producto (por m³, fijo por orden o por unidad).
               </p>
               
               <div className="mb-3 p-2 bg-purple-100 rounded-md">
@@ -2203,7 +2225,14 @@ export default function ScheduleOrderForm({
                 {getAllAdditionalProducts().map((ap) => {
                   const isSelected = selectedAdditionalProducts.has(ap.quoteAdditionalProductId);
                   const totalConcreteVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
-                  const estimatedTotal = isSelected ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0;
+                  const billingType = ap.billingType || 'PER_M3';
+                  const estimatedTotal = !isSelected
+                    ? 0
+                    : billingType === 'PER_ORDER_FIXED'
+                      ? ap.unitPrice
+                      : billingType === 'PER_UNIT'
+                        ? ap.quantity * ap.unitPrice
+                        : ap.quantity * totalConcreteVolume * ap.unitPrice;
                   
                   return (
                     <div
@@ -2233,12 +2262,18 @@ export default function ScheduleOrderForm({
                             <span className="text-xs text-gray-500">({ap.code})</span>
                           </div>
                           <div className="text-sm text-gray-600 mt-1">
-                            <span className="font-medium">Cantidad por m³:</span> {ap.quantity} {ap.unit} • 
+                            <span className="font-medium">Tipo:</span> {billingType === 'PER_M3' ? 'Por m³' : billingType === 'PER_ORDER_FIXED' ? 'Fijo por orden' : 'Por unidad'} •
+                            <span className="font-medium ml-2">Cantidad:</span> {ap.quantity} {ap.unit} •
                             <span className="font-medium ml-2">Precio unitario:</span> ${ap.unitPrice.toFixed(2)}
                           </div>
-                          {isSelected && totalConcreteVolume > 0 && (
+                          {isSelected && (
                             <div className="text-sm text-purple-700 mt-1 font-medium">
-                              Estimado: {ap.quantity} × {totalConcreteVolume.toFixed(2)} m³ × ${ap.unitPrice.toFixed(2)} = ${estimatedTotal.toFixed(2)}
+                              {billingType === 'PER_ORDER_FIXED'
+                                ? `Estimado: 1 × $${ap.unitPrice.toFixed(2)} = $${estimatedTotal.toFixed(2)}`
+                                : billingType === 'PER_UNIT'
+                                  ? `Estimado: ${ap.quantity} × $${ap.unitPrice.toFixed(2)} = $${estimatedTotal.toFixed(2)}`
+                                  : `Estimado: ${ap.quantity} × ${totalConcreteVolume.toFixed(2)} m³ × $${ap.unitPrice.toFixed(2)} = $${estimatedTotal.toFixed(2)}`
+                              }
                             </div>
                           )}
                           <div className="text-xs text-gray-500 mt-1">
@@ -2261,12 +2296,16 @@ export default function ScheduleOrderForm({
                       ${Array.from(selectedAdditionalProducts).reduce((sum, apId) => {
                         const ap = getAllAdditionalProducts().find(a => a.quoteAdditionalProductId === apId);
                         const totalConcreteVolume = selectedProducts.reduce((s, p) => s + p.scheduledVolume, 0);
-                        return sum + (ap ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0);
+                        if (!ap) return sum;
+                        const billingType = ap.billingType || 'PER_M3';
+                        if (billingType === 'PER_ORDER_FIXED') return sum + ap.unitPrice;
+                        if (billingType === 'PER_UNIT') return sum + (ap.quantity * ap.unitPrice);
+                        return sum + (ap.quantity * totalConcreteVolume * ap.unitPrice);
                       }, 0).toFixed(2)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    El cálculo final se realizará con los m³ de concreto realmente entregados.
+                    PER_M3 se recalcula con m³ entregados; fijo por orden y por unidad mantienen su lógica.
                   </p>
                 </div>
               )}
@@ -2601,7 +2640,7 @@ export default function ScheduleOrderForm({
               type="submit"
               disabled={
                 isSubmitting ||
-                (selectedProducts.length === 0 && orderType !== 'pumping') ||
+                (selectedProducts.length === 0 && orderType !== 'pumping' && selectedAdditionalProducts.size === 0) ||
                 invoiceSelection === null ||
                 !latitude ||
                 !longitude ||

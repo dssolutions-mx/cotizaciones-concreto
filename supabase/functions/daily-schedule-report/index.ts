@@ -44,6 +44,7 @@ interface OrderItem {
   product_type: string;
   volume: number;
   unit_price: number;
+  billing_type?: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT' | null;
   has_pump_service: boolean;
   pump_price?: number;
   pump_volume?: number;
@@ -124,6 +125,7 @@ function calculateVolumes(orders: Order[]) {
       
       order.order_items.forEach((item) => {
         const isPumpServiceItem = item.product_type === 'SERVICIO DE BOMBEO';
+        const isAdditionalProduct = item.product_type?.startsWith('PRODUCTO ADICIONAL:');
         const hasOldPumpService = item.has_pump_service === true && 
           item.pump_price !== null && Number(item.pump_price) > 0 &&
           item.pump_volume !== null && Number(item.pump_volume) > 0;
@@ -134,6 +136,8 @@ function calculateVolumes(orders: Order[]) {
           if (isFullyApproved) {
             totalApprovedPumpingVolume += pumpVolume;
           }
+        } else if (isAdditionalProduct) {
+          return;
         } else {
           const concreteVolume = Number(item.volume) || 0;
           totalConcreteVolume += concreteVolume;
@@ -189,6 +193,7 @@ function generateOrderHtml(order: Order) {
 
       const items = order.order_items.map((item) => {
         const isPumpServiceItem = item.product_type === 'SERVICIO DE BOMBEO';
+        const isAdditionalProduct = item.product_type?.startsWith('PRODUCTO ADICIONAL:');
         const hasOldPumpService = item.has_pump_service === true && 
           item.pump_price !== null && Number(item.pump_price) > 0 &&
           item.pump_volume !== null && Number(item.pump_volume) > 0;
@@ -202,6 +207,14 @@ function generateOrderHtml(order: Order) {
             <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.volume} m³</span>
           </div>`;
           volumeDisplay = `<span style="color: #0369A1; font-weight: 500;">${item.volume} m³</span>`;
+        } else if (isAdditionalProduct) {
+          const bt = item.billing_type || 'PER_M3';
+          volumeDisplay = bt === 'PER_ORDER_FIXED'
+            ? 'Fijo (1 orden)'
+            : bt === 'PER_UNIT'
+              ? `${item.volume} unid.`
+              : `${item.volume} (por m3)`;
+          pumpDisplay = '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">N/A</span>';
         } else {
           volumeDisplay = `${item.volume} m³`;
           if (hasOldPumpService) {
@@ -536,6 +549,7 @@ serve(async (req) => {
           product_type,
           volume,
           unit_price,
+          billing_type,
           has_pump_service,
           pump_price,
           pump_volume,

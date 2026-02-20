@@ -102,6 +102,7 @@ interface EditableOrderData {
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
   delivery_google_maps_url?: string | null;
+  effective_for_balance?: boolean;
 }
 
 interface OrderDetailsProps {
@@ -177,6 +178,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     unitPrice: number;
     totalPrice: number;
     quoteId: string;
+    billingType?: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
   }
   const [availableAdditionalProducts, setAvailableAdditionalProducts] = useState<AdditionalProduct[]>([]);
   const [selectedAdditionalProducts, setSelectedAdditionalProducts] = useState<Set<string>>(new Set());
@@ -522,6 +524,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       delivery_latitude: (order as any).delivery_latitude ?? null,
       delivery_longitude: (order as any).delivery_longitude ?? null,
       delivery_google_maps_url: (order as any).delivery_google_maps_url ?? '',
+      effective_for_balance: (order as any).effective_for_balance ?? hasRemisiones,
       has_pump_service: hasPumpService,
       pump_volume: pumpVolume,
       products: order.products
@@ -1000,12 +1003,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           margin_percentage,
           unit_price,
           total_price,
+          billing_type,
           notes,
           additional_products (
             id,
             name,
             code,
-            unit
+            unit,
+            billing_type
           )
         `)
         .in('quote_id', quoteIdsForAdditional);
@@ -1059,7 +1064,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         quantity: ap.quantity,
         unitPrice: ap.unit_price,
         totalPrice: ap.total_price,
-        quoteId: ap.quote_id
+        quoteId: ap.quote_id,
+        billingType: (ap.billing_type || ap.additional_products?.billing_type || 'PER_M3') as 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT',
       }));
       
       setAvailableAdditionalProducts(additionalProductsArray);
@@ -1207,6 +1213,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         delivery_time: editedOrder.delivery_time,
         requires_invoice: editedOrder.requires_invoice,
         special_requirements: editedOrder.special_requirements,
+        effective_for_balance: editedOrder.effective_for_balance,
         delivery_latitude: editedOrder.delivery_latitude ?? (order as any).delivery_latitude ?? null,
         delivery_longitude: editedOrder.delivery_longitude ?? (order as any).delivery_longitude ?? null,
         delivery_google_maps_url: editedOrder.delivery_google_maps_url ?? (order as any).delivery_google_maps_url ?? null
@@ -1294,6 +1301,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
       // Handle additional products (only if no remisiones)
       if (!hasRemisiones) {
+        const billingType = (bt: string | undefined) => (bt || 'PER_M3') as 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
         // Get existing additional products from order
         const existingAdditionalProductItems = order.products.filter(p => 
           p.product_type?.startsWith('PRODUCTO ADICIONAL:')
@@ -1337,10 +1345,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         // Add new additional products
         for (const [key, ap] of selectedProductsMap) {
           if (!existingProductMap.has(key)) {
-            // Create new order_item for this additional product
-            const itemVolume = ap.quantity; // multiplier per m³
+            const bt = billingType(ap.billingType);
             const unitPrice = ap.unitPrice;
-            const totalPrice = ap.quantity * totalConcreteVolume * unitPrice;
+            const itemVolume = bt === 'PER_ORDER_FIXED' ? 1 : ap.quantity;
+            const totalPrice = bt === 'PER_ORDER_FIXED'
+              ? unitPrice
+              : bt === 'PER_UNIT'
+                ? ap.quantity * unitPrice
+                : ap.quantity * totalConcreteVolume * unitPrice;
 
             const { error: insertError } = await supabase
               .from('order_items')
@@ -1353,6 +1365,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 volume: itemVolume,
                 unit_price: unitPrice,
                 total_price: totalPrice,
+                billing_type: bt,
                 has_pump_service: false,
                 pump_price: null,
                 pump_volume: null
@@ -1366,9 +1379,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           }
         }
 
-        // Remove deselected additional products
+        // Remove deselected additional products (only if we showed them in the list - i.e. they're in available products)
+        const availableKeys = new Set(availableAdditionalProducts.map(ap => `${ap.name}:${ap.code}`));
         for (const [key, existingItem] of existingProductMap) {
-          if (!selectedProductsMap.has(key)) {
+          if (!selectedProductsMap.has(key) && availableKeys.has(key)) {
             // Delete this order_item
             const { error: deleteError } = await supabase
               .from('order_items')
@@ -1383,21 +1397,28 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           } else {
             // Update if quantity or price changed (recalculate total)
             const ap = selectedProductsMap.get(key)!;
-            const itemVolume = ap.quantity;
+            const bt = billingType(ap.billingType);
             const unitPrice = ap.unitPrice;
-            const totalPrice = ap.quantity * totalConcreteVolume * unitPrice;
+            const itemVolume = bt === 'PER_ORDER_FIXED' ? 1 : ap.quantity;
+            const totalPrice = bt === 'PER_ORDER_FIXED'
+              ? unitPrice
+              : bt === 'PER_UNIT'
+                ? ap.quantity * unitPrice
+                : ap.quantity * totalConcreteVolume * unitPrice;
 
             // Only update if values changed
             if (existingItem.volume !== itemVolume || 
                 existingItem.unit_price !== unitPrice ||
                 existingItem.total_price !== totalPrice) {
+              const updatePayload: Record<string, unknown> = {
+                volume: itemVolume,
+                unit_price: unitPrice,
+                total_price: totalPrice,
+              };
+              if (bt) (updatePayload as any).billing_type = bt;
               const { error: updateError } = await supabase
                 .from('order_items')
-                .update({
-                  volume: itemVolume,
-                  unit_price: unitPrice,
-                  total_price: totalPrice
-                })
+                .update(updatePayload)
                 .eq('id', existingItem.id);
 
               if (updateError) {
@@ -1408,6 +1429,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             }
           }
         }
+        // Recalculate order totals after additional products changes
+        await orderService.recalculateOrderAmount(orderId);
       }
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
@@ -2519,10 +2542,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             )
                             .reduce((sum: number, p: any) => sum + ((p as any).concrete_volume_delivered || p.volume || 0), 0) || 0;
                           
-                          // For additional products, volume is the multiplier (quantity per m³)
-                          // Total = multiplier × concrete_delivered × unit_price
-                          const additionalProductTotal = isAdditionalProduct && concreteDelivered > 0
-                            ? product.volume * concreteDelivered * (product.unit_price || 0)
+                          const billingType = (product as any).billing_type || 'PER_M3';
+                          const additionalProductTotal = isAdditionalProduct
+                            ? billingType === 'PER_ORDER_FIXED'
+                              ? (product.unit_price || 0)
+                              : billingType === 'PER_UNIT'
+                                ? (product.volume || 0) * (product.unit_price || 0)
+                                : (product.volume || 0) * concreteDelivered * (product.unit_price || 0)
                             : (product.unit_price || 0) * product.volume;
                           
                           return (
@@ -2536,7 +2562,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                   <span className="text-purple-600 font-semibold">
                                     {displayName}
                                     <span className="text-xs text-gray-500 ml-2">
-                                      (Multiplicador: {product.volume} por m³)
+                                      {billingType === 'PER_ORDER_FIXED'
+                                        ? '(Fijo por orden)'
+                                        : billingType === 'PER_UNIT'
+                                          ? `(Por unidad: ${product.volume})`
+                                          : `(Multiplicador: ${product.volume} por m³)`}
                                     </span>
                                   </span>
                                 ) : (
@@ -2546,7 +2576,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                               <TableCell>
                                 {isAdditionalProduct ? (
                                   <span>
-                                    {product.volume} × {concreteDelivered.toFixed(2)} m³ = {(product.volume * concreteDelivered).toFixed(2)}
+                                    {billingType === 'PER_ORDER_FIXED'
+                                      ? 'Fijo por orden (1)'
+                                      : billingType === 'PER_UNIT'
+                                        ? `${product.volume} unidad(es)`
+                                        : `${product.volume} × ${concreteDelivered.toFixed(2)} m³ = ${(product.volume * concreteDelivered).toFixed(2)}`}
                                   </span>
                                 ) : (
                                   `${product.volume} m³`
@@ -2671,6 +2705,27 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         <span className="text-sm text-gray-700">Requiere factura</span>
                       </label>
                     </div>
+
+                    {!hasRemisiones && (
+                      <div>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            name="effective_for_balance"
+                            checked={editedOrder?.effective_for_balance || false}
+                            onChange={(e) => {
+                              if (!editedOrder) return;
+                              setEditedOrder({
+                                ...editedOrder,
+                                effective_for_balance: e.target.checked
+                              });
+                            }}
+                            className="h-4 w-4 text-green-600 rounded border-gray-300"
+                          />
+                          <span className="text-sm text-gray-700">Incluir en balance (sin remisiones)</span>
+                        </label>
+                      </div>
+                    )}
                     
                     <div>
                       <label htmlFor="special_requirements" className="block text-sm font-medium text-gray-700 mb-1">
@@ -2878,6 +2933,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             <div className="space-y-3">
                               {availableAdditionalProducts.map((ap) => {
                                 const isSelected = selectedAdditionalProducts.has(ap.quoteAdditionalProductId);
+                                const billingType = ap.billingType || 'PER_M3';
                                 // Calculate total concrete volume from edited products
                                 const totalConcreteVolume = editedOrder?.products?.reduce((sum, p) => {
                                   // Only count concrete products, not special services
@@ -2890,7 +2946,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                   }
                                   return sum;
                                 }, 0) || 0;
-                                const estimatedTotal = isSelected ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0;
+                                const estimatedTotal = !isSelected ? 0
+                                  : billingType === 'PER_ORDER_FIXED' ? ap.unitPrice
+                                  : billingType === 'PER_UNIT' ? ap.quantity * ap.unitPrice
+                                  : ap.quantity * totalConcreteVolume * ap.unitPrice;
                                 
                                 return (
                                   <div
@@ -2920,12 +2979,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                           <span className="text-xs text-gray-500">({ap.code})</span>
                                         </div>
                                         <div className="text-sm text-gray-600 mt-1">
-                                          <span className="font-medium">Cantidad por m³:</span> {ap.quantity} {ap.unit} • 
+                                          <span className="font-medium">Tipo:</span> {billingType === 'PER_M3' ? 'Por m³' : billingType === 'PER_ORDER_FIXED' ? 'Fijo por orden' : 'Por unidad'} •
+                                          <span className="font-medium ml-2">Cantidad:</span> {ap.quantity} {ap.unit} •
                                           <span className="font-medium ml-2">Precio unitario:</span> ${ap.unitPrice.toFixed(2)}
                                         </div>
-                                        {isSelected && totalConcreteVolume > 0 && (
+                                        {isSelected && (
                                           <div className="text-sm text-purple-700 mt-1 font-medium">
-                                            Estimado: {ap.quantity} × {totalConcreteVolume.toFixed(2)} m³ × ${ap.unitPrice.toFixed(2)} = ${estimatedTotal.toFixed(2)}
+                                            {billingType === 'PER_ORDER_FIXED'
+                                              ? `Estimado: $${estimatedTotal.toFixed(2)} (fijo por orden)`
+                                              : billingType === 'PER_UNIT'
+                                                ? `Estimado: ${ap.quantity} × $${ap.unitPrice.toFixed(2)} = $${estimatedTotal.toFixed(2)}`
+                                                : totalConcreteVolume > 0
+                                                  ? `Estimado: ${ap.quantity} × ${totalConcreteVolume.toFixed(2)} m³ × $${ap.unitPrice.toFixed(2)} = $${estimatedTotal.toFixed(2)}`
+                                                  : `Estimado: $${estimatedTotal.toFixed(2)} (se calculará con m³ entregados)`}
                                           </div>
                                         )}
                                       </div>
@@ -2954,12 +3020,16 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                         }
                                         return s;
                                       }, 0) || 0;
-                                      return sum + (ap ? ap.quantity * totalConcreteVolume * ap.unitPrice : 0);
+                                      if (!ap) return sum;
+                                      const bt = ap.billingType || 'PER_M3';
+                                      if (bt === 'PER_ORDER_FIXED') return sum + ap.unitPrice;
+                                      if (bt === 'PER_UNIT') return sum + (ap.quantity * ap.unitPrice);
+                                      return sum + (ap.quantity * totalConcreteVolume * ap.unitPrice);
                                     }, 0).toFixed(2)}
                                   </span>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  El cálculo final se realizará con los m³ de concreto realmente entregados.
+                                  PER_M3 se recalcula con m³ entregados; fijo por orden y por unidad mantienen su lógica.
                                 </p>
                               </div>
                             )}

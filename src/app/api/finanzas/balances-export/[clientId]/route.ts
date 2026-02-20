@@ -74,20 +74,37 @@ export async function GET(
     }
     const deliveredOrderIds = Array.from(deliveredOrderIdsSet);
 
+    // Include concept-only orders marked effective for balance
+    const { data: effectiveOrders } = await serviceClient
+      .from('orders')
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('effective_for_balance', true)
+      .eq('credit_status', 'approved')
+      .neq('order_status', 'cancelled');
+    (effectiveOrders || []).forEach((o: { id: string }) => {
+      if (o.id) deliveredOrderIdsSet.add(o.id);
+    });
+    const effectiveDeliveredOrderIds = Array.from(deliveredOrderIdsSet);
+
     // Orders with VAT and full accounting fields
-    const { data: ordersRaw } = deliveredOrderIds.length > 0
+    const { data: ordersRaw } = effectiveDeliveredOrderIds.length > 0
       ? await serviceClient
           .from('orders')
           .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id, delivery_date')
           .eq('client_id', clientId)
           .neq('order_status', 'cancelled')
-          .in('id', deliveredOrderIds)
+          .in('id', effectiveDeliveredOrderIds)
       : { data: [] };
 
     const plantIds = Array.from(new Set((ordersRaw || []).map((o: { plant_id: string | null }) => o.plant_id).filter(Boolean)));
-    const { data: plantsData } = await serviceClient.from('plants').select('id, business_unit_id').in('id', plantIds);
-    const buIds = (plantsData || []).map((p: { business_unit_id: string }) => p.business_unit_id);
-    const { data: buData } = await serviceClient.from('business_units').select('id, vat_rate').in('id', buIds);
+    const { data: plantsData } = plantIds.length > 0
+      ? await serviceClient.from('plants').select('id, business_unit_id').in('id', plantIds)
+      : { data: [] };
+    const buIds = Array.from(new Set((plantsData || []).map((p: { business_unit_id: string }) => p.business_unit_id).filter(Boolean)));
+    const { data: buData } = buIds.length > 0
+      ? await serviceClient.from('business_units').select('id, vat_rate').in('id', buIds)
+      : { data: [] };
 
     const plantBuMap = new Map<string, string>();
     (plantsData || []).forEach((p: { id: string; business_unit_id: string }) => plantBuMap.set(p.id, p.business_unit_id));
@@ -137,11 +154,11 @@ export async function GET(
     // Order items for line-level accounting verification (chunk to avoid URL limits)
     const orderItems: ClientResearchOrderItem[] = [];
     const ITEM_CHUNK = 300;
-    for (let i = 0; i < deliveredOrderIds.length; i += ITEM_CHUNK) {
-      const chunk = deliveredOrderIds.slice(i, i + ITEM_CHUNK);
+    for (let i = 0; i < effectiveDeliveredOrderIds.length; i += ITEM_CHUNK) {
+      const chunk = effectiveDeliveredOrderIds.slice(i, i + ITEM_CHUNK);
       const { data: itemsData } = await serviceClient
         .from('order_items')
-        .select('order_id, product_type, volume, unit_price, total_price, has_pump_service, pump_price, has_empty_truck_charge, empty_truck_price')
+        .select('order_id, product_type, volume, unit_price, total_price, billing_type, has_pump_service, pump_price, has_empty_truck_charge, empty_truck_price')
         .in('order_id', chunk);
 
       (itemsData || []).forEach((item: {
@@ -150,6 +167,7 @@ export async function GET(
         volume: number;
         unit_price: number;
         total_price: number;
+        billing_type: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT' | null;
         has_pump_service: boolean;
         pump_price: number | null;
         has_empty_truck_charge: boolean;
@@ -159,7 +177,15 @@ export async function GET(
         if (!ord) return;
         const vol = Number(item.volume) || 0;
         const up = Number(item.unit_price) || 0;
-        const subtotal = vol * up;
+        const billingType = item.billing_type || 'PER_M3';
+        const isAdditional = (item.product_type || '').startsWith('PRODUCTO ADICIONAL:');
+        const subtotal = isAdditional
+          ? billingType === 'PER_ORDER_FIXED'
+            ? up
+            : billingType === 'PER_UNIT'
+              ? vol * up
+              : Number(item.total_price || 0) || (vol * up)
+          : vol * up;
         const pump = (item.has_pump_service && item.pump_price != null) ? Number(item.pump_price) : 0;
         const empty = (item.has_empty_truck_charge && item.empty_truck_price != null) ? Number(item.empty_truck_price) : 0;
         const totalLine = Number(item.total_price) || (subtotal + pump + empty);

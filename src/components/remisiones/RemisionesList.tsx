@@ -75,7 +75,7 @@ export const formatRemisionesForAccounting = (
       return dateA.getTime() - dateB.getTime();
     }
     
-    return a.remision_number.localeCompare(b.remision_number);
+    return (a.remision_number ?? '').localeCompare(b.remision_number ?? '', undefined, { numeric: true });
   });
   
   // Create header for the table
@@ -240,6 +240,54 @@ export const formatRemisionesForAccounting = (
       "SER002", // Código para BOMBEO
       remision.volumen_fabricado.toFixed(2),
       pumpPrice.toFixed(2), // Pump price
+      `${plantaPrefix}1-SILAO`
+    ].join("\t"));
+  });
+
+  // Add additional products from order_items
+  const additionalItems = (orderProducts || []).filter((item: any) =>
+    item?.product_type?.startsWith('PRODUCTO ADICIONAL:')
+  );
+
+  additionalItems.forEach((item: any) => {
+    const orderId = item.order_id;
+    const orderConcreteVolume = concreteRemisiones
+      .filter(r => r.order_id === orderId)
+      .reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+    const referenceRemision =
+      concreteRemisiones.find(r => r.order_id === orderId) ||
+      pumpRemisiones.find(r => r.order_id === orderId) ||
+      remisiones.find(r => r.order_id === orderId);
+
+    if (!referenceRemision) return;
+
+    const prefix = "A-";
+    const plantaPrefix = requiresInvoice ? "Remision " : "NVRemision ";
+    const dateFormatted = formatDateString(referenceRemision.fecha);
+    const billingType = item.billing_type || 'PER_M3';
+    const baseUnitPrice = Number(item.unit_price || 0);
+    const itemVolume = Number(item.volume || 0);
+
+    const exportVolume =
+      billingType === 'PER_ORDER_FIXED' ? 1 :
+      billingType === 'PER_UNIT' ? itemVolume :
+      orderConcreteVolume;
+
+    const exportUnitPrice =
+      billingType === 'PER_M3'
+        ? itemVolume * baseUnitPrice
+        : baseUnitPrice;
+
+    const codeMatch = item.product_type.match(/\(([^)]+)\)\s*$/);
+    const productCode = codeMatch?.[1] || 'ADDL';
+
+    rows.push([
+      `${prefix}${referenceRemision.remision_number}`,
+      dateFormatted,
+      constructionSite || "N/A",
+      productCode,
+      exportVolume.toFixed(2),
+      exportUnitPrice.toFixed(2),
       `${plantaPrefix}1-SILAO`
     ].join("\t"));
   });
@@ -441,7 +489,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
       
       // Sort by remision_number in ascending order
       const sortedData = [...(data || [])].sort((a, b) => {
-        return a.remision_number.localeCompare(b.remision_number, undefined, { numeric: true });
+        return (a.remision_number ?? '').localeCompare(b.remision_number ?? '', undefined, { numeric: true });
       });
       
       setRemisiones(sortedData);

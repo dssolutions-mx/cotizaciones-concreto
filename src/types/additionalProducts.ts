@@ -1,3 +1,5 @@
+export type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
+
 export interface AdditionalProduct {
   id: string;
   code: string;
@@ -6,6 +8,7 @@ export interface AdditionalProduct {
   category: 'SPECIAL_PRODUCT' | 'SERVICE' | 'MATERIAL' | 'EQUIPMENT' | 'OTHER';
   unit: string;
   base_price: number;
+  billing_type?: BillingType;
   is_active: boolean;
   requires_distance_calculation: boolean;
   distance_rate_per_km?: number;
@@ -23,6 +26,7 @@ export interface QuoteAdditionalProduct {
   margin_percentage: number;
   unit_price: number;
   total_price: number;
+  billing_type?: BillingType;
   notes?: string;
   product?: AdditionalProduct;
   created_at?: string;
@@ -36,6 +40,7 @@ export interface OrderAdditionalProduct {
   quantity: number;
   unit_price: number;
   total_price: number;
+  billing_type?: BillingType;
   notes?: string;
   product?: AdditionalProduct;
   quote_product?: QuoteAdditionalProduct;

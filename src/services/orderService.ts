@@ -11,6 +11,8 @@ import {
 // Import the singleton Supabase client
 import { supabase } from '@/lib/supabase';
 
+type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
+
 export interface OrderCreationParams {
   quote_id: string;
   client_id: string;
@@ -50,6 +52,7 @@ export interface OrderCreationParams {
 }
 
 export async function createOrder(orderData: OrderCreationParams, emptyTruckData?: EmptyTruckDetails | null, pumpServiceData?: PumpServiceDetails | null) {
+  let createdOrderId: string | null = null;
   try {
     // Use the singleton Supabase client instead of creating a new one each time
     // const supabase = createClientComponentClient<Database>();
@@ -107,6 +110,12 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     }
 
     // Revert to direct insert to avoid PostgREST schema cache issues
+    const isConceptOnlyOrder =
+      (!orderData.order_items || orderData.order_items.length === 0) &&
+      (!pumpServiceData || pumpServiceData.volume <= 0) &&
+      (!emptyTruckData || !emptyTruckData.hasEmptyTruckCharge) &&
+      ((orderData.selected_additional_product_ids?.length || 0) > 0);
+
     const orderInsertData: any = {
       quote_id: orderData.quote_id,
       client_id: orderData.client_id,
@@ -120,7 +129,8 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       total_amount: orderData.total_amount,
       order_status: orderData.order_status,
       credit_status: orderData.credit_status,
-      created_by: userId
+      created_by: userId,
+      effective_for_balance: isConceptOnlyOrder
     };
 
     // Add plant_id if inherited from quote
@@ -151,6 +161,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       .single();
 
     if (orderError) throw orderError;
+    createdOrderId = order.id;
     
     // If Yellow/Red, insert validation record with evidence
     if (orderData.site_access_rating && orderData.site_access_rating !== 'green' && orderData.site_validation) {
@@ -278,11 +289,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           .from('quote_additional_products')
           .select(`
             *,
+            billing_type,
             additional_products (
               id,
               name,
               code,
-              unit
+              unit,
+              billing_type
             )
           `);
         
@@ -299,10 +312,20 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         }
         
         const { data: quoteAdditionalProducts, error: additionalError } = await query;
-
         if (additionalError) {
-          console.error('Error fetching quote additional products:', additionalError);
-        } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
+          throw additionalError;
+        }
+
+        if (orderData.selected_additional_product_ids && orderData.selected_additional_product_ids.length > 0) {
+          const selectedIds = Array.from(new Set(orderData.selected_additional_product_ids));
+          const fetchedIds = new Set((quoteAdditionalProducts || []).map((item: any) => item.id));
+          const missingIds = selectedIds.filter((id) => !fetchedIds.has(id));
+          if (missingIds.length > 0) {
+            throw new Error(`No se pudieron cargar todos los productos adicionales seleccionados. Faltantes: ${missingIds.join(', ')}`);
+          }
+        }
+
+        if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
           // Deduplicate products by ID to avoid inserting duplicates
           const uniqueProductsMap = new Map<string, any>();
           quoteAdditionalProducts.forEach((product: any) => {
@@ -328,13 +351,18 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
             const additionalProduct = product.additional_products;
             const productName = additionalProduct?.name || 'Producto Adicional';
             const productCode = additionalProduct?.code || 'ADDL';
+            const billingType: BillingType = (product.billing_type || 'PER_M3') as BillingType;
             
-            // Calculate volume: quantity (per m³) × total concrete volume
-            // For initial creation, use scheduled volume; will be recalculated with delivered volume
-            const itemVolume = product.quantity; // This is the multiplier per m³
             const unitPrice = product.unit_price;
-            // Initial total will be recalculated based on delivered volume
-            const initialTotal = product.quantity * totalConcreteVolume * unitPrice;
+            const quantity = product.quantity || 0;
+            // For PER_M3 we store multiplier in volume; for other types we store executable quantity.
+            const itemVolume = billingType === 'PER_ORDER_FIXED' ? 1 : quantity;
+            const initialTotal =
+              billingType === 'PER_M3'
+                ? quantity * totalConcreteVolume * unitPrice
+                : billingType === 'PER_ORDER_FIXED'
+                  ? unitPrice
+                  : quantity * unitPrice;
             
             return {
               order_id: order.id,
@@ -342,9 +370,10 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
               recipe_id: null,
               master_recipe_id: null,
               product_type: `PRODUCTO ADICIONAL: ${productName} (${productCode})`,
-              volume: itemVolume, // Store the multiplier (quantity per m³)
+              volume: itemVolume,
               unit_price: unitPrice,
-              total_price: initialTotal, // Will be recalculated with delivered volume
+              total_price: initialTotal,
+              billing_type: billingType,
               has_pump_service: false,
               pump_price: null,
               pump_volume: null,
@@ -367,12 +396,21 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         }
       } catch (error) {
         console.error('Error copying additional products:', error);
-        // Don't throw - order is already created, just log the error
+        throw error;
       }
+    }
+
+    // For concept-only orders, force an immediate calculation so totals/balance are available
+    if (isConceptOnlyOrder) {
+      await recalculateOrderAmount(order.id);
     }
 
     return order;
   } catch (error) {
+    if (createdOrderId) {
+      await supabase.from('order_items').delete().eq('order_id', createdOrderId);
+      await supabase.from('orders').delete().eq('id', createdOrderId);
+    }
     console.error('Error in createOrder:', error);
     if (error instanceof Error) {
       throw error;
@@ -722,6 +760,7 @@ export async function updateOrder(id: string, orderData: {
   delivery_google_maps_url?: string | null;
   // Optionally update the linked quote
   quote_id?: string | null;
+  effective_for_balance?: boolean;
 }) {
   try {
     const { data, error } = await supabase
@@ -1693,14 +1732,21 @@ export async function recalculateOrderAmount(orderId: string) {
       )
       .reduce((sum, item) => sum + (item.concrete_volume_delivered || 0), 0) || 0;
     
-    // Calculate additional products amount: volume (multiplier per m³) × delivered volume × unit_price
+    // Calculate additional products amount by billing type.
+    // Legacy rows default to PER_M3.
     const additionalAmount = updatedItems
       ?.filter(item => item.product_type?.startsWith('PRODUCTO ADICIONAL:'))
       .reduce((sum, item) => {
-        const multiplier = item.volume || 0; // This is the quantity per m³
+        const billingType = (item.billing_type || 'PER_M3') as BillingType;
+        const itemVolume = item.volume || 0;
         const unitPrice = item.unit_price || 0;
-        // Multiply multiplier (rate per m³) by delivered concrete volume and unit price
-        return sum + (multiplier * totalConcreteDelivered * unitPrice);
+        if (billingType === 'PER_ORDER_FIXED') {
+          return sum + unitPrice;
+        }
+        if (billingType === 'PER_UNIT') {
+          return sum + (itemVolume * unitPrice);
+        }
+        return sum + (itemVolume * totalConcreteDelivered * unitPrice);
       }, 0) || 0;
     
     // Calculate total final amount with plant-specific VAT rate

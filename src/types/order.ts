@@ -23,6 +23,7 @@ export interface OrderProduct {
   empty_truck_price?: number | null;
   quote_detail_id?: string | null;
   recipe_id?: string | null;
+  billing_type?: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT' | null;
 }
 
 export interface Order {
@@ -46,6 +47,7 @@ export interface Order {
   updated_at?: string | null;
   rejection_reason?: string | null;
   plant_id?: string | null;
+  effective_for_balance?: boolean;
 }
 
 export interface OrderWithClient extends Order {

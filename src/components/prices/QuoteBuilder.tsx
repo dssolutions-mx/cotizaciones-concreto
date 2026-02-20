@@ -11,7 +11,13 @@ import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
 import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
 import { calculateDistanceInfo } from '@/lib/services/distanceService';
-import { getAvailableProducts, getQuoteAdditionalProducts, addProductToQuote as addAdditionalProductToQuote, removeProductFromQuote } from '@/lib/services/additionalProductsService';
+import {
+  getAvailableProducts,
+  getQuoteAdditionalProducts,
+  addProductToQuote as addAdditionalProductToQuote,
+  removeProductFromQuote,
+  updateProductInQuote,
+} from '@/lib/services/additionalProductsService';
 import { DistanceAnalysisPanel } from '@/components/quotes/DistanceAnalysisPanel';
 import { RangeBreakdown } from '@/components/quotes/RangeBreakdown';
 import { AdditionalProductsSelector } from '@/components/quotes/AdditionalProductsSelector';
@@ -759,12 +765,13 @@ export default function QuoteBuilder() {
       return false;
     }
 
-    // Allow quotes with either concrete products or pumping service
+    // Allow quotes with concrete, pumping, or standalone additional products
     const hasConcreteProducts = quoteProducts.length > 0;
     const hasPumpingService = includePumpService && pumpServiceProduct.price > 0;
+    const hasAdditionalProducts = quoteAdditionalProducts.length > 0;
 
-    if (!hasConcreteProducts && !hasPumpingService) {
-      toast.error('Por favor, agregue al menos un producto de concreto o configure un servicio de bombeo');
+    if (!hasConcreteProducts && !hasPumpingService && !hasAdditionalProducts) {
+      toast.error('Por favor, agregue al menos un producto (concreto, bombeo o adicional)');
       return false;
     }
 
@@ -801,6 +808,8 @@ export default function QuoteBuilder() {
   const saveQuote = async () => {
     if (!validateQuote()) return;
 
+    let createdQuoteId: string | null = null;
+
     try {
       setIsLoading(true);
       
@@ -820,6 +829,13 @@ export default function QuoteBuilder() {
         quotePlantId = currentPlant?.id;
         if (!quotePlantId) {
           setPlantValidationError('No se pudo determinar la planta para la cotización de bombeo');
+          return;
+        }
+      } else if (quoteAdditionalProducts.length > 0) {
+        // For additional-products-only quotes, use current plant context
+        quotePlantId = currentPlant?.id;
+        if (!quotePlantId) {
+          setPlantValidationError('No se pudo determinar la planta para la cotización de productos adicionales');
           return;
         }
       }
@@ -882,6 +898,7 @@ export default function QuoteBuilder() {
       };
 
       const createdQuote = await createQuote(quoteData);
+      createdQuoteId = createdQuote.id;
       setCurrentQuoteId(createdQuote.id);
       console.log('[QuoteBuilder] ✓ Quote created:', createdQuote.id, createdQuote.quote_number);
 
@@ -930,16 +947,18 @@ export default function QuoteBuilder() {
         quoteDetailsData.push(pumpDetail);
       }
 
-      // Insertar todos los detalles en una sola operación para mayor eficiencia
-      const { data: insertedDetails, error: detailsError } = await supabase
-        .from('quote_details')
-        .insert(quoteDetailsData);
+      // Insert quote details only when present (standalone additional-products quotes can have zero quote_details)
+      if (quoteDetailsData.length > 0) {
+        const { error: detailsError } = await supabase
+          .from('quote_details')
+          .insert(quoteDetailsData);
 
-      if (detailsError) {
-        console.error('Error inserting quote details:', detailsError);
-        throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
+        if (detailsError) {
+          console.error('Error inserting quote details:', detailsError);
+          throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
+        }
       }
-      console.log('[QuoteBuilder] ✓ Concrete details inserted:', quoteDetailsData.length);
+      console.log('[QuoteBuilder] ✓ Quote details inserted:', quoteDetailsData.length);
 
       // IMPORTANT: Add additional products BEFORE creating product_prices
       // This ensures all products (concrete + additional) are included when creating product_prices
@@ -1015,6 +1034,10 @@ export default function QuoteBuilder() {
 
       return createdQuote;
     } catch (error) {
+      if (createdQuoteId) {
+        // Compensate partial writes if quote creation fails mid-flow.
+        await supabase.from('quotes').delete().eq('id', createdQuoteId);
+      }
       console.error('Error al guardar la cotización:', error);
       toast.error('Error al guardar la cotización: ' + (error instanceof Error ? error.message : 'Error desconocido'));
       throw error;
@@ -1700,7 +1723,7 @@ export default function QuoteBuilder() {
                 <Popover.Trigger asChild>
                   <Button
                     variant="secondary"
-                    className={`w-full justify-start text-left font-normal ${!validityDate && "text-muted-foreground"}`}
+                    className={`w-full justify-start text-left font-normal text-gray-800 ${!validityDate && "text-gray-500"}`}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {validityDate ? format(new Date(validityDate + 'T00:00:00'), 'dd/MM/yyyy') : <span>Seleccionar fecha</span>}
@@ -1775,6 +1798,10 @@ export default function QuoteBuilder() {
                               const product = availableAdditionalProducts.find(p => p.id === productId);
                               if (product) {
                                 const unitPrice = product.base_price * (1 + marginPercentage / 100);
+                                const billingType = product.billing_type || 'PER_M3';
+                                const totalPrice = billingType === 'PER_ORDER_FIXED'
+                                  ? unitPrice
+                                  : quantity * unitPrice;
                                 const newProduct: QuoteAdditionalProduct = {
                                   id: `temp-${Date.now()}`,
                                   quote_id: '',
@@ -1783,7 +1810,8 @@ export default function QuoteBuilder() {
                                   base_price: product.base_price,
                                   margin_percentage: marginPercentage,
                                   unit_price: unitPrice,
-                                  total_price: quantity * unitPrice,
+                                  total_price: totalPrice,
+                                  billing_type: billingType,
                                   product,
                                 };
                                 setQuoteAdditionalProducts([...quoteAdditionalProducts, newProduct]);
@@ -1798,6 +1826,38 @@ export default function QuoteBuilder() {
                             } else {
                               setQuoteAdditionalProducts(quoteAdditionalProducts.filter(p => p.additional_product_id !== productId));
                             }
+                          }}
+                          onUpdateProduct={async (productId, quantity, marginPercentage) => {
+                            if (currentQuoteId) {
+                              await updateProductInQuote(currentQuoteId, productId, quantity, marginPercentage);
+                              const updated = await getQuoteAdditionalProducts(currentQuoteId);
+                              setQuoteAdditionalProducts(updated);
+                              return;
+                            }
+
+                            setQuoteAdditionalProducts((prev) =>
+                              prev.map((item) => {
+                                if (item.additional_product_id !== productId) return item;
+                                const billingType = item.billing_type || item.product?.billing_type || 'PER_M3';
+                                const unitPrice = item.base_price * (1 + marginPercentage / 100);
+                                const totalPrice =
+                                  billingType === 'PER_ORDER_FIXED'
+                                    ? unitPrice
+                                    : quantity * unitPrice;
+                                return {
+                                  ...item,
+                                  quantity,
+                                  margin_percentage: marginPercentage,
+                                  unit_price: unitPrice,
+                                  total_price: totalPrice,
+                                };
+                              })
+                            );
+                          }}
+                          onProductCreated={async () => {
+                            if (!currentPlant?.id) return;
+                            const refreshed = await getAvailableProducts(currentPlant.id);
+                            setAvailableAdditionalProducts(refreshed);
                           }}
                           isLoading={isLoading}
                         />
@@ -1916,10 +1976,20 @@ export default function QuoteBuilder() {
             className="p-3 sm:p-4 border-0 bg-white/80 backdrop-blur-md"
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Button variant="secondary" onClick={clearDraft} disabled={isLoading}>
+              <Button
+                variant="secondary"
+                onClick={clearDraft}
+                disabled={isLoading}
+                className="text-gray-800 hover:text-gray-900"
+              >
                 Limpiar formulario
               </Button>
-              <Button onClick={saveQuote} disabled={isLoading || isCalculatingDistance} loading={isLoading || isCalculatingDistance}>
+              <Button
+                onClick={saveQuote}
+                disabled={isLoading || isCalculatingDistance}
+                loading={isLoading || isCalculatingDistance}
+                className="bg-blue-600 text-neutral-700 hover:bg-blue-700 disabled:bg-blue-300"
+              >
                 Enviar cotización
               </Button>
             </div>
@@ -1928,7 +1998,7 @@ export default function QuoteBuilder() {
       </div>
 
       {/* Bottom Panel: Quote Products */}
-      {(quoteProducts.length > 0 || (includePumpService && pumpServiceProduct.price > 0)) && (
+      {(quoteProducts.length > 0 || quoteAdditionalProducts.length > 0 || (includePumpService && pumpServiceProduct.price > 0)) && (
         <Card variant="thick" className="lg:col-span-3 border-0 p-6">
           <div className="mb-6">
             <h2 className="text-title-3 font-bold text-gray-800 flex items-center gap-2">

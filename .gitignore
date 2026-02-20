@@ -75,6 +75,9 @@ next-env.d.ts
 # Archives and backups
 *.backup
 *.sql
+!supabase/migrations/20260220120000_add_billing_type_and_effective_balance.sql
+!supabase/migrations/20260220230000_add_billing_type_followup_fixes.sql
+!supabase/migrations/20260221101500_add_unique_index_additional_products_code.sql
 *.dump
 *backup*
 

@@ -1,7 +1,9 @@
 import { supabase } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { handleError } from '@/utils/errorHandler';
 import type {
   AdditionalProduct,
+  BillingType,
   QuoteAdditionalProduct,
   OrderAdditionalProduct,
 } from '@/types/additionalProducts';
@@ -9,9 +11,13 @@ import type {
 /**
  * Get available additional products catalog
  */
-export async function getAvailableProducts(plantId?: string): Promise<AdditionalProduct[]> {
+export async function getAvailableProducts(
+  plantId?: string,
+  client?: SupabaseClient
+): Promise<AdditionalProduct[]> {
   try {
-    let query = supabase
+    const db = client || supabase;
+    let query = db
       .from('additional_products')
       .select('*')
       .eq('is_active', true)
@@ -54,6 +60,13 @@ export function calculateProductPrice(basePrice: number, marginPercentage: numbe
   return Math.round(basePrice * (1 + marginPercentage / 100) * 100) / 100;
 }
 
+function calculateQuotedTotal(quantity: number, unitPrice: number, billingType: BillingType = 'PER_M3'): number {
+  if (billingType === 'PER_ORDER_FIXED') {
+    return Math.round(unitPrice * 100) / 100;
+  }
+  return Math.round(quantity * unitPrice * 100) / 100;
+}
+
 /**
  * Add product to quote with base price + margin
  */
@@ -68,7 +81,7 @@ export async function addProductToQuote(
     // Get product base price
     const { data: product, error: productError } = await supabase
       .from('additional_products')
-      .select('base_price')
+      .select('base_price, billing_type')
       .eq('id', productId)
       .single();
 
@@ -77,8 +90,9 @@ export async function addProductToQuote(
     }
 
     const basePrice = product.base_price;
+    const billingType = (product.billing_type || 'PER_M3') as BillingType;
     const unitPrice = calculateProductPrice(basePrice, marginPercentage);
-    const totalPrice = Math.round(quantity * unitPrice * 100) / 100;
+    const totalPrice = calculateQuotedTotal(quantity, unitPrice, billingType);
 
     // Insert into quote_additional_products
     const { data, error } = await supabase
@@ -91,6 +105,7 @@ export async function addProductToQuote(
         margin_percentage: marginPercentage,
         unit_price: unitPrice,
         total_price: totalPrice,
+        billing_type: billingType,
         notes: notes || null,
       })
       .select()
@@ -117,7 +132,7 @@ export async function updateProductMargin(
     // Get current product data
     const { data: quoteProduct, error: fetchError } = await supabase
       .from('quote_additional_products')
-      .select('base_price, quantity')
+      .select('base_price, quantity, billing_type')
       .eq('quote_id', quoteId)
       .eq('additional_product_id', productId)
       .single();
@@ -127,7 +142,11 @@ export async function updateProductMargin(
     }
 
     const unitPrice = calculateProductPrice(quoteProduct.base_price, marginPercentage);
-    const totalPrice = Math.round(quoteProduct.quantity * unitPrice * 100) / 100;
+    const totalPrice = calculateQuotedTotal(
+      quoteProduct.quantity,
+      unitPrice,
+      (quoteProduct.billing_type || 'PER_M3') as BillingType
+    );
 
     // Update
     const { error } = await supabase
@@ -143,6 +162,53 @@ export async function updateProductMargin(
     if (error) throw error;
   } catch (error) {
     const errorMessage = handleError(error, 'updateProductMargin');
+    console.error(errorMessage);
+    throw new Error(errorMessage);
+  }
+}
+
+/**
+ * Update quantity + margin for an additional product in quote
+ */
+export async function updateProductInQuote(
+  quoteId: string,
+  productId: string,
+  quantity: number,
+  marginPercentage: number
+): Promise<void> {
+  try {
+    const { data: quoteProduct, error: fetchError } = await supabase
+      .from('quote_additional_products')
+      .select('base_price, billing_type')
+      .eq('quote_id', quoteId)
+      .eq('additional_product_id', productId)
+      .single();
+
+    if (fetchError || !quoteProduct) {
+      throw new Error('Quote product not found');
+    }
+
+    const unitPrice = calculateProductPrice(quoteProduct.base_price, marginPercentage);
+    const totalPrice = calculateQuotedTotal(
+      quantity,
+      unitPrice,
+      (quoteProduct.billing_type || 'PER_M3') as BillingType
+    );
+
+    const { error } = await supabase
+      .from('quote_additional_products')
+      .update({
+        quantity,
+        margin_percentage: marginPercentage,
+        unit_price: unitPrice,
+        total_price: totalPrice,
+      })
+      .eq('quote_id', quoteId)
+      .eq('additional_product_id', productId);
+
+    if (error) throw error;
+  } catch (error) {
+    const errorMessage = handleError(error, 'updateProductInQuote');
     console.error(errorMessage);
     throw new Error(errorMessage);
   }
