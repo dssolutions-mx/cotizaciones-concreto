@@ -421,7 +421,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
       <Card className="border-blue-200 bg-blue-50/50">
         <CardContent className="p-4">
           <p className="text-sm text-blue-900">
-            <strong>Importante:</strong> Las recetas solo son relevantes para el sistema de cotizaciones cuando las usa QuoteBuilder. QuoteBuilder selecciona la primera variante (ordenada por fecha de versión) que tenga materiales definidos.
+            <strong>Importante:</strong> Las recetas solo son relevantes para el sistema de cotizaciones cuando las usa QuoteBuilder. QuoteBuilder selecciona la variante cuya versión más reciente tenga la fecha de creación más reciente y que tenga materiales definidos.
           </p>
         </CardContent>
       </Card>
@@ -1035,7 +1035,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                                 </TooltipTrigger>
                                                 <TooltipContent>
                                                   <p className="max-w-xs">
-                                                    Esta variante es la que QuoteBuilder usa para cotizar: la primera (por fecha de versión) con materiales definidos. Las recetas solo son relevantes para cotizaciones cuando las usa QuoteBuilder.
+                                                    Esta variante es la que QuoteBuilder usa: tiene la versión más reciente (mayor fecha de creación de versión) con materiales definidos. Las recetas solo son relevantes para cotizaciones cuando las usa QuoteBuilder.
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>
@@ -1051,7 +1051,7 @@ export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovern
                                                 </TooltipTrigger>
                                                 <TooltipContent>
                                                   <p className="max-w-xs">
-                                                    QuoteBuilder usa otra variante (la primera con materiales, ordenada por fecha). Esta variante no afecta las cotizaciones.
+                                                    QuoteBuilder usa la variante con la versión más recientemente actualizada que tenga materiales. Esta variante no afecta las cotizaciones.
                                                   </p>
                                                 </TooltipContent>
                                               </Tooltip>

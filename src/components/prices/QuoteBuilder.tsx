@@ -249,7 +249,9 @@ export default function QuoteBuilder() {
         return;
       }
 
-      // Fetch variants for this master
+      // Fetch variants for this master.
+      // Main factor: the variant whose LATEST VERSION has the most recent created_at.
+      // A 10-month-old variant that was just updated (new version) takes priority.
       const { data: variantsRaw, error: variantsError } = await supabase
         .from('recipes')
         .select('id, recipe_code, plant_id')
@@ -261,23 +263,29 @@ export default function QuoteBuilder() {
         return;
       }
 
-      // Order variants by latest version's created_at DESC (RecipeGovernance alignment)
-      // Prefer the variant with the most recently updated version (e.g. 2-02L over 2-00M)
-      const { data: versions } = await supabase
+      // Get the latest version per variant and sort by version created_at DESC
+      const { data: versionRows } = await supabase
         .from('recipe_versions')
-        .select('recipe_id, created_at')
+        .select('recipe_id, created_at, effective_date')
         .in('recipe_id', variantsRaw.map((v: { id: string }) => v.id))
         .order('created_at', { ascending: false });
-      const latestVersionByRecipe = new Map<string, string>();
-      for (const v of versions || []) {
-        if (!latestVersionByRecipe.has(v.recipe_id)) {
-          latestVersionByRecipe.set(v.recipe_id, v.created_at);
+
+      const latestVersionDateByVariant = new Map<string, number>();
+      for (const v of versionRows || []) {
+        if (!latestVersionDateByVariant.has(v.recipe_id)) {
+          const ts = v.created_at
+            ? new Date(v.created_at).getTime()
+            : v.effective_date
+              ? new Date(v.effective_date).getTime()
+              : 0;
+          latestVersionDateByVariant.set(v.recipe_id, ts);
         }
       }
+
       const variants = [...variantsRaw].sort((a, b) => {
-        const aDate = latestVersionByRecipe.get(a.id) || '';
-        const bDate = latestVersionByRecipe.get(b.id) || '';
-        return bDate.localeCompare(aDate); // newest first
+        const aTs = latestVersionDateByVariant.get(a.id) ?? 0;
+        const bTs = latestVersionDateByVariant.get(b.id) ?? 0;
+        return bTs - aTs; // newest version first
       });
 
       // IMPORTANT: Quote builder always calculates fresh prices from materials

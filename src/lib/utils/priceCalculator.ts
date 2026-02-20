@@ -10,7 +10,7 @@ interface MaterialQuantity {
 
 /**
  * Helper function to find a recipe version with materials
- * Iterates through versions ordered by created_at descending until finding one with materials
+ * Iterates through versions ordered by created_at descending (effective_date fallback when created_at is null)
  * @param recipeId - The recipe ID to search for
  * @returns Object with version ID and materials, or throws error if none found
  */
@@ -18,15 +18,18 @@ async function getRecipeVersionWithMaterials(recipeId: string): Promise<{
   versionId: string;
   materials: MaterialQuantity[];
 }> {
-  // Get all recipe versions ordered by created_at descending
-  const { data: versions, error: versionsError } = await supabase
+  const { data: versionsRaw, error: versionsError } = await supabase
     .from('recipe_versions')
-    .select('id, created_at')
-    .eq('recipe_id', recipeId)
-    .order('created_at', { ascending: false });
-
+    .select('id, created_at, effective_date')
+    .eq('recipe_id', recipeId);
   if (versionsError) throw versionsError;
-  if (!versions || versions.length === 0) {
+
+  const versionDate = (v: { created_at?: string | null; effective_date?: string | null }) =>
+    (v.created_at ? new Date(v.created_at).getTime() : null) ??
+    (v.effective_date ? new Date(v.effective_date).getTime() : 0);
+  const versions = (versionsRaw || []).sort((a, b) => versionDate(b) - versionDate(a));
+
+  if (versions.length === 0) {
     throw new Error(`No recipe versions found for recipe ${recipeId}`);
   }
 

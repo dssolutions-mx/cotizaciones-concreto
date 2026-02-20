@@ -153,35 +153,38 @@ function validateRecipeMaterials(materials: MaterialQuantityWithDetails[], isQuo
 
 /**
  * Determine which variant QuoteBuilder would actually use for a master.
- * QuoteBuilder sorts variants by latest version created_at DESC, then picks
- * the first variant whose latest version has materials (can calculate base price).
- * Matches logic in QuoteBuilder.addMasterToQuote and calculateBasePrice.
- * Recipes are relevant for the quotation system only when used by QuoteBuilder.
+ * Main factor: which variant has the most recently created VERSION.
+ * A 10-month-old variant that was just updated (new version created) takes priority
+ * over a newer variant that hasn't been updated. Picks the first variant
+ * (by latest version created_at DESC) whose latest version has materials.
  */
 function getQuoteBuilderVariantId(
   recipeVariants: Array<{ id: string; recipe_code: string }>,
   latestVersionMap: Map<string, any>,
   materialsByVersion: Map<string, MaterialQuantityWithDetails[]>
 ): { variantId: string | null; variantCode: string | null; versionCreatedAt: Date | null } {
+  const versionSortKey = (v: any) => {
+    const fromCreated = v?.created_at ? new Date(v.created_at).getTime() : NaN;
+    const fromEffective = v?.effective_date ? new Date(v.effective_date).getTime() : 0;
+    return (!Number.isNaN(fromCreated) ? fromCreated : fromEffective) || 0;
+  };
+
   const variantsWithLatest = recipeVariants
     .map((r: any) => ({
       variant: r,
       latestVersion: latestVersionMap.get(r.id),
     }))
     .filter((v) => v.latestVersion)
-    .sort(
-      (a, b) =>
-        new Date(b.latestVersion.created_at).getTime() -
-        new Date(a.latestVersion.created_at).getTime()
-    );
+    .sort((a, b) => versionSortKey(b.latestVersion) - versionSortKey(a.latestVersion));
 
   for (const { variant, latestVersion } of variantsWithLatest) {
     const materials = materialsByVersion.get(latestVersion.id) || [];
     if (materials.length > 0) {
+      const ts = latestVersion.created_at ?? latestVersion.effective_date;
       return {
         variantId: variant.id,
         variantCode: variant.recipe_code,
-        versionCreatedAt: new Date(latestVersion.created_at),
+        versionCreatedAt: ts ? new Date(ts) : null,
       };
     }
   }
@@ -210,7 +213,8 @@ export const recipeGovernanceService = {
           recipes!recipes_master_recipe_id_fkey(
             id,
             recipe_code,
-            variant_suffix
+            variant_suffix,
+            created_at
           )
         `)
         .eq('plant_id', plantId)
@@ -252,31 +256,32 @@ export const recipeGovernanceService = {
         }));
       }
 
-      // 3. Fetch all versions first (needed to get version IDs for material quantities)
+      // 3. Fetch all versions (created_at is main factor; effective_date fallback for older schema)
       const { data: allVersions, error: versionsError } = await supabase
         .from('recipe_versions')
-        .select('id, recipe_id, version_number, created_at, is_current')
+        .select('id, recipe_id, version_number, created_at, effective_date, is_current')
         .in('recipe_id', variantIds)
         .order('created_at', { ascending: false });
 
       if (versionsError) throw versionsError;
 
-      // 4. Group versions by recipe_id and get latest (by created_at)
+      const versionDate = (v: any) =>
+        v.created_at ? new Date(v.created_at).getTime() : (v.effective_date ? new Date(v.effective_date).getTime() : 0);
+
+      // 4. Group versions by recipe_id and get latest (by created_at, fallback effective_date)
       const latestVersionMap = new Map<string, any>();
       const versionMap = new Map<string, any[]>();
 
       allVersions.forEach((v: any) => {
         const recipeId = v.recipe_id;
-        
-        // Track all versions for this recipe
+
         if (!versionMap.has(recipeId)) {
           versionMap.set(recipeId, []);
         }
         versionMap.get(recipeId)!.push(v);
 
-        // Track latest version (by created_at)
         const existing = latestVersionMap.get(recipeId);
-        if (!existing || new Date(v.created_at) > new Date(existing.created_at)) {
+        if (!existing || versionDate(v) > versionDate(existing)) {
           latestVersionMap.set(recipeId, v);
         }
       });
