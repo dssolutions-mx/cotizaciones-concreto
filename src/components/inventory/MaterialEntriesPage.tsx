@@ -211,13 +211,14 @@ export default function MaterialEntriesPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <EntriesStatistics entries={entries} dateRange={dateRange} />
+              <EntriesStatistics entries={entries} dateRange={dateRange} hideCost={userRole === 'DOSIFICADOR'} />
               <MaterialEntriesList 
                 dateRange={dateRange}
                 poId={poIdFromUrl}
                 isEditing={true}
                 key={refreshList}
                 onEntriesLoaded={setEntries}
+                hidePrices={userRole === 'DOSIFICADOR'}
               />
             </CardContent>
           </Card>

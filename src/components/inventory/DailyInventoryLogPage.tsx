@@ -385,12 +385,13 @@ export default function DailyInventoryLogPage() {
             </TabsList>
             
             <TabsContent value="entries" className="mt-6 space-y-6">
-              <DailyEntriesChart entries={entries} date={selectedDate} />
+              <DailyEntriesChart entries={entries} date={selectedDate} hideCost={profile?.role === 'DOSIFICADOR'} />
               <MaterialEntriesList 
                 date={selectedDate} 
                 isEditing={!dailyLog?.is_closed && canEdit}
                 key={refreshKey}
                 onEntriesLoaded={setEntries}
+                hidePrices={profile?.role === 'DOSIFICADOR'}
               />
             </TabsContent>
             

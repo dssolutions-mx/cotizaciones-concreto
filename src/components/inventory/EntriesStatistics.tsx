@@ -11,9 +11,11 @@ import { es } from 'date-fns/locale'
 interface EntriesStatisticsProps {
   entries: MaterialEntry[]
   dateRange?: { from: Date | undefined; to: Date | undefined }
+  /** Hide cost stats for roles without access (e.g. DOSIFICADOR) */
+  hideCost?: boolean
 }
 
-export default function EntriesStatistics({ entries, dateRange }: EntriesStatisticsProps) {
+export default function EntriesStatistics({ entries, dateRange, hideCost }: EntriesStatisticsProps) {
   const stats = useMemo(() => {
     const totalEntries = entries.length
     const totalQuantity = entries.reduce((sum, e) => sum + (e.quantity_received || 0), 0)
@@ -67,12 +69,14 @@ export default function EntriesStatistics({ entries, dateRange }: EntriesStatist
         iconColor="text-green-600"
         subtitle="Unidades recibidas"
       />
-      <StatCard
-        title="Costo Total"
-        value={`$${stats.totalCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-        icon={DollarSign}
-        iconColor="text-purple-600"
-      />
+      {!hideCost && (
+        <StatCard
+          title="Costo Total"
+          value={`$${stats.totalCost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          icon={DollarSign}
+          iconColor="text-purple-600"
+        />
+      )}
       <StatCard
         title="Materiales Únicos"
         value={stats.uniqueMaterials}

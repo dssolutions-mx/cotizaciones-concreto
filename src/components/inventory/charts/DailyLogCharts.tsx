@@ -24,7 +24,7 @@ interface DailyLogChartsProps {
   date: Date
 }
 
-export function DailyEntriesChart({ entries, date }: { entries: MaterialEntry[]; date: Date }) {
+export function DailyEntriesChart({ entries, date, hideCost }: { entries: MaterialEntry[]; date: Date; hideCost?: boolean }) {
   const chartData = useMemo(() => {
     const byMaterial = entries.reduce((acc, entry) => {
       const materialName = entry.material?.material_name || entry.material_id.substring(0, 8)
@@ -84,7 +84,7 @@ export function DailyEntriesChart({ entries, date }: { entries: MaterialEntry[];
                       <p className="text-sm text-green-600">
                         Cantidad: {data.quantity.toFixed(2)} {data.unit}
                       </p>
-                      {data.cost > 0 && (
+                      {!hideCost && data.cost > 0 && (
                         <p className="text-sm text-blue-600">
                           Costo: ${data.cost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </p>

@@ -29,6 +29,8 @@ interface MaterialEntriesListProps {
   poId?: string
   isEditing: boolean
   onEntriesLoaded?: (entries: MaterialEntry[]) => void
+  /** Hide prices and cost info for roles without access (e.g. DOSIFICADOR) */
+  hidePrices?: boolean
 }
 
 // Documents Section Component
@@ -133,7 +135,7 @@ function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: 
   )
 }
 
-export default function MaterialEntriesList({ date, dateRange, poId, isEditing, onEntriesLoaded }: MaterialEntriesListProps) {
+export default function MaterialEntriesList({ date, dateRange, poId, isEditing, onEntriesLoaded, hidePrices }: MaterialEntriesListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -240,10 +242,12 @@ export default function MaterialEntriesList({ date, dateRange, poId, isEditing, 
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <Badge variant="outline" className="text-xs">Entrada</Badge>
-                {entry.pricing_status === 'reviewed' ? (
-                  <Badge variant="default" className="bg-green-600 text-xs">Revisado</Badge>
-                ) : (
-                  <Badge variant="secondary" className="bg-yellow-500 text-white text-xs">Pendiente</Badge>
+                {!hidePrices && (
+                  entry.pricing_status === 'reviewed' ? (
+                    <Badge variant="default" className="bg-green-600 text-xs">Revisado</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="bg-yellow-500 text-white text-xs">Pendiente</Badge>
+                  )
                 )}
                 {isEditing && (
                   <Button variant="ghost" size="sm" className="h-10 w-10 p-0">
@@ -280,8 +284,8 @@ export default function MaterialEntriesList({ date, dateRange, poId, isEditing, 
               </div>
             </div>
 
-            {/* Cost Information */}
-            {(entry.unit_price || entry.total_cost || entry.fleet_cost) && (
+            {/* Cost Information - hidden for roles without access (e.g. dosificador) */}
+            {!hidePrices && (entry.unit_price || entry.total_cost || entry.fleet_cost) && (
               <div className="p-3 bg-gray-50 rounded-lg">
                 <h5 className="text-sm font-medium text-gray-900 mb-2">Información de Costos</h5>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
