@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       { name: 'Rechazada', value: statusCounts['Rechazada'] }
     ];
 
-    // Get pending quotes for the table - using correct schema
+    // Get pending quotes for the table - include recipe data for approval context
     let pendingQuotesQuery = serviceClient
       .from('quotes')
       .select(`
@@ -67,7 +67,23 @@ export async function GET(request: Request) {
           business_name
         ),
         quote_details (
-          total_amount
+          id,
+          volume,
+          final_price,
+          pump_service,
+          pump_price,
+          recipe_id,
+          master_recipe_id,
+          recipes (
+            recipe_code,
+            strength_fc,
+            placement_type
+          ),
+            master_recipes (
+              master_code,
+              strength_fc,
+              placement_type
+            )
         )
       `)
       .eq('status', 'PENDING_APPROVAL')
@@ -83,12 +99,30 @@ export async function GET(request: Request) {
 
     if (pendingError) throw pendingError;
 
-    // Format pending quotes for table display - calculate total from quote_details
+    // Format pending quotes - include recipe summary so price makes sense
     const formattedPendingQuotes = pendingQuotes?.map(quote => {
-      // Calculate total amount from quote_details
-      const totalAmount = (quote.quote_details as any)?.reduce(
-        (sum: number, detail: { total_amount?: number }) => sum + (Number(detail.total_amount) || 0), 0
-      ) || 0;
+      const details = (quote.quote_details as any[]) || [];
+      let totalAmount = 0;
+      const recipeLines: string[] = [];
+
+      for (const d of details) {
+        const vol = Number(d.volume) || 0;
+        const price = Number(d.final_price) || 0;
+        const pumpPrice = d.pump_service && d.pump_price ? Number(d.pump_price) * vol : 0;
+        totalAmount += price * vol + pumpPrice;
+
+        const recipe = Array.isArray(d.recipes) ? d.recipes[0] : d.recipes;
+        const master = Array.isArray(d.master_recipes) ? d.master_recipes[0] : d.master_recipes;
+        const code = recipe?.recipe_code || master?.master_code || 'N/A';
+        const strengthFc = recipe?.strength_fc ?? master?.strength_fc;
+        const placementType = recipe?.placement_type ?? master?.placement_type;
+        const fc = strengthFc ? `f'c ${strengthFc}` : '';
+        const placement = placementType === 'D' ? 'Directa' : placementType === 'B' ? 'Bombeado' : '';
+        const label = [fc, code, placement].filter(Boolean).join(' • ') || code;
+        recipeLines.push(`${label} ${vol}m³`);
+      }
+
+      const recipeSummary = recipeLines.length > 0 ? recipeLines.join(' · ') : 'Sin especificar';
 
       return {
         id: quote.id,
@@ -96,7 +130,8 @@ export async function GET(request: Request) {
         date: format(new Date(quote.created_at), 'dd/MM/yyyy'),
         amount: `$${totalAmount.toLocaleString('es-MX')}`,
         status: 'Pendiente',
-        constructionSite: quote.construction_site || 'Sin especificar'
+        constructionSite: quote.construction_site || 'Sin especificar',
+        recipeSummary
       };
     }) || [];
 

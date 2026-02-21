@@ -38,6 +38,7 @@ interface PendingQuote {
   amount: string;
   status: string;
   constructionSite: string;
+  recipeSummary?: string;
 }
 
 // Enhanced dashboard metrics interface
@@ -295,10 +296,13 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
         >
           <div className="flex-1 min-w-0">
             <p className="text-callout text-gray-900 truncate">{quote.client}</p>
-            <p className="text-footnote text-muted-foreground">{quote.date}</p>
+            <p className="text-footnote text-muted-foreground">
+              {quote.recipeSummary && <span className="text-gray-700">{quote.recipeSummary}</span>}
+              {quote.recipeSummary && ' · '}
+              {quote.amount} · {quote.date}
+            </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <span className="text-callout font-medium text-gray-900">{quote.amount}</span>
             <Badge variant="warning">{quote.status}</Badge>
             <ExternalLink className="h-4 w-4 text-muted-foreground" />
           </div>
@@ -386,9 +390,13 @@ function DashboardContent() {
     return null;
   };
 
+  // Roles that need to see the "Cotizaciones Pendientes" list (create/approve quotes)
+  const quoteListRelevantRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'SALES_AGENT', 'EXTERNAL_SALES_AGENT'];
+  const showQuotesList = profile?.role && quoteListRelevantRoles.includes(profile.role);
+
   // Role-based metrics: show relevant data per role
   const roleMetricsMap: Record<string, string[]> = {
-    DOSIFICADOR: ['todayOrders', 'pendingQuotes', 'monthlySales'],
+    DOSIFICADOR: ['todayOrders', 'monthlySales'],
     CREDIT_VALIDATOR: ['pendingCreditOrders', 'totalOutstandingBalance', 'todayOrders'],
     SALES_AGENT: ['monthlyQuotes', 'pendingQuotes', 'activeClients'],
     ADMINISTRATIVE: ['pendingCreditOrders', 'todayOrders', 'totalOutstandingBalance'],
@@ -492,7 +500,8 @@ function DashboardContent() {
       </div>
       )}
 
-      {/* Cotizaciones pendientes */}
+      {/* Cotizaciones pendientes - only for roles that create/approve quotes */}
+      {showQuotesList && (
       <div className="grid grid-cols-1 gap-6">
         <motion.div 
           className="glass-base rounded-2xl p-6 @container"
@@ -509,6 +518,7 @@ function DashboardContent() {
           <PendingQuotesList isLoading={isLoadingQuotes} />
         </motion.div>
       </div>
+      )}
     </div>
   );
 }

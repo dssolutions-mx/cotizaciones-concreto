@@ -30,6 +30,7 @@ export interface PendingQuote {
   amount: string;
   status: string;
   constructionSite: string;
+  recipeSummary?: string;
 }
 
 const fetcher = async (url: string) => {

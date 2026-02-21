@@ -37,7 +37,13 @@ export function QuoteApprovalRow({ quote, onApprove, onReject, isActing }: Quote
             </Link>
           </div>
           <p className="text-footnote text-muted-foreground">
-            {quote.amount} • {quote.date} • {quote.constructionSite}
+            {quote.recipeSummary ? (
+              <>
+                <span className="text-gray-700 font-medium">{quote.recipeSummary}</span>
+                {' · '}
+              </>
+            ) : null}
+            {quote.amount} · {quote.date} · {quote.constructionSite}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
