@@ -71,7 +71,7 @@ async function getAuthedUserAndProfile(req: NextRequest) {
   const service = createServiceClient();
   const { data: profile } = await service
     .from('user_profiles')
-    .select('id, role')
+    .select('id, role, plant_id, business_unit_id')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
     const pageSize = Math.min(Math.max(body.pageSize ?? 50, 10), 250);
     const page = isExport ? 1 : Math.max(body.page ?? 1, 1);
 
-    const plantIds = (body.plantIds ?? []).filter(Boolean);
+    const plantIdsFromBody = (body.plantIds ?? []).filter(Boolean);
     const driverFilters = (body.drivers ?? []).map(normalizeKey).filter(Boolean);
     const truckFilters = (body.trucks ?? []).map(normalizeKey).filter(Boolean);
     const day = body.day ? toYyyyMmDd(body.day) : null;
@@ -132,6 +132,27 @@ export async function POST(request: NextRequest) {
     // Verify service client is properly configured (service role key bypasses all RLS)
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       console.error('[HR API] SUPABASE_SERVICE_ROLE_KEY is not set - RLS bypass may not work correctly');
+    }
+
+    // Compute effective plant filter for DOSIFICADOR/PLANT_MANAGER (hierarchical model)
+    // - plant_id: locked to that plant
+    // - business_unit_id (no plant): can switch within BU; intersect with body.plantIds
+    // - neither: no restriction, use body as-is
+    let effectivePlantIds: string[] = plantIdsFromBody;
+    if (profile && (profile.role === 'DOSIFICADOR' || profile.role === 'PLANT_MANAGER')) {
+      if (profile.plant_id) {
+        effectivePlantIds = [profile.plant_id];
+      } else if (profile.business_unit_id) {
+        const { data: buPlants } = await service
+          .from('plants')
+          .select('id')
+          .eq('business_unit_id', profile.business_unit_id);
+        const buPlantIds = (buPlants ?? []).map((p: { id: string }) => p.id);
+        effectivePlantIds =
+          plantIdsFromBody.length > 0
+            ? plantIdsFromBody.filter((id) => buPlantIds.includes(id))
+            : buPlantIds;
+      }
     }
 
     // Build base query (will be reused for pagination)
@@ -165,7 +186,7 @@ export async function POST(request: NextRequest) {
         .order('fecha', { ascending: true });
 
       if (includeTypes.length > 0) q = q.in('tipo_remision', includeTypes);
-      if (plantIds.length > 0) q = q.in('plant_id', plantIds);
+      if (effectivePlantIds.length > 0) q = q.in('plant_id', effectivePlantIds);
 
       if (search) {
         const term = search.replace(/[%_]/g, '\\$&');

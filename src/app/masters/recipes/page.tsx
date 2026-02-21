@@ -129,7 +129,7 @@ export default function MasterRecipesManagementPage() {
         (allPrices || []).map((p: any) => p.master_recipe_id).filter(Boolean)
       );
 
-      // Step 3: Batch fetch all usage counts for all variants in one query
+      // Step 3: Batch fetch all usage counts for all variants (chunked to avoid URL size limits)
       const allVariantIds = masterRows.flatMap((m: any) => 
         (m.recipes || []).map((r: any) => r.id)
       );
@@ -143,16 +143,24 @@ export default function MasterRecipesManagementPage() {
         ? allVariantIds 
         : ['00000000-0000-0000-0000-000000000000'];
 
-      const { data: usageData, error: usageErr } = await supabase
-        .from('remisiones')
-        .select('recipe_id')
-        .in('recipe_id', variantIdsForQuery)
-        .gte('fecha', dateString);
-
-      if (usageErr) throw usageErr;
+      const CHUNK_SIZE = 500;
+      const usageRows: { recipe_id: string }[] = [];
+      for (let i = 0; i < variantIdsForQuery.length; i += CHUNK_SIZE) {
+        const chunk = variantIdsForQuery.slice(i, i + CHUNK_SIZE);
+        const { data: chunkData, error: usageErr } = await supabase
+          .from('remisiones')
+          .select('recipe_id')
+          .in('recipe_id', chunk)
+          .gte('fecha', dateString);
+        if (usageErr) {
+          console.error('[MastersRecipes] remisiones chunk error:', usageErr);
+          throw usageErr;
+        }
+        if (chunkData) usageRows.push(...chunkData);
+      }
 
       // Aggregate usage counts by recipe_id
-      const usageByRecipeId = (usageData || []).reduce((acc: Record<string, number>, r: any) => {
+      const usageByRecipeId = usageRows.reduce((acc: Record<string, number>, r: any) => {
         if (r.recipe_id) {
           acc[r.recipe_id] = (acc[r.recipe_id] || 0) + 1;
         }

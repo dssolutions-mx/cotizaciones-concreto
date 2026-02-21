@@ -6,6 +6,7 @@ import { es } from 'date-fns/locale';
 import { DateRange } from 'react-day-picker';
 import { useDebounce } from 'use-debounce';
 
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -51,6 +52,7 @@ function escapeCsv(value: any) {
 }
 
 export default function WeeklyRemisionesReport() {
+  const { profile } = useAuthBridge();
   const [dateRange, setDateRange] = useState<DateRange>(initialWeekRange());
   const [filters, setFilters] = useState<DriverTruckFiltersValue>({
     drivers: [],
@@ -100,6 +102,13 @@ export default function WeeklyRemisionesReport() {
       setLoading(false);
     }
   }, [startDate, endDate, page, pageSize, debouncedSearch, filters]);
+
+  // Pre-fill plant filter for DOSIFICADOR with plant_id (API enforces server-side regardless)
+  useEffect(() => {
+    if (profile?.role === 'DOSIFICADOR' && profile?.plant_id && filters.plantIds.length === 0) {
+      setFilters((prev) => ({ ...prev, plantIds: [profile.plant_id] }));
+    }
+  }, [profile?.role, profile?.plant_id]);
 
   // Reset pagination when query changes
   useEffect(() => {
