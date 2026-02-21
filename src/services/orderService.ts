@@ -1514,8 +1514,10 @@ export async function deleteOrder(orderId: string) {
 
 // New function to recalculate an order's final amount
 export async function recalculateOrderAmount(orderId: string) {
+  const errorContext = { orderId, step: 'init' as string };
   try {
     // First, check if there are any remisiones for this order
+    errorContext.step = 'fetch_remisiones';
     const { data: remisiones, error: remisionesError } = await supabase
       .from('remisiones')
       .select('id, volumen_fabricado, tipo_remision, recipe_id, master_recipe_id, remision_number')
@@ -1524,6 +1526,7 @@ export async function recalculateOrderAmount(orderId: string) {
     if (remisionesError) throw remisionesError;
     
     // Get order details to know if it requires invoice and plant_id
+    errorContext.step = 'fetch_order';
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
       .select('requires_invoice, client_id, construction_site, plant_id')
@@ -1533,6 +1536,7 @@ export async function recalculateOrderAmount(orderId: string) {
     if (orderError) throw orderError;
     
     // Get plant VAT rate
+    errorContext.step = 'fetch_plant_vat';
     let vatRate = 0.16; // Default fallback
     if (orderData.plant_id) {
       const { data: plantData, error: plantError } = await supabase
@@ -1553,6 +1557,7 @@ export async function recalculateOrderAmount(orderId: string) {
     }
     
     // Get all order items
+    errorContext.step = 'fetch_order_items';
     const { data: orderItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
@@ -1561,6 +1566,7 @@ export async function recalculateOrderAmount(orderId: string) {
     if (itemsError) throw itemsError;
     
     // Step 1: Reset all concrete_volume_delivered and pump_volume_delivered to 0
+    errorContext.step = 'reset_delivered_volumes';
     await supabase
       .from('order_items')
       .update({ 
@@ -1570,6 +1576,7 @@ export async function recalculateOrderAmount(orderId: string) {
       .eq('order_id', orderId);
     
     // Step 2: Update delivered volumes based on remisiones
+    errorContext.step = 'update_delivered_volumes';
     if (remisiones && remisiones.length > 0) {
       // Match concrete remisiones to specific order items by recipe/master_recipe
       const concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
@@ -1678,6 +1685,7 @@ export async function recalculateOrderAmount(orderId: string) {
     }
     
     // Step 3: Calculate the final amount manually since we understand the logic better
+    errorContext.step = 'recalculate_amounts';
     const { data: updatedItems, error: updatedItemsError } = await supabase
       .from('order_items')
       .select('*')
@@ -1754,6 +1762,7 @@ export async function recalculateOrderAmount(orderId: string) {
     const invoiceAmount = orderData.requires_invoice ? finalAmount * (1 + vatRate) : finalAmount;
     
     // Update the order with new amounts
+    errorContext.step = 'update_order';
     const { error: updateOrderError } = await supabase
       .from('orders')
         .update({ 
@@ -1766,6 +1775,7 @@ export async function recalculateOrderAmount(orderId: string) {
     if (updateOrderError) throw updateOrderError;
     
     // Update client balance
+    errorContext.step = 'update_client_balance';
     const { error: balanceError } = await supabase.rpc('update_client_balance', {
       p_client_id: orderData.client_id,
       p_site_name: orderData.construction_site
@@ -1780,8 +1790,16 @@ export async function recalculateOrderAmount(orderId: string) {
     };
     
   } catch (error) {
-    console.error('Error in recalculateOrderAmount:', error);
-    throw error;
+    // Normalize error for diagnostics: avoid opaque {} from non-Error throws (e.g. timeout, RPC)
+    const errMsg =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null
+          ? JSON.stringify(error)
+          : String(error);
+    const contextMsg = `[recalculateOrderAmount] orderId=${orderId} step=${errorContext.step}`;
+    console.error(contextMsg, errMsg || '(no message)', error);
+    throw new Error(`${contextMsg}: ${errMsg || 'Unknown error'}`, { cause: error });
   }
 }
 

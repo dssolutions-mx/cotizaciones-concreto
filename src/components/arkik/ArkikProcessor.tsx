@@ -1324,28 +1324,47 @@ Fin del reporte
 
         // OPTIMIZATION: Batch recalculate all affected orders in parallel
         if (affectedOrderIds.size > 0) {
-          console.log(`[ArkikProcessor] 🔄 Batch recalculating ${affectedOrderIds.size} affected orders...`);
+          const uniqueOrderIds = Array.from(new Set(affectedOrderIds));
+          console.log(`[ArkikProcessor] 🔄 Batch recalculating ${uniqueOrderIds.length} affected orders...`);
           
           try {
             const { recalculateOrderAmount } = await import('@/services/orderService');
             
-            // Recalculate all orders in parallel
+            // First pass: recalculate all orders in parallel
             const recalcResults = await Promise.allSettled(
-              Array.from(affectedOrderIds).map(orderId => recalculateOrderAmount(orderId))
+              uniqueOrderIds.map(orderId => recalculateOrderAmount(orderId))
             );
             
             const successCount = recalcResults.filter(r => r.status === 'fulfilled').length;
             const failureCount = recalcResults.filter(r => r.status === 'rejected').length;
+            const failedOrderIds: string[] = [];
+            recalcResults.forEach((result, index) => {
+              if (result.status === 'rejected') {
+                failedOrderIds.push(uniqueOrderIds[index]);
+                console.error(`[ArkikProcessor] ❌ Recalculation failed for orderId=${uniqueOrderIds[index]}:`, result.reason);
+              }
+            });
             
-            console.log(`[ArkikProcessor] ✅ Batch recalculation complete: ${successCount} succeeded, ${failureCount} failed`);
+            let retriedOk = 0;
+            let retriedFailed = 0;
             
-            if (failureCount > 0) {
-              recalcResults.forEach((result, index) => {
-                if (result.status === 'rejected') {
-                  console.error(`[ArkikProcessor] ❌ Recalculation failed for order:`, Array.from(affectedOrderIds)[index], result.reason);
+            // One controlled retry for transient failures (e.g. timeout, network)
+            if (failedOrderIds.length > 0) {
+              console.log(`[ArkikProcessor] 🔄 Retrying ${failedOrderIds.length} failed recalculations (1 attempt)...`);
+              const retryResults = await Promise.allSettled(
+                failedOrderIds.map(orderId => recalculateOrderAmount(orderId))
+              );
+              retryResults.forEach((result, index) => {
+                if (result.status === 'fulfilled') {
+                  retriedOk++;
+                } else {
+                  retriedFailed++;
+                  console.error(`[ArkikProcessor] ❌ Retry failed for orderId=${failedOrderIds[index]}:`, result.reason);
                 }
               });
             }
+            
+            console.log(`[ArkikProcessor] ✅ Batch recalculation complete: ok=${successCount} failed=${failureCount} retried_ok=${retriedOk} retried_failed=${retriedFailed}`);
           } catch (recalcError) {
             console.error('[ArkikProcessor] ❌ Error during batch recalculation:', recalcError);
           }
