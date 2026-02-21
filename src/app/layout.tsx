@@ -51,6 +51,7 @@ import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
 import { cn } from '@/lib/utils';
 import AuthInitializer from '@/components/auth/auth-initializer';
+import { ReleaseAnnouncementGate } from '@/components/release/ReleaseAnnouncementGate';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BotIdClient } from 'botid/client';
@@ -1253,6 +1254,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {/* Always render Navigation; it will handle landing internally */}
               <Navigation>{children}</Navigation>
             </ErrorBoundary>
+            <ReleaseAnnouncementGate />
             <Toaster />
             <SonnerToaster position="top-right" richColors/>
             <Analytics />
