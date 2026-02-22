@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 
 export async function GET(
   request: NextRequest,
@@ -7,8 +9,11 @@ export async function GET(
 ) {
   try {
     console.log('Order totals API called');
-    
-    // Test Supabase connection
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     const supabase = createServiceClient();
     console.log('Supabase client created');
     

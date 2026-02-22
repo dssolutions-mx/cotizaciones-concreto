@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { format } from 'date-fns';
 import { createAdminClientForApi, isUsingFallbackEnv } from '@/lib/supabase/api';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 
 // Create a Supabase client with the service role key to bypass RLS
 const supabaseAdmin = createAdminClientForApi();
 
 export async function POST(request: NextRequest) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     // Verify we have real credentials before proceeding
     if (isUsingFallbackEnv) {
       return NextResponse.json(

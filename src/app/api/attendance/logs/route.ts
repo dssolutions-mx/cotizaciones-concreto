@@ -13,6 +13,12 @@ function getServerClient() {
 
 export async function POST(request: Request) {
   try {
+    const serverClient = await createServerSupabaseClient()
+    const { data: userData, error: userErr } = await serverClient.auth.getUser()
+    if (userErr || !userData?.user?.id) {
+      return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 })
+    }
+
     const supabase = getServerClient()
     const formData = await request.formData()
     const file = formData.get('file') as File | null
@@ -66,12 +72,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Error subiendo archivo', details: uploadError.message }, { status: 500 })
     }
 
-    // Resolve current user from server session
-    const serverClient = await createServerSupabaseClient()
-    const { data: userData, error: userErr } = await serverClient.auth.getUser()
-    if (userErr || !userData?.user?.id) {
-      return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 })
-    }
     const uploadedBy: string = userData.user.id
 
     const { data: insertData, error: insertError } = await supabase
@@ -107,6 +107,12 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    const serverClient = await createServerSupabaseClient()
+    const { data: userData, error: userErr } = await serverClient.auth.getUser()
+    if (userErr || !userData?.user?.id) {
+      return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 })
+    }
+
     const supabase = getServerClient()
     const { searchParams } = new URL(request.url)
     const page = Number(searchParams.get('page') || '1')

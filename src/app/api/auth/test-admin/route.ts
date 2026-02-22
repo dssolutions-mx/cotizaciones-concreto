@@ -133,69 +133,7 @@ export async function GET(request: NextRequest) {
       console.error('Error with route handler client approach:', routeHandlerError);
     }
 
-    // If we have expected user information, try to access the profile directly
-    if (expectedUserId || expectedEmail) {
-      try {
-        const supabaseAdmin = createClient(
-          supabaseUrl,
-          supabaseServiceRoleKey,
-          {
-            auth: {
-              autoRefreshToken: false,
-              persistSession: false
-            }
-          }
-        );
-        
-        let query = supabaseAdmin.from('user_profiles').select('id, role, email, first_name, last_name');
-        
-        if (expectedUserId) {
-          query = query.eq('id', expectedUserId);
-        } else if (expectedEmail) {
-          query = query.eq('email', expectedEmail);
-        }
-        
-        const { data: userProfile, error: profileError } = await query.maybeSingle();
-        
-        if (userProfile && !profileError) {
-          console.log('Found user profile directly:', userProfile.email);
-          
-          // Get all users to test admin permissions
-          const { data: allUsers, error: usersError } = await supabaseAdmin
-            .from('user_profiles')
-            .select('id, email, role, first_name, last_name')
-            .limit(10);
-
-          if (usersError) {
-            console.error('Error fetching users:', usersError);
-            return NextResponse.json({
-              success: false,
-              error: 'Error fetching users',
-              status: 'users-error',
-              debug: { error: usersError }
-            }, { status: 500 });
-          }
-          
-          return NextResponse.json({
-            success: true,
-            currentUser: {
-              id: userProfile.id,
-              email: userProfile.email,
-              role: userProfile.role || 'unknown',
-              metadata: null
-            },
-            profile: userProfile,
-            profileExists: true,
-            users: allUsers,
-            status: 'profile-only',
-            method: 'direct-profile-query',
-            note: 'Session unavailable but profile found using provided user information'
-          });
-        }
-      } catch (directProfileError) {
-        console.error('Error querying profile directly:', directProfileError);
-      }
-    }
+    // Never query profiles from caller-provided identifiers when unauthenticated.
 
     // Try to find auth cookies using regex
     const authCookieMatches = Array.from(

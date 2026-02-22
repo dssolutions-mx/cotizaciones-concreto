@@ -26,6 +26,15 @@ interface DashboardMetrics {
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Get plant_id from query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
@@ -286,9 +295,7 @@ export async function GET(request: Request) {
       lastUpdated: new Date().toISOString()
     }, { 
       status: 200,
-      headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' // Cache for 5 minutes
-      }
+      headers: { 'Cache-Control': 'no-store' },
     });
     
   } catch (error) {
@@ -314,6 +321,6 @@ export async function GET(request: Request) {
       newNotificationsCount: 0,
       error: 'Error loading dashboard data',
       lastUpdated: new Date().toISOString()
-    }, { status: 200 });
+    }, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   }
 } 

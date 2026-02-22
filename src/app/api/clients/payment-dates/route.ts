@@ -3,13 +3,19 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({}, { status: 401 });
+    }
+
     const { clientIds } = await request.json();
     
     if (!clientIds || !Array.isArray(clientIds) || clientIds.length === 0) {
       return NextResponse.json({}, { status: 200 });
     }
 
-    const supabase = await createServerSupabaseClient();
+    const supabase = authClient;
     
     // Get latest payment date for each client
     const { data: payments, error } = await supabase

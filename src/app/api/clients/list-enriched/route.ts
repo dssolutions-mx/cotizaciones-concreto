@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
+
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 
 export type ClientEnriched = {
   id: string;
@@ -16,6 +18,11 @@ export type ClientEnriched = {
 
 export async function GET() {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     const serviceClient = createServiceClient();
 
     const [clientsResult, balancesResult, sitesResult] = await Promise.all([

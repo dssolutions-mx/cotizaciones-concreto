@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { format } from 'date-fns';
 
 interface ActivityItem {
@@ -11,6 +11,15 @@ interface ActivityItem {
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Get plant_id from query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
@@ -152,10 +161,10 @@ export async function GET(request: Request) {
       quotesFound: quotesResult.data?.length || 0
     });
 
-    return NextResponse.json({
-      recentActivity,
-      notifications
-    });
+    return NextResponse.json(
+      { recentActivity, notifications },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
 
   } catch (error) {
     console.error('Error fetching activity data:', error);
@@ -184,6 +193,6 @@ export async function GET(request: Request) {
           isNew: false
         }
       ]
-    });
+    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 } 

@@ -1,8 +1,7 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkBotIdWithTimeout } from '@/lib/utils/botid-timeout';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     // Get request body early to extract caller information if available
     const requestBody = await request.json();
-    const { email: newUserEmail, password, firstName, lastName, role, callerId, callerEmail } = requestBody;
+    const { email: newUserEmail, password, firstName, lastName, role } = requestBody;
     
     // Create a Supabase admin client
     const supabaseAdmin = createClient(
@@ -52,57 +51,24 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // First try the standard route handler approach
-    let authenticatedUserId = null;
-    let authenticatedUserEmail = null;
-    
-    try {
-      const supabase = createRouteHandlerClient({ cookies });
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session) {
-        authenticatedUserId = session.user.id;
-        authenticatedUserEmail = session.user.email;
-        console.log('Session found via createRouteHandlerClient:', authenticatedUserEmail);
-      }
-    } catch (sessionError) {
-      console.error('Error retrieving session:', sessionError);
-    }
-    
-    // If no session, try to get the user ID from the request body callerId/callerEmail
-    if (!authenticatedUserId && (callerId || callerEmail)) {
-      console.log('Using caller info from request body:', callerId || callerEmail);
-      authenticatedUserId = callerId;
-      authenticatedUserEmail = callerEmail;
-    }
-    
-    // If we still don't have a user ID, check for it in query params
-    if (!authenticatedUserId) {
-      const url = new URL(request.url);
-      const queryCallerId = url.searchParams.get('callerId');
-      const queryCallerEmail = url.searchParams.get('callerEmail');
-      
-      if (queryCallerId || queryCallerEmail) {
-        console.log('Using caller info from query params:', queryCallerId || queryCallerEmail);
-        authenticatedUserId = queryCallerId;
-        authenticatedUserEmail = queryCallerEmail;
-      }
-    }
-    
-    // If we don't have any user ID, we can't proceed
-    if (!authenticatedUserId && !authenticatedUserEmail) {
+    // Require a real authenticated session; never trust caller identity from request payload.
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authenticatedUser }, error: authError } = await authClient.auth.getUser();
+    if (authError || !authenticatedUser) {
       return NextResponse.json(
-        { error: 'Unauthorized - No authenticated user found. Please provide callerId or callerEmail.' },
+        { error: 'Unauthorized - No authenticated user found.' },
         { status: 401 }
       );
     }
+    const authenticatedUserId = authenticatedUser.id;
+    const authenticatedUserEmail = authenticatedUser.email ?? null;
 
     // Look up the calling user's profile
     let callerProfile;
     if (authenticatedUserId) {
       const { data } = await supabaseAdmin
         .from('user_profiles')
-        .select('role, email')
+        .select('role, email, id')
         .eq('id', authenticatedUserId)
         .single();
       callerProfile = data;

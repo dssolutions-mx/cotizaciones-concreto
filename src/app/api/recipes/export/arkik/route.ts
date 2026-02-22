@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx-js-style';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 
 function buildArkikHeaderUpdate(materials: any[]) {
   const fixed = [
@@ -200,6 +202,11 @@ function buildMaterialCodeRow(materials: any[], debug = false): string[] {
 
 export async function GET(req: Request) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     const supabase = createServiceClient();
     const { searchParams } = new URL(req.url);
     const plantId = searchParams.get('plant_id');

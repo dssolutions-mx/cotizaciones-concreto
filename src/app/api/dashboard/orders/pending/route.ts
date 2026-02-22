@@ -4,13 +4,22 @@ import { handleError } from '@/utils/errorHandler';
 
 export async function GET() {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Create server client with admin privileges
-    const supabase = createServiceClient();
+    const serviceSupabase = createServiceClient();
     
     console.log('Server: Fetching pending credit orders');
     
     // Fetch orders with credit_status = 'pending'
-    const { data, error } = await supabase
+    const { data, error } = await serviceSupabase
       .from('orders')
       .select(`
         id,
@@ -36,10 +45,10 @@ export async function GET() {
     
     console.log(`Server: Found ${data?.length || 0} pending orders`);
     
-    return NextResponse.json({ 
-      success: true, 
-      data 
-    });
+    return NextResponse.json(
+      { success: true, data },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
     
   } catch (error) {
     const errorMessage = handleError(error, 'get-pending-orders');
@@ -50,7 +59,7 @@ export async function GET() {
         success: false, 
         error: errorMessage 
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 } 

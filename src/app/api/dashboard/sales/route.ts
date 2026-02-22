@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Get plant_id from query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
@@ -67,9 +76,10 @@ export async function GET(request: Request) {
       { name: 'may', value: 420 }
     ];
 
-    return NextResponse.json({
-      salesData
-    });
+    return NextResponse.json(
+      { salesData },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
 
   } catch (error) {
     console.error('Error fetching sales data:', error);
@@ -84,6 +94,6 @@ export async function GET(request: Request) {
         { name: 'abr', value: 380 },
         { name: 'may', value: 420 }
       ]
-    });
+    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 } 

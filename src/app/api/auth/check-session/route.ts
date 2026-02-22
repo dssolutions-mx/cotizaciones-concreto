@@ -105,42 +105,7 @@ export async function GET(request: NextRequest) {
       console.error('Error with authentication check:', authError);
     }
 
-    // If we have expected user information, try to access the profile directly
-    if (expectedUserId || expectedEmail) {
-      try {
-        const supabaseAdmin = createServiceClient();
-        
-        let query = supabaseAdmin.from('user_profiles').select('id, role, email, first_name, last_name');
-        
-        if (expectedUserId) {
-          query = query.eq('id', expectedUserId);
-        } else if (expectedEmail) {
-          query = query.eq('email', expectedEmail);
-        }
-        
-        const { data: userProfile, error: profileError } = await query.maybeSingle();
-        
-        if (userProfile && !profileError) {
-          console.log('Found user profile directly:', userProfile.email);
-          return NextResponse.json({
-            success: true,
-            session: {
-              user: {
-                id: userProfile.id,
-                email: userProfile.email,
-              }
-            },
-            profile: userProfile,
-            profileExists: true,
-            status: 'profile-only',
-            method: 'direct-profile-query',
-            note: 'Authentication check failed but profile found using provided user information'
-          });
-        }
-      } catch (directProfileError) {
-        console.error('Error querying profile directly:', directProfileError);
-      }
-    }
+    // Never query profiles from caller-provided identifiers when unauthenticated.
 
     // If we reach here, we couldn't find a valid session
     // Create a detailed debug response

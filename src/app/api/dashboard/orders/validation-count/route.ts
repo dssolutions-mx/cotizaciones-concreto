@@ -8,13 +8,22 @@ import { handleError } from '@/utils/errorHandler';
  */
 export async function GET() {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Create server client with admin privileges
-    const supabase = createServiceClient();
+    const serviceSupabase = createServiceClient();
     
     console.log('Server: Fetching count of orders pending validation');
     
     // Get count of orders with credit_status = 'pending'
-    const { count, error } = await supabase
+    const { count, error } = await serviceSupabase
       .from('orders')
       .select('id', { count: 'exact', head: true })
       .eq('credit_status', 'pending');
@@ -26,10 +35,10 @@ export async function GET() {
     
     console.log(`Server: Found ${count || 0} orders pending validation`);
     
-    return NextResponse.json({ 
-      success: true, 
-      count: count || 0
-    });
+    return NextResponse.json(
+      { success: true, count: count || 0 },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
     
   } catch (error) {
     const errorMessage = handleError(error, 'get-validation-count');
@@ -41,7 +50,7 @@ export async function GET() {
         error: errorMessage,
         count: 0  // Default to 0 on error
       },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 } 

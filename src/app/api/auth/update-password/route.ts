@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user: authenticatedUser }, error: authError } = await authClient.auth.getUser();
+    if (authError || !authenticatedUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Create a Supabase client with the URL and service role key
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -23,6 +30,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
+      );
+    }
+
+    if (userId !== authenticatedUser.id) {
+      return NextResponse.json(
+        { error: 'Forbidden - Cannot update another user password' },
+        { status: 403 }
       );
     }
 

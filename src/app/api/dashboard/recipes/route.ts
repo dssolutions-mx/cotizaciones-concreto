@@ -1,9 +1,18 @@
 import { NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { recipeService } from '@/lib/supabase/recipes';
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, {
+        status: 401,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+
     // Get plant_id from query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
@@ -21,7 +30,7 @@ export async function GET(request: Request) {
           { name: 'Especial 350', value: 45 },
           { name: 'MR 45', value: 35 }
         ]
-      });
+      }, { headers: { 'Cache-Control': 'no-store' } });
     }
 
     // Group recipes by type/strength for visualization
@@ -59,9 +68,10 @@ export async function GET(request: Request) {
       chartData: recipeData
     });
 
-    return NextResponse.json({
-      recipeData
-    });
+    return NextResponse.json(
+      { recipeData },
+      { headers: { 'Cache-Control': 'no-store' } }
+    );
 
   } catch (error) {
     console.error('Error fetching recipe data:', error);
@@ -75,6 +85,6 @@ export async function GET(request: Request) {
         { name: 'Especial 350', value: 45 },
         { name: 'MR 45', value: 35 }
       ]
-    });
+    }, { headers: { 'Cache-Control': 'no-store' } });
   }
 } 

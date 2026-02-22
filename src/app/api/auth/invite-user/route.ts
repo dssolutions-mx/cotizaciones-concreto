@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { UserRole } from '@/store/auth/types';
 
 export const dynamic = 'force-dynamic';
 
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
+
 export async function POST(req: Request) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     // Parse the request body to get invitation details
     const { email, role, callerId, callerEmail } = await req.json();
     
@@ -14,6 +22,14 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { success: false, message: 'Missing required fields' },
         { status: 400 }
+      );
+    }
+
+    // Prevent caller impersonation: authenticated user must match claimed caller.
+    if (callerId !== user.id || callerEmail !== user.email) {
+      return NextResponse.json(
+        { success: false, message: 'Forbidden - Caller identity mismatch' },
+        { status: 403, headers: UNAUTHORIZED_HEADERS }
       );
     }
     

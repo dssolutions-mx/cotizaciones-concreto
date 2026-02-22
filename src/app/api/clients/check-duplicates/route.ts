@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+
+const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 
 export async function GET(request: NextRequest) {
   try {
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
+    }
     const { searchParams } = new URL(request.url);
     const businessName = searchParams.get('business_name') || '';
     const clientCode = searchParams.get('client_code') || '';
