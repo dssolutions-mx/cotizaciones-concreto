@@ -1,15 +1,29 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 export async function GET() {
   try {
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
     const authClient = await createServerSupabaseClient();
     const { data: { user }, error: authError } = await authClient.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const { data: profile, error: profileError } = await authClient
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profileError || !profile || (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const supabase = createServiceClient();
 
     const now = new Date();
     const currentMonthStart = startOfMonth(now);

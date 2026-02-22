@@ -4,6 +4,10 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export async function GET() {
   try {
     const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({}, { status: 401 });
+    }
     
     // Join remisiones -> orders to aggregate by client without large IN lists
     const { data, error } = await supabase

@@ -6,6 +6,10 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function GET(request: NextRequest) {
   try {
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
     // Create Supabase clients with the URL and anon key from env vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -94,6 +98,14 @@ export async function GET(request: NextRequest) {
             .select('id, role, email, first_name, last_name')
             .eq('id', session.user.id)
             .maybeSingle();
+
+          if (!userProfile || (userProfile.role !== 'EXECUTIVE' && userProfile.role !== 'ADMIN_OPERATIONS')) {
+            return NextResponse.json({
+              success: false,
+              error: 'Forbidden - admin access required',
+              status: 'forbidden',
+            }, { status: 403 });
+          }
             
           // Get all users to test admin permissions
           const { data: allUsers, error: usersError } = await supabaseAdmin

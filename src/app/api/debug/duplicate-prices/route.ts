@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,7 +8,40 @@ const supabaseAdmin = createClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
+async function requireAdminAuth() {
+  const authClient = await createServerSupabaseClient();
+  const { data: { user }, error: authError } = await authClient.auth.getUser();
+  if (authError || !user) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    };
+  }
+
+  const { data: profile, error: profileError } = await authClient
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile || (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS')) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    };
+  }
+
+  return { ok: true as const };
+}
+
 export async function GET(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  const auth = await requireAdminAuth();
+  if (!auth.ok) return auth.response;
+
   const quoteNumber = request.nextUrl.searchParams.get('quote');
   const checkMissingSites = request.nextUrl.searchParams.get('missing_sites');
   

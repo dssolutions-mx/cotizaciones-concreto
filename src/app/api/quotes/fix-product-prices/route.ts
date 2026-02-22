@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { productPriceService } from '@/lib/supabase/product-prices';
-import { supabase } from '@/lib/supabase/client';
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 // Use service role for admin operations (bypasses RLS)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
   {
     auth: {
       autoRefreshToken: false,
@@ -15,12 +15,38 @@ const supabaseAdmin = createClient(
   }
 );
 
+async function requireAdminAuth() {
+  const authClient = await createServerSupabaseClient();
+  const { data: { user }, error: authError } = await authClient.auth.getUser();
+  if (authError || !user) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    };
+  }
+
+  const { data: profile, error: profileError } = await authClient
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile || (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS')) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    };
+  }
+
+  return { ok: true as const };
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { quoteIds, fixAll } = await request.json();
+    const auth = await requireAdminAuth();
+    if (!auth.ok) return auth.response;
 
-    // Security: Check if user is admin (you may want to add proper auth check)
-    // For now, we'll allow it but log the operation
+    const { quoteIds, fixAll } = await request.json();
 
     let quotesToFix: Array<{ quote_id: string; quote_number: string }> = [];
 
@@ -164,6 +190,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAdminAuth();
+    if (!auth.ok) return auth.response;
+
     // Return list of quotes missing product_prices
     const { data: quotesData, error: quotesError } = await supabaseAdmin
       .from('quotes')

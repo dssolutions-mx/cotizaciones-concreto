@@ -299,7 +299,7 @@ function getQualitySubMenuItems(userRole: string | undefined, plantCode: string 
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
-  const { profile, session } = useAuthBridge();
+  const { profile, session, isLoading } = useAuthBridge();
   const { currentPlant } = usePlantContext();
   const pathname = usePathname();
   const router = useRouter();
@@ -390,6 +390,22 @@ function Navigation({ children }: { children: React.ReactNode }) {
       }
     }
   }, [profile?.role, profile?.id, profile?.email, pathname, router]);
+
+  // Global fallback guard:
+  // If auth state resolves with no session on any protected page, force redirect to login.
+  useEffect(() => {
+    if (isLoading) return;
+    if (isLandingRoute || isAuthRoute || pathname?.startsWith('/client-portal')) return;
+    if (session) return;
+
+    const redirectPath =
+      typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search || ''}`
+        : (pathname || '/dashboard');
+
+    const encodedRedirect = encodeURIComponent(redirectPath || '/dashboard');
+    router.replace(`/login?redirect=${encodedRedirect}`);
+  }, [isLoading, isLandingRoute, isAuthRoute, pathname, session, router]);
 
   // If it's a landing, client-portal, or auth route, render children without global Navigation
   if (isLandingRoute || pathname?.startsWith('/client-portal') || isAuthRoute) {
