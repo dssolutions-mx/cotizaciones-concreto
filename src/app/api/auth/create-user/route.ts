@@ -61,28 +61,15 @@ export async function POST(request: NextRequest) {
       );
     }
     const authenticatedUserId = authenticatedUser.id;
-    const authenticatedUserEmail = authenticatedUser.email ?? null;
 
     // Look up the calling user's profile
     let callerProfile;
-    if (authenticatedUserId) {
-      const { data } = await supabaseAdmin
-        .from('user_profiles')
-        .select('role, email, id')
-        .eq('id', authenticatedUserId)
-        .single();
-      callerProfile = data;
-    } else if (authenticatedUserEmail) {
-      const { data } = await supabaseAdmin
-        .from('user_profiles')
-        .select('role, email, id')
-        .eq('email', authenticatedUserEmail)
-        .single();
-      callerProfile = data;
-      if (callerProfile) {
-        authenticatedUserId = callerProfile.id;
-      }
-    }
+    const { data } = await supabaseAdmin
+      .from('user_profiles')
+      .select('role, email, id')
+      .eq('id', authenticatedUserId)
+      .single();
+    callerProfile = data;
     
     // Check if user has EXECUTIVE role
     if (!callerProfile || (callerProfile.role !== 'EXECUTIVE' && callerProfile.role !== 'ADMIN_OPERATIONS')) {

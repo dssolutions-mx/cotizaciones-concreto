@@ -10,8 +10,8 @@ const UNAUTHORIZED_HEADERS = { 'Cache-Control': 'no-store' as const };
 export async function POST(req: Request) {
   try {
     const authClient = await createServerSupabaseClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-    if (authError || !user) {
+    const { data: { user: authUser }, error: authError } = await authClient.auth.getUser();
+    if (authError || !authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
     }
     // Parse the request body to get invitation details
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     }
 
     // Prevent caller impersonation: authenticated user must match claimed caller.
-    if (callerId !== user.id || callerEmail !== user.email) {
+    if (callerId !== authUser.id || callerEmail !== authUser.email) {
       return NextResponse.json(
         { success: false, message: 'Forbidden - Caller identity mismatch' },
         { status: 403, headers: UNAUTHORIZED_HEADERS }
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     console.log('Invite redirect URL:', redirectTo);
 
     // Create user with Supabase Admin (invited users must verify email)
-    const { data: user, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
+    const { data: invitedUser, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
       redirectTo,
       data: {
         invited: true,
@@ -83,11 +83,11 @@ export async function POST(req: Request) {
     console.log('User invited successfully, creating profile record');
 
     // Create user profile record after successful invitation
-    if (user?.user) {
+    if (invitedUser?.user) {
       const { error: profileError } = await adminClient
         .from('user_profiles')
         .insert({
-          id: user.user.id,
+          id: invitedUser.user.id,
           email: email,
           role: role as UserRole,
           created_at: new Date().toISOString(),
@@ -101,12 +101,12 @@ export async function POST(req: Request) {
       }
       
       // Log success with user ID for tracking
-      console.log('User and profile created successfully', { userId: user.user.id, email, role });
+      console.log('User and profile created successfully', { userId: invitedUser.user.id, email, role });
 
       return NextResponse.json({
         success: true,
         message: 'Invitation sent successfully',
-        user: user.user,
+        user: invitedUser.user,
       });
     }
 
