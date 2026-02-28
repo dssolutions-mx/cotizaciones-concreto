@@ -399,7 +399,10 @@ export async function deleteCreditTerms(
     // Deactivate the terms (soft delete to maintain history)
     const { error } = await client
       .from('client_credit_terms')
-      .update({ is_active: false })
+      .update({
+        is_active: false,
+        status: 'terminated',
+      })
       .eq('id', activeTerms.id);
 
     if (error) throw error;

@@ -51,7 +51,6 @@ import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
 import { Pencil, Trash2, Plus, X, Save, Map, CreditCard } from "lucide-react";
-import { authService } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
@@ -149,7 +148,7 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
 
   const handleSubmit = async () => {
     if (!siteData.name.trim()) {
-      alert('El nombre de la obra es obligatorio');
+      toast.error('El nombre de la obra es obligatorio');
       return;
     }
 
@@ -169,7 +168,7 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
       onSiteAdded();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Error al crear la obra';
-      alert(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -195,10 +194,12 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
         <RoleProtectedButton
           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
           onClick={() => setShowForm(true)}
-          className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md transition-colors"
+          asChild
         >
-          <Plus className="h-4 w-4" />
-          <span>Agregar Nueva Obra</span>
+          <Button className="flex items-center gap-1">
+            <Plus className="h-4 w-4" />
+            <span>Agregar Nueva Obra</span>
+          </Button>
         </RoleProtectedButton>
       </div>
     );
@@ -208,13 +209,15 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
     <div className="mt-6 bg-gray-50 p-4 rounded-md">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Nueva Obra</h3>
-        <button 
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setShowForm(false)}
-          className="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
         >
           <X className="h-4 w-4" />
           <span>Cancelar</span>
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -325,27 +328,19 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
       </div>
       
       <div className="flex justify-end mt-4">
-        <button
+        <Button
           type="button"
           onClick={handleSubmit}
-          className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md disabled:bg-blue-300 transition-colors"
+          className="flex items-center gap-1"
           disabled={isSubmitting}
         >
-          {isSubmitting ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Guardando...</span>
-            </>
-          ) : (
+          {isSubmitting ? 'Guardando...' : (
             <>
               <Plus className="h-4 w-4" />
               <span>Guardar Obra</span>
             </>
           )}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -391,14 +386,14 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 
   const handleSubmit = async () => {
     if (!siteData.name?.trim()) {
-      alert('El nombre de la obra es obligatorio');
+      toast.error('El nombre de la obra es obligatorio');
       return;
     }
 
     setIsSubmitting(true);
     try {
       if (!site.id) {
-        alert('Error: ID de la obra no encontrado.');
+        toast.error('Error: ID de la obra no encontrado.');
         setIsSubmitting(false);
         return;
       }
@@ -427,13 +422,15 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
     <div className="mt-6 bg-gray-50 p-4 rounded-md">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Editar Obra: {site.name}</h3>
-        <button 
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
           onClick={onCancel}
-          className="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
         >
           <X className="h-4 w-4" />
           <span>Cancelar</span>
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -551,17 +548,9 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
         <Button 
           onClick={handleSubmit} 
           disabled={isSubmitting}
-          className="flex items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors"
+          className="flex items-center gap-1"
         >
-          {isSubmitting ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Actualizando...</span>
-            </>
-          ) : (
+          {isSubmitting ? 'Actualizando...' : (
             <>
               <Save className="h-4 w-4" />
               <span>Actualizar Obra</span>
@@ -1902,11 +1891,6 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   // Delete site confirmation dialog
   const [siteToDelete, setSiteToDelete] = useState<ConstructionSite | null>(null);
   const [isDeletingSite, setIsDeletingSite] = useState(false);
-  // Edit client modal state
-  const [isEditClientOpen, setIsEditClientOpen] = useState(false);
-  const [editForm, setEditForm] = useState<any | null>(null);
-  const [savingClient, setSavingClient] = useState(false);
-  const [userOptions, setUserOptions] = useState<Array<{ id: string; name: string }>>([]);
 
   // Find the current total balance for passing to PaymentForm - MOVED UP HERE to fix hooks order
   const currentTotalBalance = useMemo(() => {
@@ -1977,69 +1961,6 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
     loadData();
   }, [loadData]);
 
-  // Load user profiles for assignment when component mounts or modal opens
-  useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const data = await authService.getAllUsers();
-        const list = (data || []).map((u: any) => ({
-          id: u.id,
-          name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
-        }));
-        setUserOptions(list);
-      } catch (e) {
-        console.warn('No fue posible cargar usuarios mediante authService:', e);
-      }
-    };
-    loadUsers();
-  }, []);
-
-  const openEditClient = () => {
-    if (!client) return;
-    setEditForm({
-      business_name: client.business_name || '',
-      contact_name: client.contact_name || '',
-      email: client.email || '',
-      phone: client.phone || '',
-      rfc: client.rfc || '',
-      address: client.address || '',
-      requires_invoice: !!client.requires_invoice,
-      // @ts-ignore optional runtime fields
-      client_type: (client as any).client_type || 'de_la_casa',
-      // @ts-ignore optional runtime fields
-      assigned_user_id: (client as any).assigned_user_id || '',
-    });
-    setIsEditClientOpen(true);
-  };
-
-  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    setEditForm((prev: any) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
-    }));
-  };
-
-  const handleSaveClient = async () => {
-    if (!editForm) return;
-    try {
-      setSavingClient(true);
-      const payload = {
-        ...editForm,
-        // normalize blank assignment
-        assigned_user_id: editForm.assigned_user_id || null,
-      };
-      // @ts-ignore service accepts partial
-      await clientService.updateClient(clientId, payload);
-      toast.success('Cliente actualizado');
-      setIsEditClientOpen(false);
-      await loadData();
-    } catch (e: any) {
-      toast.error(e?.message || 'Error al actualizar el cliente');
-    } finally {
-      setSavingClient(false);
-    }
-  };
 
   const handlePaymentAdded = () => {
     setIsPaymentDialogOpen(false); // Close the dialog
@@ -2114,18 +2035,22 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
               <RoleProtectedButton
                 allowedRoles={['EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS', 'SALES_AGENT']}
                 onClick={() => router.push(`/clients/${clientId}/credito`)}
-                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md"
+                asChild
               >
-                <CreditCard className="h-4 w-4" />
-                <span>Gestionar Crédito</span>
+                <Button className="flex items-center gap-1">
+                  <CreditCard className="h-4 w-4" />
+                  <span>Gestionar Crédito</span>
+                </Button>
               </RoleProtectedButton>
               <RoleProtectedButton
-                allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-                onClick={openEditClient}
-                className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-md"
+                allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS']}
+                onClick={() => router.push(`/clients/${clientId}/edit`)}
+                asChild
               >
-                <Pencil className="h-4 w-4" />
-                <span>Editar Cliente</span>
+                <Button variant="secondary" className="flex items-center gap-1">
+                  <Pencil className="h-4 w-4" />
+                  <span>Editar Cliente</span>
+                </Button>
               </RoleProtectedButton>
             </div>
           </div>
@@ -2160,93 +2085,6 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           </div>
         </CardContent>
       </Card>
-
-      {/* Edit Client Modal */}
-      <Dialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen}>
-        <DialogContent className="sm:max-w-[700px]">
-          <DialogHeader>
-            <DialogTitle>Editar Cliente</DialogTitle>
-            <DialogDescription>Actualiza la información del cliente.</DialogDescription>
-          </DialogHeader>
-          {editForm && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Negocio *</label>
-                  <input name="business_name" value={editForm.business_name} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">RFC</label>
-                  <input name="rfc" value={editForm.rfc} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Contacto</label>
-                  <input name="contact_name" value={editForm.contact_name} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
-                  <input name="phone" value={editForm.phone} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input name="email" type="email" value={editForm.email} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
-                </div>
-                <div className="flex items-center gap-2 mt-6">
-                  <input id="requires_invoice_edit" name="requires_invoice" type="checkbox" checked={!!editForm.requires_invoice} onChange={handleEditChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
-                  <label htmlFor="requires_invoice_edit" className="text-sm text-gray-700">Requiere Factura</label>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
-                <textarea name="address" value={editForm.address} onChange={handleEditChange} rows={2} className="w-full p-2 border border-gray-300 rounded-md" />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Cliente</label>
-                  <select name="client_type" value={editForm.client_type} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md">
-                    <option value="normal">Cliente normal</option>
-                    <option value="de_la_casa">Cliente de la casa</option>
-                    <option value="asignado">Cliente asignado</option>
-                    <option value="nuevo">Cliente nuevo</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Usuario asignado</label>
-                  <select name="assigned_user_id" value={editForm.assigned_user_id || ''} onChange={(e) => {
-                    const value = e.target.value;
-                    setEditForm((prev: any) => ({
-                      ...prev,
-                      assigned_user_id: value || '',
-                      client_type: value ? 'asignado' : prev.client_type,
-                    }));
-                  }} className="w-full p-2 border border-gray-300 rounded-md">
-                    <option value="">Sin asignar</option>
-                    {userOptions.map(u => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
-                    ))}
-                  </select>
-                  {userOptions.length === 0 && (
-                    <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
-                  )}
-                  {userOptions.length > 0 && (
-                    <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {userOptions.length}</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <Button variant="secondary" onClick={() => setIsEditClientOpen(false)} disabled={savingClient}>Cancelar</Button>
-                <Button onClick={handleSaveClient} disabled={savingClient}>
-                  {savingClient ? 'Guardando...' : 'Guardar Cambios'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         <div className="lg:col-span-1">

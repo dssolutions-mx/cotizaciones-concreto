@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from './LiveDuplicateSuggestions';
+import { validateClientForm } from '@/lib/validation/clientValidation';
 
 interface ClientCreationFormProps {
   onClientCreated: (clientId: string, clientName: string) => void;
@@ -36,6 +37,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     requires_invoice: false,
     client_type: 'de_la_casa' as 'normal' | 'de_la_casa' | 'asignado' | 'nuevo',
     assigned_user_id: '' as string | null,
+    credit_status: 'ACTIVE' as const,
   });
   const [suggestedCashCode, setSuggestedCashCode] = useState<string | null>(null);
 
@@ -157,16 +159,16 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.business_name.trim()) {
-      setError('El nombre del negocio es obligatorio');
-      return;
-    }
-    if (!formData.phone.trim()) {
-      setError('El número de contacto es obligatorio');
-      return;
-    }
-    if (formData.requires_invoice && !formData.client_code.trim()) {
-      setError('El RFC es obligatorio cuando el cliente requiere factura');
+    const validation = validateClientForm({
+      business_name: formData.business_name,
+      contact_name: formData.contact_name,
+      phone: formData.phone,
+      requires_invoice: formData.requires_invoice,
+      client_code: formData.client_code,
+    });
+    const firstError = Object.values(validation)[0];
+    if (firstError) {
+      setError(firstError);
       return;
     }
     setError(null);
@@ -346,17 +348,34 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {users.length}</p>
             )}
           </div>
+          <div>
+            <label htmlFor="credit_status" className="block text-sm font-medium text-gray-700 mb-1">
+              Estado de Crédito
+            </label>
+            <select
+              id="credit_status"
+              name="credit_status"
+              value={formData.credit_status}
+              onChange={handleChange}
+              className="w-full p-2 border border-gray-300 rounded-md"
+            >
+              <option value="ACTIVE">Activo</option>
+              <option value="SUSPENDED">Suspendido</option>
+              <option value="BLACKLISTED">Lista Negra</option>
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="contact_name" className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre de Contacto
+              Nombre de Contacto *
             </label>
             <input
               id="contact_name"
               name="contact_name"
               type="text"
+              required
               value={formData.contact_name}
               onChange={handleChange}
               className="w-full p-2 border border-gray-300 rounded-md"

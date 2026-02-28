@@ -899,12 +899,17 @@ export async function updateOrderNormalized(
       continue;
     }
 
-    // Preserve special service items as-is without processing for master recipes
+    // Preserve special service items and additional products as-is (handled separately)
     if (currentItem.product_type === 'VACÍO DE OLLA' || 
         currentItem.product_type === 'SERVICIO DE BOMBEO' ||
-        currentItem.product_type === 'EMPTY_TRUCK_CHARGE') {
-      console.log(`Preserving special service item ${p.id} (${currentItem.product_type})`);
-      specialServiceItems.push(p);
+        currentItem.product_type === 'EMPTY_TRUCK_CHARGE' ||
+        currentItem.product_type?.startsWith('PRODUCTO ADICIONAL:')) {
+      if (currentItem.product_type?.startsWith('PRODUCTO ADICIONAL:')) {
+        console.log(`Skipping additional product ${p.id} (handled by OrderDetails)`);
+      } else {
+        console.log(`Preserving special service item ${p.id} (${currentItem.product_type})`);
+        specialServiceItems.push(p);
+      }
       continue;
     }
 
@@ -1054,16 +1059,14 @@ export async function updateOrderNormalized(
   if (newQuoteId) orderHeaderUpdate.quote_id = newQuoteId;
   await updateOrder(orderId, orderHeaderUpdate);
 
-  // Delete only the edited concrete items (by id), excluding special service items
-  const itemIdsToReplace = editedProducts
-    .filter(p => {
-      const item = currentItemMap[p.id];
-      return item && 
-             item.product_type !== 'VACÍO DE OLLA' && 
-             item.product_type !== 'SERVICIO DE BOMBEO' &&
-             item.product_type !== 'EMPTY_TRUCK_CHARGE';
-    })
-    .map(p => p.id)
+  // Delete ALL concrete items (so removals work); exclude special service and additional products
+  const itemIdsToReplace = (currentItems || [])
+    .filter((item: any) =>
+      item.product_type !== 'VACÍO DE OLLA' &&
+      item.product_type !== 'SERVICIO DE BOMBEO' &&
+      item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
+      !item.product_type?.startsWith('PRODUCTO ADICIONAL:'))
+    .map((item: any) => item.id)
     .filter(Boolean);
   
   if (itemIdsToReplace.length > 0) {

@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clientService } from '@/lib/supabase/clients';
+import { authService } from '@/lib/supabase/auth';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useDebounce } from '@/hooks/useDebounce';
+import { validateClientForm } from '@/lib/validation/clientValidation';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +40,7 @@ export default function NewClientPage() {
   const [suggestedCashCode, setSuggestedCashCode] = useState<string | null>(null);
   const [liveDuplicates, setLiveDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const [users, setUsers] = useState<Array<{ id: string; name: string }>>([]);
 
   const [formData, setFormData] = useState({
     business_name: '',
@@ -47,7 +50,9 @@ export default function NewClientPage() {
     contact_name: '',
     email: '',
     phone: '',
-    credit_status: 'ACTIVE' as const
+    credit_status: 'ACTIVE' as const,
+    client_type: 'de_la_casa' as 'normal' | 'de_la_casa' | 'asignado' | 'nuevo',
+    assigned_user_id: '' as string | null,
   });
 
   const debouncedBusinessName = useDebounce(formData.business_name.trim(), 400);
@@ -102,6 +107,22 @@ export default function NewClientPage() {
     }
   }, [formData.requires_invoice, profile]);
 
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const data = await authService.getAllUsers();
+        const list = (data || []).map((u: any) => ({
+          id: u.id,
+          name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
+        }));
+        setUsers(list);
+      } catch {
+        // no-op: assignment remains optional
+      }
+    };
+    loadUsers();
+  }, []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
@@ -131,7 +152,7 @@ export default function NewClientPage() {
   // Agregar una obra a la lista
   const handleAddSite = () => {
     if (!currentSite.name.trim()) {
-      alert('El nombre de la obra es obligatorio');
+      setError('El nombre de la obra es obligatorio');
       return;
     }
     
@@ -159,6 +180,7 @@ export default function NewClientPage() {
       ...formData,
       client_code: clientCode,
       rfc: formData.requires_invoice ? formData.client_code.trim() : undefined,
+      assigned_user_id: formData.assigned_user_id || null,
     };
     await clientService.createClientWithSites(clientPayload, sites);
     router.push('/clients');
@@ -169,20 +191,16 @@ export default function NewClientPage() {
     e.preventDefault();
     setError(null);
 
-    if (!formData.business_name.trim()) {
-      setError('El nombre de la empresa es obligatorio');
-      return;
-    }
-    if (!formData.contact_name.trim()) {
-      setError('El nombre de contacto es obligatorio');
-      return;
-    }
-    if (!formData.phone.trim()) {
-      setError('El número de teléfono es obligatorio');
-      return;
-    }
-    if (formData.requires_invoice && !formData.client_code?.trim()) {
-      setError('El RFC es obligatorio cuando se requiere factura');
+    const validation = validateClientForm({
+      business_name: formData.business_name,
+      contact_name: formData.contact_name,
+      phone: formData.phone,
+      requires_invoice: formData.requires_invoice,
+      client_code: formData.client_code,
+    });
+    const firstError = Object.values(validation)[0];
+    if (firstError) {
+      setError(firstError);
       return;
     }
 
@@ -420,6 +438,49 @@ export default function NewClientPage() {
                 <option value="ACTIVE">Activo</option>
                 <option value="SUSPENDED">Suspendido</option>
                 <option value="BLACKLISTED">Lista Negra</option>
+              </select>
+            </div>
+            
+            <div className="mb-4">
+              <label htmlFor="client_type" className="block text-sm font-medium text-gray-700 mb-1">
+                Tipo de Cliente
+              </label>
+              <select
+                id="client_type"
+                name="client_type"
+                value={formData.client_type}
+                onChange={handleChange}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="normal">Cliente normal</option>
+                <option value="de_la_casa">Cliente de la casa</option>
+                <option value="asignado">Cliente asignado</option>
+                <option value="nuevo">Cliente nuevo</option>
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="assigned_user_id" className="block text-sm font-medium text-gray-700 mb-1">
+                Usuario asignado
+              </label>
+              <select
+                id="assigned_user_id"
+                name="assigned_user_id"
+                value={formData.assigned_user_id || ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setFormData(prev => ({
+                    ...prev,
+                    assigned_user_id: value || '',
+                    client_type: value ? 'asignado' : prev.client_type,
+                  }));
+                }}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="">Sin asignar</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
               </select>
             </div>
           </div>

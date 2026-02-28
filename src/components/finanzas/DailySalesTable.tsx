@@ -10,6 +10,22 @@ interface DailySalesTableProps {
   date: string;
 }
 
+const renderProductNames = (productNames: string) => {
+  if (!productNames) return 'N/A';
+  const segments = productNames.split('|').map((item) => item.trim()).filter(Boolean);
+  if (segments.length <= 1) return segments[0] || 'N/A';
+
+  return (
+    <div className="space-y-1">
+      {segments.map((segment, idx) => (
+        <div key={`${segment}-${idx}`} className="text-xs leading-4">
+          {segment}
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export function DailySalesTable({ date }: DailySalesTableProps) {
   const { orders, isLoading, error, currentPlant } = usePlantAwareDailySalesTable({ date });
   
@@ -117,7 +133,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                     <TableCell className="font-medium">{order.order_number}</TableCell>
                     <TableCell>{order.clients?.business_name}</TableCell>
                     <TableCell>{order.requires_invoice ? 'Fiscal' : 'Efectivo'}</TableCell>
-                    <TableCell>{order.productNames || 'N/A'}</TableCell>
+                    <TableCell>{renderProductNames(order.productNames)}</TableCell>
                     <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
                     <TableCell className="text-right">
                       {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (
@@ -164,7 +180,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.order_number}</TableCell>
                       <TableCell>{order.clients?.business_name}</TableCell>
-                      <TableCell>{order.productNames || 'N/A'}</TableCell>
+                      <TableCell>{renderProductNames(order.productNames)}</TableCell>
                       <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
                       <TableCell className="text-right">
                         {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (
@@ -212,7 +228,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">{order.order_number}</TableCell>
                       <TableCell>{order.clients?.business_name}</TableCell>
-                      <TableCell>{order.productNames || 'N/A'}</TableCell>
+                      <TableCell>{renderProductNames(order.productNames)}</TableCell>
                       <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
                       <TableCell className="text-right">
                         {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (

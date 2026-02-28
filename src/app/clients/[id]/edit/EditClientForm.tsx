@@ -4,6 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { clientService } from '@/lib/supabase/clients';
+import { authService } from '@/lib/supabase/auth';
+import { validateClientForm, type ClientValidationErrors } from '@/lib/validation/clientValidation';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
 interface Client {
   id: string;
@@ -16,6 +20,8 @@ interface Client {
   email?: string;
   phone: string;
   credit_status: string;
+  client_type?: 'normal' | 'de_la_casa' | 'asignado' | 'nuevo';
+  assigned_user_id?: string | null;
 }
 
 export default function EditClientForm({ id }: { id: string }) {
@@ -23,7 +29,8 @@ export default function EditClientForm({ id }: { id: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<ClientValidationErrors>({});
+  const [users, setUsers] = useState<Array<{ id: string; name: string }>>([]);
   
   const [formData, setFormData] = useState<Client>({
     id: '',
@@ -35,7 +42,9 @@ export default function EditClientForm({ id }: { id: string }) {
     contact_name: '',
     email: '',
     phone: '',
-    credit_status: 'ACTIVE'
+    credit_status: 'ACTIVE',
+    client_type: 'de_la_casa',
+    assigned_user_id: '',
   });
 
   // Fetch client data on component mount
@@ -61,6 +70,24 @@ export default function EditClientForm({ id }: { id: string }) {
     fetchClient();
   }, [id]);
 
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const data = await authService.getAllUsers();
+        const list = (data || []).map((u: any) => ({
+          id: u.id,
+          name: (u.first_name || u.last_name)
+            ? `${u.first_name || ''} ${u.last_name || ''}`.trim()
+            : (u.email || 'Usuario')
+        }));
+        setUsers(list);
+      } catch {
+        // assignment is optional, keep form usable without this list
+      }
+    };
+    loadUsers();
+  }, []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
@@ -68,7 +95,8 @@ export default function EditClientForm({ id }: { id: string }) {
       const checkbox = e.target as HTMLInputElement;
       setFormData((prev) => ({
         ...prev,
-        [name]: checkbox.checked
+        [name]: checkbox.checked,
+        ...(name === 'requires_invoice' && !checkbox.checked ? { rfc: '' } : {})
       }));
     } else {
       setFormData((prev) => ({
@@ -76,52 +104,49 @@ export default function EditClientForm({ id }: { id: string }) {
         [name]: value
       }));
     }
+    if (Object.keys(fieldErrors).length > 0) {
+      setFieldErrors({});
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
-    setSuccess(false);
+    setFieldErrors({});
     
     try {
-      // Validate required fields
-      if (!formData.business_name.trim()) {
-        throw new Error('El nombre de la empresa es obligatorio');
-      }
-      
-      if (!formData.contact_name.trim()) {
-        throw new Error('El nombre de contacto es obligatorio');
-      }
-      
-      if (!formData.phone.trim()) {
-        throw new Error('El número de teléfono es obligatorio');
-      }
-      
-      // Si requiere factura, el RFC es obligatorio
-      if (formData.requires_invoice && !formData.rfc?.trim()) {
-        throw new Error('El RFC es obligatorio cuando se requiere factura');
+      const validation = validateClientForm({
+        business_name: formData.business_name,
+        contact_name: formData.contact_name,
+        phone: formData.phone,
+        requires_invoice: formData.requires_invoice,
+        rfc: formData.rfc,
+      });
+      const hasValidationErrors = Object.keys(validation).length > 0;
+      if (hasValidationErrors) {
+        setFieldErrors(validation);
+        const firstError = Object.values(validation)[0];
+        setError(firstError || 'Revisa los campos obligatorios');
+        return;
       }
       
       // Update the client
       await clientService.updateClient(id, {
-        business_name: formData.business_name,
-        client_code: formData.client_code,
-        rfc: formData.rfc,
+        business_name: formData.business_name.trim(),
+        rfc: formData.requires_invoice ? formData.rfc?.trim() : null,
         requires_invoice: formData.requires_invoice,
-        address: formData.address,
-        contact_name: formData.contact_name,
-        email: formData.email,
-        phone: formData.phone,
-        credit_status: formData.credit_status
+        address: formData.address?.trim(),
+        contact_name: formData.contact_name.trim(),
+        email: formData.email?.trim(),
+        phone: formData.phone.trim(),
+        credit_status: formData.credit_status,
+        client_type: formData.client_type,
+        assigned_user_id: formData.assigned_user_id || null,
       });
-      
-      setSuccess(true);
-      // Redirect after a short delay to show success message
-      setTimeout(() => {
-        router.push(`/clients/${id}`);
-        router.refresh();
-      }, 1500);
+      toast.success('Cliente actualizado correctamente');
+      router.push(`/clients/${id}`);
+      router.refresh();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al actualizar el cliente';
       setError(errorMessage);
@@ -153,12 +178,6 @@ export default function EditClientForm({ id }: { id: string }) {
         </div>
       )}
       
-      {success && (
-        <div className="bg-green-50 text-green-700 p-4 rounded-md mb-6">
-          Cliente actualizado correctamente
-        </div>
-      )}
-      
       <div className="bg-white shadow-md rounded-lg p-6">
         <form onSubmit={handleSubmit}>
           <h2 className="text-xl font-semibold mb-4">Información del Cliente</h2>
@@ -166,7 +185,7 @@ export default function EditClientForm({ id }: { id: string }) {
             {/* Datos básicos */}
             <div className="mb-4">
               <label htmlFor="business_name" className="block text-sm font-medium text-gray-700 mb-1">
-                Nombre de Empresa *
+                Nombre del Negocio *
               </label>
               <input
                 type="text"
@@ -177,6 +196,9 @@ export default function EditClientForm({ id }: { id: string }) {
                 className="w-full p-2 border border-gray-300 rounded-md"
                 required
               />
+              {fieldErrors.business_name && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.business_name}</p>
+              )}
             </div>
             
             <div className="mb-4">
@@ -230,6 +252,12 @@ export default function EditClientForm({ id }: { id: string }) {
                   className="w-full p-2 border border-gray-300 rounded-md"
                   required={formData.requires_invoice}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  El RFC es obligatorio cuando el cliente requiere factura.
+                </p>
+                {fieldErrors.rfc && (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.rfc}</p>
+                )}
               </div>
             )}
             
@@ -261,6 +289,9 @@ export default function EditClientForm({ id }: { id: string }) {
                 className="w-full p-2 border border-gray-300 rounded-md"
                 required
               />
+              {fieldErrors.contact_name && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.contact_name}</p>
+              )}
             </div>
             
             <div className="mb-4">
@@ -308,6 +339,9 @@ export default function EditClientForm({ id }: { id: string }) {
               <p className="text-xs text-gray-500 mt-1">
                 Formato: 1234-567-890
               </p>
+              {fieldErrors.phone && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.phone}</p>
+              )}
             </div>
             
             <div className="mb-4">
@@ -326,22 +360,63 @@ export default function EditClientForm({ id }: { id: string }) {
                 <option value="BLACKLISTED">Lista Negra</option>
               </select>
             </div>
+
+            <div className="mb-4">
+              <label htmlFor="client_type" className="block text-sm font-medium text-gray-700 mb-1">
+                Tipo de Cliente
+              </label>
+              <select
+                id="client_type"
+                name="client_type"
+                value={formData.client_type || 'de_la_casa'}
+                onChange={handleChange}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="normal">Cliente normal</option>
+                <option value="de_la_casa">Cliente de la casa</option>
+                <option value="asignado">Cliente asignado</option>
+                <option value="nuevo">Cliente nuevo</option>
+              </select>
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="assigned_user_id" className="block text-sm font-medium text-gray-700 mb-1">
+                Usuario asignado
+              </label>
+              <select
+                id="assigned_user_id"
+                name="assigned_user_id"
+                value={formData.assigned_user_id || ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setFormData((prev) => ({
+                    ...prev,
+                    assigned_user_id: value || '',
+                    client_type: value ? 'asignado' : prev.client_type,
+                  }));
+                }}
+                className="w-full p-2 border border-gray-300 rounded-md"
+              >
+                <option value="">Sin asignar</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
           </div>
           
           <div className="mt-6 flex justify-end space-x-3">
-            <Link
-              href={`/clients/${id}`}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
+            <Button asChild variant="outline">
+              <Link href={`/clients/${id}`}>
               Cancelar
-            </Link>
-            <button
+              </Link>
+            </Button>
+            <Button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
               {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

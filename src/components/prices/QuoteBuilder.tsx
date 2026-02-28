@@ -4,6 +4,7 @@ import { clientService } from '@/lib/supabase/clients';
 import { recipeService } from '@/lib/supabase/recipes';
 import { priceService } from '@/lib/supabase/prices';
 import { masterRecipeService } from '@/lib/services/masterRecipeService';
+import { getEffectiveFloorPrice } from '@/lib/supabase/listPrices';
 import type { MasterRecipe } from '@/types/masterRecipes';
 import { features } from '@/config/featureFlags';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
@@ -84,6 +85,9 @@ interface QuoteProduct {
   volume: number;
   profitMargin: number;
   finalPrice: number;
+  pricingPath?: 'LIST_PRICE' | 'COST_DERIVED';
+  floorPrice?: number | null;
+  requiresApproval?: boolean;
   // Pump service is now handled at the quote level, not per product
   master_recipe_id?: string; // When selecting by master
   master_code?: string; // Display name for master-first mode
@@ -358,6 +362,7 @@ export default function QuoteBuilder() {
       }
 
       const finalPrice = Math.ceil((basePriceWithTransport * 1.04) / 5) * 5;
+      const floorInfo = await getEffectiveFloorPrice(masterId, validityDate);
 
       console.log(`[Add Master] Added ${master.master_code}:`, {
         basePriceWithoutTransport: basePrice.toFixed(2),
@@ -380,6 +385,9 @@ export default function QuoteBuilder() {
         volume: 1,
         profitMargin: 0.04,
         finalPrice: finalPrice,
+        pricingPath: floorInfo ? 'LIST_PRICE' : 'COST_DERIVED',
+        floorPrice: floorInfo?.floor_price ?? null,
+        requiresApproval: floorInfo ? finalPrice < floorInfo.floor_price : false,
         master_recipe_id: masterId,
         master_code: master.master_code,
         basePriceManuallyEdited: false, // Not manually edited initially
@@ -664,6 +672,9 @@ export default function QuoteBuilder() {
         volume: 1,
         profitMargin: 0.04, // Minimum 4% margin
         finalPrice: finalPrice,
+        pricingPath: 'COST_DERIVED',
+        floorPrice: null,
+        requiresApproval: false,
         basePriceManuallyEdited: false, // Not manually edited initially
         finalPriceManuallyEdited: false, // Not manually edited initially
         // Pump service is now handled at the quote level, not per product
@@ -743,6 +754,11 @@ export default function QuoteBuilder() {
       newProduct.finalPrice = finalPrice; // Keep the exact price user entered
     }
     
+    if (newProduct.floorPrice != null) {
+      newProduct.requiresApproval = newProduct.finalPrice < newProduct.floorPrice;
+      newProduct.pricingPath = 'LIST_PRICE';
+    }
+
     updatedProducts[index] = newProduct;
     setQuoteProducts(updatedProducts);
     quoteProductsRef.current = updatedProducts;
@@ -907,26 +923,40 @@ export default function QuoteBuilder() {
       let quoteDetailsData: any[] = [];
 
       // Handle concrete products
+      let hasBelowFloorItem = false;
       if (quoteProducts.length > 0) {
-        quoteDetailsData = quoteProducts.map(product => {
-          // Use the current final price from the product (which may have been manually edited)
-          const finalPrice = product.finalPrice;
-          const totalAmount = finalPrice * product.volume;
+        quoteDetailsData = await Promise.all(
+          quoteProducts.map(async (product) => {
+            const finalPrice = product.finalPrice;
+            const totalAmount = finalPrice * product.volume;
+            let pricingPath: 'LIST_PRICE' | 'COST_DERIVED' = 'COST_DERIVED';
 
-          return {
-            quote_id: createdQuote.id,
-            recipe_id: product.master_recipe_id ? null : product.recipe.id,
-            master_recipe_id: product.master_recipe_id || null,
-            volume: product.volume,
-            base_price: product.basePrice,
-            profit_margin: product.profitMargin * 100, // Convertir a porcentaje para almacenamiento
-            final_price: finalPrice,
-            total_amount: totalAmount,
-            pump_service: includePumpService,
-            pump_price: includePumpService ? pumpServiceProduct.price : null,
-            includes_vat: includesVAT
-          };
-        });
+            if (product.master_recipe_id) {
+              const floor = await getEffectiveFloorPrice(product.master_recipe_id, validityDate);
+              if (floor) {
+                pricingPath = 'LIST_PRICE';
+                if (finalPrice < floor.floor_price) {
+                  hasBelowFloorItem = true;
+                }
+              }
+            }
+
+            return {
+              quote_id: createdQuote.id,
+              recipe_id: product.master_recipe_id ? null : product.recipe.id ?? null,
+              master_recipe_id: product.master_recipe_id || null,
+              volume: product.volume,
+              base_price: product.basePrice,
+              profit_margin: product.profitMargin * 100, // Convertir a porcentaje para almacenamiento
+              final_price: finalPrice,
+              total_amount: totalAmount,
+              pump_service: includePumpService,
+              pump_price: includePumpService ? pumpServiceProduct.price : null,
+              includes_vat: includesVAT,
+              pricing_path: pricingPath
+            };
+          })
+        );
       }
 
       // Handle standalone pumping service (when no concrete products but pumping service is included)
@@ -934,15 +964,17 @@ export default function QuoteBuilder() {
         const pumpDetail = {
           quote_id: createdQuote.id,
           product_id: '6bd1949f-50c8-4505-a9aa-c113627bcb40', // Special pumping service product
-          recipe_id: null, // No recipe needed
+          recipe_id: null,
+          master_recipe_id: null,
           volume: pumpServiceProduct.volume,
-          base_price: pumpServiceProduct.price, // Use price as base_price
-          profit_margin: 0, // No margin calculation needed
+          base_price: pumpServiceProduct.price,
+          profit_margin: 0,
           final_price: pumpServiceProduct.price,
           total_amount: pumpServiceProduct.price * pumpServiceProduct.volume,
-          pump_service: true, // This IS a pump service
+          pump_service: true,
           pump_price: pumpServiceProduct.price,
-          includes_vat: includesVAT
+          includes_vat: includesVAT,
+          pricing_path: 'COST_DERIVED' as const
         };
         quoteDetailsData.push(pumpDetail);
       }
@@ -956,6 +988,17 @@ export default function QuoteBuilder() {
         if (detailsError) {
           console.error('Error inserting quote details:', detailsError);
           throw new Error(`Error al guardar detalles de cotización: ${detailsError.message}`);
+        }
+      }
+
+      if (hasBelowFloorItem) {
+        const { error: quoteUpdateError } = await supabase
+          .from('quotes')
+          .update({ auto_approved: false })
+          .eq('id', createdQuote.id);
+
+        if (quoteUpdateError) {
+          console.error('Error forcing quote approval for below-floor items:', quoteUpdateError);
         }
       }
       console.log('[QuoteBuilder] ✓ Quote details inserted:', quoteDetailsData.length);
@@ -2040,6 +2083,16 @@ export default function QuoteBuilder() {
                     {features.masterPricingEnabled && product.master_code ? product.master_code : product.recipe.recipe_code}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">{product.recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</p>
+                  {product.pricingPath === 'LIST_PRICE' && product.floorPrice != null && (
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Floor: ${product.floorPrice.toLocaleString('es-MX')}
+                    </p>
+                  )}
+                  {product.requiresApproval && (
+                    <span className="inline-block mt-1 rounded-full bg-amber-100 text-amber-800 text-[11px] px-2 py-0.5">
+                      Requiere aprobación
+                    </span>
+                  )}
                 </div>
                 
                 <div className="col-span-1 xl:col-span-1">

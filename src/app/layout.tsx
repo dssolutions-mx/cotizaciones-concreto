@@ -130,6 +130,7 @@ const comercialSubMenuItems = [
   { title: "Clientes", href: "/clients", IconComponent: Users },
   { title: "Cotizaciones", href: "/quotes", IconComponent: ClipboardList },
   { title: "Precios", href: "/prices", IconComponent: DollarSign },
+  { title: "Precios Ejecutivos", href: "/prices/list-prices", IconComponent: DollarSign },
   { title: "Autorización", href: "/finanzas/gobierno-precios", IconComponent: ShieldCheck },
   { title: "Crédito", href: "/finanzas/credito-validacion", IconComponent: CreditCard },
 ];

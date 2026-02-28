@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { KeyboardEvent, useState } from 'react';
+import Link from 'next/link';
 
 export const runtime = 'nodejs';
 import { MaterialPriceForm } from '@/components/prices/MaterialPriceForm';
 import { MaterialPriceList } from '@/components/prices/MaterialPriceList';
 import { AdminCostForm } from '@/components/prices/AdminCostForm';
 import { AdminCostList } from '@/components/prices/AdminCostList';
+import { Button } from '@/components/ui/button';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import AccessDeniedMessage from '@/components/ui/AccessDeniedMessage';
@@ -48,17 +50,39 @@ export default function PricesPage() {
     setRefreshTrigger(prev => prev + 1);
   };
 
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+
+    event.preventDefault();
+    const direction = event.key === 'ArrowRight' ? 1 : -1;
+    const nextIndex = (index + direction + TABS.length) % TABS.length;
+    setActiveTab(TABS[nextIndex].id);
+  };
+
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-6">Gestión de Precios</h1>
+    <div className="container mx-auto p-4 md:p-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Gestión de Precios</h1>
+        {hasRole(['EXECUTIVE', 'ADMIN_OPERATIONS']) && (
+          <Button asChild variant="outline">
+            <Link href="/prices/list-prices?tab=workspace">Precios Ejecutivos</Link>
+          </Button>
+        )}
+      </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="-mb-px flex space-x-8">
-          {TABS.map((tab) => (
+      <div role="tablist" aria-label="Secciones de precios" className="border-b border-gray-200 mb-6 overflow-x-auto">
+        <nav className="-mb-px flex space-x-8 min-w-max">
+          {TABS.map((tab, index) => (
             <button
               key={tab.id}
+              role="tab"
+              id={`tab-${tab.id}`}
+              aria-selected={activeTab === tab.id}
+              aria-controls={`panel-${tab.id}`}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(event) => handleTabKeyDown(event, index)}
               className={`
                 py-4 px-1 border-b-2 font-medium text-sm
                 ${activeTab === tab.id
@@ -75,7 +99,7 @@ export default function PricesPage() {
       
       {/* Tab Content with Role-Based Protection */}
       {activeTab === 'materials' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="panel-materials" role="tabpanel" aria-labelledby="tab-materials" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Material Price Form - only QUALITY_TEAM and EXECUTIVE can edit */}
           <RoleProtectedSection
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
@@ -104,7 +128,7 @@ export default function PricesPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="panel-admin" role="tabpanel" aria-labelledby="tab-admin" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Admin Cost Form - only PLANT_MANAGER and EXECUTIVE can edit */}
           <RoleProtectedSection
             allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}

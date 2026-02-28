@@ -17,6 +17,8 @@ interface DailySalesData {
   totalOrders: number;
 }
 
+type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
+
 export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions) {
   const { date, autoRefresh = true } = options;
   
@@ -109,7 +111,7 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       const orderIds = Array.from(new Set(remisiones.map((r: any) => r.order_id).filter(Boolean)));
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
-        .select('id, final_amount, invoice_amount, order_status')
+        .select('id, final_amount, invoice_amount, requires_invoice, order_status')
         .in('id', orderIds)
         .not('order_status', 'eq', 'CANCELLED');
       if (ordersError) throw ordersError;
@@ -147,22 +149,57 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       
       if (itemsError) throw itemsError;
 
-      // Total delivered all dates by order
-      const totalDeliveredByOrder: Record<string, number> = {};
-      (orderItems || []).forEach((item: any) => {
-        if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
-          totalDeliveredByOrder[item.order_id] = (totalDeliveredByOrder[item.order_id] || 0) + Number(item.concrete_volume_delivered || 0);
+      // Load all remisiones for those orders to identify each order's first delivery date.
+      let allRemisionesQuery = supabase
+        .from('remisiones')
+        .select('order_id, fecha, tipo_remision, volumen_fabricado')
+        .in('order_id', orderIds);
+      if (plantIds && plantIds.length > 0) {
+        allRemisionesQuery = allRemisionesQuery.in('plant_id', plantIds);
+      } else if (plantIds && plantIds.length === 0) {
+        setSalesData({
+          totalConcreteVolume: 0,
+          totalPumpingVolume: 0,
+          emptyTruckVolume: 0,
+          totalSubtotal: 0,
+          totalWithVAT: 0,
+          totalOrders: 0
+        });
+        return;
+      }
+      const { data: allOrderRemisiones, error: allOrderRemisionesError } = await allRemisionesQuery;
+      if (allOrderRemisionesError) throw allOrderRemisionesError;
+
+      const firstDeliveryDateByOrder: Record<string, string> = {};
+      const totalDeliveredByOrder: Record<string, { concrete: number; pump: number }> = {};
+      (allOrderRemisiones || []).forEach((r: any) => {
+        if (!r.order_id || !r.fecha) return;
+        if (!firstDeliveryDateByOrder[r.order_id] || r.fecha < firstDeliveryDateByOrder[r.order_id]) {
+          firstDeliveryDateByOrder[r.order_id] = r.fecha;
         }
-        if (item.has_pump_service && item.pump_volume_delivered > 0) {
-          totalDeliveredByOrder[item.order_id] = (totalDeliveredByOrder[item.order_id] || 0) + Number(item.pump_volume_delivered || 0);
+        if (!totalDeliveredByOrder[r.order_id]) {
+          totalDeliveredByOrder[r.order_id] = { concrete: 0, pump: 0 };
+        }
+        const vol = Number(r.volumen_fabricado || 0);
+        if (r.tipo_remision === 'BOMBEO') {
+          totalDeliveredByOrder[r.order_id].pump += vol;
+        } else {
+          totalDeliveredByOrder[r.order_id].concrete += vol;
         }
       });
 
-      // Today's delivered by order from remisiones
-      const todaysDeliveredByOrder: Record<string, number> = {};
+      // Today's delivered by order from remisiones (split by concrete/pump)
+      const todaysDeliveredByOrder: Record<string, { concrete: number; pump: number }> = {};
       remisiones.forEach((r: any) => {
         const vol = Number(r.volumen_fabricado || 0) || 0;
-        todaysDeliveredByOrder[r.order_id] = (todaysDeliveredByOrder[r.order_id] || 0) + vol;
+        if (!todaysDeliveredByOrder[r.order_id]) {
+          todaysDeliveredByOrder[r.order_id] = { concrete: 0, pump: 0 };
+        }
+        if (r.tipo_remision === 'BOMBEO') {
+          todaysDeliveredByOrder[r.order_id].pump += vol;
+        } else {
+          todaysDeliveredByOrder[r.order_id].concrete += vol;
+        }
       });
 
       let totalSubtotal = 0;
@@ -170,13 +207,64 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       let totalOrders = orders?.length || 0;
 
       (orders || []).forEach((order: any) => {
+        const totals = totalDeliveredByOrder[order.id] || { concrete: 0, pump: 0 };
+        const todays = todaysDeliveredByOrder[order.id] || { concrete: 0, pump: 0 };
+        const ratioConcrete = totals.concrete > 0 ? Math.min(1, Math.max(0, todays.concrete / totals.concrete)) : 0;
+        const ratioPump = totals.pump > 0 ? Math.min(1, Math.max(0, todays.pump / totals.pump)) : 0;
+        const isFirstDeliveryDate = firstDeliveryDateByOrder[order.id] === date;
+        const ratioFixedUnit = isFirstDeliveryDate ? 1 : 0;
+
+        const orderItemsForOrder = (orderItems || []).filter((i: any) => i.order_id === order.id);
+        let concreteAmount = 0;
+        let pumpAmount = 0;
+        let emptyTruckAmount = 0;
+        let additionalPerM3Amount = 0;
+        let additionalFixedUnitAmount = 0;
+
+        orderItemsForOrder.forEach((item: any) => {
+          const productType = item.product_type || '';
+          const isAdditional = productType.startsWith('PRODUCTO ADICIONAL:');
+          const isPump = productType === 'SERVICIO DE BOMBEO';
+          const isEmptyTruck = !!item.has_empty_truck_charge || productType === 'VACÍO DE OLLA';
+          const lineAmountRaw = item.total_price ?? ((item.unit_price || 0) * (item.volume || 0));
+          const lineAmount = Number(lineAmountRaw || 0);
+
+          if (isAdditional) {
+            const billingType: BillingType = (item.billing_type || 'PER_M3') as BillingType;
+            if (billingType === 'PER_M3') {
+              additionalPerM3Amount += lineAmount;
+            } else {
+              additionalFixedUnitAmount += lineAmount;
+            }
+            return;
+          }
+
+          if (isPump) {
+            pumpAmount += lineAmount;
+            return;
+          }
+
+          if (isEmptyTruck) {
+            emptyTruckAmount += lineAmount;
+            return;
+          }
+
+          concreteAmount += lineAmount;
+        });
+
+        const subtotal =
+          concreteAmount * ratioConcrete +
+          pumpAmount * ratioPump +
+          additionalPerM3Amount * ratioConcrete +
+          additionalFixedUnitAmount * ratioFixedUnit +
+          emptyTruckAmount * ratioFixedUnit;
+
         const fullSubtotal = Number(order.final_amount || 0);
         const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-        const totalDeliveredAllDates = totalDeliveredByOrder[order.id] || 0;
-        const todaysDelivered = todaysDeliveredByOrder[order.id] || 0;
-        const ratio = totalDeliveredAllDates > 0 ? todaysDelivered / totalDeliveredAllDates : 0;
-        totalSubtotal += fullSubtotal * ratio;
-        totalWithVAT += fullTotalWithVAT * ratio;
+        const vatMultiplier = fullSubtotal > 0 ? fullTotalWithVAT / fullSubtotal : (order.requires_invoice ? 1.16 : 1);
+
+        totalSubtotal += subtotal;
+        totalWithVAT += subtotal * vatMultiplier;
       });
 
       const metricsData: DailySalesData = {

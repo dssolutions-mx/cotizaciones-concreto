@@ -120,18 +120,27 @@ const MemoizedRoleProtectedButton = memo(RoleProtectedButton, (prevProps, nextPr
   // Create a stable comparison key for each set of props
   const prevKey = `${JSON.stringify(prevProps.allowedRoles)}-${prevProps.disabled}-${prevProps.showDisabled}-${prevProps.asChild}-${typeof prevProps.children === 'string' ? prevProps.children : 'complex'}-${prevProps.className}`;
   const nextKey = `${JSON.stringify(nextProps.allowedRoles)}-${nextProps.disabled}-${nextProps.showDisabled}-${nextProps.asChild}-${typeof nextProps.children === 'string' ? nextProps.children : 'complex'}-${nextProps.className}`;
+  const sameHandler = prevProps.onClick === nextProps.onClick;
+  const sameTitle = prevProps.title === nextProps.title;
+  const sameDisabledMessage = prevProps.disabledMessage === nextProps.disabledMessage;
   
   // Log when comparison happens for debugging
   if (typeof window !== 'undefined' && (window as any).__DEBUG_BUTTON_RENDERS__) {
-    if (prevKey !== nextKey) {
-      console.log(`🔄 [RoleProtectedButton] Props changed: ${prevKey} → ${nextKey}`);
+    if (prevKey !== nextKey || !sameHandler || !sameTitle || !sameDisabledMessage) {
+      console.log(`🔄 [RoleProtectedButton] Props changed:`, {
+        prevKey,
+        nextKey,
+        sameHandler,
+        sameTitle,
+        sameDisabledMessage,
+      });
     } else {
       console.log(`⏭️  [RoleProtectedButton] Props identical, skipping render`);
     }
   }
   
   // Return true to SKIP re-render, false to allow re-render
-  return prevKey === nextKey;
+  return prevKey === nextKey && sameHandler && sameTitle && sameDisabledMessage;
 });
 
 // Set display name for debugging

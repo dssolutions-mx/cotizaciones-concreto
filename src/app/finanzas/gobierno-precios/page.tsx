@@ -370,6 +370,24 @@ export default function GobiernoPreciosPage() {
         </TabsContent>
 
         <TabsContent value="prices" className="space-y-6">
+          <Card>
+            <CardContent className="pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="font-medium text-slate-900">Gobierno Comercial de Precios</p>
+                <p className="text-sm text-slate-600">
+                  Administra vigencias de precios por obra y accede a la lista ejecutiva de pisos de precio.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" asChild>
+                  <Link href="/prices">Precios</Link>
+                </Button>
+                <Button asChild>
+                  <Link href="/prices/list-prices?tab=workspace">Precios Ejecutivos</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
           <PriceGovernanceTable />
         </TabsContent>
       </Tabs>

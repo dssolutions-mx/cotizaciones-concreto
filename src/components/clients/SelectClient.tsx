@@ -97,6 +97,24 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
 
+  const getCreditStatusMeta = (status?: string | null) => {
+    const normalized = (status || '').toUpperCase();
+
+    switch (normalized) {
+      case 'ACTIVE':
+      case 'APPROVED':
+        return { label: 'Activo', className: 'bg-green-100 text-green-800' };
+      case 'SUSPENDED':
+      case 'PENDING':
+        return { label: 'Suspendido', className: 'bg-yellow-100 text-yellow-800' };
+      case 'BLACKLISTED':
+      case 'REJECTED':
+        return { label: 'Lista negra', className: 'bg-red-100 text-red-800' };
+      default:
+        return { label: status || 'Sin definir', className: 'bg-gray-100 text-gray-700' };
+    }
+  };
+
   return (
     <div className="space-y-4">
       {/* Mode Toggle */}
@@ -133,16 +151,14 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
                         <span className="font-medium">{client.business_name}</span>
                         <span className="text-xs text-muted-foreground">{client.client_code}</span>
                       </div>
-                      {client.credit_status && (
-                        <span className={`text-xs px-2 py-1 rounded-full ml-2 ${
-                          client.credit_status === 'approved' ? 'bg-green-100 text-green-800' :
-                          client.credit_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {client.credit_status === 'approved' ? 'Aprobado' : 
-                           client.credit_status === 'pending' ? 'Pendiente' : 'Rechazado'}
-                        </span>
-                      )}
+                      {client.credit_status && (() => {
+                        const meta = getCreditStatusMeta(client.credit_status);
+                        return (
+                          <span className={`text-xs px-2 py-1 rounded-full ml-2 ${meta.className}`}>
+                            {meta.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </SelectItem>
                 ))}
@@ -193,16 +209,14 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
                         <span className="text-xs text-muted-foreground">{client.client_code}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        {client.credit_status && (
-                          <span className={`text-xs px-2 py-1 rounded-full ${
-                            client.credit_status === 'approved' ? 'bg-green-100 text-green-800' :
-                            client.credit_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {client.credit_status === 'approved' ? 'Aprobado' : 
-                             client.credit_status === 'pending' ? 'Pendiente' : 'Rechazado'}
-                          </span>
-                        )}
+                        {client.credit_status && (() => {
+                          const meta = getCreditStatusMeta(client.credit_status);
+                          return (
+                            <span className={`text-xs px-2 py-1 rounded-full ${meta.className}`}>
+                              {meta.label}
+                            </span>
+                          );
+                        })()}
                         {selectedClientId === client.id && (
                           <Check className="h-4 w-4 text-green-600" />
                         )}
@@ -226,16 +240,14 @@ export function SelectClient({ onClientSelected, showSites = false }: SelectClie
                 <p className="font-medium">{selectedClient.business_name}</p>
                 <p className="text-sm text-muted-foreground">{selectedClient.client_code}</p>
               </div>
-              {selectedClient.credit_status && (
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  selectedClient.credit_status === 'approved' ? 'bg-green-100 text-green-800' :
-                  selectedClient.credit_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {selectedClient.credit_status === 'approved' ? 'Aprobado' : 
-                   selectedClient.credit_status === 'pending' ? 'Pendiente' : 'Rechazado'}
-                </span>
-              )}
+              {selectedClient.credit_status && (() => {
+                const meta = getCreditStatusMeta(selectedClient.credit_status);
+                return (
+                  <span className={`text-xs px-2 py-1 rounded-full ${meta.className}`}>
+                    {meta.label}
+                  </span>
+                );
+              })()}
             </div>
           </div>
         </div>

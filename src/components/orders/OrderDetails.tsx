@@ -36,6 +36,9 @@ import { supabase } from '@/lib/supabase';
 import { masterRecipeService } from '@/lib/services/masterRecipeService';
 import { toast } from 'sonner';
 
+// Regex to parse additional product from product_type; captures last (Code) to handle names with parentheses
+const ADDL_PRODUCT_REGEX = /PRODUCTO ADICIONAL: (.+) \(([^)]+)\)$/;
+
 // Component to handle signed URL fetching for evidence images
 function EvidenceImage({ path }: { path: string }) {
   const [imageUrl, setImageUrl] = React.useState<string>('');
@@ -183,6 +186,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [availableAdditionalProducts, setAvailableAdditionalProducts] = useState<AdditionalProduct[]>([]);
   const [selectedAdditionalProducts, setSelectedAdditionalProducts] = useState<Set<string>>(new Set());
   const [loadingAdditionalProducts, setLoadingAdditionalProducts] = useState(false);
+  const [removingOrphanIds, setRemovingOrphanIds] = useState<Set<string>>(new Set());
   
   // Per-row recipe editor toggle (collapsed by default)
   const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
@@ -544,18 +548,26 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     // Load available recipes when entering edit mode
     loadAvailableRecipes();
-    // Load available additional products
-    await loadAvailableAdditionalProducts();
-    
-    // Initialize selected additional products from existing order items
-    const existingAdditionalProducts = order.products.filter(p => 
+    // Load available additional products and sync-init selected from existing items
+    const loadedProducts = await loadAvailableAdditionalProducts();
+    const existingAdditionalProducts = order.products.filter(p =>
       p.product_type?.startsWith('PRODUCTO ADICIONAL:')
     );
-    
-    // Match existing products to available products by name/code
-    // We'll need to match them after loading, so we'll do this in a useEffect
-    // For now, set empty and let the useEffect handle matching
-    setSelectedAdditionalProducts(new Set());
+    const matchedIds = new Set<string>();
+    if (loadedProducts && loadedProducts.length > 0) {
+      existingAdditionalProducts.forEach(existing => {
+        const productType = existing.product_type || '';
+        const match = productType.match(ADDL_PRODUCT_REGEX);
+        if (match) {
+          const [, name, code] = match;
+          const matched = loadedProducts.find(ap =>
+            ap.name.trim() === name.trim() && ap.code.trim() === code.trim()
+          );
+          if (matched) matchedIds.add(matched.quoteAdditionalProductId);
+        }
+      });
+      if (matchedIds.size > 0) setSelectedAdditionalProducts(matchedIds);
+    }
     
     // Reset filters when starting to edit
     resetFilters();
@@ -919,7 +931,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       if (!order?.client_id || !order?.construction_site) {
         console.log('Cannot load additional products: missing client_id or construction_site');
         setAvailableAdditionalProducts([]);
-        return;
+        return [];
       }
       
       console.log(`Loading additional products for Client: ${order.client_id}, Site: ${order.construction_site}`);
@@ -980,7 +992,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       if (allQuotes.length === 0) {
         console.log('No quotes found for additional products');
         setAvailableAdditionalProducts([]);
-        return;
+        return [];
       }
       
       console.log(`Found ${allQuotes.length} quotes to check for additional products (order's quote + approved quotes)`);
@@ -1018,13 +1030,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       if (additionalProductsError) {
         console.error('Error fetching additional products:', additionalProductsError);
         setAvailableAdditionalProducts([]);
-        return;
+        return [];
       }
       
       if (!allAdditionalProducts || allAdditionalProducts.length === 0) {
         console.log('No additional products found in approved quotes');
         setAvailableAdditionalProducts([]);
-        return;
+        return [];
       }
       
       // 3. Keep only the most recent price per additional_product_id
@@ -1070,10 +1082,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       setAvailableAdditionalProducts(additionalProductsArray);
       console.log('Loaded additional products:', additionalProductsArray);
+      return additionalProductsArray;
     } catch (error) {
       console.error('Error loading additional products:', error);
       toast.error('Error al cargar los productos adicionales disponibles');
       setAvailableAdditionalProducts([]);
+      return [];
     } finally {
       setLoadingAdditionalProducts(false);
     }
@@ -1084,6 +1098,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     setEditedOrder(null);
     setSelectedAdditionalProducts(new Set());
     setAvailableAdditionalProducts([]);
+    setRemovingOrphanIds(new Set());
     resetFilters();
   }
 
@@ -1161,6 +1176,54 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       ...editedOrder,
       products: updatedProducts
     });
+  }
+
+  async function handleRemoveOrphanAdditionalProduct(itemId: string) {
+    if (hasRemisiones) return;
+    setRemovingOrphanIds(prev => new Set(prev).add(itemId));
+    try {
+      const { error } = await supabase.from('order_items').delete().eq('id', itemId);
+      if (error) throw error;
+      toast.success('Producto adicional eliminado');
+      await loadOrderDetails();
+    } catch (e) {
+      console.error('Error removing orphan additional product:', e);
+      toast.error('No se pudo eliminar el producto');
+      setRemovingOrphanIds(prev => { const n = new Set(prev); n.delete(itemId); return n; });
+    } finally {
+      setRemovingOrphanIds(prev => { const n = new Set(prev); n.delete(itemId); return n; });
+    }
+  }
+
+  function handleRemoveConcreteProduct(id: string) {
+    if (!editedOrder || !editedOrder.products) return;
+    const originalProduct = order?.products.find(p => p.id === id);
+    const isSpecialService = originalProduct && (
+      originalProduct.product_type === 'VACÍO DE OLLA' ||
+      originalProduct.product_type === 'SERVICIO DE BOMBEO' ||
+      originalProduct.product_type === 'EMPTY_TRUCK_CHARGE' ||
+      originalProduct.has_empty_truck_charge ||
+      originalProduct.product_type?.startsWith('PRODUCTO ADICIONAL:')
+    );
+    if (isSpecialService) return;
+
+    const concreteCount = editedOrder.products.filter(p => {
+      const op = order?.products.find(o => o.id === p.id);
+      return op && !op.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+        op.product_type !== 'VACÍO DE OLLA' && op.product_type !== 'SERVICIO DE BOMBEO' &&
+        op.product_type !== 'EMPTY_TRUCK_CHARGE' && !op.has_empty_truck_charge;
+    }).length;
+
+    if (concreteCount <= 1) {
+      toast.error('La orden debe tener al menos un producto de concreto');
+      return;
+    }
+
+    setEditedOrder({
+      ...editedOrder,
+      products: editedOrder.products.filter(p => p.id !== id)
+    });
+    toast.success('Producto eliminado. Guarde los cambios para aplicarlos.');
   }
 
   // Function to get unique values for filter dropdowns
@@ -1320,13 +1383,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         }, 0) || 0;
 
         // Create a map of existing products by matching name/code
-        const existingProductMap = new Map<string, any>();
+        const existingProductMap = new Map<string, any[]>();
         existingAdditionalProductItems.forEach(item => {
-          const match = item.product_type?.match(/PRODUCTO ADICIONAL: (.+?) \((.+?)\)/);
+          const match = item.product_type?.match(ADDL_PRODUCT_REGEX);
           if (match) {
             const [, name, code] = match;
             const key = `${name.trim()}:${code.trim()}`;
-            existingProductMap.set(key, item);
+            const arr = existingProductMap.get(key) ?? [];
+            arr.push(item);
+            existingProductMap.set(key, arr);
           }
         });
 
@@ -1337,13 +1402,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         selectedIds.forEach(id => {
           const ap = availableAdditionalProducts.find(a => a.quoteAdditionalProductId === id);
           if (ap) {
-            const key = `${ap.name}:${ap.code}`;
+            const key = `${ap.name.trim()}:${ap.code.trim()}`;
             selectedProductsMap.set(key, ap);
           }
         });
 
         // Add new additional products
-        for (const [key, ap] of selectedProductsMap) {
+        for (const [key, ap] of Array.from(selectedProductsMap)) {
           if (!existingProductMap.has(key)) {
             const bt = billingType(ap.billingType);
             const unitPrice = ap.unitPrice;
@@ -1380,53 +1445,72 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         }
 
         // Remove deselected additional products (only if we showed them in the list - i.e. they're in available products)
-        const availableKeys = new Set(availableAdditionalProducts.map(ap => `${ap.name}:${ap.code}`));
-        for (const [key, existingItem] of existingProductMap) {
+        const availableKeys = new Set(availableAdditionalProducts.map(ap => `${ap.name.trim()}:${ap.code.trim()}`));
+        for (const [key, existingItems] of Array.from(existingProductMap)) {
+          if (!selectedProductsMap.has(key) && !availableKeys.has(key)) {
+            // Orphan: product in order but not in any quote — leave as-is
+            console.warn(`Leaving orphan additional product as-is (not in available quotes): ${existingItems[0]?.product_type}`);
+            continue;
+          }
           if (!selectedProductsMap.has(key) && availableKeys.has(key)) {
-            // Delete this order_item
+            // User deselected — delete all items (handles duplicates)
+            for (const item of existingItems) {
+              const { error: deleteError } = await supabase
+                .from('order_items')
+                .delete()
+                .eq('id', item.id);
+
+              if (deleteError) {
+                console.error('Error deleting additional product:', deleteError);
+                throw deleteError;
+              }
+              console.log(`Removed additional product: ${item.product_type}`);
+            }
+            continue;
+          }
+          const ap = selectedProductsMap.get(key);
+          if (!ap) continue;
+
+          const bt = billingType(ap.billingType);
+          const unitPrice = ap.unitPrice;
+          const itemVolume = bt === 'PER_ORDER_FIXED' ? 1 : ap.quantity;
+          const totalPrice = bt === 'PER_ORDER_FIXED'
+            ? unitPrice
+            : bt === 'PER_UNIT'
+              ? ap.quantity * unitPrice
+              : ap.quantity * totalConcreteVolume * unitPrice;
+
+          // Keep first item, delete duplicates, update the kept one
+          const [keeper, ...duplicates] = existingItems;
+          for (const dup of duplicates) {
             const { error: deleteError } = await supabase
               .from('order_items')
               .delete()
-              .eq('id', existingItem.id);
-
+              .eq('id', dup.id);
             if (deleteError) {
-              console.error('Error deleting additional product:', deleteError);
+              console.error('Error removing duplicate additional product:', deleteError);
               throw deleteError;
             }
-            console.log(`Removed additional product: ${existingItem.product_type}`);
-          } else {
-            // Update if quantity or price changed (recalculate total)
-            const ap = selectedProductsMap.get(key)!;
-            const bt = billingType(ap.billingType);
-            const unitPrice = ap.unitPrice;
-            const itemVolume = bt === 'PER_ORDER_FIXED' ? 1 : ap.quantity;
-            const totalPrice = bt === 'PER_ORDER_FIXED'
-              ? unitPrice
-              : bt === 'PER_UNIT'
-                ? ap.quantity * unitPrice
-                : ap.quantity * totalConcreteVolume * unitPrice;
+            console.log(`Removed duplicate additional product: ${dup.product_type}`);
+          }
 
-            // Only update if values changed
-            if (existingItem.volume !== itemVolume || 
-                existingItem.unit_price !== unitPrice ||
-                existingItem.total_price !== totalPrice) {
-              const updatePayload: Record<string, unknown> = {
-                volume: itemVolume,
-                unit_price: unitPrice,
-                total_price: totalPrice,
-              };
-              if (bt) (updatePayload as any).billing_type = bt;
-              const { error: updateError } = await supabase
-                .from('order_items')
-                .update(updatePayload)
-                .eq('id', existingItem.id);
+          if (keeper.volume !== itemVolume || keeper.unit_price !== unitPrice || keeper.total_price !== totalPrice) {
+            const updatePayload: Record<string, unknown> = {
+              volume: itemVolume,
+              unit_price: unitPrice,
+              total_price: totalPrice,
+            };
+            if (bt) (updatePayload as any).billing_type = bt;
+            const { error: updateError } = await supabase
+              .from('order_items')
+              .update(updatePayload)
+              .eq('id', keeper.id);
 
-              if (updateError) {
-                console.error('Error updating additional product:', updateError);
-                throw updateError;
-              }
-              console.log(`Updated additional product: ${ap.name} (${ap.code})`);
+            if (updateError) {
+              console.error('Error updating additional product:', updateError);
+              throw updateError;
             }
+            console.log(`Updated additional product: ${ap.name} (${ap.code})`);
           }
         }
         // Recalculate order totals after additional products changes
@@ -1446,25 +1530,27 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                  !originalProduct.has_empty_truck_charge;
         });
 
-        // Normalize and save concrete items
-        if (concreteProducts.length > 0) {
-          // Preserve original recipe_id if not explicitly changed
-          const concreteProductsWithRecipe = concreteProducts.map(p => {
-            const originalProduct = order.products.find(op => op.id === p.id);
-            return {
-              id: p.id,
-              volume: p.volume,
-              pump_volume: p.pump_volume,
-              // Use selected recipe_id, or fall back to original if unchanged
-              recipe_id: p.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || undefined
-            };
-          });
+        // Normalize and save concrete items (call even when empty to delete removed items)
+        const concreteProductsWithRecipe = concreteProducts.map(p => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          return {
+            id: p.id,
+            volume: p.volume,
+            pump_volume: p.pump_volume,
+            recipe_id: p.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || undefined
+          };
+        });
 
+        const orderHadConcrete = order.products.some(p =>
+          p.product_type !== 'VACÍO DE OLLA' && p.product_type !== 'SERVICIO DE BOMBEO' &&
+          p.product_type !== 'EMPTY_TRUCK_CHARGE' && !p.product_type?.startsWith('PRODUCTO ADICIONAL:')
+        );
+        if (concreteProductsWithRecipe.length > 0 || orderHadConcrete) {
           await orderService.updateOrderNormalized(
             orderId,
             orderUpdate,
             concreteProductsWithRecipe,
-            { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
+            { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: concreteProductsWithRecipe.length > 0 }
           );
         }
 
@@ -1812,16 +1898,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       const matchedIds = new Set<string>();
       
       // Match by extracting name and code from product_type
-      // Format: "PRODUCTO ADICIONAL: Name (Code)"
       existingAdditionalProducts.forEach(existing => {
         const productType = existing.product_type || '';
-        const match = productType.match(/PRODUCTO ADICIONAL: (.+?) \((.+?)\)/);
+        const match = productType.match(ADDL_PRODUCT_REGEX);
         if (match) {
           const [, name, code] = match;
           
           // Find matching available product by name and code
           const matched = availableAdditionalProducts.find(ap => 
-            ap.name === name.trim() && ap.code === code.trim()
+            ap.name.trim() === name.trim() && ap.code.trim() === code.trim()
           );
           
           if (matched) {
@@ -1836,6 +1921,25 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       }
     }
   }, [isEditing, order, availableAdditionalProducts]);
+
+  // Orphan additional products: in order but not in any approved quote
+  const orphanAdditionalProducts = useMemo(() => {
+    if (!order || !isEditing) return [];
+    const availableKeys = new Set(availableAdditionalProducts.map(ap => `${ap.name.trim()}:${ap.code.trim()}`));
+    return order.products.filter(p => {
+      if (!p.product_type?.startsWith('PRODUCTO ADICIONAL:')) return false;
+      const match = p.product_type.match(ADDL_PRODUCT_REGEX);
+      if (!match) return false;
+      const [, name, code] = match;
+      const key = `${name.trim()}:${code.trim()}`;
+      return !availableKeys.has(key);
+    });
+  }, [order, isEditing, availableAdditionalProducts]);
+
+  const visibleOrphanAdditionalProducts = useMemo(
+    () => orphanAdditionalProducts.filter(p => !removingOrphanIds.has(p.id)),
+    [orphanAdditionalProducts, removingOrphanIds]
+  );
   
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
@@ -2355,13 +2459,22 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                             </div>
                                           )}
                                         </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => openRecipeEditor(product.id)}
-                                          className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
-                                        >
-                                          Cambiar receta
-                                        </button>
+                                        <div className="flex gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => openRecipeEditor(product.id)}
+                                            className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
+                                          >
+                                            Cambiar receta
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveConcreteProduct(product.id)}
+                                            className="text-xs px-3 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50"
+                                          >
+                                            Eliminar
+                                          </button>
+                                        </div>
                                       </div>
                                     ) : (
                                       <div>
@@ -2908,6 +3021,38 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           </div>
                         )}
                         <p className="text-xs text-amber-700 mt-2">Este cargo se agrega como un producto especial y no afecta la receta.</p>
+                      </div>
+                    )}
+
+                    {/* Orphan additional products: in order but not in any approved quote */}
+                    {!hasRemisiones && canEditProducts && visibleOrphanAdditionalProducts.length > 0 && (
+                      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                        <h3 className="text-lg font-semibold text-amber-900 mb-2">Productos adicionales sin cotización vigente</h3>
+                        <p className="text-sm text-amber-800 mb-3">
+                          Estos productos están en la orden pero ya no tienen cotización activa. Puede eliminarlos si no corresponden.
+                        </p>
+                        <div className="space-y-2">
+                          {visibleOrphanAdditionalProducts.map((item) => (
+                            <div
+                              key={item.id}
+                              className="flex justify-between items-center p-3 rounded-md border border-amber-200 bg-white"
+                            >
+                              <span className="text-sm text-gray-800">
+                                {item.product_type?.replace('PRODUCTO ADICIONAL: ', '')}
+                              </span>
+                              <span className="text-sm text-gray-600 mr-2">
+                                {item.volume} × ${(item.unit_price || 0).toFixed(2)} = ${(item.total_price || 0).toFixed(2)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveOrphanAdditionalProduct(item.id)}
+                                className="text-xs px-3 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 

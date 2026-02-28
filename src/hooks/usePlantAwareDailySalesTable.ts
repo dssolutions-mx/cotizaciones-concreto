@@ -31,6 +31,8 @@ interface OrderWithDetails {
   concreteVolumesByRecipe: Record<string, { volume: number; recipeCode: string; strengthFc?: number }>;
 }
 
+type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
+
 export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTableOptions) {
   const { date, autoRefresh = true } = options;
   
@@ -166,17 +168,36 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
       
       if (itemsError) throw itemsError;
 
-      // Precompute total delivered per order from items (overall, across dates)
+      // Load all remisiones for those orders to identify each order's first delivery date.
+      let allRemisionesQuery = supabase
+        .from('remisiones')
+        .select('order_id, fecha, tipo_remision, volumen_fabricado')
+        .in('order_id', orderIds);
+      if (plantIds && plantIds.length > 0) {
+        allRemisionesQuery = allRemisionesQuery.in('plant_id', plantIds);
+      } else if (plantIds && plantIds.length === 0) {
+        setOrders([]);
+        return;
+      }
+      const { data: allOrderRemisiones, error: allOrderRemisionesError } = await allRemisionesQuery;
+
+      if (allOrderRemisionesError) throw allOrderRemisionesError;
+
+      const firstDeliveryDateByOrder: Record<string, string> = {};
       const totalDeliveredByOrder: Record<string, { concrete: number; pump: number }> = {};
-      (orderItems || []).forEach((item: any) => {
-        if (!totalDeliveredByOrder[item.order_id]) {
-          totalDeliveredByOrder[item.order_id] = { concrete: 0, pump: 0 };
+      (allOrderRemisiones || []).forEach((r: any) => {
+        if (!r.order_id || !r.fecha) return;
+        if (!firstDeliveryDateByOrder[r.order_id] || r.fecha < firstDeliveryDateByOrder[r.order_id]) {
+          firstDeliveryDateByOrder[r.order_id] = r.fecha;
         }
-        if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
-          totalDeliveredByOrder[item.order_id].concrete += Number(item.concrete_volume_delivered || 0);
+        if (!totalDeliveredByOrder[r.order_id]) {
+          totalDeliveredByOrder[r.order_id] = { concrete: 0, pump: 0 };
         }
-        if (item.has_pump_service && item.pump_volume_delivered > 0) {
-          totalDeliveredByOrder[item.order_id].pump += Number(item.pump_volume_delivered || 0);
+        const vol = Number(r.volumen_fabricado || 0);
+        if (r.tipo_remision === 'BOMBEO') {
+          totalDeliveredByOrder[r.order_id].pump += vol;
+        } else {
+          totalDeliveredByOrder[r.order_id].concrete += vol;
         }
       });
 
@@ -205,16 +226,62 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
             }
           });
 
-          // Proportional amounts based on delivered ratio for the order
+          // Proportional amounts based on delivered ratio per category
           const totals = totalDeliveredByOrder[order.id] || { concrete: 0, pump: 0 };
-          const totalDeliveredAllDates = (totals.concrete || 0) + (totals.pump || 0);
-          const todaysDelivered = dailyConcreteVolume + dailyPumpVolume;
-          const ratio = totalDeliveredAllDates > 0 ? todaysDelivered / totalDeliveredAllDates : 0;
+          const ratioConcrete = totals.concrete > 0 ? Math.min(1, Math.max(0, dailyConcreteVolume / totals.concrete)) : 0;
+          const ratioPump = totals.pump > 0 ? Math.min(1, Math.max(0, dailyPumpVolume / totals.pump)) : 0;
+          const isFirstDeliveryDate = firstDeliveryDateByOrder[order.id] === date;
+          const ratioFixedUnit = isFirstDeliveryDate ? 1 : 0;
+
+          const orderItemsForOrder = (orderItems || []).filter((i: any) => i.order_id === order.id);
+          let concreteAmount = 0;
+          let pumpAmount = 0;
+          let emptyTruckAmount = 0;
+          let additionalPerM3Amount = 0;
+          let additionalFixedUnitAmount = 0;
+
+          orderItemsForOrder.forEach((item: any) => {
+            const productType = item.product_type || '';
+            const isAdditional = productType.startsWith('PRODUCTO ADICIONAL:');
+            const isPump = productType === 'SERVICIO DE BOMBEO';
+            const isEmptyTruck = !!item.has_empty_truck_charge || productType === 'VACÍO DE OLLA';
+            const lineAmountRaw = item.total_price ?? ((item.unit_price || 0) * (item.volume || 0));
+            const lineAmount = Number(lineAmountRaw || 0);
+
+            if (isAdditional) {
+              const billingType: BillingType = (item.billing_type || 'PER_M3') as BillingType;
+              if (billingType === 'PER_M3') {
+                additionalPerM3Amount += lineAmount;
+              } else {
+                additionalFixedUnitAmount += lineAmount;
+              }
+              return;
+            }
+
+            if (isPump) {
+              pumpAmount += lineAmount;
+              return;
+            }
+
+            if (isEmptyTruck) {
+              emptyTruckAmount += lineAmount;
+              return;
+            }
+
+            concreteAmount += lineAmount;
+          });
+
+          const subtotal =
+            concreteAmount * ratioConcrete +
+            pumpAmount * ratioPump +
+            additionalPerM3Amount * ratioConcrete +
+            additionalFixedUnitAmount * ratioFixedUnit +
+            emptyTruckAmount * ratioFixedUnit;
 
           const fullSubtotal = Number(order.final_amount || 0);
           const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-          const subtotal = fullSubtotal * ratio;
-          const totalWithVAT = fullTotalWithVAT * ratio;
+          const vatMultiplier = fullSubtotal > 0 ? fullTotalWithVAT / fullSubtotal : (order.requires_invoice ? 1.16 : 1);
+          const totalWithVAT = subtotal * vatMultiplier;
           const vat = totalWithVAT - subtotal;
 
           // Collect product names from items and create detailed volume breakdown
@@ -222,13 +289,27 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
           const detailedVolumesByRecipe: Record<string, { volume: number; recipeCode: string; strengthFc?: number }> = {};
           
           // First, collect from order items (for display purposes)
-          (orderItems || [])
-            .filter((i: any) => i.order_id === order.id)
-            .forEach((i: any) => {
-              if (i.product_type && i.product_type !== 'SERVICIO DE BOMBEO') {
-                productNamesSet.add(i.product_type);
-              }
-            });
+          const additionalProducts = new Set<string>();
+          const concreteProducts = new Set<string>();
+          orderItemsForOrder.forEach((i: any) => {
+            if (!i.product_type || i.product_type === 'SERVICIO DE BOMBEO') return;
+            if (i.product_type.startsWith('PRODUCTO ADICIONAL:')) {
+              additionalProducts.add(
+                i.product_type
+                  .replace('PRODUCTO ADICIONAL:', '')
+                  .replace(/\s*\([^)]+\)\s*$/, '')
+                  .trim()
+              );
+              return;
+            }
+            if (!i.has_empty_truck_charge && i.product_type !== 'VACÍO DE OLLA') {
+              concreteProducts.add(i.product_type);
+            }
+          });
+
+          const concreteLabel = concreteProducts.size > 0 ? Array.from(concreteProducts).join(', ') : '';
+          const additionalLabel = additionalProducts.size > 0 ? `Adicionales: ${Array.from(additionalProducts).join(', ')}` : '';
+          [concreteLabel, additionalLabel].filter(Boolean).forEach((label) => productNamesSet.add(label));
 
           // Then, collect detailed volume breakdown from remisiones
           todaysRemisiones.forEach((r: any) => {
@@ -271,7 +352,7 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
             subtotal,
             vat,
             totalWithVAT,
-            productNames: Array.from(productNamesSet).join(', '),
+            productNames: Array.from(productNamesSet).join(' | '),
             concreteVolumesByRecipe: detailedVolumesByRecipe
           };
 

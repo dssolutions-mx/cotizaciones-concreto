@@ -177,6 +177,85 @@ export const calculateBasePrice = async (
 };
 
 /**
+ * Returns ONLY the raw material cost for a recipe variant (no admin, no transport).
+ * Used in List Prices management so the executive sees pure material cost as a floor reference.
+ */
+export const calculateMaterialCostOnly = async (
+  recipeId: string,
+  plantId: string
+): Promise<number> => {
+  const { materials } = await getRecipeVersionWithMaterials(recipeId);
+  const { data: priceMap, error } = await priceService.getMaterialPricesForPlant(plantId);
+  if (error || !priceMap) throw new Error('No se encontraron precios de materiales');
+
+  let total = 0;
+  for (const mat of materials) {
+    if (!mat.material_id) continue;
+    const unitPrice = priceMap.get(mat.material_id);
+    if (unitPrice !== undefined) total += mat.quantity * unitPrice;
+  }
+  return Number(total.toFixed(2));
+};
+
+export interface MaterialLineItem {
+  materialId: string;
+  name: string;
+  code: string;
+  category: string | null;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  lineTotal: number;
+}
+
+/**
+ * Returns per-material line items for a recipe variant (no admin costs).
+ * Used in the List Prices breakdown dialog.
+ */
+export const getMaterialLineItems = async (
+  recipeId: string,
+  plantId: string
+): Promise<MaterialLineItem[]> => {
+  const { versionId, materials } = await getRecipeVersionWithMaterials(recipeId);
+  console.log(`[priceCalculator] Line items from version ${versionId} for recipe ${recipeId}`);
+
+  const { data: priceMap, error: pricesError } = await priceService.getMaterialPricesForPlant(plantId);
+  if (pricesError || !priceMap) throw new Error('No se encontraron precios de materiales');
+
+  const matIds = materials.filter((m) => m.material_id).map((m) => m.material_id as string);
+  const nameMap = new Map<string, { name: string; code: string; category: string | null }>();
+  if (matIds.length > 0) {
+    const { data: rows } = await supabase
+      .from('materials')
+      .select('id, material_name, material_code, category')
+      .in('id', matIds);
+    (rows ?? []).forEach((r: { id: string; material_name: string; material_code: string; category: string | null }) => {
+      nameMap.set(r.id, { name: r.material_name, code: r.material_code, category: r.category });
+    });
+  }
+
+  const items: MaterialLineItem[] = [];
+  for (const mat of materials) {
+    if (!mat.material_id) continue;
+    const unitPrice = priceMap.get(mat.material_id);
+    if (unitPrice === undefined) continue;
+    const meta = nameMap.get(mat.material_id);
+    items.push({
+      materialId: mat.material_id,
+      name: meta?.name ?? mat.material_type,
+      code: meta?.code ?? '',
+      category: meta?.category ?? null,
+      quantity: mat.quantity,
+      unit: mat.unit,
+      unitPrice,
+      lineTotal: Number((mat.quantity * unitPrice).toFixed(2)),
+    });
+  }
+  // Sort by line total descending so biggest cost components appear first
+  return items.sort((a, b) => b.lineTotal - a.lineTotal);
+};
+
+/**
  * Calculate base price breakdown for display
  * Returns material cost, administrative costs, and total
  */

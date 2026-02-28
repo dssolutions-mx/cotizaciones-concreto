@@ -156,6 +156,8 @@ export const clientService = {
     email?: string;
     phone?: string;
     credit_status?: string;
+    client_type?: 'normal' | 'de_la_casa' | 'asignado' | 'nuevo';
+    assigned_user_id?: string | null;
   }) {
     try {
       const code = (clientData.client_code || '').trim();
@@ -204,6 +206,8 @@ export const clientService = {
     email?: string;
     phone: string; // Required
     credit_status?: string;
+    client_type?: 'normal' | 'de_la_casa' | 'asignado' | 'nuevo';
+    assigned_user_id?: string | null;
   }, sitesData: Array<{
     name: string;
     location?: string;
@@ -403,6 +407,8 @@ export const clientService = {
     email?: string;
     phone?: string;
     credit_status?: string;
+    client_type?: 'normal' | 'de_la_casa' | 'asignado' | 'nuevo';
+    assigned_user_id?: string | null;
     logo_path?: string | null;
   }) {
     try {
