@@ -10,11 +10,12 @@ import { Search, ChevronDown, ChevronRight, FlaskConical, Loader2 } from 'lucide
 import { supabase } from '@/lib/supabase';
 import { usePlantContext } from '@/contexts/PlantContext';
 
-interface MasterRecipeWithVariants {
+export interface MasterRecipeWithVariants {
   id: string;
   master_code: string;
   strength_fc: number;
   age_days: number;
+  age_hours?: number | null;
   placement_type: string;
   max_aggregate_size: number;
   slump: number;
@@ -31,28 +32,38 @@ interface MasterRecipeWithVariants {
 interface MasterRecipeSearchModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onMasterSelect: (masterId: string, masterCode: string, variantCount: number) => void;
+  onMasterSelect: (masterId: string, masterCode: string, variantCount: number, master?: MasterRecipeWithVariants) => void;
+  /** When provided, use this plant instead of PlantContext (e.g. when opened from Arkik modal) */
+  plantId?: string;
+  /** Custom title when used in recipe creation context */
+  title?: string;
+  /** Custom button label when used in recipe creation context */
+  selectButtonLabel?: string;
 }
 
 export function MasterRecipeSearchModal({
   isOpen,
   onClose,
-  onMasterSelect
+  onMasterSelect,
+  plantId: plantIdProp,
+  title,
+  selectButtonLabel = 'Analizar Maestro',
 }: MasterRecipeSearchModalProps) {
   const { currentPlant } = usePlantContext();
+  const effectivePlantId = plantIdProp ?? currentPlant?.id;
   const [searchQuery, setSearchQuery] = useState('');
   const [masters, setMasters] = useState<MasterRecipeWithVariants[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (isOpen && currentPlant?.id) {
+    if (isOpen && effectivePlantId) {
       loadMasters();
     }
-  }, [isOpen, currentPlant?.id]);
+  }, [isOpen, effectivePlantId]);
 
   const loadMasters = async () => {
-    if (!currentPlant?.id) return;
+    if (!effectivePlantId) return;
 
     setLoading(true);
     try {
@@ -60,7 +71,7 @@ export function MasterRecipeSearchModal({
       const { data: masterData, error: masterError } = await supabase
         .from('master_recipes')
         .select('*')
-        .eq('plant_id', currentPlant.id)
+        .eq('plant_id', effectivePlantId)
         .eq('is_active', true)
         .order('master_code');
 
@@ -121,7 +132,7 @@ export function MasterRecipeSearchModal({
   });
 
   const handleMasterSelect = (master: MasterRecipeWithVariants) => {
-    onMasterSelect(master.id, master.master_code, master.variants.length);
+    onMasterSelect(master.id, master.master_code, master.variants.length, master);
     onClose();
   };
 
@@ -131,7 +142,7 @@ export function MasterRecipeSearchModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FlaskConical className="h-5 w-5" />
-            Seleccionar Receta Maestra para Análisis
+            {title ?? 'Seleccionar Receta Maestra para Análisis'}
           </DialogTitle>
         </DialogHeader>
 
@@ -205,7 +216,7 @@ export function MasterRecipeSearchModal({
                           variant="default"
                           size="sm"
                         >
-                          Analizar Maestro
+                          {selectButtonLabel}
                         </Button>
                       </div>
                     </div>

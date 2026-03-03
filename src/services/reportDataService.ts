@@ -13,6 +13,39 @@ import type {
   SelectionSummary
 } from '@/types/pdf-reports';
 
+/** Normalize relation: Supabase may return single object or array for 1:1 */
+function singleRelation<T>(val: T | T[] | null): T | null {
+  if (val == null) return null;
+  return Array.isArray(val) ? val[0] ?? null : val;
+}
+
+/** Filter order by location metadata filters */
+function orderMatchesLocationFilters(order: any, filters: ReportFilter): boolean {
+  const meta = singleRelation(order?.order_location_metadata);
+  const status = order?.location_data_status ?? 'none';
+
+  if (filters.locationDataFilter && filters.locationDataFilter !== 'all') {
+    if (status !== filters.locationDataFilter) return false;
+  }
+  if (filters.localityFilter && filters.localityFilter.length > 0) {
+    const locality = meta?.locality;
+    if (!locality || !filters.localityFilter.includes(locality)) return false;
+  }
+  if (filters.sublocalityFilter && filters.sublocalityFilter.length > 0) {
+    const sublocality = meta?.sublocality;
+    if (!sublocality || !filters.sublocalityFilter.includes(sublocality)) return false;
+  }
+  if (filters.administrativeArea1Filter && filters.administrativeArea1Filter.length > 0) {
+    const a1 = meta?.administrative_area_level_1;
+    if (!a1 || !filters.administrativeArea1Filter.includes(a1)) return false;
+  }
+  if (filters.administrativeArea2Filter && filters.administrativeArea2Filter.length > 0) {
+    const a2 = meta?.administrative_area_level_2;
+    if (!a2 || !filters.administrativeArea2Filter.includes(a2)) return false;
+  }
+  return true;
+}
+
 /** Display product code: master_code when available (source of truth), else variant recipe_code */
 function getDisplayProductCode(remision: any): string {
   if (remision.tipo_remision === 'BOMBEO') return 'SER002';
@@ -73,6 +106,15 @@ export class ReportDataService {
             final_amount,
             client_id,
             order_status,
+            delivery_latitude,
+            delivery_longitude,
+            location_data_status,
+            order_location_metadata(
+              locality,
+              sublocality,
+              administrative_area_level_1,
+              administrative_area_level_2
+            ),
             clients!inner(
               id,
               business_name,
@@ -352,6 +394,15 @@ export class ReportDataService {
             invoice_amount,
             client_id,
             order_status,
+            delivery_latitude,
+            delivery_longitude,
+            location_data_status,
+            order_location_metadata (
+              locality,
+              sublocality,
+              administrative_area_level_1,
+              administrative_area_level_2
+            ),
             clients:client_id (
               id,
               business_name,
@@ -365,7 +416,11 @@ export class ReportDataService {
           .in('id', orderIds);
         const { data: ordersData, error: ordersErr } = await ordersQuery;
         if (ordersErr) throw ordersErr;
-        orders = ordersData || [];
+        orders = (ordersData || []).filter((o: any) => orderMatchesLocationFilters(o, filters));
+        const filteredOrderIds = orders.map((o: any) => o.id);
+        if (filteredOrderIds.length === 0) {
+          return { data: [], summary: this.createEmptySummary() };
+        }
 
         const { data: itemsData, error: itemsErr } = await supabase
           .from('order_items')
@@ -377,14 +432,17 @@ export class ReportDataService {
               master_recipe_id
             )
           `)
-          .in('order_id', orderIds);
+          .in('order_id', filteredOrderIds);
         if (itemsErr) throw itemsErr;
-        orderItems = itemsData || [];
+        orderItems = (itemsData || []).filter((i: any) => filteredOrderIds.includes(i.order_id));
 
-        // Continue to enrichment step using remisionesData
-        // Enrichment code below will use current scope remisionesData
-        // so we assign it to a common variable via closure
-        var remisionesDataForEnrichment = remisionesData;
+        // Filter remisiones to only those with matching orders (location filter)
+        const remisionesToEnrich = remisionesData!.filter((r: any) =>
+          filteredOrderIds.includes(r.order_id)
+        );
+
+        // Continue to enrichment step using filtered remisiones (location filter applied)
+        var remisionesDataForEnrichment = remisionesToEnrich;
 
         // Enrichment and post-filtering moved below common block
 
@@ -493,6 +551,15 @@ export class ReportDataService {
             invoice_amount,
             client_id,
             order_status,
+            delivery_latitude,
+            delivery_longitude,
+            location_data_status,
+            order_location_metadata (
+              locality,
+              sublocality,
+              administrative_area_level_1,
+              administrative_area_level_2
+            ),
             clients:client_id (
               id,
               business_name,
@@ -514,10 +581,10 @@ export class ReportDataService {
 
         const { data: ordersData, error: ordersError } = await ordersQuery;
         if (ordersError) throw ordersError;
-        if (!ordersData || ordersData.length === 0) {
+        orders = (ordersData || []).filter((o: any) => orderMatchesLocationFilters(o, filters));
+        if (orders.length === 0) {
           return { data: [], summary: this.createEmptySummary() };
         }
-        orders = ordersData;
 
         const orderIds = orders.map(o => o.id);
         const { data: itemsData, error: itemsError } = await supabase
@@ -673,6 +740,15 @@ export class ReportDataService {
           invoice_amount,
           client_id,
           order_status,
+          delivery_latitude,
+          delivery_longitude,
+          location_data_status,
+          order_location_metadata (
+            locality,
+            sublocality,
+            administrative_area_level_1,
+            administrative_area_level_2
+          ),
           clients:client_id (
             id,
             business_name,
@@ -696,13 +772,13 @@ export class ReportDataService {
 
       const { data: ordersClient, error: ordersError } = await ordersQuery;
       if (ordersError) throw ordersError;
-      if (!ordersClient || ordersClient.length === 0) {
+      orders = (ordersClient || []).filter((o: any) => orderMatchesLocationFilters(o, filters));
+      if (orders.length === 0) {
         return {
           data: [],
           summary: this.createEmptySummary()
         };
       }
-      orders = ordersClient;
 
       const orderIds = orders.map(order => order.id);
       const { data: orderItemsClient, error: itemsError } = await supabase

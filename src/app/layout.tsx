@@ -40,7 +40,8 @@ import {
   Layers,
   GitBranch,
   ShieldCheck,
-  Briefcase
+  Briefcase,
+  MapPin
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -99,6 +100,11 @@ const finanzasSubMenuItems = [
     href: "/finanzas/reportes-clientes",
     IconComponent: FileSpreadsheet,
   },
+  {
+    title: "Ubicaciones (Mapa)",
+    href: "/finanzas/ubicaciones",
+    IconComponent: MapPin,
+  },
 ];
 
 function getFinanzasSubMenuItemsForRole(userRole?: string) {
@@ -111,6 +117,7 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
       { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
       { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];
   }
   if (userRole === 'SALES_AGENT') {
@@ -120,6 +127,7 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
       { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];
   }
   return finanzasSubMenuItems;

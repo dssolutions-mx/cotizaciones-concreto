@@ -10,6 +10,7 @@ import {
 } from '@/types/orders';
 // Import the singleton Supabase client
 import { supabase } from '@/lib/supabase';
+import { reverseGeocode } from '@/services/geocodingService';
 
 type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
 
@@ -182,6 +183,52 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         .insert(validationInsert);
 
       if (validationError) throw validationError;
+    }
+
+    // Location metadata enrichment (reverse geocode when coords present)
+    const hasCoords =
+      typeof orderData.delivery_latitude === 'number' &&
+      typeof orderData.delivery_longitude === 'number';
+    if (hasCoords) {
+      try {
+        const metadata = await reverseGeocode(
+          orderData.delivery_latitude!,
+          orderData.delivery_longitude!,
+          { supabaseClient: supabase }
+        );
+        if (metadata) {
+          await supabase.from('order_location_metadata').upsert(
+            {
+              order_id: order.id,
+              formatted_address: metadata.formatted_address,
+              locality: metadata.locality,
+              sublocality: metadata.sublocality,
+              administrative_area_level_1: metadata.administrative_area_level_1,
+              administrative_area_level_2: metadata.administrative_area_level_2,
+              postal_code: metadata.postal_code,
+              country: metadata.country,
+              country_code: metadata.country_code,
+              place_id: metadata.place_id,
+            },
+            { onConflict: 'order_id' }
+          );
+          await supabase
+            .from('orders')
+            .update({ location_data_status: 'enriched' })
+            .eq('id', order.id);
+        } else {
+          await supabase
+            .from('orders')
+            .update({ location_data_status: 'coordinates_only' })
+            .eq('id', order.id);
+        }
+      } catch (err) {
+        console.warn('[OrderService] Location enrichment failed:', err);
+        await supabase
+          .from('orders')
+          .update({ location_data_status: 'coordinates_only' })
+          .eq('id', order.id);
+      }
     }
     
     // If orderData.order_items are provided, insert them
@@ -769,8 +816,66 @@ export async function updateOrder(id: string, orderData: {
       .eq('id', id)
       .select()
       .single();
-    
+
     if (error) throw error;
+
+    // Location enrichment when coords are updated
+    const hasCoords =
+      typeof orderData.delivery_latitude === 'number' &&
+      typeof orderData.delivery_longitude === 'number';
+    if (hasCoords) {
+      try {
+        const metadata = await reverseGeocode(
+          orderData.delivery_latitude!,
+          orderData.delivery_longitude!,
+          { supabaseClient: supabase }
+        );
+        if (metadata) {
+          await supabase.from('order_location_metadata').upsert(
+            {
+              order_id: id,
+              formatted_address: metadata.formatted_address,
+              locality: metadata.locality,
+              sublocality: metadata.sublocality,
+              administrative_area_level_1: metadata.administrative_area_level_1,
+              administrative_area_level_2: metadata.administrative_area_level_2,
+              postal_code: metadata.postal_code,
+              country: metadata.country,
+              country_code: metadata.country_code,
+              place_id: metadata.place_id,
+            },
+            { onConflict: 'order_id' }
+          );
+          await supabase
+            .from('orders')
+            .update({ location_data_status: 'enriched' })
+            .eq('id', id);
+        } else {
+          await supabase
+            .from('orders')
+            .update({ location_data_status: 'coordinates_only' })
+            .eq('id', id);
+        }
+      } catch (err) {
+        console.warn('[OrderService] Location enrichment failed on update:', err);
+        await supabase
+          .from('orders')
+          .update({ location_data_status: 'coordinates_only' })
+          .eq('id', id);
+      }
+    } else if (
+      'delivery_latitude' in orderData &&
+      'delivery_longitude' in orderData &&
+      (orderData.delivery_latitude == null || orderData.delivery_longitude == null)
+    ) {
+      // Coords explicitly cleared: delete metadata if exists, set status to none
+      await supabase.from('order_location_metadata').delete().eq('order_id', id);
+      await supabase
+        .from('orders')
+        .update({ location_data_status: 'none' })
+        .eq('id', id);
+    }
+
     return data;
   } catch (error) {
     console.error('Error in updateOrder:', error);

@@ -26,8 +26,10 @@ import {
   createRecipeFromArkikData,
 } from '@/lib/services/arkikRecipeCreationService';
 import { toast } from 'sonner';
-import { Loader2, Info } from 'lucide-react';
+import { Loader2, Info, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { MasterRecipeSearchModal } from '@/components/quality/recipes/MasterRecipeSearchModal';
+import type { MasterRecipeWithVariants } from '@/components/quality/recipes/MasterRecipeSearchModal';
 import type { StagingRemision } from '@/types/arkik';
 import type { RecipeSpecification } from '@/types/recipes';
 
@@ -133,6 +135,8 @@ export function CreateRecipeFromArkikModal({
   };
   const [existingMasters, setExistingMasters] = useState<MasterOption[]>([]);
   const [selectedMasterId, setSelectedMasterId] = useState<string | null>(null);
+  const [externallySelectedMaster, setExternallySelectedMaster] = useState<MasterOption | null>(null);
+  const [searchModalOpen, setSearchModalOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !sourceRow || !plantId) {
@@ -140,6 +144,8 @@ export function CreateRecipeFromArkikModal({
       setDeriveError(null);
       setExistingMasters([]);
       setSelectedMasterId(null);
+      setExternallySelectedMaster(null);
+      setSearchModalOpen(false);
       return;
     }
     deriveMaterialsFromArkikRow(sourceRow, plantId)
@@ -152,6 +158,7 @@ export function CreateRecipeFromArkikModal({
       setEditableSpec(parsed ? specToEditable(parsed.specification) : null);
       setExistingMasters([]);
       setSelectedMasterId(null);
+      setExternallySelectedMaster(null);
       return;
     }
     const fetchMasters = async () => {
@@ -181,7 +188,9 @@ export function CreateRecipeFromArkikModal({
     fetchMasters();
   }, [isOpen, plantId, parsed]);
 
-  const selectedMaster = existingMasters.find((m) => m.id === selectedMasterId);
+  const selectedMaster =
+    existingMasters.find((m) => m.id === selectedMasterId) ??
+    (selectedMasterId && externallySelectedMaster?.id === selectedMasterId ? externallySelectedMaster : null);
 
   useEffect(() => {
     if (selectedMasterId === '__new__' && parsed) {
@@ -190,6 +199,39 @@ export function CreateRecipeFromArkikModal({
       setEditableSpec(masterToEditable(selectedMaster));
     }
   }, [selectedMasterId, selectedMaster, parsed]);
+
+  const handleSearchMasterSelect = (
+    masterId: string,
+    _masterCode: string,
+    _variantCount: number,
+    master?: MasterRecipeWithVariants
+  ) => {
+    if (!master) return;
+    const option: MasterOption = {
+      id: master.id,
+      master_code: master.master_code,
+      strength_fc: master.strength_fc,
+      age_days: master.age_days ?? null,
+      age_hours: master.age_hours ?? null,
+      max_aggregate_size: master.max_aggregate_size,
+      slump: master.slump,
+      placement_type: master.placement_type,
+    };
+    setSelectedMasterId(masterId);
+    setExternallySelectedMaster(option);
+    setEditableSpec(masterToEditable(option));
+  };
+
+  const handleSelectFromDropdown = (value: string) => {
+    setSelectedMasterId(value || null);
+    setExternallySelectedMaster(null);
+  };
+
+  const handleCreateNewMaster = () => {
+    setSelectedMasterId('__new__');
+    setExternallySelectedMaster(null);
+    if (parsed) setEditableSpec(specToEditable(parsed.specification));
+  };
 
   const canCreate =
     parsed &&
@@ -362,34 +404,60 @@ export function CreateRecipeFromArkikModal({
                   <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                     <span><strong className="text-foreground">Variante:</strong> {parsed.variantSuffix || '-'}</span>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-2">
                     <Label className="text-sm">Maestro</Label>
                     {existingMasters.length > 1 ? (
-                      <Select value={selectedMasterId ?? ''} onValueChange={(v) => setSelectedMasterId(v || null)}>
-                        <SelectTrigger className="w-full max-w-sm">
-                          <SelectValue placeholder="Elige el maestro" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {existingMasters.map((m) => (
-                            <SelectItem key={m.id} value={m.id}>
-                              {m.master_code} · f&apos;c {m.strength_fc} · Rev {m.slump} · TMA {m.max_aggregate_size}mm
+                      <div className="space-y-2">
+                        <Select value={selectedMasterId ?? ''} onValueChange={handleSelectFromDropdown}>
+                          <SelectTrigger className="w-full max-w-sm">
+                            <SelectValue placeholder="Elige el maestro" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {existingMasters.map((m) => (
+                              <SelectItem key={m.id} value={m.id}>
+                                {m.master_code} · f&apos;c {m.strength_fc} · Rev {m.slump} · TMA {m.max_aggregate_size}mm
+                              </SelectItem>
+                            ))}
+                            <SelectItem value="__new__">
+                              Crear nuevo maestro ({parsed.masterCode})
                             </SelectItem>
-                          ))}
-                          <SelectItem value="__new__">
-                            Crear nuevo maestro ({parsed.masterCode})
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : existingMasters.length === 1 ? (
-                      <p className="text-sm">
-                        <span className="font-mono">{selectedMaster?.master_code}</span>
-                        <span className="ml-2 text-green-600">(ya existe)</span>
-                      </p>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSearchModalOpen(true)}
+                          className="gap-1.5"
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                          Buscar otro maestro
+                        </Button>
+                      </div>
+                    ) : selectedMaster ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex-1 min-w-0 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                          <span className="font-mono">{selectedMaster.master_code}</span>
+                          <span className="ml-2 text-green-600">· f&apos;c {selectedMaster.strength_fc} · Rev {selectedMaster.slump}</span>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => setSearchModalOpen(true)} className="gap-1.5 shrink-0">
+                          <Search className="h-3.5 w-3.5" />
+                          Buscar otro
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={handleCreateNewMaster} className="shrink-0">
+                          Crear nuevo maestro
+                        </Button>
+                      </div>
                     ) : (
-                      <p className="text-sm">
-                        <span className="font-mono">{parsed.masterCode}</span>
-                        <span className="ml-2">(se creará nuevo)</span>
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex-1 min-w-0 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                          <span className="font-mono">{parsed.masterCode}</span>
+                          <span className="ml-2 text-muted-foreground">(se creará nuevo)</span>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => setSearchModalOpen(true)} className="gap-1.5 shrink-0">
+                          <Search className="h-3.5 w-3.5" />
+                          Buscar maestro existente
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -455,6 +523,14 @@ export function CreateRecipeFromArkikModal({
           </Button>
         </div>
       </DialogContent>
+      <MasterRecipeSearchModal
+        isOpen={searchModalOpen}
+        onClose={() => setSearchModalOpen(false)}
+        onMasterSelect={handleSearchMasterSelect}
+        plantId={plantId}
+        title="Buscar maestro existente"
+        selectButtonLabel="Usar este maestro"
+      />
     </Dialog>
   );
 }

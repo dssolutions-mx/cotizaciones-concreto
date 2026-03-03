@@ -22,7 +22,14 @@ export interface ReportFilter {
   deliveryStatus?: 'all' | 'delivered' | 'pending';
   invoiceRequirement?: 'all' | 'with_invoice' | 'without_invoice';
   singleDateMode?: boolean;
-  
+
+  // Location-based filters (from order_location_metadata)
+  localityFilter?: string[];              // Ciudad
+  sublocalityFilter?: string[];          // Colonia
+  administrativeArea1Filter?: string[];  // Estado
+  administrativeArea2Filter?: string[];  // Municipio
+  locationDataFilter?: 'all' | 'enriched' | 'coordinates_only' | 'none';
+
   // Legacy single selection support for backward compatibility
   clientId?: string;
   constructionSite?: string;
