@@ -226,85 +226,22 @@ export default function RemisionesPorCliente() {
       const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
       const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
       
-      // Get all orders for the selected client
-      const { data: orders, error: ordersError } = await supabase
-        .from('orders')
-        .select('id, construction_site, requires_invoice, total_amount')
-        .eq('client_id', selectedClientId);
-      
-      if (ordersError) throw ordersError;
-      
-      if (!orders || orders.length === 0) {
-        setRemisiones([]);
-        setFilteredRemisiones([]);
-        setLoading(false);
-        return;
-      }
-      
-      // Get all order IDs
-      const orderIds = orders.map(order => order.id);
-      
-      // Get all order products for price information
-      // First try with quote_details relationship, fallback to basic query if it fails
-      let products;
-      let productsError;
-
-      try {
-        const result = await supabase
-          .from('order_items')
-          .select(`
-            *,
-            quote_details (
-              final_price,
-              recipe_id,
-              master_recipe_id
-            )
-          `)
-          .in('order_id', orderIds);
-
-        products = result.data;
-        productsError = result.error;
-      } catch (relationshipError) {
-        console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
-        // Fallback to basic query without relationship
-        const fallbackResult = await supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
-
-        products = fallbackResult.data;
-        productsError = fallbackResult.error;
-      }
-
-      if (productsError) {
-        console.error('Error fetching order items:', productsError);
-        console.error('Error details:', {
-          message: productsError.message,
-          details: productsError.details,
-          hint: productsError.hint
-        });
-        throw productsError;
-      }
-      setOrderProducts(products || []);
-      
-      // Fetch remisiones for all found orders and filter by date range
+      // Query remisiones directly by client via orders!inner - avoids URL overflow from .in(order_id, hundreds of IDs)
       let remisionesQuery = supabase
         .from('remisiones')
         .select(`
           *,
+          order:orders!inner(construction_site, requires_invoice),
           recipe:recipes(recipe_code),
-          materiales:remision_materiales(*),
-          order:orders(requires_invoice, construction_site)
+          materiales:remision_materiales(*)
         `)
-        .in('order_id', orderIds);
+        .eq('orders.client_id', selectedClientId);
       
       // Apply date filtering based on mode
       if (singleDateMode && dateRange.from) {
-        // For single date mode, filter for exact date match
         const dateStr = format(dateRange.from, 'yyyy-MM-dd');
         remisionesQuery = remisionesQuery.eq('fecha', dateStr);
       } else {
-        // For range mode, filter for date range
         remisionesQuery = remisionesQuery
           .gte('fecha', formattedStartDate)
           .lte('fecha', formattedEndDate);
@@ -315,15 +252,73 @@ export default function RemisionesPorCliente() {
       
       if (remisionesError) throw remisionesError;
       
-      // Enrich remisiones with order data (requires_invoice and construction_site)
-      const enrichedRemisiones = (remisionesData || []).map(remision => {
-        const order = orders.find(o => o.id === remision.order_id);
-        return {
-          ...remision,
-          requires_invoice: remision.order?.requires_invoice || false,
-          construction_site: remision.order?.construction_site || ''
-        };
-      });
+      if (!remisionesData || remisionesData.length === 0) {
+        setRemisiones([]);
+        setFilteredRemisiones([]);
+        setOrderProducts([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Enrich remisiones with order data (already embedded via join)
+      const enrichedRemisiones = (remisionesData || []).map(remision => ({
+        ...remision,
+        requires_invoice: remision.order?.requires_invoice ?? false,
+        construction_site: remision.order?.construction_site ?? ''
+      }));
+      
+      // Order_items: only for orders that have remisiones (typically 10-50, not 200+)
+      const orderIds = Array.from(new Set(enrichedRemisiones.map(r => r.order_id).filter(Boolean)));
+      let products: any[] = [];
+      const ORDER_ITEMS_CHUNK = 100;
+
+      const fetchOrderItemsChunk = async (chunk: string[]) => {
+        const result = await supabase
+          .from('order_items')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id,
+              master_recipe_id
+            )
+          `)
+          .in('order_id', chunk);
+        return result;
+      };
+
+      try {
+        if (orderIds.length <= ORDER_ITEMS_CHUNK) {
+          const result = await fetchOrderItemsChunk(orderIds);
+          if (result.error) throw result.error;
+          products = result.data || [];
+        } else {
+          for (let i = 0; i < orderIds.length; i += ORDER_ITEMS_CHUNK) {
+            const chunk = orderIds.slice(i, i + ORDER_ITEMS_CHUNK);
+            const result = await fetchOrderItemsChunk(chunk);
+            if (result.error) throw result.error;
+            products = products.concat(result.data || []);
+          }
+        }
+      } catch (relationshipError) {
+        console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
+        products = [];
+        if (orderIds.length <= ORDER_ITEMS_CHUNK) {
+          const result = await supabase
+            .from('order_items')
+            .select('*')
+            .in('order_id', orderIds);
+          if (!result.error) products = result.data || [];
+        } else {
+          for (let i = 0; i < orderIds.length; i += ORDER_ITEMS_CHUNK) {
+            const chunk = orderIds.slice(i, i + ORDER_ITEMS_CHUNK);
+            const result = await supabase.from('order_items').select('*').in('order_id', chunk);
+            if (!result.error) products = products.concat(result.data || []);
+          }
+        }
+      }
+
+      setOrderProducts(products);
       
       setRemisiones(enrichedRemisiones);
       
@@ -370,8 +365,8 @@ export default function RemisionesPorCliente() {
         });
       setTotalAmount(amount);
       
-      // Apply initial site filter if needed
-      filterRemisiones(enrichedRemisiones, selectedSite, searchTerm);
+      // Apply initial site filter (pass products so totals use fresh data, not stale state)
+      filterRemisiones(enrichedRemisiones, selectedSite, searchTerm, products);
     } catch (error) {
       console.error('Error fetching remisiones:', error);
     } finally {
@@ -380,7 +375,9 @@ export default function RemisionesPorCliente() {
   }, [selectedClientId, dateRange, selectedSite, searchTerm, singleDateMode]);
   
   // Filter remisiones based on selected site and search term
-  const filterRemisiones = (remisiones: any[], site: string, search: string) => {
+  // productsOverride: when provided (e.g. from fetchRemisiones), use it for price lookup; else use orderProducts state
+  const filterRemisiones = (remisiones: any[], site: string, search: string, productsOverride?: any[]) => {
+    const productsToUse = productsOverride ?? orderProducts;
     let filtered = [...remisiones];
     
     // Filter by site if not "todos" (all)
@@ -414,23 +411,20 @@ export default function RemisionesPorCliente() {
 
       let price = 0;
       if (remision.tipo_remision === 'BOMBEO') {
-        // Pump service - use SER002 code
-        price = findProductPrice('SER002', remision.order_id, recipeId, orderProducts);
+        price = findProductPrice('SER002', remision.order_id, recipeId, productsToUse);
         if (debugMode) {
-          console.debug('PriceDebug Pump(filtered)', explainPriceMatch('SER002', remision.order_id, recipeId, orderProducts));
+          console.debug('PriceDebug Pump(filtered)', explainPriceMatch('SER002', remision.order_id, recipeId, productsToUse));
         }
       } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
-        // Empty truck charge - use SER001 code
-        price = findProductPrice('SER001', remision.order_id, recipeId, orderProducts);
+        price = findProductPrice('SER001', remision.order_id, recipeId, productsToUse);
         if (debugMode) {
-          console.debug('PriceDebug Vacio(filtered)', explainPriceMatch('SER001', remision.order_id, recipeId, orderProducts));
+          console.debug('PriceDebug Vacio(filtered)', explainPriceMatch('SER001', remision.order_id, recipeId, productsToUse));
         }
       } else {
-        // Regular concrete - use recipe code
         const productCode = recipeCode || 'PRODUCTO';
-        price = findProductPrice(productCode, remision.order_id, recipeId, orderProducts);
+        price = findProductPrice(productCode, remision.order_id, recipeId, productsToUse);
         if (debugMode) {
-          console.debug('PriceDebug Concrete(filtered)', explainPriceMatch(productCode, remision.order_id, recipeId, orderProducts));
+          console.debug('PriceDebug Concrete(filtered)', explainPriceMatch(productCode, remision.order_id, recipeId, productsToUse));
         }
       }
 
