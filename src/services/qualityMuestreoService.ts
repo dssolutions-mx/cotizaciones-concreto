@@ -87,7 +87,7 @@ export async function fetchMuestreos(
           orders(id, order_number, construction_site, clients(id, business_name, client_code))
         ),
         plant:plant_id (id, code, name, business_unit:business_units(id, name)),
-        muestras(id, tipo_muestra, estado, identificacion)
+        muestras(id, tipo_muestra, estado, identificacion, is_edad_garantia, fecha_programada_ensayo, ensayos(id, resistencia_calculada))
       `, { count: 'exact' })
       .order('fecha_muestreo', { ascending: false });
 

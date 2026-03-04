@@ -233,6 +233,53 @@ export default function MuestreosPage() {
       : <span className="ml-1">↓</span>;
   };
 
+  const FACTOR_RESISTENCIA = 0.92;
+
+  const calcularResistencia = (muestreo: MuestreoWithRelations): { valor: string; edadDias: number | null } => {
+    const muestras = muestreo.muestras;
+    if (!muestras || muestras.length === 0) return { valor: '-', edadDias: null };
+
+    const fechaMuestreo = muestreo.fecha_muestreo ? new Date(muestreo.fecha_muestreo).getTime() : null;
+
+    const calcEdad = (m: typeof muestras[number]): number | null => {
+      if (!fechaMuestreo) return null;
+      const diff = new Date(m.fecha_programada_ensayo).getTime() - fechaMuestreo;
+      return Math.round(diff / (1000 * 60 * 60 * 24));
+    };
+
+    const muestrasEnsayadas = muestras.filter(
+      m => m.estado === 'ENSAYADO' && m.ensayos && m.ensayos.length > 0
+    );
+    if (muestrasEnsayadas.length === 0) return { valor: '-', edadDias: null };
+
+    const garantiaEnsayadas = muestrasEnsayadas.filter(m => m.is_edad_garantia === true);
+
+    if (garantiaEnsayadas.length > 0) {
+      const resistencias = garantiaEnsayadas.flatMap(
+        m => (m.ensayos || []).map(e => e.resistencia_calculada).filter((v): v is number => v != null)
+      );
+      if (resistencias.length === 0) return { valor: '-', edadDias: null };
+      const promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length;
+      const edad = calcEdad(garantiaEnsayadas[0]);
+      return { valor: Math.round(promedio * FACTOR_RESISTENCIA).toString(), edadDias: edad };
+    }
+
+    const fechasSorted = [...muestrasEnsayadas].sort(
+      (a, b) => new Date(b.fecha_programada_ensayo).getTime() - new Date(a.fecha_programada_ensayo).getTime()
+    );
+    const fechaMasReciente = fechasSorted[0].fecha_programada_ensayo;
+    const muestrasEdadReciente = fechasSorted.filter(
+      m => m.fecha_programada_ensayo === fechaMasReciente
+    );
+    const resistencias = muestrasEdadReciente.flatMap(
+      m => (m.ensayos || []).map(e => e.resistencia_calculada).filter((v): v is number => v != null)
+    );
+    if (resistencias.length === 0) return { valor: '-', edadDias: null };
+    const promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length;
+    const edad = calcEdad(muestrasEdadReciente[0]);
+    return { valor: Math.round(promedio * FACTOR_RESISTENCIA).toString(), edadDias: edad };
+  };
+
   // Verificar roles permitidos
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
@@ -471,43 +518,44 @@ export default function MuestreosPage() {
             <TableHeader>
               <TableRow>
                 <TableHead 
-                  className="cursor-pointer" 
+                  className="cursor-pointer text-center" 
                   onClick={() => handleSortChange('fecha')}
                 >
                   Fecha {renderSortIcon('fecha')}
                 </TableHead>
                 <TableHead 
-                  className="cursor-pointer"
+                  className="cursor-pointer text-center"
                   onClick={() => handleSortChange('remision')}
                 >
                   Remisión {renderSortIcon('remision')}
                 </TableHead>
-                <TableHead>Cliente / Obra</TableHead>
+                <TableHead className="text-center">Cliente / Obra</TableHead>
                 <TableHead 
-                  className="cursor-pointer"
+                  className="cursor-pointer text-center"
                   onClick={() => handleSortChange('f_c')}
                 >
                   f'c {renderSortIcon('f_c')}
                 </TableHead>
-                <TableHead>Muestras</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
+                <TableHead className="text-center">Muestras</TableHead>
+                <TableHead className="text-center">Estado</TableHead>
+                <TableHead className="text-center">Resistencia</TableHead>
+                <TableHead className="text-center">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredMuestreos.map((muestreo) => (
                 <TableRow 
                   key={muestreo.id} 
-                  className="cursor-pointer hover:bg-gray-50"
+                  className="cursor-pointer hover:bg-green-50 transition-colors"
                   onClick={() => handleRowClick(muestreo.id as string)}
                 >
-                  <TableCell>
+                  <TableCell className="text-center">
                     {muestreo.fecha_muestreo 
                       ? formatDate(muestreo.fecha_muestreo, 'dd/MM/yyyy')
                       : 'N/A'
                     }
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <div className="font-medium">
                       {muestreo.remision?.remision_number || muestreo.manual_reference || 'N/A'}
                     </div>
@@ -515,7 +563,7 @@ export default function MuestreosPage() {
                       {muestreo.planta || 'Sin planta'}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <div className="font-medium">
                       {muestreo.remision?.orders?.clients?.business_name || 'N/A'}
                     </div>
@@ -523,7 +571,7 @@ export default function MuestreosPage() {
                       Sin obra
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <div className="font-medium">
                       {muestreo.remision?.recipe?.strength_fc || 'N/A'} kg/cm²
                     </div>
@@ -531,12 +579,12 @@ export default function MuestreosPage() {
                       {muestreo.remision?.recipe?.recipe_code || 'N/A'}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="text-center font-medium">
+                  <TableCell className="text-center">
+                    <div className="font-medium">
                       {muestreo.muestras?.length || 0}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     {muestreo.muestras && muestreo.muestras.every(m => m.estado === 'ENSAYADO') ? (
                       <Badge variant="success" className="bg-green-100 text-green-800 hover:bg-green-200">
                         Completado
@@ -551,7 +599,21 @@ export default function MuestreosPage() {
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-center">
+                    {(() => {
+                      const { valor, edadDias } = calcularResistencia(muestreo);
+                      if (valor === '-') return <span className="text-gray-400">-</span>;
+                      return (
+                        <div>
+                          <span className="font-medium">{valor} <span className="text-xs text-gray-500">kg/cm²</span></span>
+                          {edadDias != null && (
+                            <div className="text-xs text-gray-500">{edadDias} días</div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </TableCell>
+                  <TableCell className="text-center">
                     <Button variant="ghost" size="icon" onClick={(e) => {
                       e.stopPropagation();
                       handleRowClick(muestreo.id as string);
