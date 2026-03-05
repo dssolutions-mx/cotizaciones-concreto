@@ -15,7 +15,18 @@ const supabaseAdmin = createClient(
   }
 );
 
-async function requireAdminAuth() {
+/** When X-Backfill-Secret header matches BACKFILL_SECRET (from .env.local), skip auth for script use */
+function isBackfillSecretRequest(request: NextRequest): boolean {
+  const secret = process.env.BACKFILL_SECRET;
+  if (!secret) return false;
+  const header = request.headers.get('X-Backfill-Secret');
+  return header === secret;
+}
+
+async function requireAdminAuth(request?: NextRequest) {
+  if (request && isBackfillSecretRequest(request)) {
+    return { ok: true as const };
+  }
   const authClient = await createServerSupabaseClient();
   const { data: { user }, error: authError } = await authClient.auth.getUser();
   if (authError || !user) {
@@ -43,16 +54,15 @@ async function requireAdminAuth() {
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAdminAuth();
+    const auth = await requireAdminAuth(request);
     if (!auth.ok) return auth.response;
 
-    const { quoteIds, fixAll } = await request.json();
+    const { quoteIds, fixAll, sinceDays } = await request.json();
 
     let quotesToFix: Array<{ quote_id: string; quote_number: string }> = [];
 
     if (fixAll) {
-      // Find all quotes missing product_prices
-      const { data: quotesData, error: quotesError } = await supabaseAdmin
+      let query = supabaseAdmin
         .from('quotes')
         .select(`
           id,
@@ -66,7 +76,16 @@ export async function POST(request: NextRequest) {
         .eq('status', 'APPROVED')
         .not('approval_date', 'is', null)
         .order('approval_date', { ascending: false })
-        .limit(100); // Limit to prevent timeout
+        .limit(500);
+
+      // Optional: restrict to quotes approved in the last N days
+      if (sinceDays != null && typeof sinceDays === 'number' && sinceDays > 0) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - sinceDays);
+        query = query.gte('approval_date', cutoff.toISOString());
+      }
+
+      const { data: quotesData, error: quotesError } = await query;
 
       if (quotesError) {
         return NextResponse.json(
@@ -190,11 +209,11 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const auth = await requireAdminAuth();
+    const auth = await requireAdminAuth(request);
     if (!auth.ok) return auth.response;
 
     // Return list of quotes missing product_prices
-    const { data: quotesData, error: quotesError } = await supabaseAdmin
+    let getQuery = supabaseAdmin
       .from('quotes')
       .select(`
         id,
@@ -211,7 +230,19 @@ export async function GET(request: NextRequest) {
       .eq('status', 'APPROVED')
       .not('approval_date', 'is', null)
       .order('approval_date', { ascending: false })
-      .limit(100);
+      .limit(500);
+
+    const sinceDaysParam = request.nextUrl.searchParams.get('sinceDays');
+    if (sinceDaysParam) {
+      const days = parseInt(sinceDaysParam, 10);
+      if (!isNaN(days) && days > 0) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        getQuery = getQuery.gte('approval_date', cutoff.toISOString());
+      }
+    }
+
+    const { data: quotesData, error: quotesError } = await getQuery;
 
     if (quotesError) {
       return NextResponse.json(

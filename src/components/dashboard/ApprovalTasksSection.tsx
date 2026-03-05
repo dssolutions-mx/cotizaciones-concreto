@@ -7,7 +7,6 @@ import { ShieldCheck, ExternalLink, CheckCircle, RefreshCw } from 'lucide-react'
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useApprovalTasks } from '@/hooks/useApprovalTasks';
 import { QuotesService } from '@/services/quotes';
-import { productPriceService } from '@/lib/supabase/product-prices';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -114,15 +113,13 @@ export function ApprovalTasksSection() {
   const approveQuote = async (quoteId: string) => {
     try {
       setActing(String(quoteId));
-      await QuotesService.updateStatus(String(quoteId), 'APPROVED');
-      try {
-        await productPriceService.handleQuoteApproval(String(quoteId));
-      } catch (priceError: unknown) {
-        await QuotesService.updateStatus(String(quoteId), 'PENDING_APPROVAL');
-        throw new Error(
-          priceError instanceof Error ? priceError.message : 'Error al crear precios'
-        );
-      }
+      const res = await fetch('/api/quotes/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId: String(quoteId) }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al aprobar');
       toast.success('Cotización aprobada');
       refetch();
     } catch (err) {

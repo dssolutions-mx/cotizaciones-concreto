@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { productPriceService } from '@/lib/supabase/product-prices';
 import { QuotesService } from '@/services/quotes';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
@@ -285,21 +284,21 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
         await saveQuoteModifications(false); // false = don't close modal or alert yet
       }
 
-      await QuotesService.updateStatus(quoteId, 'APPROVED');
-      try {
-        await productPriceService.handleQuoteApproval(quoteId);
-      } catch (priceError: any) {
-        await QuotesService.updateStatus(quoteId, 'PENDING_APPROVAL'); // Revert
-        throw new Error(`Error handling price history: ${priceError.message}`);
-      }
+      const res = await fetch('/api/quotes/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quoteId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Error al aprobar');
 
       toast.success('Cotización aprobada');
       fetchPendingQuotes();
       onDataSaved?.();
       closeQuoteDetails();
-    } catch (error: any) {
-      console.error('Error approving quote:', error.message);
-      toast.error(`No se pudo aprobar la cotización: ${error.message}`);
+    } catch (error: unknown) {
+      console.error('Error approving quote:', error instanceof Error ? error.message : error);
+      toast.error(`No se pudo aprobar la cotización: ${error instanceof Error ? error.message : 'Error desconocido'}`);
     }
   };
 

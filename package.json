@@ -7,7 +7,10 @@
     "build": "node build.js",
     "start": "next start",
     "lint": "next lint",
-    "geocode:backfill": "node --env-file=.env.local -r ts-node/register scripts/geocode-backfill.ts"
+    "geocode:backfill": "node --env-file=.env.local -r ts-node/register scripts/geocode-backfill.ts",
+    "backfill:product-prices": "node --env-file=.env.local -r ts-node/register scripts/backfill-product-prices.ts",
+    "backfill:product-prices:standalone": "node --env-file=.env.local -r ts-node/register scripts/backfill-product-prices.ts --start-server",
+    "validate:p004p-volumes": "node --env-file=.env.local -r ts-node/register scripts/validate_p004p_volumes.ts"
   },
   "engines": {
     "node": ">=20.9.0",
