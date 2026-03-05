@@ -23,6 +23,8 @@ import { DistanceAnalysisPanel } from '@/components/quotes/DistanceAnalysisPanel
 import { RangeBreakdown } from '@/components/quotes/RangeBreakdown';
 import { AdditionalProductsSelector } from '@/components/quotes/AdditionalProductsSelector';
 import { BasePriceBreakdownDialog } from '@/components/quotes/BasePriceBreakdownDialog';
+import { QuoteApprovalSummary } from '@/components/quotes/QuoteApprovalSummary';
+import { QuoteProductPricingRow } from '@/components/quotes/QuoteProductPricingRow';
 import type { DistanceCalculation } from '@/types/distance';
 import type { AdditionalProduct, QuoteAdditionalProduct } from '@/types/additionalProducts';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -87,6 +89,13 @@ interface QuoteProduct {
   finalPrice: number;
   pricingPath?: 'LIST_PRICE' | 'COST_DERIVED';
   floorPrice?: number | null;
+  baseListPrice?: number | null;
+  rawFloor?: number | null; // Precio base de lista (sin uplift contado) para recalcular al cambiar IVA
+  zoneRangeCode?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  zoneSurcharge?: number;
+  effectiveFloor?: number | null;
+  pricingEditorMode?: 'OVER_LIST' | 'DIRECT_FINAL';
+  listDelta?: number;
   requiresApproval?: boolean;
   // Pump service is now handled at the quote level, not per product
   master_recipe_id?: string; // When selecting by master
@@ -119,6 +128,42 @@ interface DraftQuoteData {
   pumpServiceProduct?: PumpServiceProduct;
 }
 
+const RANGE_ORDER: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', number> = {
+  A: 1,
+  B: 2,
+  C: 3,
+  D: 4,
+  E: 5,
+  F: 6,
+  G: 7,
+};
+
+// Fallback policy: when zone C+ has no configured differential, apply a minimum surcharge.
+const DEFAULT_ZONE_SURCHARGE: Record<'C' | 'D' | 'E' | 'F' | 'G', number> = {
+  C: 200,
+  D: 200,
+  E: 200,
+  F: 200,
+  G: 200,
+};
+
+function isZoneCOrHigher(code?: string | null): code is 'C' | 'D' | 'E' | 'F' | 'G' {
+  if (!code) return false;
+  const c = code as 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  return (RANGE_ORDER[c] ?? 0) >= RANGE_ORDER.C;
+}
+
+function getZoneSurcharge(
+  rangeCode: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | undefined,
+  distanceRanges: Array<{ range_code?: string; diferencial?: number | null }>
+): number {
+  if (!rangeCode || !isZoneCOrHigher(rangeCode)) return 0;
+  const row = distanceRanges.find((r) => r.range_code === rangeCode);
+  const diferencial = Number(row?.diferencial ?? 0);
+  if (Number.isFinite(diferencial) && diferencial > 0) return diferencial;
+  return DEFAULT_ZONE_SURCHARGE[rangeCode];
+}
+
 export default function QuoteBuilder() {
   const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
   
@@ -138,13 +183,14 @@ export default function QuoteBuilder() {
   const [selectedSite, setSelectedSite] = useState<string>('');
   const [constructionSite, setConstructionSite] = useState('');
   const [location, setLocation] = useState('');
-  const [validityDate, setValidityDate] = useState(format(new Date(2025, 7, 31), 'yyyy-MM-dd')); // Default date
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date(2025, 7, 31)); // Default date
+  const [validityDate, setValidityDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
   const [isLoading, setIsLoading] = useState(false);
   const [expandedStrengths, setExpandedStrengths] = useState<number[]>([]);
   const [expandedTypes, setExpandedTypes] = useState<string[]>([]);
   const [includePumpService, setIncludePumpService] = useState<boolean>(false);
   const [includesVAT, setIncludesVAT] = useState<boolean>(false);
+  const [cashOverpricePct, setCashOverpricePct] = useState(10);
   const [recipeSearch, setRecipeSearch] = useState<string>('');
   const [debouncedRecipeSearch] = useDebounce(recipeSearch, 300);
   const [clientSearch, setClientSearch] = useState<string>('');
@@ -174,6 +220,25 @@ export default function QuoteBuilder() {
     };
     loadMasters();
   }, [currentPlant?.id]);
+
+  // Load cash overprice % from system_settings (for contado/sin IVA floor surcharge)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'cash_overprice_pct')
+          .single();
+        if (data?.value) {
+          const n = Number(data.value);
+          if (Number.isFinite(n) && n >= 0) setCashOverpricePct(n);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   const resolveMasterPrice = async (masterId: string): Promise<number | null> => {
     // NOTE: This function is NOT used for quote creation
@@ -361,14 +426,40 @@ export default function QuoteBuilder() {
         console.warn(`[Add Master] Unusually high base price calculated: ${basePriceWithTransport.toFixed(2)} for master ${master.master_code}`);
       }
 
-      const finalPrice = Math.ceil((basePriceWithTransport * 1.04) / 5) * 5;
-      const floorInfo = await getEffectiveFloorPrice(masterId, validityDate);
+      // List prices are effective from 2026-01-01; use today for lookup when validityDate predates that
+      const floorLookupDate = validityDate && validityDate < '2026-01-01' ? format(new Date(), 'yyyy-MM-dd') : validityDate;
+      const floorInfo = await getEffectiveFloorPrice(masterId, floorLookupDate);
+      const rawFloor = floorInfo?.floor_price ?? null;
+      const baseListPrice =
+        rawFloor != null && !includesVAT
+          ? rawFloor * (1 + cashOverpricePct / 100)
+          : rawFloor;
+      const zoneRangeCode = distanceInfo?.range_code;
+      const zoneSurcharge = getZoneSurcharge(zoneRangeCode, distanceRanges);
+      const effectiveFloor =
+        baseListPrice != null
+          ? baseListPrice + (isZoneCOrHigher(zoneRangeCode) ? zoneSurcharge : 0)
+          : null;
+
+      // When list price exists: default to floor, no extra margin on top. Otherwise: cost + 4%.
+      let finalPrice: number;
+      let profitMargin: number;
+      if (effectiveFloor != null) {
+        finalPrice = Math.ceil(effectiveFloor / 5) * 5;
+        profitMargin = basePriceWithTransport > 0
+          ? (finalPrice - basePriceWithTransport) / basePriceWithTransport
+          : 0;
+      } else {
+        finalPrice = Math.ceil((basePriceWithTransport * 1.04) / 5) * 5;
+        profitMargin = 0.04;
+      }
 
       console.log(`[Add Master] Added ${master.master_code}:`, {
         basePriceWithoutTransport: basePrice.toFixed(2),
         transportCostPerM3: transportCostPerM3.toFixed(2),
         basePriceWithTransport: basePriceWithTransport.toFixed(2),
         finalPrice: finalPrice.toFixed(2),
+        pricingPath: floorInfo ? 'LIST_PRICE' : 'COST_DERIVED',
       });
 
       const newProduct: QuoteProduct = {
@@ -383,11 +474,18 @@ export default function QuoteBuilder() {
         },
         basePrice: basePriceWithTransport,
         volume: 1,
-        profitMargin: 0.04,
-        finalPrice: finalPrice,
+        profitMargin,
+        finalPrice,
         pricingPath: floorInfo ? 'LIST_PRICE' : 'COST_DERIVED',
-        floorPrice: floorInfo?.floor_price ?? null,
-        requiresApproval: floorInfo ? finalPrice < floorInfo.floor_price : false,
+        floorPrice: effectiveFloor,
+        baseListPrice,
+        rawFloor: rawFloor ?? null,
+        zoneRangeCode,
+        zoneSurcharge,
+        effectiveFloor,
+        pricingEditorMode: floorInfo ? 'OVER_LIST' : undefined,
+        listDelta: floorInfo && effectiveFloor != null ? Number((finalPrice - effectiveFloor).toFixed(2)) : undefined,
+        requiresApproval: effectiveFloor != null ? finalPrice < effectiveFloor : true,
         master_recipe_id: masterId,
         master_code: master.master_code,
         basePriceManuallyEdited: false, // Not manually edited initially
@@ -507,8 +605,13 @@ export default function QuoteBuilder() {
         setSelectedSite(draftData.selectedSite || '');
         setConstructionSite(draftData.constructionSite || '');
         setLocation(draftData.location || '');
-        setValidityDate(draftData.validityDate || format(new Date(2025, 7, 31), 'yyyy-MM-dd'));
-        setSelectedDate(draftData.selectedDate ? new Date(draftData.selectedDate) : new Date(2025, 7, 31));
+        // Fix stale validityDate: list prices are effective from 2026-01-01; dates before that
+        // cause floor lookup to fail. Override to today when loading old drafts.
+        const rawValidity = draftData.validityDate || format(new Date(), 'yyyy-MM-dd');
+        const validValidity = rawValidity < '2026-01-01' ? format(new Date(), 'yyyy-MM-dd') : rawValidity;
+        const validSelectedDate = rawValidity < '2026-01-01' ? new Date() : (draftData.selectedDate ? new Date(draftData.selectedDate) : new Date(validValidity + 'T12:00:00'));
+        setValidityDate(validValidity);
+        setSelectedDate(validSelectedDate);
         setIncludePumpService(draftData.includePumpService || false);
         setIncludesVAT(draftData.includesVAT || false);
         setPumpServiceProduct({
@@ -674,7 +777,13 @@ export default function QuoteBuilder() {
         finalPrice: finalPrice,
         pricingPath: 'COST_DERIVED',
         floorPrice: null,
-        requiresApproval: false,
+        baseListPrice: null,
+        zoneRangeCode: distanceInfo?.range_code,
+        zoneSurcharge: 0,
+        effectiveFloor: null,
+        pricingEditorMode: undefined,
+        listDelta: undefined,
+        requiresApproval: true,
         basePriceManuallyEdited: false, // Not manually edited initially
         finalPriceManuallyEdited: false, // Not manually edited initially
         // Pump service is now handled at the quote level, not per product
@@ -695,68 +804,96 @@ export default function QuoteBuilder() {
     
     // Merge updates
     const newProduct = { ...currentProduct, ...updates };
-    
-    // Handle different update scenarios
-    if ('basePrice' in updates) {
-      // If base price is updated manually, mark it as manually edited
-      if (updates.basePrice !== undefined && updates.basePrice !== currentProduct.basePrice) {
+
+    const isListPriced = newProduct.pricingPath === 'LIST_PRICE' || currentProduct.pricingPath === 'LIST_PRICE';
+
+    if (isListPriced) {
+      const effectiveFloor = newProduct.effectiveFloor ?? newProduct.floorPrice ?? 0;
+      const editorMode = updates.pricingEditorMode ?? newProduct.pricingEditorMode ?? 'OVER_LIST';
+      newProduct.pricingEditorMode = editorMode;
+
+      const basePrice = updates.basePrice ?? currentProduct.basePrice;
+      newProduct.basePrice = basePrice;
+
+      if ('basePrice' in updates && updates.basePrice !== undefined && updates.basePrice !== currentProduct.basePrice) {
         newProduct.basePriceManuallyEdited = true;
-        // Clear finalPriceManuallyEdited since we're recalculating finalPrice from basePrice
-        newProduct.finalPriceManuallyEdited = false;
       }
-      
-      // If base price is updated, recalculate final price based on current margin
-      let basePrice = updates.basePrice ?? currentProduct.basePrice;
-      
-      // Validation: basePrice should never exceed finalPrice (which includes margin)
-      // If user enters a value that seems to include margin, warn them
-      if (basePrice > currentProduct.finalPrice) {
-        console.warn(`[Base Price Validation] Base price (${basePrice.toFixed(2)}) exceeds final price (${currentProduct.finalPrice.toFixed(2)}). This might indicate an error.`);
-        // Don't prevent the update, but log it for debugging
-      }
-      
-      // Validation: basePrice should never be less than materials + admin costs (without transport)
-      // We can't easily check this here without recalculating, but we'll log if it seems wrong
-      const profitMargin = currentProduct.profitMargin;
-      
-      // Calculate final price: round up to nearest 5 after applying profit margin
-      const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
-      
-      newProduct.finalPrice = finalPrice;
-    } else if ('profitMargin' in updates) {
-      // If margin is updated, recalculate final price
-      const basePrice = currentProduct.basePrice;
-      const profitMargin = updates.profitMargin ?? currentProduct.profitMargin;
-      
-      // Calculate final price: round up to nearest 5 after applying profit margin
-      const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
-      
-      newProduct.finalPrice = finalPrice;
-    } else if ('finalPrice' in updates) {
-      // If final price is updated manually, mark it as manually edited
-      if (updates.finalPrice !== undefined && updates.finalPrice !== currentProduct.finalPrice) {
+      if ('finalPrice' in updates && updates.finalPrice !== undefined && updates.finalPrice !== currentProduct.finalPrice) {
         newProduct.finalPriceManuallyEdited = true;
       }
-      
-      // If final price is updated, recalculate margin
-      const basePrice = currentProduct.basePrice;
-      const finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
-      
-      // Validation: final price should be >= base price
-      if (finalPrice < basePrice) {
-        console.warn(`[Final Price Validation] Final price (${finalPrice.toFixed(2)}) is less than base price (${basePrice.toFixed(2)}). This might indicate an error.`);
+
+      let finalPrice = currentProduct.finalPrice;
+      let listDelta =
+        updates.listDelta
+        ?? newProduct.listDelta
+        ?? Number((currentProduct.finalPrice - effectiveFloor).toFixed(2));
+
+      if (editorMode === 'OVER_LIST') {
+        if ('listDelta' in updates) {
+          const delta = updates.listDelta ?? 0;
+          listDelta = delta;
+          finalPrice = Math.ceil((effectiveFloor + delta) / 5) * 5;
+        } else if ('finalPrice' in updates) {
+          finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
+          listDelta = Number((finalPrice - effectiveFloor).toFixed(2));
+        } else if ('pricingEditorMode' in updates) {
+          // Switching back to over-list preserves current final and derives delta.
+          listDelta = Number((currentProduct.finalPrice - effectiveFloor).toFixed(2));
+        }
+      } else {
+        if ('finalPrice' in updates) {
+          finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
+        } else {
+          finalPrice = currentProduct.finalPrice;
+        }
+        listDelta = Number((finalPrice - effectiveFloor).toFixed(2));
       }
-      
-      // Calculate new margin based on final price (no rounding - use exact price)
-      const newMargin = (finalPrice / basePrice) - 1;
-      
-      newProduct.profitMargin = newMargin;
-      newProduct.finalPrice = finalPrice; // Keep the exact price user entered
-    }
-    
-    if (newProduct.floorPrice != null) {
-      newProduct.requiresApproval = newProduct.finalPrice < newProduct.floorPrice;
+
+      newProduct.finalPrice = finalPrice;
+      newProduct.listDelta = Number(listDelta.toFixed(2));
+      newProduct.profitMargin = basePrice > 0 ? (finalPrice / basePrice) - 1 : 0;
+      newProduct.requiresApproval = finalPrice < effectiveFloor;
+      newProduct.floorPrice = effectiveFloor;
       newProduct.pricingPath = 'LIST_PRICE';
+    } else {
+      // COST_DERIVED behavior (current model)
+      if ('basePrice' in updates) {
+        if (updates.basePrice !== undefined && updates.basePrice !== currentProduct.basePrice) {
+          newProduct.basePriceManuallyEdited = true;
+          newProduct.finalPriceManuallyEdited = false;
+        }
+
+        const basePrice = updates.basePrice ?? currentProduct.basePrice;
+        if (basePrice > currentProduct.finalPrice) {
+          console.warn(`[Base Price Validation] Base price (${basePrice.toFixed(2)}) exceeds final price (${currentProduct.finalPrice.toFixed(2)}).`);
+        }
+
+        const profitMargin = currentProduct.profitMargin;
+        const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
+        newProduct.finalPrice = finalPrice;
+      } else if ('profitMargin' in updates) {
+        const basePrice = currentProduct.basePrice;
+        const profitMargin = updates.profitMargin ?? currentProduct.profitMargin;
+        const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
+        newProduct.finalPrice = finalPrice;
+      } else if ('finalPrice' in updates) {
+        if (updates.finalPrice !== undefined && updates.finalPrice !== currentProduct.finalPrice) {
+          newProduct.finalPriceManuallyEdited = true;
+        }
+
+        const basePrice = currentProduct.basePrice;
+        const finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
+        if (finalPrice < basePrice) {
+          console.warn(`[Final Price Validation] Final price (${finalPrice.toFixed(2)}) is less than base price (${basePrice.toFixed(2)}).`);
+        }
+
+        const newMargin = (finalPrice / basePrice) - 1;
+        newProduct.profitMargin = newMargin;
+        newProduct.finalPrice = finalPrice;
+      }
+      // Business rule: if no list price path, always requires approval.
+      newProduct.pricingPath = 'COST_DERIVED';
+      newProduct.requiresApproval = true;
     }
 
     updatedProducts[index] = newProduct;
@@ -923,21 +1060,38 @@ export default function QuoteBuilder() {
       let quoteDetailsData: any[] = [];
 
       // Handle concrete products
-      let hasBelowFloorItem = false;
-      if (quoteProducts.length > 0) {
+      // Auto-approval: Misma lógica exacta que QuoteApprovalSummary para que el flag en DB coincida con el banner
+      const productsToSave = quoteProductsRef.current;
+      const belowFloorCount = productsToSave.filter(
+        (p) => p.pricingPath === 'LIST_PRICE' && p.requiresApproval
+      ).length;
+      const costDerivedCount = productsToSave.filter((p) => p.pricingPath !== 'LIST_PRICE').length;
+      const shouldAutoApprove = belowFloorCount === 0 && costDerivedCount === 0;
+
+      const floorLookupDate = validityDate && validityDate < '2026-01-01' ? format(new Date(), 'yyyy-MM-dd') : validityDate;
+      if (productsToSave.length > 0) {
         quoteDetailsData = await Promise.all(
-          quoteProducts.map(async (product) => {
+          productsToSave.map(async (product) => {
             const finalPrice = product.finalPrice;
             const totalAmount = finalPrice * product.volume;
             let pricingPath: 'LIST_PRICE' | 'COST_DERIVED' = 'COST_DERIVED';
 
             if (product.master_recipe_id) {
-              const floor = await getEffectiveFloorPrice(product.master_recipe_id, validityDate);
-              if (floor) {
+              const floor = await getEffectiveFloorPrice(product.master_recipe_id, floorLookupDate);
+              const rawFloor = floor?.floor_price ?? null;
+              const baseListPrice =
+                rawFloor != null && !includesVAT
+                  ? rawFloor * (1 + cashOverpricePct / 100)
+                  : rawFloor;
+              const rangeCode = distanceCalculation?.range_code ?? distanceInfo?.range_code ?? product.zoneRangeCode;
+              const zoneSurcharge = getZoneSurcharge(rangeCode, distanceRanges);
+              const effectiveFloor =
+                baseListPrice != null
+                  ? baseListPrice + (isZoneCOrHigher(rangeCode) ? zoneSurcharge : 0)
+                  : null;
+
+              if (effectiveFloor != null) {
                 pricingPath = 'LIST_PRICE';
-                if (finalPrice < floor.floor_price) {
-                  hasBelowFloorItem = true;
-                }
               }
             }
 
@@ -959,8 +1113,13 @@ export default function QuoteBuilder() {
         );
       }
 
-      // Handle standalone pumping service (when no concrete products but pumping service is included)
-      if (quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0) {
+      // Standalone pumping: siempre requiere aprobación
+      const finalShouldAutoApprove =
+        productsToSave.length === 0 && includePumpService && pumpServiceProduct.price > 0
+          ? false
+          : shouldAutoApprove;
+
+      if (productsToSave.length === 0 && includePumpService && pumpServiceProduct.price > 0) {
         const pumpDetail = {
           quote_id: createdQuote.id,
           product_id: '6bd1949f-50c8-4505-a9aa-c113627bcb40', // Special pumping service product
@@ -991,14 +1150,24 @@ export default function QuoteBuilder() {
         }
       }
 
-      if (hasBelowFloorItem) {
-        const { error: quoteUpdateError } = await supabase
-          .from('quotes')
-          .update({ auto_approved: false })
-          .eq('id', createdQuote.id);
+      // Mark auto_approved flag regardless (used for reporting)
+      await supabase
+        .from('quotes')
+        .update({ auto_approved: finalShouldAutoApprove })
+        .eq('id', createdQuote.id);
 
-        if (quoteUpdateError) {
-          console.error('Error forcing quote approval for below-floor items:', quoteUpdateError);
+      // If eligible: use the approve endpoint so product_prices are created correctly
+      if (finalShouldAutoApprove) {
+        const approveRes = await fetch('/api/quotes/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quoteId: createdQuote.id }),
+        });
+        if (!approveRes.ok) {
+          const err = await approveRes.json().catch(() => ({}));
+          console.error('[QuoteBuilder] Auto-approval API failed:', err);
+          // Non-fatal: quote exists, will need manual approval
+          toast.warning('Cotización creada pero la autoaprobación falló. Apruébala manualmente.');
         }
       }
       console.log('[QuoteBuilder] ✓ Quote details inserted:', quoteDetailsData.length);
@@ -1044,16 +1213,9 @@ export default function QuoteBuilder() {
         });
       }
 
-      // AUTO-APPROVAL DISABLED: Product prices will be created when quote is manually approved
-      // NOW create product_prices for auto-approved quotes (AFTER all products are added)
-      // Use API route to ensure server-side execution and bypass RLS issues
-      // if (createdQuote.auto_approved) {
-      //   ... (code disabled - auto-approval is disabled)
-      // }
-
-      // AUTO-APPROVAL DISABLED: All quotes require manual approval
-      const isAutoApproved = false; // Auto-approval disabled
-      const statusMessage = `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación`;
+      const statusMessage = finalShouldAutoApprove
+        ? `Cotización ${createdQuote.quote_number} creada (autoaprobable por piso efectivo)`
+        : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación`;
 
       toast.success(statusMessage);
       
@@ -1217,6 +1379,52 @@ export default function QuoteBuilder() {
     quoteProductsRef.current = quoteProducts;
   }, [quoteProducts]);
 
+  // Recalcular baseListPrice y effectiveFloor cuando cambia IVA o % contado
+  useEffect(() => {
+    const products = quoteProductsRef.current;
+    if (products.length === 0) return;
+
+    const updated = products.map((product) => {
+      if (product.pricingPath !== 'LIST_PRICE') return product;
+
+      const rawFloor =
+        product.rawFloor ??
+        (product.baseListPrice != null && !includesVAT && cashOverpricePct > 0
+          ? product.baseListPrice / (1 + cashOverpricePct / 100)
+          : product.baseListPrice ?? null);
+
+      if (rawFloor == null) return product;
+
+      const baseListPrice =
+        !includesVAT && cashOverpricePct > 0
+          ? rawFloor * (1 + cashOverpricePct / 100)
+          : rawFloor;
+
+      const rangeCode = distanceInfo?.range_code ?? product.zoneRangeCode;
+      const zoneSurcharge = getZoneSurcharge(rangeCode, distanceRanges);
+      const effectiveFloor = baseListPrice + (isZoneCOrHigher(rangeCode) ? zoneSurcharge : 0);
+
+      const delta = product.listDelta ?? (product.effectiveFloor != null ? product.finalPrice - product.effectiveFloor : 0);
+      const newFinalPrice = Math.ceil((effectiveFloor + delta) / 5) * 5;
+
+      return {
+        ...product,
+        rawFloor,
+        baseListPrice,
+        zoneSurcharge,
+        effectiveFloor,
+        floorPrice: effectiveFloor,
+        finalPrice: newFinalPrice,
+        listDelta: Number((newFinalPrice - effectiveFloor).toFixed(2)),
+        requiresApproval: newFinalPrice < effectiveFloor,
+        profitMargin: product.basePrice > 0 ? (newFinalPrice / product.basePrice) - 1 : product.profitMargin,
+      };
+    });
+
+    setQuoteProducts(updated);
+    quoteProductsRef.current = updated;
+  }, [includesVAT, cashOverpricePct, distanceInfo?.range_code, distanceRanges]);
+
   // Track previous transport cost to only update when it actually changes
   const previousTransportCostRef = useRef<number | null>(null);
 
@@ -1268,8 +1476,22 @@ export default function QuoteBuilder() {
               // Only recalculate final price if it wasn't manually edited
               let newFinalPrice = product.finalPrice;
               if (!product.finalPriceManuallyEdited) {
-                // Recalculate final price with new base price
-                newFinalPrice = Math.ceil((newBasePrice * (1 + product.profitMargin)) / 5) * 5;
+                // For LIST_PRICE rows, preserve commercial intent by mode.
+                if (product.pricingPath === 'LIST_PRICE' && product.baseListPrice != null) {
+                  const currentRange = distanceInfo?.range_code ?? product.zoneRangeCode;
+                  const zoneSurcharge = getZoneSurcharge(currentRange, distanceRanges);
+                  const effectiveFloor = product.baseListPrice + (isZoneCOrHigher(currentRange) ? zoneSurcharge : 0);
+
+                  if ((product.pricingEditorMode ?? 'OVER_LIST') === 'OVER_LIST') {
+                    const delta = product.listDelta ?? Number((product.finalPrice - (product.effectiveFloor ?? effectiveFloor)).toFixed(2));
+                    newFinalPrice = Math.ceil((effectiveFloor + delta) / 5) * 5;
+                  } else {
+                    newFinalPrice = product.finalPrice;
+                  }
+                } else {
+                  // COST_DERIVED: recalculate from base + margin
+                  newFinalPrice = Math.ceil((newBasePrice * (1 + product.profitMargin)) / 5) * 5;
+                }
               }
               
               // Validate: basePrice should never exceed finalPrice (unless finalPrice was manually edited lower)
@@ -1301,10 +1523,29 @@ export default function QuoteBuilder() {
                 });
               }
               
+              const resolvedRangeCode = distanceInfo?.range_code ?? product.zoneRangeCode;
+              const resolvedZoneSurcharge =
+                product.pricingPath === 'LIST_PRICE'
+                  ? getZoneSurcharge(resolvedRangeCode, distanceRanges)
+                  : 0;
+              const resolvedEffectiveFloor =
+                product.pricingPath === 'LIST_PRICE' && product.baseListPrice != null
+                  ? product.baseListPrice + (isZoneCOrHigher(resolvedRangeCode) ? resolvedZoneSurcharge : 0)
+                  : null;
+
               return {
                 ...product,
                 basePrice: newBasePrice,
                 finalPrice: newFinalPrice,
+                zoneRangeCode: resolvedRangeCode,
+                zoneSurcharge: resolvedZoneSurcharge,
+                effectiveFloor: resolvedEffectiveFloor,
+                floorPrice: resolvedEffectiveFloor,
+                requiresApproval: resolvedEffectiveFloor != null ? newFinalPrice < resolvedEffectiveFloor : true,
+                profitMargin: newBasePrice > 0 ? (newFinalPrice / newBasePrice) - 1 : 0,
+                listDelta: resolvedEffectiveFloor != null
+                  ? Number((newFinalPrice - resolvedEffectiveFloor).toFixed(2))
+                  : product.listDelta,
               };
             } catch (error) {
               console.error(`Error updating price for product ${product.recipe.recipe_code}:`, error);
@@ -1322,7 +1563,7 @@ export default function QuoteBuilder() {
     };
     
     updateProductPrices();
-  }, [distanceInfo?.transport_cost_per_m3, distanceInfo?.distance_km]); // Only depend on transport cost
+  }, [distanceInfo?.transport_cost_per_m3, distanceInfo?.distance_km, distanceInfo?.range_code, distanceRanges]); // Recompute when transport/range changes
 
   // Load available additional products
   useEffect(() => {
@@ -1945,8 +2186,6 @@ export default function QuoteBuilder() {
                     Incluir IVA
                   </label>
                 </div>
-                
-                {/* AUTO-APPROVAL DISABLED: All quotes require manual approval */}
               </div>
             </div>
 
@@ -2050,123 +2289,23 @@ export default function QuoteBuilder() {
             </h2>
           </div>
 
-          {/* Margin Status Indicator - AUTO-APPROVAL DISABLED */}
-          {quoteProducts.length > 0 && (() => {
-            const avgMargin = quoteProducts.reduce((sum, p) => sum + p.profitMargin, 0) / quoteProducts.length * 100;
-            
-            return (
-              <div className="mb-4 p-4 rounded-lg border-2 bg-blue-50 border-blue-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-blue-100">
-                      <Info className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-sm text-blue-900">
-                        Esta cotización requiere aprobación manual
-                      </p>
-                      <p className="text-xs mt-0.5 text-blue-700">
-                        Margen promedio: <span className="font-bold">{avgMargin.toFixed(1)}%</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          <QuoteApprovalSummary products={quoteProducts} />
           
           <div className="space-y-4">
             {quoteProducts.map((product, index) => (
-              <div key={index} className="bg-white/60 rounded-xl p-4 border border-gray-100 shadow-sm grid grid-cols-2 xl:grid-cols-12 gap-4 items-end">
-                <div className="col-span-2 xl:col-span-3">
-                  <p className="font-bold text-gray-900 text-sm break-words">
-                    {features.masterPricingEnabled && product.master_code ? product.master_code : product.recipe.recipe_code}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">{product.recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</p>
-                  {product.pricingPath === 'LIST_PRICE' && product.floorPrice != null && (
-                    <p className="text-[11px] text-gray-600 mt-1">
-                      Floor: ${product.floorPrice.toLocaleString('es-MX')}
-                    </p>
-                  )}
-                  {product.requiresApproval && (
-                    <span className="inline-block mt-1 rounded-full bg-amber-100 text-amber-800 text-[11px] px-2 py-0.5">
-                      Requiere aprobación
-                    </span>
-                  )}
-                </div>
-                
-                <div className="col-span-1 xl:col-span-1">
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Volumen (m³)</label>
-                  <Input 
-                    type="number" 
-                    value={product.volume}
-                    onChange={(e) => updateProductDetails(index, { volume: parseFloat(e.target.value) || 0 })}
-                    className="bg-white h-9 w-full min-w-[80px]"
-                  />
-                </div>
-                
-                <div className="col-span-2 xl:col-span-3">
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Base</label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1 min-w-[100px]">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                      <Input 
-                        type="number"
-                        value={product.basePrice}
-                        onChange={(e) => updateProductDetails(index, { basePrice: parseFloat(e.target.value) || 0 })}
-                        className="bg-white pl-5 h-9 w-full"
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="icon"
-                      onClick={() => setBreakdownDialogProductIndex(index)}
-                      className="h-9 w-9 shrink-0 border-gray-300 text-blue-600 hover:text-blue-700 hover:bg-blue-50 hover:border-blue-400"
-                      title="Ver desglose del precio base"
-                    >
-                      <Info className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                
-                <div className="col-span-1 xl:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Margen (%)</label>
-                  <div className="relative">
-                    <Input 
-                      type="number"
-                      value={(product.profitMargin * 100).toFixed(2)}
-                      onChange={(e) => updateProductDetails(index, { profitMargin: (parseFloat(e.target.value) || 0) / 100 })}
-                      className="bg-white pr-6 h-9 w-full min-w-[80px]"
-                    />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
-                  </div>
-                </div>
-                
-                <div className="col-span-1 xl:col-span-2">
-                  <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Final</label>
-                  <div className="relative">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    <Input 
-                      type="number"
-                      value={product.finalPrice}
-                      onChange={(e) => updateProductDetails(index, { finalPrice: parseFloat(e.target.value) || 0 })}
-                      className="bg-white pl-5 h-9 font-bold text-green-700 w-full min-w-[80px]"
-                    />
-                  </div>
-                </div>
-                
-                <div className="col-span-2 xl:col-span-1 flex justify-end xl:justify-center">
-                  <button
-                    type="button"
-                    onClick={() => removeProductFromQuoteProducts(index)} 
-                    className="inline-flex items-center justify-center h-9 w-9 bg-red-600 hover:bg-red-700 text-white rounded-lg border-0 shadow-sm shrink-0 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                    title="Eliminar producto"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+              <QuoteProductPricingRow
+                key={index}
+                product={product}
+                index={index}
+                isMasterPricingEnabled={features.masterPricingEnabled}
+                includesVAT={includesVAT}
+                cashOverpricePct={cashOverpricePct}
+                onUpdateProductDetails={(rowIndex, rowUpdates) =>
+                  updateProductDetails(rowIndex, rowUpdates as Partial<QuoteProduct>)
+                }
+                onShowBreakdown={setBreakdownDialogProductIndex}
+                onRemove={removeProductFromQuoteProducts}
+              />
             ))}
 
             {quoteProducts.length === 0 && includePumpService && (

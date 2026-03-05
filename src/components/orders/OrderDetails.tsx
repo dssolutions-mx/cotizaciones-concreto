@@ -188,6 +188,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [loadingAdditionalProducts, setLoadingAdditionalProducts] = useState(false);
   const [removingOrphanIds, setRemovingOrphanIds] = useState<Set<string>>(new Set());
   
+  // VAT mismatch correction (cash overprice on list price)
+  const [cashOverpricePct, setCashOverpricePct] = useState(10);
+  const [vatMismatch, setVatMismatch] = useState<boolean | null>(null);
+  const [isApplyingVatCorrection, setIsApplyingVatCorrection] = useState(false);
+  
   // Per-row recipe editor toggle (collapsed by default)
   const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
   const isEditingRecipe = useCallback((id: string) => !!editingRecipeMap[id], [editingRecipeMap]);
@@ -395,6 +400,32 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   useEffect(() => {
     loadOrderDetails();
   }, [loadOrderDetails]);
+
+  // Load cash_overprice_pct from system_settings
+  useEffect(() => {
+    supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'cash_overprice_pct')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) setCashOverpricePct(Number(data.value));
+      });
+  }, []);
+
+  // Check VAT mismatch via order_vat_mismatches view when order loads
+  useEffect(() => {
+    if (!order?.id) {
+      setVatMismatch(null);
+      return;
+    }
+    supabase
+      .from('order_vat_mismatches')
+      .select('order_id')
+      .eq('order_id', order.id)
+      .maybeSingle()
+      .then(({ data }) => setVatMismatch(!!data));
+  }, [order?.id]);
 
   // Function to load client sites when payment dialog is opened
   const loadClientSitesForPayment = useCallback(async () => {
@@ -1694,6 +1725,55 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  async function applyVatCorrection() {
+    if (!order || isApplyingVatCorrection || !profile?.id) return;
+    try {
+      setIsApplyingVatCorrection(true);
+      const multiplier = 1 + cashOverpricePct / 100;
+
+      const { data: items, error: itemsError } = await supabase
+        .from('order_items')
+        .select('id, unit_price, total_price, quote_details!inner(master_recipe_id)')
+        .eq('order_id', order.id);
+
+      if (itemsError) throw itemsError;
+
+      const concreteItems = (items || []).filter(
+        (item: any) => item.quote_details?.master_recipe_id != null
+      );
+
+      for (const item of concreteItems) {
+        const newUnitPrice = Number((item.unit_price * multiplier).toFixed(2));
+        const newTotalPrice = Number((item.total_price * multiplier).toFixed(2));
+        const { error: updateError } = await supabase
+          .from('order_items')
+          .update({ unit_price: newUnitPrice, total_price: newTotalPrice })
+          .eq('id', item.id);
+        if (updateError) throw updateError;
+      }
+
+      const { error: orderError } = await supabase
+        .from('orders')
+        .update({
+          vat_correction_applied: true,
+          vat_correction_pct: cashOverpricePct,
+          vat_correction_by: profile.id,
+          vat_correction_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      if (orderError) throw orderError;
+
+      toast.success(`Recargo contado (+${cashOverpricePct}%) aplicado correctamente`);
+      await loadOrderDetails();
+    } catch (err) {
+      console.error('Error applying VAT correction:', err);
+      toast.error('Error al aplicar el recargo contado. Intente nuevamente.');
+    } finally {
+      setIsApplyingVatCorrection(false);
+    }
+  }
+
   // Función para volver atrás manteniendo el contexto
   function handleGoBack() {
     if (returnTo === 'calendar') {
@@ -2238,6 +2318,44 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           {order.requires_invoice ? 'FISCAL' : 'EFECTIVO'}
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* VAT mismatch correction banner */}
+                  {vatMismatch === true && (
+                    <div className={`mt-4 p-4 rounded-lg border ${
+                      order.vat_correction_applied
+                        ? 'bg-green-50 border-green-200'
+                        : 'bg-amber-50 border-amber-200'
+                    }`}>
+                      {order.vat_correction_applied ? (
+                        <p className="text-sm text-green-800">
+                          ✓ Recargo contado aplicado (+{order.vat_correction_pct ?? cashOverpricePct}%) — corregido el{' '}
+                          {order.vat_correction_at
+                            ? format(new Date(order.vat_correction_at), "d MMM yyyy 'a las' HH:mm", { locale: es })
+                            : '—'}
+                          {order.vat_correction_by && ' por usuario'}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-amber-800">
+                            ⚠️ Esta orden tiene un desajuste de IVA vs la cotización origen.
+                          </p>
+                          <p className="text-xs mt-1 text-amber-700">
+                            Precio de cotización {order.requires_invoice ? 'sin' : 'con'} IVA — Orden marcada como{' '}
+                            {order.requires_invoice ? 'con factura' : 'sin factura'}.
+                          </p>
+                          <Button
+                            onClick={applyVatCorrection}
+                            disabled={isApplyingVatCorrection}
+                            className="mt-3 bg-amber-600 hover:bg-amber-700 text-white"
+                          >
+                            {isApplyingVatCorrection
+                              ? 'Aplicando...'
+                              : `Aplicar recargo contado +${cashOverpricePct}% a precios de concreto`}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                   

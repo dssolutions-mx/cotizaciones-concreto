@@ -48,6 +48,10 @@ export interface Order {
   rejection_reason?: string | null;
   plant_id?: string | null;
   effective_for_balance?: boolean;
+  vat_correction_applied?: boolean;
+  vat_correction_pct?: number | null;
+  vat_correction_by?: string | null;
+  vat_correction_at?: string | null;
 }
 
 export interface OrderWithClient extends Order {

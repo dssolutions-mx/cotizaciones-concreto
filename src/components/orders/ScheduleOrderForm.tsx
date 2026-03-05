@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { addDays, format, parseISO } from 'date-fns';
@@ -66,6 +66,7 @@ interface Quote {
   totalAmount: number;
   products: Product[];
   additionalProducts: AdditionalProduct[];
+  includesVat?: boolean;
 }
 
 interface ScheduleOrderFormProps {
@@ -635,6 +636,7 @@ export default function ScheduleOrderForm({
             quote_number,
             quote_details(
               id,
+              includes_vat,
               volume,
               final_price,
               pump_service,
@@ -742,11 +744,13 @@ export default function ScheduleOrderForm({
           // This will be populated below from latestAdditionalProducts
           const additionalProducts: AdditionalProduct[] = [];
 
+          const quoteIncludesVat = (quoteData.quote_details || []).some((d: any) => d.includes_vat === true);
           const formattedQuote: Quote = {
             id: quoteData.id,
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
             additionalProducts: additionalProducts,
+            includesVat: quoteIncludesVat,
             products: activeDetails.map((detail: any) => {
               // Handle master-based or recipe→master-mapped quote details (concrete products)
               if ((detail.master_recipe_id && detail.master_recipes) || (detail.recipes && detail.recipes.master_recipes)) {
@@ -1735,6 +1739,29 @@ export default function ScheduleOrderForm({
               <span className="text-red-600 font-medium">Obligatorio:</span> Esta selección afectará el balance del cliente y es requerida para crear la orden.
             </p>
           </div>
+
+          {/* VAT mismatch soft alert: quote includes_vat vs order requires_invoice */}
+          {(() => {
+            const quoteIdsFromSelected = [...new Set(selectedProducts.map((p: any) => p.quoteId).filter(Boolean))];
+            const primaryQuote = quoteIdsFromSelected.length > 0
+              ? availableQuotes.find(q => q.id === quoteIdsFromSelected[0])
+              : null;
+            const quoteIncludesVat = primaryQuote?.includesVat ?? false;
+            const hasMismatch = selectedProducts.length > 0 && primaryQuote && quoteIncludesVat !== requiresInvoice;
+            if (!hasMismatch) return null;
+            const quoteConSin = quoteIncludesVat ? 'con' : 'sin';
+            const orderLabel = requiresInvoice ? 'con factura' : 'sin factura';
+            return (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg">
+                <p className="text-sm font-medium">
+                  ⚠️ La cotización fue creada {quoteConSin} IVA pero esta orden está marcada como {orderLabel}.
+                </p>
+                <p className="text-xs mt-1 text-amber-700">
+                  Puede ser una omisión o un intento de aplicar un precio no autorizado. Podrás corregir los precios en el detalle de la orden.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Pumping-Only Toggle - Show when client has both concrete and pumping services */}
           {hasConcreteProducts && hasStandalonePumping && (

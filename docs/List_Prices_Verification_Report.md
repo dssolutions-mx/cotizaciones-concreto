@@ -1,6 +1,6 @@
 # List Prices — System Verification Report
 
-**Date:** 2026-03-05  
+**Date:** 2026-03-05 (updated 2026-02-26)
 **Purpose:** Verify tables, triggers, functions, and system flow for the List Prices implementation. Use this before planning a mass migration.
 
 ---

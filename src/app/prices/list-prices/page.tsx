@@ -78,6 +78,10 @@ export default function ListPricesPage() {
   const [ruleDeltaTmaSmaller, setRuleDeltaTmaSmaller] = useState('');
   const [ruleDeltaTmaLarger, setRuleDeltaTmaLarger]   = useState('');
 
+  // ── Cash overprice config ──────────────────────────────────────────────────
+  const [cashOverpricePct, setCashOverpricePct] = useState(10);
+  const [cashOverpriceSaving, setCashOverpriceSaving] = useState(false);
+
   // ── UI ───────────────────────────────────────────────────────────────────
   const [loading, setLoading]                   = useState(true);
   const [activeTab, setActiveTab]               = useState('workspace');
@@ -203,6 +207,43 @@ export default function ListPricesPage() {
   }, [currentPlant?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Load cash overprice % from system_settings
+  useEffect(() => {
+    if (!canManage) return;
+    supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'cash_overprice_pct')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) {
+          const n = Number(data.value);
+          if (Number.isFinite(n) && n >= 0) setCashOverpricePct(n);
+        }
+      })
+      .catch(() => {});
+  }, [canManage]);
+
+  const saveCashOverpricePct = useCallback(async (value: number) => {
+    if (!canManage || !Number.isFinite(value) || value < 0 || value > 100) return;
+    setCashOverpriceSaving(true);
+    try {
+      const { error } = await supabase
+        .from('system_settings')
+        .upsert(
+          { key: 'cash_overprice_pct', value: String(value), updated_at: new Date().toISOString() },
+          { onConflict: 'key' },
+        );
+      if (error) throw error;
+      setCashOverpricePct(value);
+      toast.success('Recargo contado actualizado');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al guardar');
+    } finally {
+      setCashOverpriceSaving(false);
+    }
+  }, [canManage]);
 
   // Lazy-load costs for the selected family only (cached after first load)
   useEffect(() => {
@@ -390,7 +431,30 @@ export default function ListPricesPage() {
               : 'Selecciona una planta para comenzar.'}
           </p>
         </div>
-        <div className="flex items-center gap-2 sm:mt-1">
+        <div className="flex flex-wrap items-center gap-3 sm:mt-1">
+          <div className="flex items-center gap-2">
+            <label htmlFor="cash-overprice" className="text-sm text-slate-500 whitespace-nowrap">
+              Recargo contado:
+            </label>
+            <input
+              id="cash-overprice"
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={cashOverpricePct}
+              onChange={(e) => setCashOverpricePct(Number(e.target.value) || 0)}
+              onBlur={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v >= 0 && v <= 100) {
+                  saveCashOverpricePct(v);
+                }
+              }}
+              disabled={cashOverpriceSaving}
+              className="h-8 w-14 rounded-md border border-slate-200 px-2 text-sm text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+            />
+            <span className="text-sm text-slate-500">%</span>
+          </div>
           {dirtyCount > 0 && (
             <Badge variant="warning">{dirtyCount} {dirtyCount === 1 ? 'fila modificada' : 'filas modificadas'}</Badge>
           )}
