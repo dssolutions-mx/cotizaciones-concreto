@@ -24,7 +24,7 @@ import { SiteApprovalRow } from './SiteApprovalRow';
 import { QuoteApprovalRow } from './QuoteApprovalRow';
 import type { PendingClient, PendingSite, PendingQuote } from '@/hooks/useApprovalTasks';
 
-const APPROVAL_ROLES = ['EXECUTIVE', 'PLANT_MANAGER'];
+const APPROVAL_ROLES = ['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'];
 const MAX_ROWS = 5;
 
 export function ApprovalTasksSection() {

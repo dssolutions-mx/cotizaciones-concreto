@@ -8,9 +8,10 @@
 ## Actors And Roles
 
 - **Sales User**: creates clients, sites, and quotes.
-- **Governance Approver** (`EXECUTIVE` or `PLANT_MANAGER`): approves/rejects clients, sites, and quotes.
+- **Governance Approver** (`EXECUTIVE`, `PLANT_MANAGER`, or `CREDIT_VALIDATOR`): approves/rejects clients and construction sites.
+- **Quote Approver** (`EXECUTIVE` or `PLANT_MANAGER`): approves/rejects quotes.
 - **Client Executive** (portal role `executive`): approves/rejects internal client orders when required.
-- **Credit Validator** (`CREDIT_VALIDATOR`): validates order credit status.
+- **Credit Validator** (`CREDIT_VALIDATOR`): validates order credit status and can authorize clients and construction sites.
 
 ## 1) Client Creation Process
 
@@ -71,7 +72,7 @@
 ### A. Governance (Client/Site)
 
 - Client/Site created in `PENDING_APPROVAL`.
-- `EXECUTIVE`/`PLANT_MANAGER` approves or rejects.
+- `EXECUTIVE`, `PLANT_MANAGER`, or `CREDIT_VALIDATOR` approves or rejects.
 
 ### B. Quote Approval
 

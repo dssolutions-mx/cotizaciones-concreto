@@ -6,6 +6,12 @@ This document consolidates the current implementation of our notification system
 
 The following functions are ACTIVE in the `cotizador` project (id: `pkjqznogflgbnwzkzmpg`). Items marked “not in repo” exist in the project but aren’t present in this workspace; consider exporting and committing them.
 
+- governance-approval-notification
+  - Purpose: Sends approval emails when clients or construction sites are created with `approval_status = PENDING_APPROVAL`. Credit validators receive emails with Approve/Reject buttons and contact verification data per policy 3.1.
+  - Triggers: Database triggers on `clients` and `construction_sites` INSERT when `approval_status = 'PENDING_APPROVAL'`.
+  - Sends: Per-recipient emails via SendGrid; logs to `governance_notifications`; stores tokens in `governance_action_tokens`.
+  - Code: `supabase/functions/governance-approval-notification/index.ts`.
+
 - credit-validation-notification
   - Purpose: Sends credit validation emails with Approve/Reject buttons; escalates on validator rejection.
   - Triggers:
@@ -56,6 +62,15 @@ The following functions are ACTIVE in the `cotizador` project (id: `pkjqznogflgb
   - Purpose: Store per-recipient approval/rejection tokens for email action links.
   - RLS: Restricted to service role.
 
+- governance_action_tokens
+  - Columns: `entity_type` (client | construction_site), `entity_id`, `recipient_email`, `approve_token`, `reject_token`, `expires_at`.
+  - Purpose: Store per-recipient tokens for governance approval/rejection email links.
+  - RLS: Restricted to service role.
+
+- governance_notifications
+  - Columns: `entity_type`, `entity_id`, `notification_type`, `recipient`, `delivery_status`, `sent_at`.
+  - Purpose: Audit log for governance approval emails sent to credit validators.
+
 Note: The deployed `weekly-balance-report` writes into `system_notifications` which is not present in this repo. Add corresponding migration if we keep using it.
 
 ## Credit validation: end-to-end flow
@@ -98,6 +113,47 @@ Note: The deployed `weekly-balance-report` writes into `system_notifications` wh
 4) User feedback in UI
 
 - The order detail page (`src/app/orders/[id]/page.tsx`) reads the `action` query param (`approved`, `rejected`, `error`) and shows a contextual alert at the top.
+
+## Governance approval: client and construction site flow
+
+1) Triggering notifications
+
+- Database triggers (see `supabase/migrations/20260306000001_governance_notification_triggers.sql`):
+  - On INSERT into `clients` when `approval_status = 'PENDING_APPROVAL'` → call `governance-approval-notification` with `{ type: 'client_pending' }`.
+  - On INSERT into `construction_sites` when `approval_status = 'PENDING_APPROVAL'` → call `governance-approval-notification` with `{ type: 'site_pending' }`.
+  - Uses `pg_net.http_post` with service role bearer to the function endpoint.
+
+2) Building and sending the email
+
+- Edge Function: `governance-approval-notification`:
+  - Fetches entity (client or construction_site) and related context (creator, client for sites).
+  - Recipients: `user_profiles` where `role = 'CREDIT_VALIDATOR'`.
+  - Per recipient: generates JWT tokens (approve, reject) with 7-day expiry; stores in `governance_action_tokens` before sending.
+  - Client email per policy 3.1:
+    - Prominent callout: "OBLIGATORIO: Verifique que los datos de contacto pertenezcan legítimamente al cliente y sean funcionales antes de aprobar."
+    - Dedicated "Datos de contacto a verificar" section: contact_name, phone, email.
+  - HTML links:
+    - Approve: `${FRONTEND_URL}/api/governance-actions/direct-action?entityType=client|site&entityId={id}&action=approve&email={recipient}`
+    - Reject: same with `action=reject`
+    - View: `${FRONTEND_URL}/clients/{id}` (client) or `${FRONTEND_URL}/finanzas/gobierno-precios?tab=sites` (site)
+  - Sends via SendGrid; records in `governance_notifications`.
+
+3) One-click buttons → secure processing
+
+- `/api/governance-actions/direct-action` (Next.js API Route):
+  - Params: `entityType` (client | site), `entityId`, `action`, `email`. Maps `site` → `construction_site` for DB.
+  - Looks up `governance_action_tokens` by entity_type, entity_id, recipient_email (with loose email fallback); checks DB expiry; redirects to `/api/governance-actions/process?token={token}`.
+
+- `/api/governance-actions/process` (Next.js API Route):
+  - Verifies JWT with `SUPABASE_JWT_SECRET`; decodes `{ entityType, entityId, action, recipientEmail }`.
+  - Confirms token in DB; entity must be `PENDING_APPROVAL`.
+  - Approve: update `clients` or `construction_sites` with `approval_status = 'APPROVED'`, `approved_by`, `approved_at`.
+  - Reject: set `approval_status = 'REJECTED'`.
+  - Delete tokens; redirect to `/finanzas/gobierno-precios?tab=clients|sites&action=approved|rejected`.
+
+4) User feedback in UI
+
+- `src/app/finanzas/gobierno-precios/page.tsx` reads `action` and `tab` query params and shows success/error banner; `tab` sets the active tab.
 
 ## Secrets and configuration
 
@@ -158,6 +214,15 @@ Use this playbook to add a new interactive email flow or extend the current one.
 
 ## Testing checklist
 
+Governance approval:
+- Create client with `PENDING_APPROVAL` → Credit validators receive email with contact verification block.
+- Create construction site with `PENDING_APPROVAL` → Credit validators receive email.
+- Click Approve in email → Entity approved, redirect to gobierno-precios with success banner.
+- Click Reject in email → Entity rejected, redirect with success banner.
+- Expired token → Error redirect.
+- Reuse token after use → Error (tokens deleted).
+
+Credit validation:
 - Create an order → verify `pending` credit status triggers email to `CREDIT_VALIDATOR` users.
 - Click Approve → order becomes `approved`, tokens deleted, success banner shown.
 - Click Reject from validator → order becomes `rejected_by_validator`, escalation email goes to managers; second-stage Reject from managers sets final `rejected`.
@@ -167,6 +232,7 @@ Use this playbook to add a new interactive email flow or extend the current one.
 ## Useful file references
 
 - Edge Functions
+  - `supabase/functions/governance-approval-notification/index.ts`
   - `migrations/supabase/functions/credit-validation-notification/index.ts`
   - `supabase/functions/daily-schedule-report/index.ts`
   - `supabase/functions/today-schedule-report/index.ts`
@@ -174,6 +240,8 @@ Use this playbook to add a new interactive email flow or extend the current one.
   - `supabase/functions/daily-quality-summary-report/index.ts`
 
 - Next.js API routes
+  - `src/app/api/governance-actions/direct-action/route.ts`
+  - `src/app/api/governance-actions/process/route.ts`
   - `src/app/api/credit-actions/direct-action/route.ts`
   - `src/app/api/credit-actions/process/route.ts`
 
@@ -181,6 +249,8 @@ Use this playbook to add a new interactive email flow or extend the current one.
   - `migrations/new_roles_and_credit_validation.sql`
   - `migrations/supabase/webhook-trigger.sql`
   - `migrations/supabase/migrations/20240601000000_add_credit_action_tokens.sql`
+  - `supabase/migrations/20260306000000_create_governance_action_tokens.sql`
+  - `supabase/migrations/20260306000001_governance_notification_triggers.sql`
   - `migrations/orders_tables.sql` (tables + RLS for `order_notifications`)
 
 ## Deploy notes
@@ -188,6 +258,7 @@ Use this playbook to add a new interactive email flow or extend the current one.
 - Set/verify secrets in Supabase for all deployed functions:
   - `supabase secrets set SENDGRID_API_KEY=... FRONTEND_URL=https://...`
 - Deploy or re-deploy functions to sync with codebase:
+  - `supabase functions deploy governance-approval-notification`
   - `supabase functions deploy credit-validation-notification`
   - `supabase functions deploy daily-schedule-report`
   - `supabase functions deploy today-schedule-report`

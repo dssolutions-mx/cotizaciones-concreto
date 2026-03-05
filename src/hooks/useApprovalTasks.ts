@@ -47,7 +47,7 @@ export function useApprovalTasks() {
   const { currentPlant } = usePlantContext();
 
   const canFetch =
-    profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER';
+    profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER' || profile?.role === 'CREDIT_VALIDATOR';
 
   const governanceKey = canFetch ? '/api/governance/pending' : null;
   const quotesKey = canFetch

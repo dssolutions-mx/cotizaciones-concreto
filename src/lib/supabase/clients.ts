@@ -310,7 +310,8 @@ export const clientService = {
         special_conditions: siteData.special_conditions || null,
         is_active: siteData.is_active ?? true, // Default to true if not specified
         latitude: siteData.latitude || null,
-        longitude: siteData.longitude || null
+        longitude: siteData.longitude || null,
+        approval_status: 'PENDING_APPROVAL' as const, // Requires Credit Validator approval per commercial policy
       };
       
       console.log('Inserting site data:', dataToInsert);

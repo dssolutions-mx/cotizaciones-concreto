@@ -17,7 +17,7 @@ export async function POST(
       .eq('id', user.id)
       .single();
 
-    if (profileError || !['EXECUTIVE', 'PLANT_MANAGER'].includes(profile?.role || '')) {
+    if (profileError || !['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'].includes(profile?.role || '')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

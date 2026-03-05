@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { CheckCircle, RefreshCw, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { CheckCircle, RefreshCw, ShieldCheck, ArrowLeft, XCircle, AlertCircle } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { calculateRoadDistance } from '@/lib/services/distanceService';
 import { ClientApprovalCard } from '@/components/finanzas/ClientApprovalCard';
@@ -40,8 +41,61 @@ type PendingSite = {
   distance_plant_name?: string | null;
 };
 
+function GovernanceActionBanner() {
+  const searchParams = useSearchParams();
+  const action = searchParams.get('action');
+  if (!action) return null;
+  const config =
+    action === 'approved'
+      ? {
+          icon: CheckCircle,
+          className: 'mb-6 border-green-200/50 bg-green-50',
+          iconClass: 'text-green-600',
+          titleClass: 'text-green-800',
+          descClass: 'text-green-700',
+          title: 'Autorización completada',
+          desc: 'La entidad fue aprobada exitosamente a través del enlace del correo.',
+        }
+      : action === 'rejected'
+        ? {
+            icon: XCircle,
+            className: 'mb-6 border-red-200/50 bg-red-50',
+            iconClass: 'text-red-600',
+            titleClass: 'text-red-800',
+            descClass: 'text-red-700',
+            title: 'Rechazo completado',
+            desc: 'La entidad fue rechazada a través del enlace del correo.',
+          }
+        : action === 'error'
+          ? {
+              icon: AlertCircle,
+              className: 'mb-6 border-amber-200/50 bg-amber-50',
+              iconClass: 'text-amber-600',
+              titleClass: 'text-amber-800',
+              descClass: 'text-amber-700',
+              title: 'Error en la acción',
+              desc:
+                searchParams.get('reason') === 'token_expired'
+                  ? 'El enlace ha expirado. Solicite uno nuevo desde el sitio.'
+                  : searchParams.get('reason') === 'token_not_found'
+                    ? 'No se encontró el enlace de autorización. Puede que ya haya sido utilizado.'
+                    : 'Hubo un problema al procesar la acción. Intente de nuevo desde el sitio.',
+            }
+          : null;
+  if (!config) return null;
+  const Icon = config.icon;
+  return (
+    <Alert className={config.className}>
+      <Icon className={`h-4 w-4 ${config.iconClass}`} />
+      <AlertTitle className={config.titleClass}>{config.title}</AlertTitle>
+      <AlertDescription className={config.descClass}>{config.desc}</AlertDescription>
+    </Alert>
+  );
+}
+
 export default function GobiernoPreciosPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { profile } = useAuthBridge();
   const { currentPlant } = usePlantContext();
   const [clients, setClients] = useState<PendingClient[]>([]);
@@ -54,7 +108,7 @@ export default function GobiernoPreciosPage() {
   const [approveAllSitesOpen, setApproveAllSitesOpen] = useState(false);
   const [siteDistances, setSiteDistances] = useState<Record<string, { distance_km: number; plant_name: string }>>({});
 
-  const canAccess = ['EXECUTIVE', 'PLANT_MANAGER'].includes(profile?.role || '');
+  const canAccess = ['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'].includes(profile?.role || '');
 
   const loadPending = useCallback(async () => {
     try {
@@ -196,8 +250,11 @@ export default function GobiernoPreciosPage() {
 
   if (!canAccess) return null;
 
+  const defaultTab = searchParams.get('tab') === 'sites' ? 'sites' : searchParams.get('tab') === 'prices' ? 'prices' : 'clients';
+
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <GovernanceActionBanner />
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -218,7 +275,7 @@ export default function GobiernoPreciosPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="clients" className="space-y-6">
+      <Tabs defaultValue={defaultTab} className="space-y-6">
         <TabsList className="grid w-full max-w-2xl grid-cols-3">
           <TabsTrigger value="clients">
             Clientes {clients.length > 0 && `(${clients.length})`}

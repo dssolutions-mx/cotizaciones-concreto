@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (!['EXECUTIVE', 'PLANT_MANAGER'].includes(profile?.role || '')) {
+    if (!['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'].includes(profile?.role || '')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
