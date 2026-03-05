@@ -237,7 +237,7 @@ export default function ListPricesPage() {
         );
       if (error) throw error;
       setCashOverpricePct(value);
-      toast.success('Recargo contado actualizado');
+      toast.success('Recargo efectivo actualizado');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
@@ -434,7 +434,7 @@ export default function ListPricesPage() {
         <div className="flex flex-wrap items-center gap-3 sm:mt-1">
           <div className="flex items-center gap-2">
             <label htmlFor="cash-overprice" className="text-sm text-slate-500 whitespace-nowrap">
-              Recargo contado:
+              Recargo efectivo:
             </label>
             <input
               id="cash-overprice"
