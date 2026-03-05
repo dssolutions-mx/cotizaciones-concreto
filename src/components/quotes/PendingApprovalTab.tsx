@@ -16,6 +16,33 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Check, X, MoreVertical, Eye, FileText, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getEffectiveFloorPrice } from '@/lib/supabase/listPrices';
+import { format } from 'date-fns';
+
+const RANGE_ORDER: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', number> = {
+  A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7,
+};
+const DEFAULT_ZONE_SURCHARGE: Record<'C' | 'D' | 'E' | 'F' | 'G', number> = {
+  C: 200, D: 200, E: 200, F: 200, G: 200,
+};
+function isZoneCOrHigher(code?: string | null): code is 'C' | 'D' | 'E' | 'F' | 'G' {
+  if (!code) return false;
+  const c = code as 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  return (RANGE_ORDER[c] ?? 0) >= RANGE_ORDER.C;
+}
+function getZoneSurcharge(
+  rangeCode: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | undefined,
+  distanceRanges: Array<{ range_code?: string; diferencial?: number | null }>
+): number {
+  if (!rangeCode || !isZoneCOrHigher(rangeCode)) return 0;
+  const row = distanceRanges.find((r) => r.range_code === rangeCode);
+  const diferencial = Number(row?.diferencial ?? 0);
+  if (Number.isFinite(diferencial) && diferencial > 0) return diferencial;
+  return DEFAULT_ZONE_SURCHARGE[rangeCode];
+}
+
+const fmt = (n: number | null | undefined) =>
+  n == null ? '—' : n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
@@ -35,6 +62,9 @@ interface PendingQuote {
   total_amount: number;
   created_at: string;
   creator_name?: string;
+  validity_date?: string;
+  distance_range_code?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
+  plant_id?: string;
   quote_details: Array<{
     id: string;
     volume: number;
@@ -43,6 +73,12 @@ interface PendingQuote {
     pump_service: boolean;
     pump_price: number | null;
     includes_vat?: boolean;
+    pricing_path?: 'LIST_PRICE' | 'COST_DERIVED';
+    profit_margin?: number;
+    master_recipe_id?: string | null;
+    base_list_price?: number | null;
+    effective_floor?: number | null;
+    zone_range_code?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
     recipe: {
       recipe_code: string;
       strength_fc: number;
@@ -76,6 +112,8 @@ interface SupabaseQuoteDetail {
   pump_service: boolean;
   pump_price: number | null;
   includes_vat?: boolean;
+  pricing_path?: string;
+  profit_margin?: number;
   recipe_id: string;
   recipes: {
     recipe_code: string;
@@ -111,6 +149,10 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
     includes_vat?: boolean;
     base_price: number;
     volume: number;
+    pricing_path?: 'LIST_PRICE' | 'COST_DERIVED';
+    base_list_price?: number | null;
+    effective_floor?: number | null;
+    zone_range_code?: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G';
     recipe?: {
       recipe_code: string;
       strength_fc: number;
@@ -121,6 +163,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
     } | null;
     master_code?: string | null;
   }>>([]);
+  const [cashOverpricePct, setCashOverpricePct] = useState(10);
+  const [distanceRanges, setDistanceRanges] = useState<Array<{ range_code?: string; diferencial?: number | null }>>([]);
+  const [listPriceLoading, setListPriceLoading] = useState(false);
 
   const fetchPendingQuotes = useCallback(async () => {
     try {
@@ -134,6 +179,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
           quote_number,
           construction_site,
           created_at,
+          validity_date,
+          distance_range_code,
+          plant_id,
           creator:user_profiles!created_by (
             first_name,
             last_name
@@ -150,6 +198,8 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             pump_service,
             pump_price,
             includes_vat,
+            pricing_path,
+            profit_margin,
             recipe_id,
             master_recipe_id,
             recipes (
@@ -204,6 +254,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
           quote_number: quote.quote_number,
           construction_site: quote.construction_site,
           created_at: quote.created_at,
+          validity_date: (quote as any).validity_date,
+          distance_range_code: (quote as any).distance_range_code,
+          plant_id: (quote as any).plant_id,
           creator_name: creatorFullName || undefined,
           client: clientData ? {
             business_name: clientData.business_name,
@@ -228,6 +281,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               pump_service: detail.pump_service,
               pump_price: detail.pump_price,
               includes_vat: detail.includes_vat,
+              pricing_path: (detail.pricing_path || 'COST_DERIVED') as 'LIST_PRICE' | 'COST_DERIVED',
+              profit_margin: detail.profit_margin,
+              master_recipe_id: detail.master_recipe_id,
               recipe: recipeData ? {
                 recipe_code: recipeData.recipe_code,
                 strength_fc: recipeData.strength_fc,
@@ -276,6 +332,22 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
   useEffect(() => {
     fetchPendingQuotes();
   }, [fetchPendingQuotes]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'cash_overprice_pct')
+          .single();
+        if (data?.value) {
+          const n = Number(data.value);
+          if (Number.isFinite(n) && n >= 0) setCashOverpricePct(n);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const approveQuote = async (quoteId: string) => {
     try {
@@ -386,16 +458,71 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
     setEditingQuoteDetails(updatedDetails);
   };
 
-  const openQuoteDetails = (quote: PendingQuote) => {
+  const openQuoteDetails = async (quote: PendingQuote) => {
     const editableDetails = quote.quote_details.map(detail => ({
       ...detail,
-      profit_margin: detail.final_price / detail.base_price - 1,
+      profit_margin: detail.base_price > 0 ? detail.final_price / detail.base_price - 1 : 0,
       includes_vat: (detail as any).includes_vat ?? false,
-      master_code: detail.master_code
+      master_code: detail.master_code,
+      pricing_path: detail.pricing_path ?? 'COST_DERIVED',
+      base_list_price: undefined as number | null | undefined,
+      effective_floor: undefined as number | null | undefined,
+      zone_range_code: quote.distance_range_code,
     }));
     
     setSelectedQuote(quote);
     setEditingQuoteDetails(editableDetails);
+    setListPriceLoading(true);
+
+    const validityDate = quote.validity_date || format(new Date(), 'yyyy-MM-dd');
+    const floorLookupDate = validityDate && validityDate < '2026-01-01' ? format(new Date(), 'yyyy-MM-dd') : validityDate;
+
+    try {
+      let ranges: Array<{ range_code?: string; diferencial?: number | null }> = [];
+      if (quote.plant_id) {
+        const { data: r } = await supabase
+          .from('distance_range_configs')
+          .select('range_code, diferencial')
+          .eq('plant_id', quote.plant_id)
+          .eq('is_active', true)
+          .order('min_distance_km', { ascending: true });
+        ranges = r || [];
+      }
+      setDistanceRanges(ranges);
+
+      const enriched = await Promise.all(
+        editableDetails.map(async (d) => {
+          const isListPrice = d.pricing_path === 'LIST_PRICE' && d.master_recipe_id;
+          if (!isListPrice) return d;
+
+          const floorInfo = await getEffectiveFloorPrice(d.master_recipe_id!, floorLookupDate);
+          const rawFloor = floorInfo?.floor_price ?? null;
+          const includesVat = d.includes_vat ?? false;
+          const baseListPrice =
+            rawFloor != null && !includesVat && cashOverpricePct > 0
+              ? rawFloor * (1 + cashOverpricePct / 100)
+              : rawFloor;
+          const zoneCode = quote.distance_range_code as 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | undefined;
+          const zoneSurcharge = getZoneSurcharge(zoneCode, ranges);
+          const effectiveFloor =
+            baseListPrice != null
+              ? baseListPrice + (isZoneCOrHigher(zoneCode) ? zoneSurcharge : 0)
+              : null;
+
+          return {
+            ...d,
+            base_list_price: baseListPrice,
+            effective_floor: effectiveFloor,
+            zone_range_code: zoneCode,
+          };
+        })
+      );
+      setEditingQuoteDetails(enriched);
+    } catch (err) {
+      console.error('Error loading list price info:', err);
+    } finally {
+      setListPriceLoading(false);
+    }
   };
 
   const saveQuoteModifications = async (showAlert = true) => {
@@ -604,56 +731,150 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                       <tr>
                         <th className="px-4 py-3 text-left font-semibold">Producto</th>
                         <th className="px-4 py-3 text-left font-semibold">Volumen</th>
-                        <th className="px-4 py-3 text-left font-semibold">Precio Base</th>
-                        <th className="px-4 py-3 text-left font-semibold">Margen</th>
-                        <th className="px-4 py-3 text-right font-semibold">Precio Final</th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          {(() => {
+                            const hasList = editingQuoteDetails.some(d => d.pricing_path === 'LIST_PRICE');
+                            const hasCost = editingQuoteDetails.some(d => d.pricing_path !== 'LIST_PRICE');
+                            return hasList && hasCost ? 'Lista base / Precio Base' : hasList ? 'Lista base' : 'Precio Base';
+                          })()}
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          {(() => {
+                            const hasList = editingQuoteDetails.some(d => d.pricing_path === 'LIST_PRICE');
+                            const hasCost = editingQuoteDetails.some(d => d.pricing_path !== 'LIST_PRICE');
+                            return hasList && hasCost ? 'Piso efectivo / Margen' : hasList ? 'Piso efectivo' : 'Margen';
+                          })()}
+                        </th>
+                        <th className="px-4 py-3 text-right font-semibold">
+                          {(() => {
+                            const hasList = editingQuoteDetails.some(d => d.pricing_path === 'LIST_PRICE');
+                            const hasCost = editingQuoteDetails.some(d => d.pricing_path !== 'LIST_PRICE');
+                            return hasList && hasCost ? 'Precio de venta / Final' : hasList ? 'Precio de venta' : 'Precio Final';
+                          })()}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {editingQuoteDetails.map((detail, idx) => (
-                        <tr key={detail.id} className="hover:bg-blue-50/30 transition-colors">
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-gray-900">
-                              {(features.masterPricingEnabled && detail.master_code) ? detail.master_code : detail.recipe?.recipe_code}
-                            </div>
-                            <div className="text-xs text-gray-500">{detail.recipe?.placement_type === 'D' ? 'Directa' : 'Bombeado'}</div>
-                          </td>
-                          <td className="px-4 py-3">{detail.volume} m³</td>
-                          <td className="px-4 py-3">
-                            <div className="relative max-w-[120px]">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                              <Input
-                                type="number"
-                                value={detail.base_price.toFixed(2)}
-                                onChange={(e) => updateQuoteDetailBasePrice(idx, parseFloat(e.target.value) || 0)}
-                                className="pl-5 h-8 bg-white"
-                              />
-                            </div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="relative max-w-[100px]">
-                              <Input
-                                type="number"
-                                value={(detail.profit_margin * 100).toFixed(2)}
-                                onChange={(e) => updateQuoteDetailMargin(idx, parseFloat(e.target.value) || 0)}
-                                className="pr-6 h-8 bg-white"
-                              />
-                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="relative max-w-[120px] ml-auto">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                              <Input
-                                type="number"
-                                value={detail.final_price.toFixed(2)}
-                                onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
-                                className="pl-5 h-8 bg-white font-bold text-right"
-                              />
-                            </div>
+                      {listPriceLoading ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                            Cargando datos de precios de lista…
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        editingQuoteDetails.map((detail, idx) => {
+                          const isListPriced = detail.pricing_path === 'LIST_PRICE';
+                          const resolvedFloor = detail.effective_floor ?? null;
+                          const deltaVsFloor = resolvedFloor != null ? detail.final_price - resolvedFloor : null;
+                          const rawListPrice =
+                            detail.base_list_price != null && !(detail.includes_vat ?? false) && cashOverpricePct > 0
+                              ? detail.base_list_price / (1 + cashOverpricePct / 100)
+                              : detail.base_list_price ?? null;
+                          const upliftAmount = rawListPrice != null && detail.base_list_price != null
+                            ? detail.base_list_price - rawListPrice
+                            : null;
+
+                          return (
+                            <tr key={detail.id} className="hover:bg-blue-50/30 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900">
+                                  {(features.masterPricingEnabled && detail.master_code) ? detail.master_code : detail.recipe?.recipe_code}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {detail.recipe?.placement_type === 'D' ? 'Directa' : 'Bombeado'}
+                                  {isListPriced && detail.zone_range_code && (
+                                    <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                                      Zona {detail.zone_range_code}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">{detail.volume} m³</td>
+                              {isListPriced ? (
+                                <>
+                                  <td className="px-4 py-3">
+                                    <div className="space-y-0.5 text-xs">
+                                      {rawListPrice != null && upliftAmount != null && !(detail.includes_vat ?? false) && cashOverpricePct > 0 ? (
+                                        <>
+                                          <div className="flex justify-between gap-2">
+                                            <span className="text-slate-500">Lista catálogo</span>
+                                            <span className="font-medium tabular-nums text-slate-600">${fmt(rawListPrice)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-2">
+                                            <span className="text-systemGreen">+{cashOverpricePct}% contado</span>
+                                            <span className="font-medium tabular-nums text-systemGreen">+${fmt(upliftAmount)}</span>
+                                          </div>
+                                          <div className="flex justify-between gap-2 pt-0.5 border-t border-slate-100">
+                                            <span className="font-semibold text-slate-600">Lista base</span>
+                                            <span className="font-semibold tabular-nums text-slate-700">${fmt(detail.base_list_price)}</span>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <span className="font-semibold tabular-nums text-slate-700">${fmt(detail.base_list_price)}</span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="font-bold tabular-nums text-slate-800">${fmt(resolvedFloor)}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="relative max-w-[120px] ml-auto">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                      <Input
+                                        type="number"
+                                        value={detail.final_price.toFixed(2)}
+                                        onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
+                                        className="pl-5 h-8 bg-white font-bold text-right"
+                                      />
+                                      {resolvedFloor != null && deltaVsFloor != null && (
+                                        <p className={`mt-1 text-[11px] font-medium ${deltaVsFloor >= 0 ? 'text-systemGreen' : 'text-systemOrange'}`}>
+                                          {deltaVsFloor >= 0 ? `$${fmt(deltaVsFloor)} sobre piso` : `$${fmt(Math.abs(deltaVsFloor))} bajo piso`}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="px-4 py-3">
+                                    <div className="relative max-w-[120px]">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                      <Input
+                                        type="number"
+                                        value={detail.base_price.toFixed(2)}
+                                        onChange={(e) => updateQuoteDetailBasePrice(idx, parseFloat(e.target.value) || 0)}
+                                        className="pl-5 h-8 bg-white"
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="relative max-w-[100px]">
+                                      <Input
+                                        type="number"
+                                        value={(detail.profit_margin * 100).toFixed(2)}
+                                        onChange={(e) => updateQuoteDetailMargin(idx, parseFloat(e.target.value) || 0)}
+                                        className="pr-6 h-8 bg-white"
+                                      />
+                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="relative max-w-[120px] ml-auto">
+                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                      <Input
+                                        type="number"
+                                        value={detail.final_price.toFixed(2)}
+                                        onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
+                                        className="pl-5 h-8 bg-white font-bold text-right"
+                                      />
+                                    </div>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
