@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,6 +29,7 @@ import {
 import { FamilySidebar } from '@/components/list-prices/FamilySidebar';
 import { RuleHelper } from '@/components/list-prices/RuleHelper';
 import { MasterRow, MasterTableHeader } from '@/components/list-prices/MasterRow';
+import { MasterBreakdownDialog } from '@/components/list-prices/MasterBreakdownDialog';
 import { InsightsTab } from '@/components/list-prices/InsightsTab';
 import { toast } from 'sonner';
 import { ArrowLeft, Building2, DollarSign, Download, Loader2, RefreshCw, Save } from 'lucide-react';
@@ -71,14 +72,17 @@ export default function ListPricesPage() {
   const [vigenciaByFamily, setVigenciaByFamily] = useState<Record<string, string>>({});
 
   // ── Rule helper state ────────────────────────────────────────────────────
-  const [ruleAnchorPrice, setRuleAnchorPrice]       = useState('');
-  const [ruleDeltaRev, setRuleDeltaRev]             = useState('');
-  const [ruleUpliftBombeado, setRuleUpliftBombeado] = useState('');
+  const [ruleAnchorPrice, setRuleAnchorPrice]         = useState('');
+  const [ruleDeltaRev, setRuleDeltaRev]               = useState('');
+  const [ruleUpliftBombeado, setRuleUpliftBombeado]  = useState('');
+  const [ruleDeltaTmaSmaller, setRuleDeltaTmaSmaller] = useState('');
+  const [ruleDeltaTmaLarger, setRuleDeltaTmaLarger]   = useState('');
 
   // ── UI ───────────────────────────────────────────────────────────────────
   const [loading, setLoading]                   = useState(true);
   const [activeTab, setActiveTab]               = useState('workspace');
   const [selectedFamilyKey, setSelectedFamilyKey] = useState<string | null>(null);
+  const [breakdownMaster, setBreakdownMaster]   = useState<MasterRecipeRow | null>(null);
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const currentLpByMaster = useMemo(() => {
@@ -226,7 +230,11 @@ export default function ListPricesPage() {
 
   // Pre-fill rule inputs when family changes
   useEffect(() => {
-    if (!selectedFamily) { setRuleAnchorPrice(''); setRuleDeltaRev(''); setRuleUpliftBombeado(''); return; }
+    if (!selectedFamily) {
+      setRuleAnchorPrice(''); setRuleDeltaRev(''); setRuleUpliftBombeado('');
+      setRuleDeltaTmaSmaller(''); setRuleDeltaTmaLarger('');
+      return;
+    }
     const anchorM  = selectedFamily.masters.find((m) => m.id === selectedFamily.anchorMasterId);
     const anchorLp = anchorM ? currentLpByMaster.get(anchorM.id) : null;
     setRuleAnchorPrice(anchorLp ? String(anchorLp.base_price) : '');
@@ -268,7 +276,14 @@ export default function ListPricesPage() {
     const anchor = Number(ruleAnchorPrice);
     if (!anchor || anchor <= 0) { toast.error('Define un precio ancla válido'); return; }
 
-    const matrix = computeFamilyMatrix(selectedFamily, anchor, Number(ruleDeltaRev) || 0, Number(ruleUpliftBombeado) || 0);
+    const matrix = computeFamilyMatrix(
+      selectedFamily,
+      anchor,
+      Number(ruleDeltaRev) || 0,
+      Number(ruleUpliftBombeado) || 0,
+      Number(ruleDeltaTmaSmaller) || 0,
+      Number(ruleDeltaTmaLarger) || 0,
+    );
     setDrafts((prev) => {
       const next = { ...prev };
       selectedFamily.masters.forEach((m) => {
@@ -494,9 +509,13 @@ export default function ListPricesPage() {
                         ruleAnchorPrice={ruleAnchorPrice}
                         ruleDeltaRev={ruleDeltaRev}
                         ruleUpliftBombeado={ruleUpliftBombeado}
+                        ruleDeltaTmaSmaller={ruleDeltaTmaSmaller}
+                        ruleDeltaTmaLarger={ruleDeltaTmaLarger}
                         onAnchorChange={setRuleAnchorPrice}
                         onDeltaRevChange={setRuleDeltaRev}
                         onUpliftChange={setRuleUpliftBombeado}
+                        onDeltaTmaSmallerChange={setRuleDeltaTmaSmaller}
+                        onDeltaTmaLargerChange={setRuleDeltaTmaLarger}
                         onApply={applyRuleToFamily}
                       />
 
@@ -516,41 +535,52 @@ export default function ListPricesPage() {
                           </div>
                         </CardHeader>
                         <CardContent className="p-0 mt-3 overflow-x-auto">
-                          <MasterTableHeader />
-
-                          <div className="divide-y divide-gray-100">
-                            {selectedFamily.slumpValues.map((slump) => {
-                              const slumpMasters = selectedFamily.masters.filter((m) => m.slump === slump);
-                              if (slumpMasters.length === 0) return null;
-                              return (
-                                <div key={slump}>
-                                  {/* Revenimiento group header */}
-                                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border-l-4 border-slate-300">
-                                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-600 tabular-nums">
-                                      Rev. {slump} cm
-                                    </span>
-                                    <span className="text-xs text-slate-400">
-                                      · {slumpMasters.length} {slumpMasters.length === 1 ? 'maestro' : 'maestros'}
-                                    </span>
-                                  </div>
-                                  {slumpMasters.map((master) => (
-                                    <MasterRow
-                                      key={master.id}
-                                      master={master}
-                                      plantId={currentPlant.id}
-                                      cost={costByMaster.get(master.id)}
-                                      costsLoading={costsLoadingFamily === selectedFamily.key}
-                                      draft={drafts[master.id]}
-                                      status={rowStatus[master.id] ?? 'idle'}
-                                      currentLp={currentLpByMaster.get(master.id)}
-                                      onPriceChange={setMasterPrice}
-                                      onSave={saveMaster}
-                                    />
-                                  ))}
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <table className="w-full border-collapse">
+                            <thead className="sticky top-0 z-10 bg-slate-50">
+                              <MasterTableHeader />
+                            </thead>
+                            <tbody>
+                              {selectedFamily.slumpValues.map((slump) => {
+                                const slumpMasters = selectedFamily.masters.filter((m) => m.slump === slump);
+                                if (slumpMasters.length === 0) return null;
+                                return (
+                                  <React.Fragment key={slump}>
+                                    <tr>
+                                      <td
+                                        colSpan={6}
+                                        className="px-4 py-2 bg-slate-50 border-l-4 border-slate-300 border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-600"
+                                      >
+                                        Rev. {slump} cm · {slumpMasters.length} {slumpMasters.length === 1 ? 'maestro' : 'maestros'}
+                                      </td>
+                                    </tr>
+                                    {slumpMasters.map((master) => (
+                                      <MasterRow
+                                        key={master.id}
+                                        master={master}
+                                        plantId={currentPlant.id}
+                                        cost={costByMaster.get(master.id)}
+                                        costsLoading={costsLoadingFamily === selectedFamily.key}
+                                        draft={drafts[master.id]}
+                                        status={rowStatus[master.id] ?? 'idle'}
+                                        currentLp={currentLpByMaster.get(master.id)}
+                                        onPriceChange={setMasterPrice}
+                                        onSave={saveMaster}
+                                        onShowBreakdown={setBreakdownMaster}
+                                      />
+                                    ))}
+                                  </React.Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          {breakdownMaster && currentPlant && (
+                            <MasterBreakdownDialog
+                              open={!!breakdownMaster}
+                              onOpenChange={(open) => !open && setBreakdownMaster(null)}
+                              master={breakdownMaster}
+                              plantId={currentPlant.id}
+                            />
+                          )}
                         </CardContent>
                       </Card>
 

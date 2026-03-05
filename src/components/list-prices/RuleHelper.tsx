@@ -11,9 +11,13 @@ interface Props {
   ruleAnchorPrice: string;
   ruleDeltaRev: string;
   ruleUpliftBombeado: string;
+  ruleDeltaTmaSmaller: string;
+  ruleDeltaTmaLarger: string;
   onAnchorChange: (v: string) => void;
   onDeltaRevChange: (v: string) => void;
   onUpliftChange: (v: string) => void;
+  onDeltaTmaSmallerChange: (v: string) => void;
+  onDeltaTmaLargerChange: (v: string) => void;
   onApply: () => void;
 }
 
@@ -25,12 +29,18 @@ export function RuleHelper({
   ruleAnchorPrice,
   ruleDeltaRev,
   ruleUpliftBombeado,
+  ruleDeltaTmaSmaller,
+  ruleDeltaTmaLarger,
   onAnchorChange,
   onDeltaRevChange,
   onUpliftChange,
+  onDeltaTmaSmallerChange,
+  onDeltaTmaLargerChange,
   onApply,
 }: Props) {
   const hasBombeado = family.placements.some((p) => !p.toUpperCase().startsWith('D'));
+  const anchorMaster = family.masters.find((m) => m.id === family.anchorMasterId);
+  const anchorTma = anchorMaster?.max_aggregate_size ?? 20;
 
   return (
     <Card>
@@ -116,6 +126,46 @@ export function RuleHelper({
               </p>
             </div>
           )}
+        </div>
+
+        {/* TMA deltas — anchor TMA as reference; finer (&lt; ancla) or coarser (&gt; ancla) can cost more */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+          <div>
+            <label className="block text-caption font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">
+              Delta TMA {'<'}{' '}{anchorTma} mm
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-footnote select-none">$</span>
+              <Input
+                type="number"
+                className="pl-7 rounded-xl border-gray-200 focus:ring-systemBlue/40 focus:border-systemBlue/40"
+                value={ruleDeltaTmaSmaller}
+                onChange={(e) => onDeltaTmaSmallerChange(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <p className="text-caption text-gray-400 mt-1">
+              Agregado más fino que {anchorTma} mm suele costar más.
+            </p>
+          </div>
+          <div>
+            <label className="block text-caption font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">
+              Delta TMA {'>'}{' '}{anchorTma} mm
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-footnote select-none">$</span>
+              <Input
+                type="number"
+                className="pl-7 rounded-xl border-gray-200 focus:ring-systemBlue/40 focus:border-systemBlue/40"
+                value={ruleDeltaTmaLarger}
+                onChange={(e) => onDeltaTmaLargerChange(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <p className="text-caption text-gray-400 mt-1">
+              Agregado más grueso que {anchorTma} mm puede costar más según planta.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">

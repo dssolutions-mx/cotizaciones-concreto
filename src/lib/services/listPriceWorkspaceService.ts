@@ -262,29 +262,41 @@ export async function getAllMasterCosts(
 
 /**
  * Computes the list price for each master in a family given:
- * - anchorPrice: base price for DIRECTO + base slump
+ * - anchorPrice: base price for DIRECTO + base slump + anchor TMA
  * - slumpDeltaPerStep: price increment per slump step (4cm each)
  * - placementUplift: additional price for BOMBEADO vs DIRECTO
+ * - tmaDeltaSmaller: add when master TMA < anchor TMA (finer aggregate = higher cost)
+ * - tmaDeltaLarger: add when master TMA > anchor TMA
  */
 export function computeFamilyMatrix(
   family: PricingFamily,
   anchorPrice: number,
   slumpDeltaPerStep: number,
-  placementUplift: number
+  placementUplift: number,
+  tmaDeltaSmaller = 0,
+  tmaDeltaLarger = 0
 ): Map<string, number> {
   const result = new Map<string, number>();
   const baseSlump = family.slumpValues[0] ?? 0;
-  // Steps are 4cm each (10→14→18→22)
   const SLUMP_STEP_CM = 4;
+
+  const anchorMaster = family.masters.find((m) => m.id === family.anchorMasterId);
+  const anchorTma = anchorMaster?.max_aggregate_size ?? 20;
 
   family.masters.forEach((master) => {
     const slumpSteps = Math.max(0, Math.round((master.slump - baseSlump) / SLUMP_STEP_CM));
-    const isDirecto = master.placement_type.toUpperCase().startsWith('D');
-    const isBombeado = !isDirecto;
+    const isBombeado = !master.placement_type.toUpperCase().startsWith('D');
 
     let price = anchorPrice;
     price += slumpSteps * slumpDeltaPerStep;
     if (isBombeado) price += placementUplift;
+
+    // TMA deltas: finer aggregate (< anchor) or coarser (> anchor) can mean different cost
+    const tma = master.max_aggregate_size;
+    if (tma != null) {
+      if (tma < anchorTma) price += tmaDeltaSmaller;
+      else if (tma > anchorTma) price += tmaDeltaLarger;
+    }
 
     result.set(master.id, Math.max(0, Number(price.toFixed(2))));
   });

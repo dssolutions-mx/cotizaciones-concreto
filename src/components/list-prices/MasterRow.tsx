@@ -1,12 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import { AlertCircle, Loader2, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { MasterRecipeRow } from '@/lib/services/listPriceWorkspaceService';
-import { MasterBreakdownDialog } from './MasterBreakdownDialog';
 import {
   type ListPriceRow,
   type MasterDraft,
@@ -26,6 +24,7 @@ interface Props {
   currentLp: ListPriceRow | undefined;
   onPriceChange: (masterId: string, value: string) => void;
   onSave: (masterId: string) => void;
+  onShowBreakdown?: (master: MasterRecipeRow) => void;
 }
 
 function SaveStatusIcon({ status }: { status: RowSaveStatus }) {
@@ -46,9 +45,8 @@ export function MasterRow({
   currentLp,
   onPriceChange,
   onSave,
+  onShowBreakdown,
 }: Props) {
-  const [breakdownOpen, setBreakdownOpen] = useState(false);
-
   const listPrice = Number(draft?.listPrice || 0);
   const margin    = cost && listPrice ? computeMarginPct(cost, listPrice) : null;
   const belowCost = cost != null && listPrice > 0 && listPrice < cost;
@@ -56,22 +54,20 @@ export function MasterRow({
   const tma       = master.max_aggregate_size != null ? `${master.max_aggregate_size} mm` : '—';
 
   return (
-    <>
-      {/* Grid row — 6 cols: Identity | Costo | Precio | Margen | Anterior | Acciones */}
-      <div
+    <tr
         className={cn(
-          'grid items-center gap-x-4 px-4 py-3 transition-colors duration-150',
-          'grid-cols-[minmax(160px,1fr)_120px_136px_72px_104px_auto]',
+          'border-b border-gray-100 transition-colors duration-150',
           status === 'dirty' && 'bg-systemOrange/5',
           status === 'saved' && 'bg-systemGreen/5',
           status === 'error' && 'bg-systemRed/5',
-          status === 'idle'  && 'hover:bg-gray-50/60',
+          status === 'idle'  && 'hover:bg-gray-50/50',
         )}
       >
         {/* ① Identity — code + placement + TMA */}
-        <div className="min-w-0">
+        <td className="min-w-0 py-3 pl-4 pr-3 align-middle">
           <button
-            onClick={() => setBreakdownOpen(true)}
+            onClick={() => onShowBreakdown?.(master)}
+            type="button"
             className="group flex items-center gap-1 text-left"
             title="Ver desglose de materiales"
           >
@@ -93,15 +89,16 @@ export function MasterRow({
               <span className="text-caption text-gray-400">{tma}</span>
             )}
           </div>
-        </div>
+        </td>
 
         {/* ② Costo materiales */}
-        <div>
+        <td className="py-3 px-3 text-right align-middle whitespace-nowrap">
           {costsLoading && !cost ? (
             <Skeleton className="h-4 w-20 rounded-lg" />
           ) : cost != null ? (
             <button
-              onClick={() => setBreakdownOpen(true)}
+              onClick={() => onShowBreakdown?.(master)}
+              type="button"
               className="text-callout font-medium text-gray-800 tabular-nums hover:underline underline-offset-2 hover:text-systemBlue transition-colors"
               title="Ver desglose"
             >
@@ -110,10 +107,10 @@ export function MasterRow({
           ) : (
             <span className="text-footnote text-gray-300">Sin datos</span>
           )}
-        </div>
+        </td>
 
         {/* ③ Precio de lista (input) */}
-        <div>
+        <td className="py-3 px-3 text-right align-middle">
           <div className="relative">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-caption select-none">$</span>
             <input
@@ -123,7 +120,7 @@ export function MasterRow({
               placeholder="0.00"
               aria-label={`Precio lista para ${master.master_code}`}
               className={cn(
-                'h-8 w-full rounded-xl border pl-5 pr-2 text-callout tabular-nums text-gray-900',
+                'h-8 w-full rounded-xl border pl-5 pr-2 text-callout tabular-nums text-right text-gray-900',
                 'focus:outline-none focus:ring-2 focus:ring-systemBlue/40 focus:border-systemBlue/40',
                 'transition-colors duration-150',
                 belowCost
@@ -137,10 +134,10 @@ export function MasterRow({
               <AlertCircle className="h-3 w-3" /> Bajo costo
             </p>
           )}
-        </div>
+        </td>
 
         {/* ④ Margen */}
-        <div className="text-callout font-semibold tabular-nums">
+        <td className="py-3 px-3 text-right align-middle text-callout font-semibold tabular-nums whitespace-nowrap">
           {margin != null ? (
             <span className={margin >= 0 ? 'text-systemGreen' : 'text-systemRed'}>
               {margin >= 0 ? '+' : ''}{margin.toFixed(1)}%
@@ -148,10 +145,10 @@ export function MasterRow({
           ) : (
             <span className="text-gray-300">—</span>
           )}
-        </div>
+        </td>
 
         {/* ⑤ Precio anterior */}
-        <div>
+        <td className="py-3 px-3 text-right align-middle">
           {currentLp ? (
             <>
               <p className="text-footnote font-medium text-gray-700 tabular-nums">{fmtMXN(currentLp.base_price)}</p>
@@ -160,51 +157,58 @@ export function MasterRow({
           ) : (
             <span className="text-footnote text-gray-300">Sin precio</span>
           )}
-        </div>
+        </td>
 
         {/* ⑥ Acciones */}
-        <div className="flex items-center gap-2">
-          <SaveStatusIcon status={status} />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onSave(master.id)}
-            disabled={status === 'saving' || !draft?.listPrice}
-            className={cn(
-              'h-7 px-3 text-caption rounded-xl transition-all duration-150',
-              status === 'dirty'
-                ? 'border-gray-800 text-gray-800 hover:bg-gray-900 hover:text-white'
-                : 'border-gray-200 text-gray-500',
-            )}
-          >
-            {status === 'saving' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar'}
-          </Button>
-        </div>
-      </div>
-
-      <MasterBreakdownDialog
-        open={breakdownOpen}
-        onOpenChange={setBreakdownOpen}
-        master={master}
-        plantId={plantId}
-      />
-    </>
+        <td className="py-3 pl-3 pr-4 align-middle">
+          <div className="flex items-center gap-2">
+            <SaveStatusIcon status={status} />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onSave(master.id)}
+              disabled={status === 'saving' || !draft?.listPrice}
+              className={cn(
+                'h-7 px-3 text-caption rounded-xl transition-all duration-150',
+                status === 'dirty'
+                  ? 'border-gray-800 text-gray-800 hover:bg-gray-900 hover:text-white'
+                  : 'border-gray-200 text-gray-500',
+              )}
+            >
+              {status === 'saving' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Guardar'}
+            </Button>
+          </div>
+        </td>
+    </tr>
   );
 }
 
-/** Column header row — must match MasterRow grid exactly */
+const HEADERS: { label: string; align: 'left' | 'right'; className?: string }[] = [
+  { label: 'Código maestro', align: 'left', className: 'min-w-[200px] pl-4 pr-3' },
+  { label: 'Costo mat.', align: 'right', className: 'min-w-[110px] px-3' },
+  { label: 'Precio lista', align: 'right', className: 'min-w-[130px] px-3' },
+  { label: 'Margen', align: 'right', className: 'min-w-[80px] px-3' },
+  { label: 'Anterior', align: 'right', className: 'min-w-[100px] px-3' },
+  { label: '', align: 'right', className: 'min-w-[100px] pl-3 pr-4' },
+];
+
+/** Table header — use inside <thead> */
 export function MasterTableHeader() {
   return (
-    <div className={cn(
-      'grid gap-x-4 px-4 py-2.5',
-      'grid-cols-[minmax(160px,1fr)_120px_136px_72px_104px_auto]',
-      'bg-gray-50 border-b border-gray-200 sticky top-0 z-10',
-    )}>
-      {['Código maestro', 'Costo mat.', 'Precio lista', 'Margen', 'Anterior', ''].map((h) => (
-        <span key={h} className="text-caption font-semibold uppercase tracking-wider text-gray-500">
-          {h}
-        </span>
+    <tr className="border-b border-slate-200">
+      {HEADERS.map(({ label, align, className }) => (
+        <th
+          key={label || 'actions'}
+          scope="col"
+          className={cn(
+            'px-2 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500',
+            align === 'right' ? 'text-right' : 'text-left',
+            className,
+          )}
+        >
+          {label}
+        </th>
       ))}
-    </div>
+    </tr>
   );
 }
