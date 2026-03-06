@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
       reference_number,
       notes,
       construction_site,
+      verification_call_confirmed,
     } = body || {};
 
     if (!client_id) return NextResponse.json({ error: 'client_id is required' }, { status: 400 });
@@ -113,20 +114,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'payment_method is required' }, { status: 400 });
     }
 
+    const isCashPayment = payment_method === 'CASH' || payment_method === 'Efectivo';
+    if (isCashPayment && verification_call_confirmed !== true) {
+      return NextResponse.json(
+        { error: 'Para pagos en efectivo debe confirmar el cumplimiento del procedimiento de verificación (Política 3.4)' },
+        { status: 400 }
+      );
+    }
+
     const normalizedSite = construction_site === 'general' ? null : (construction_site ?? null);
+
+    const insertPayload: Record<string, unknown> = {
+      client_id,
+      amount,
+      payment_date: normalizedDate,
+      payment_method,
+      reference_number: reference_number || null,
+      notes: notes || null,
+      construction_site: normalizedSite,
+      created_by: user.id,
+    };
+    if (isCashPayment) {
+      insertPayload.verification_call_confirmed = verification_call_confirmed === true;
+    }
 
     const { data: payment, error } = await supabase
       .from('client_payments')
-      .insert({
-        client_id,
-        amount,
-        payment_date: normalizedDate,
-        payment_method,
-        reference_number: reference_number || null,
-        notes: notes || null,
-        construction_site: normalizedSite,
-        created_by: user.id,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 

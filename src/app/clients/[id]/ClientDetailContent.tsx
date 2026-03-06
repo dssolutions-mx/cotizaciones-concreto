@@ -2166,6 +2166,8 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 onSuccess={handlePaymentAdded}
                 onCancel={handlePaymentCancel}
                 currentBalance={currentTotalBalance}
+                clientName={client?.business_name}
+                clientPhone={client?.phone}
               />
             </DialogContent>
           </Dialog>

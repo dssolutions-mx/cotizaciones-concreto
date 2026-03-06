@@ -51,7 +51,11 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
+import { Checkbox } from "@/components/ui/checkbox";
+import { User, Phone } from "lucide-react";
 import { toast } from "sonner";
+
+const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
 
 interface ClientBalance {
@@ -60,6 +64,7 @@ interface ClientBalance {
   current_balance: number;
   last_payment_date: string | null;
   credit_status: string;
+  phone?: string | null;
   score?: number;
   risk?: { level: string; color: string; bg: string };
 }
@@ -84,7 +89,16 @@ const paymentFormSchema = z.object({
   payment_method: z.string().min(1, "El método de pago es requerido"),
   reference: z.string().optional(),
   notes: z.string().optional(),
-});
+  verification_call_confirmed: z.boolean().optional(),
+}).refine(
+  (data) => {
+    if (isCashPayment(data.payment_method)) {
+      return data.verification_call_confirmed === true;
+    }
+    return true;
+  },
+  { message: "Debe confirmar el cumplimiento del procedimiento de verificación para pagos en efectivo", path: ["verification_call_confirmed"] }
+);
 
 export function ClientBalanceTable({ clientBalances: initialClientBalances, extraClientData }: ClientBalanceTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -115,6 +129,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       payment_method: "Transferencia",
       reference: "",
       notes: "",
+      verification_call_confirmed: false,
     },
   });
 
@@ -205,6 +220,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       payment_method: "Transferencia",
       reference: "",
       notes: "",
+      verification_call_confirmed: false,
     });
   };
 
@@ -228,15 +244,18 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
     setIsSubmitting(true);
     try {
       // Convert amount string to number
-      const paymentData = {
+      const paymentData: Record<string, unknown> = {
         client_id: selectedClient.client_id,
         amount: parseFloat(values.amount),
         payment_date: values.payment_date,
         payment_method: values.payment_method,
         reference_number: values.reference || null,
         notes: values.notes || null,
-        construction_site: null // Payment applied to general balance
+        construction_site: null, // Payment applied to general balance
       };
+      if (isCashPayment(values.payment_method)) {
+        paymentData.verification_call_confirmed = true;
+      }
       
       // Call the API service to register payment
       const result = await financialService.registerPayment(paymentData);
@@ -583,6 +602,26 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
               {selectedClient && `Registra un pago para ${selectedClient.business_name}`}
             </DialogDescription>
           </DialogHeader>
+
+          {selectedClient && (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+              <div className="flex items-center gap-2 text-sm">
+                <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="font-medium">{selectedClient.business_name}</span>
+              </div>
+              {selectedClient.phone && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <a href={`tel:${selectedClient.phone}`} className="text-primary hover:underline">
+                    {selectedClient.phone}
+                  </a>
+                  {paymentForm.watch("payment_method") === "Efectivo" && (
+                    <span className="text-xs text-amber-600">(número para llamada de verificación)</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           
           <Form {...paymentForm}>
             <form onSubmit={paymentForm.handleSubmit(onSubmitPayment)} className="space-y-4 py-2">
@@ -674,6 +713,34 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                   </FormItem>
                 )}
               />
+
+              {paymentForm.watch("payment_method") === "Efectivo" && (
+                <FormField
+                  control={paymentForm.control}
+                  name="verification_call_confirmed"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="rounded-md border border-amber-200 bg-amber-50 p-4 space-y-3">
+                        <p className="text-sm font-semibold text-amber-800">Política de Cobranza en Efectivo (obligatorio)</p>
+                        <p className="text-sm text-amber-800">
+                          He realizado la llamada de verificación al número validado del cliente y he confirmado: monto, concepto, agente y producto.
+                        </p>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            disabled={isSubmitting}
+                          />
+                          <span className="text-sm font-medium text-amber-900">
+                            Confirmo cumplimiento del procedimiento de verificación (Política 3.4)
+                          </span>
+                        </label>
+                        <FormMessage />
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              )}
               
               <DialogFooter className="pt-4">
                 <Button 

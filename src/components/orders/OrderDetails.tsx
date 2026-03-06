@@ -3483,6 +3483,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               onCancel={() => setIsPaymentDialogOpen(false)}
               defaultConstructionSite={order.construction_site}
               currentBalance={currentClientBalance}
+              clientName={order.client?.business_name}
+              clientPhone={order.client?.phone ?? undefined}
             />
           )}
         </DialogContent>

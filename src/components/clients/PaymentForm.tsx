@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { ConstructionSite } from '@/types/client';
 import { formatCurrency } from '@/lib/utils'; // Import formatter
+import { clientService } from '@/lib/supabase/clients';
+import { User, Phone } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +18,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // For confirmation view
 import { Badge } from "@/components/ui/badge"; // For confirmation view
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+
+const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
 
 // Define the component props interface
 export interface PaymentFormProps {
@@ -27,6 +32,10 @@ export interface PaymentFormProps {
   // Added props
   defaultConstructionSite?: string | null; // Can be null or undefined
   currentBalance?: number;
+  /** Optional - when provided, displayed in the modal; otherwise fetched from API */
+  clientName?: string;
+  /** Optional - critical for cash verification call (Política 3.4) */
+  clientPhone?: string;
 }
 
 // Renamed component to PaymentForm for consistency
@@ -36,10 +45,33 @@ export default function PaymentForm({
   onSuccess,
   onCancel,
   defaultConstructionSite,
-  currentBalance
+  currentBalance,
+  clientName: clientNameProp,
+  clientPhone: clientPhoneProp,
 }: PaymentFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false); // State for confirmation step
+  const [verificationCallConfirmed, setVerificationCallConfirmed] = useState(false);
+  const [clientInfo, setClientInfo] = useState<{ business_name?: string; phone?: string } | null>(
+    clientNameProp || clientPhoneProp ? { business_name: clientNameProp, phone: clientPhoneProp } : null
+  );
+
+  // Fetch client info when not provided (for Quick Add flow, etc.)
+  useEffect(() => {
+    if (clientNameProp || clientPhoneProp) {
+      setClientInfo({ business_name: clientNameProp, phone: clientPhoneProp });
+      return;
+    }
+    let cancelled = false;
+    clientService.getClientById(clientId).then((client: { business_name?: string; phone?: string } | null) => {
+      if (!cancelled && client) {
+        setClientInfo({ business_name: client.business_name, phone: client.phone });
+      }
+    }).catch(() => {
+      if (!cancelled) setClientInfo(null);
+    });
+    return () => { cancelled = true; };
+  }, [clientId, clientNameProp, clientPhoneProp]);
   const toLocalISODate = (d: Date) => {
     const off = d.getTimezoneOffset();
     const local = new Date(d.getTime() - off * 60_000);
@@ -94,7 +126,8 @@ export default function PaymentForm({
       toast.error('La fecha del pago es obligatoria');
       return;
     }
-    // If amount is valid, move to confirmation step
+    // Reset verification when entering confirmation (e.g. user changed to cash)
+    setVerificationCallConfirmed(false);
     setIsConfirming(true);
   };
   
@@ -103,19 +136,22 @@ export default function PaymentForm({
     setIsConfirming(false); // Move back from confirmation view immediately
     try {
       const amount = parseFloat(paymentData.amount);
+      const body: Record<string, unknown> = {
+        client_id: clientId,
+        amount,
+        payment_method: paymentData.payment_method,
+        reference_number: paymentData.reference_number || null,
+        notes: paymentData.notes || null,
+        construction_site: paymentData.construction_site === 'general' ? 'general' : paymentData.construction_site,
+        payment_date: paymentData.payment_date,
+      };
+      if (isCashPayment(paymentData.payment_method)) {
+        body.verification_call_confirmed = true;
+      }
       const res = await fetch('/api/finanzas/client-payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: clientId,
-          amount,
-          payment_method: paymentData.payment_method,
-          reference_number: paymentData.reference_number || null,
-          notes: paymentData.notes || null,
-          construction_site: paymentData.construction_site === 'general' ? 'general' : paymentData.construction_site,
-          // Let the API normalize YYYY-MM-DD to a safe timestamp
-          payment_date: paymentData.payment_date,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -136,7 +172,34 @@ export default function PaymentForm({
   };
 
   const handleEdit = () => {
+    setVerificationCallConfirmed(false);
     setIsConfirming(false); // Go back to editing form
+  };
+
+  // Compact client info card - helps UX and provides phone for cash verification call
+  const ClientInfoCard = () => {
+    if (!clientInfo?.business_name && !clientInfo?.phone) return null;
+    return (
+      <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+        {clientInfo.business_name && (
+          <div className="flex items-center gap-2 text-sm">
+            <User className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="font-medium">{clientInfo.business_name}</span>
+          </div>
+        )}
+        {clientInfo.phone && (
+          <div className="flex items-center gap-2 text-sm">
+            <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+            <a href={`tel:${clientInfo.phone}`} className="text-primary hover:underline">
+              {clientInfo.phone}
+            </a>
+            {isCashPayment(paymentData.payment_method) && (
+              <span className="text-xs text-amber-600">(número para llamada de verificación)</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Render confirmation view if isConfirming is true
@@ -146,6 +209,7 @@ export default function PaymentForm({
       : paymentData.construction_site;
     return (
       <div className="space-y-6 py-4">
+        <ClientInfoCard />
         <Alert>
           <AlertTitle className="text-lg">Confirmar Pago</AlertTitle>
           <AlertDescription>
@@ -180,11 +244,37 @@ export default function PaymentForm({
              </div>
            )}
         </div>
+
+        {isCashPayment(paymentData.payment_method) && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <p className="text-sm font-semibold text-amber-800">Política de Cobranza en Efectivo (obligatorio)</p>
+            <p className="text-sm text-amber-800">
+              He realizado la llamada de verificación al número validado del cliente y he confirmado: monto, concepto, agente y producto.
+            </p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Checkbox
+                checked={verificationCallConfirmed}
+                onCheckedChange={(checked) => setVerificationCallConfirmed(checked === true)}
+                disabled={isSubmitting}
+              />
+              <span className="text-sm font-medium text-amber-900">
+                Confirmo cumplimiento del procedimiento de verificación (Política 3.4)
+              </span>
+            </label>
+          </div>
+        )}
+
         <div className="flex justify-end gap-3 pt-4 border-t">
           <Button variant="secondary" onClick={handleEdit} disabled={isSubmitting}>
             Editar
           </Button>
-          <Button onClick={handleConfirmSubmit} disabled={isSubmitting}>
+          <Button
+            onClick={handleConfirmSubmit}
+            disabled={
+              isSubmitting ||
+              (isCashPayment(paymentData.payment_method) && !verificationCallConfirmed)
+            }
+          >
             {isSubmitting ? 'Procesando...' : 'Confirmar Pago'}
           </Button>
         </div>
@@ -196,6 +286,7 @@ export default function PaymentForm({
   return (
     // Wrap in form tag for semantics, link submit button via form attribute
     <form id="payment-form" onSubmit={(e) => { e.preventDefault(); handleAttemptSubmit(); }}> 
+      <ClientInfoCard />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4"> 
         <div className="space-y-2"> {/* Use space-y for consistency */}
           <Label htmlFor="amount">Monto del Pago *</Label>

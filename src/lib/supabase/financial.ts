@@ -46,6 +46,7 @@ interface PaymentData {
   reference_number?: string | null;
   notes?: string | null;
   construction_site?: string | null;
+  verification_call_confirmed?: boolean;
 }
 
 // Add interface for payment response
@@ -196,18 +197,22 @@ export const financialService = {
 
       // Prefer server-controlled API route in the browser for governance/permissions
       if (typeof window !== 'undefined') {
+        const body: Record<string, unknown> = {
+          client_id: paymentData.client_id,
+          amount: paymentData.amount,
+          payment_date: paymentData.payment_date,
+          payment_method: paymentData.payment_method,
+          reference_number: paymentData.reference_number ?? null,
+          notes: paymentData.notes ?? null,
+          construction_site: paymentData.construction_site ?? 'general',
+        };
+        if (paymentData.verification_call_confirmed === true) {
+          body.verification_call_confirmed = true;
+        }
         const res = await fetch('/api/finanzas/client-payments', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            client_id: paymentData.client_id,
-            amount: paymentData.amount,
-            payment_date: paymentData.payment_date,
-            payment_method: paymentData.payment_method,
-            reference_number: paymentData.reference_number ?? null,
-            notes: paymentData.notes ?? null,
-            construction_site: paymentData.construction_site ?? 'general',
-          }),
+          body: JSON.stringify(body),
         });
 
         const payload = await res.json().catch(() => ({}));
@@ -402,7 +407,8 @@ export const financialService = {
             business_name,
             client_code,
             credit_status,
-            assigned_user_id
+            assigned_user_id,
+            phone
           )
         `)
         .is('construction_site', null)
@@ -449,7 +455,8 @@ export const financialService = {
           last_payment_date: latestPaymentsByClient.get(balance.client_id) || null,
           credit_status: creditStatus,
           last_updated: balance.last_updated,
-          assigned_user_id: client?.assigned_user_id || null
+          assigned_user_id: client?.assigned_user_id || null,
+          phone: (client as { phone?: string })?.phone || null,
         };
       });
 
