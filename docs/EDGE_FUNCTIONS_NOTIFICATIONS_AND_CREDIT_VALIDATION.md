@@ -12,6 +12,12 @@ The following functions are ACTIVE in the `cotizador` project (id: `pkjqznogflgb
   - Sends: Per-recipient emails via SendGrid; logs to `governance_notifications`; stores tokens in `governance_action_tokens`.
   - Code: `supabase/functions/governance-approval-notification/index.ts`.
 
+- quote-approval-notification
+  - Purpose: Sends quote approval emails when a quote is created and remains `PENDING_APPROVAL` (not auto-approved). Recipients: `EXECUTIVE` and `PLANT_MANAGER` (plant managers only when quote plant matches their assignment).
+  - Triggers: Invoked from application code via `/api/quotes/notify-approval` when QuoteBuilder creates a quote that is not auto-approved.
+  - Sends: Per-recipient emails via SendGrid; logs to `quote_notifications`; stores tokens in `quote_action_tokens`. Email layout mirrors the pending approval modal (list price breakdown, floor, zone, etc.).
+  - Code: `supabase/functions/quote-approval-notification/index.ts`.
+
 - credit-validation-notification
   - Purpose: Sends credit validation emails with Approve/Reject buttons; escalates on validator rejection.
   - Triggers:
@@ -70,6 +76,15 @@ The following functions are ACTIVE in the `cotizador` project (id: `pkjqznogflgb
 - governance_notifications
   - Columns: `entity_type`, `entity_id`, `notification_type`, `recipient`, `delivery_status`, `sent_at`.
   - Purpose: Audit log for governance approval emails sent to credit validators.
+
+- quote_action_tokens
+  - Columns: `quote_id`, `recipient_email`, `approve_token`, `reject_token`, `expires_at`.
+  - Purpose: Store per-recipient tokens for quote approval/rejection email links.
+  - RLS: Restricted to service role.
+
+- quote_notifications
+  - Columns: `quote_id`, `notification_type`, `recipient`, `delivery_status`, `sent_at`.
+  - Purpose: Audit log for quote approval emails sent to executives and plant managers.
 
 Note: The deployed `weekly-balance-report` writes into `system_notifications` which is not present in this repo. Add corresponding migration if we keep using it.
 
@@ -155,6 +170,45 @@ Note: The deployed `weekly-balance-report` writes into `system_notifications` wh
 
 - `src/app/finanzas/gobierno-precios/page.tsx` reads `action` and `tab` query params and shows success/error banner; `tab` sets the active tab.
 
+## Quote approval flow
+
+1) Triggering notifications
+
+- Application invocation (no database trigger):
+  - When QuoteBuilder creates a quote and it is NOT auto-approved, it calls `POST /api/quotes/notify-approval` with `{ quoteId }`.
+  - The Next.js API route invokes the `quote-approval-notification` Edge Function server-side.
+
+2) Building and sending the email
+
+- Edge Function: `quote-approval-notification`:
+  - Fetches quote, client, creator, quote_details (with recipes/master_recipes), additional products.
+  - Loads `system_settings.cash_overprice_pct` and `distance_range_configs` for floor/zone computation.
+  - For each LIST_PRICE detail: calls RPC `get_effective_floor_price` to compute baseListPrice and effectiveFloor.
+  - Recipients: `user_profiles` where `role IN ('PLANT_MANAGER', 'EXECUTIVE')`, with plant filtering for PLANT_MANAGER (same hierarchy as credit escalation: plant_id match, business_unit match, or both null).
+  - Per recipient: generates JWT tokens with 7-day expiry; stores in `quote_action_tokens`.
+  - Email layout: mirrors PendingApprovalTab modal (header cards, products table with Lista base/Piso efectivo/Precio de venta for LIST_PRICE, Precio Base/Margen/Precio Final for COST_DERIVED).
+  - HTML links:
+    - Approve: `${FRONTEND_URL}/api/quote-actions/direct-action?quoteId={id}&action=approve&email={recipient}`
+    - Reject: same with `action=reject`
+    - View: `${FRONTEND_URL}/quotes`
+  - Sends via SendGrid; records in `quote_notifications`.
+
+3) One-click buttons to secure processing
+
+- `/api/quote-actions/direct-action` (Next.js API Route):
+  - Params: `quoteId`, `action`, `email`.
+  - Looks up `quote_action_tokens` by quote_id and recipient_email; checks DB expiry; redirects to `/api/quote-actions/process?token={token}`.
+
+- `/api/quote-actions/process` (Next.js API Route):
+  - Verifies JWT; decodes `{ quoteId, action, recipientEmail }`.
+  - Confirms token in DB; quote must be `PENDING_APPROVAL`.
+  - Approve: update `quotes` (status=APPROVED, approval_date, approved_by); call `productPriceService.handleQuoteApproval`; delete tokens; redirect to `/quotes?action=approved`.
+  - Reject: update `quotes` (status=REJECTED, rejection_reason='Rechazado desde correo electrónico'); delete tokens; redirect to `/quotes?action=rejected`.
+
+4) User feedback in UI
+
+- `src/app/quotes/page.tsx` uses `QuotesActionBanner` to read `action` and `reason` query params and show success/error banner plus toast.
+
 ## Secrets and configuration
 
 Set these in Supabase functions’ secrets (and relevant server environments):
@@ -222,6 +276,13 @@ Governance approval:
 - Expired token → Error redirect.
 - Reuse token after use → Error (tokens deleted).
 
+Quote approval:
+- Create a quote that requires approval (e.g. below floor) → Executives and matching plant managers receive email.
+- Click Approve in email → Quote approved, product_prices created, redirect to /quotes with success banner.
+- Click Reject in email → Quote rejected, redirect with success banner.
+- Expired token → Error redirect.
+- Reuse token after use → Error (tokens deleted).
+
 Credit validation:
 - Create an order → verify `pending` credit status triggers email to `CREDIT_VALIDATOR` users.
 - Click Approve → order becomes `approved`, tokens deleted, success banner shown.
@@ -233,6 +294,7 @@ Credit validation:
 
 - Edge Functions
   - `supabase/functions/governance-approval-notification/index.ts`
+  - `supabase/functions/quote-approval-notification/index.ts`
   - `migrations/supabase/functions/credit-validation-notification/index.ts`
   - `supabase/functions/daily-schedule-report/index.ts`
   - `supabase/functions/today-schedule-report/index.ts`
@@ -242,6 +304,9 @@ Credit validation:
 - Next.js API routes
   - `src/app/api/governance-actions/direct-action/route.ts`
   - `src/app/api/governance-actions/process/route.ts`
+  - `src/app/api/quote-actions/direct-action/route.ts`
+  - `src/app/api/quote-actions/process/route.ts`
+  - `src/app/api/quotes/notify-approval/route.ts`
   - `src/app/api/credit-actions/direct-action/route.ts`
   - `src/app/api/credit-actions/process/route.ts`
 
@@ -251,6 +316,7 @@ Credit validation:
   - `migrations/supabase/migrations/20240601000000_add_credit_action_tokens.sql`
   - `supabase/migrations/20260306000000_create_governance_action_tokens.sql`
   - `supabase/migrations/20260306000001_governance_notification_triggers.sql`
+  - `supabase/migrations/20260228000000_quote_action_tokens.sql`
   - `migrations/orders_tables.sql` (tables + RLS for `order_notifications`)
 
 ## Deploy notes
@@ -259,6 +325,7 @@ Credit validation:
   - `supabase secrets set SENDGRID_API_KEY=... FRONTEND_URL=https://...`
 - Deploy or re-deploy functions to sync with codebase:
   - `supabase functions deploy governance-approval-notification`
+  - `supabase functions deploy quote-approval-notification`
   - `supabase functions deploy credit-validation-notification`
   - `supabase functions deploy daily-schedule-report`
   - `supabase functions deploy today-schedule-report`

@@ -15,6 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Search } from 'lucide-react';
+import { toast } from 'sonner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
 // Define tab types
 type TabId = 'pending' | 'approved' | 'create';
@@ -31,6 +34,71 @@ interface TabDefinition {
   name: string;
   component: React.ComponentType<TabComponentProps>;
   icon?: React.ReactNode;
+}
+
+function QuotesActionBanner() {
+  const searchParams = useSearchParams();
+  const action = searchParams.get('action');
+  const reason = searchParams.get('reason');
+  const alreadyProcessed = searchParams.get('already_processed') === 'true';
+
+  useEffect(() => {
+    if (!action) return;
+    if (action === 'approved') {
+      toast.success(alreadyProcessed ? 'Cotización ya estaba aprobada' : 'Cotización aprobada correctamente');
+    } else if (action === 'rejected') {
+      toast.success(alreadyProcessed ? 'Cotización ya estaba rechazada' : 'Cotización rechazada');
+    } else if (action === 'error') {
+      const msg =
+        reason === 'token_expired'
+          ? 'El enlace ha expirado. Apruebe o rechace desde la aplicación.'
+          : reason === 'token_not_found'
+            ? 'No se encontró el enlace. Puede que ya haya sido utilizado.'
+            : 'Hubo un problema al procesar la acción. Intente desde la aplicación.';
+      toast.error(msg);
+    }
+  }, [action, reason, alreadyProcessed]);
+
+  if (!action) return null;
+
+  const config =
+    action === 'approved'
+      ? {
+          icon: CheckCircle,
+          className: 'mb-6 border-green-200/50 bg-green-50',
+          title: alreadyProcessed ? 'Cotización ya aprobada' : 'Cotización aprobada',
+          desc: 'La cotización fue aprobada correctamente desde el correo electrónico.',
+        }
+      : action === 'rejected'
+        ? {
+            icon: XCircle,
+            className: 'mb-6 border-red-200/50 bg-red-50',
+            title: alreadyProcessed ? 'Cotización ya rechazada' : 'Cotización rechazada',
+            desc: 'La cotización fue rechazada desde el correo electrónico.',
+          }
+        : action === 'error'
+          ? {
+              icon: AlertCircle,
+              className: 'mb-6 border-amber-200/50 bg-amber-50',
+              title: 'Error en la acción',
+              desc:
+                reason === 'token_expired'
+                  ? 'El enlace ha expirado. Apruebe o rechace desde la aplicación.'
+                  : reason === 'token_not_found'
+                    ? 'No se encontró el enlace. Puede que ya haya sido utilizado.'
+                    : 'Hubo un problema al procesar la acción. Intente desde la aplicación.',
+            }
+          : null;
+
+  if (!config) return null;
+  const Icon = config.icon;
+  return (
+    <Alert className={config.className}>
+      <Icon className="h-4 w-4" />
+      <AlertTitle>{config.title}</AlertTitle>
+      <AlertDescription>{config.desc}</AlertDescription>
+    </Alert>
+  );
 }
 
 // QuotesContent component to handle searchParams and navigation
@@ -176,6 +244,7 @@ function QuotesContent() {
 
   return (
     <Container maxWidth="full" className="py-8">
+      <QuotesActionBanner />
       {/* Breadcrumb Navigation */}
       <div className="mb-6">
         <Breadcrumb>

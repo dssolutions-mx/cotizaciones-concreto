@@ -1213,6 +1213,22 @@ export default function QuoteBuilder() {
         });
       }
 
+      // Send approval notification email when quote requires manual approval
+      if (!finalShouldAutoApprove && createdQuote.id) {
+        try {
+          const notifyRes = await fetch('/api/quotes/notify-approval', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quoteId: createdQuote.id }),
+          });
+          if (!notifyRes.ok) {
+            console.warn('[QuoteBuilder] Notify approval failed:', await notifyRes.text());
+          }
+        } catch (e) {
+          console.warn('[QuoteBuilder] Notify approval error:', e);
+        }
+      }
+
       const statusMessage = finalShouldAutoApprove
         ? `Cotización ${createdQuote.quote_number} creada (autoaprobable por piso efectivo)`
         : `Cotización ${createdQuote.quote_number} creada y pendiente de aprobación`;
