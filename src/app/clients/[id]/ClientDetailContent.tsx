@@ -50,12 +50,13 @@ import { toast } from "sonner";
 import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
-import { Pencil, Trash2, Plus, X, Save, Map, CreditCard } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Save, Map, CreditCard, MapPin, ExternalLink } from "lucide-react";
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import { ExportClientResearchButton } from '@/components/finanzas/ExportClientResearchButton';
+import { generateGoogleMapsUrl } from '@/components/orders/ScheduleOrderForm';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -1406,7 +1407,8 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
 }
 
 // SiteStatusToggle: toggle activación/desactivación de obra (cascada a cotizaciones y precios)
-function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, onStatusChange: () => void }) {
+// When disableToggle=true (e.g. site not approved), the toggle is disabled
+function SiteStatusToggle({ site, onStatusChange, disableToggle = false }: { site: ConstructionSite, onStatusChange: () => void, disableToggle?: boolean }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
@@ -1464,9 +1466,9 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
         <Switch
           checked={site.is_active}
           onCheckedChange={handleToggle}
-          disabled={isUpdating}
+          disabled={isUpdating || disableToggle}
         />
-        <span className={`text-sm ${site.is_active ? 'text-green-600' : 'text-gray-500'}`}>
+        <span className={`text-sm ${disableToggle ? 'text-gray-400' : site.is_active ? 'text-green-600' : 'text-gray-500'}`}>
           {site.is_active ? 'Activa' : 'Inactiva'}
         </span>
       </div>
@@ -2027,8 +2029,30 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       <Card className="overflow-x-auto">
         <CardHeader>
           <div className="flex justify-between items-start">
-            <div>
-              <CardTitle>{client.business_name}</CardTitle>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CardTitle>{client.business_name}</CardTitle>
+                {(() => {
+                  const approval = ((client as { approval_status?: string }).approval_status || 'PENDING_APPROVAL').toUpperCase();
+                  if (approval === 'APPROVED') {
+                    return <Badge variant="success">Aprobado</Badge>;
+                  }
+                  if (approval === 'REJECTED') {
+                    return (
+                      <Badge variant="destructive">
+                        Rechazado
+                      </Badge>
+                    );
+                  }
+                  return (
+                    <Link href="/finanzas/gobierno-precios">
+                      <Badge variant="warning" className="cursor-pointer hover:opacity-90">
+                        Pendiente de autorización
+                      </Badge>
+                    </Link>
+                  );
+                })()}
+              </div>
               <CardDescription>Código: {client.client_code} | RFC: {client.rfc}</CardDescription>
             </div>
             <div className="flex gap-2">
@@ -2147,9 +2171,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
               <RoleProtectedButton
                 allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
                 onClick={() => setIsPaymentDialogOpen(true)}
-                className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+                asChild
               >
-                Registrar Pago
+                <Button variant="primary" size="default" className="mt-4">
+                  Registrar Pago
+                </Button>
               </RoleProtectedButton>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px]">
@@ -2176,9 +2202,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           <RoleProtectedButton
             allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
             onClick={handleBalanceAdjustmentOpen}
-            className="mt-4 ml-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+            asChild
           >
-            Ajustar Saldo
+            <Button variant="outline" size="default" className="mt-4 ml-2">
+              Ajustar Saldo
+            </Button>
           </RoleProtectedButton>
           
           {/* Balance Adjustment Modal */}
@@ -2199,65 +2227,100 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       <Card>
          <CardHeader>
            <CardTitle>Obras Registradas</CardTitle>
-           <CardDescription>Lista de obras asociadas a este cliente. Las obras inactivas no aparecen al crear cotizaciones o pedidos. Usa el interruptor para activar o desactivar.</CardDescription>
+           <CardDescription>Lista de obras asociadas a este cliente. Las obras inactivas no aparecen al crear cotizaciones o pedidos. Las obras requieren aprobación en Finanzas para uso en cotizaciones y pedidos.</CardDescription>
          </CardHeader>
          <CardContent>
             {sites.length > 0 ? (
-              <Table className="min-w-[720px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Ubicación</TableHead>
-                    <TableHead>Restricciones de Acceso</TableHead>
-                    <TableHead>Condiciones Especiales</TableHead>
-                    <TableHead>Coordenadas</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sites.map((site) => (
-                    <TableRow 
-                      key={site.id} 
-                      className={!site.is_active ? 'bg-gray-50 opacity-75' : ''}
-                    >
-                      <TableCell className="font-medium">{site.name}</TableCell>
-                      <TableCell>{site.location || '-'}</TableCell>
-                      <TableCell>{site.access_restrictions || '-'}</TableCell>
-                      <TableCell>{site.special_conditions || '-'}</TableCell>
-                      <TableCell>
-                        {site.latitude && site.longitude 
-                          ? `${site.latitude.toFixed(6)}, ${site.longitude.toFixed(6)}`
-                          : '-'
-                        }
-                      </TableCell>
-                      <TableCell>
-                        <SiteStatusToggle site={site} onStatusChange={loadData} />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <RoleProtectedButton
-                            allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-                            onClick={() => setEditingSite(site)}
-                            className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded-md text-xs transition-colors"
-                          >
-                            <Pencil className="h-3 w-3" />
-                            <span>Editar</span>
-                          </RoleProtectedButton>
-                          <RoleProtectedButton
-                            allowedRoles={['EXECUTIVE']}
-                            onClick={() => setSiteToDelete(site)}
-                            className="flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded-md text-xs transition-colors"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span>Eliminar</span>
-                          </RoleProtectedButton>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {sites.map((site) => {
+                  const approval = (site.approval_status || 'PENDING_APPROVAL').toUpperCase();
+                  const isApproved = approval === 'APPROVED';
+                  const isRejected = approval === 'REJECTED';
+                  const isPending = approval === 'PENDING_APPROVAL';
+                  const hasCoordinates = site.latitude != null && site.longitude != null;
+                  const mapUrl = hasCoordinates ? generateGoogleMapsUrl(String(site.latitude), String(site.longitude)) : null;
+                  return (
+                    <Card key={site.id} className={`hover:shadow-md transition-shadow border-l-4 ${
+                      isApproved ? 'border-l-green-400' : isRejected ? 'border-l-red-400' : 'border-l-amber-400'
+                    } ${!site.is_active ? 'opacity-75' : ''}`}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <h3 className="font-semibold text-base text-slate-900 truncate">{site.name}</h3>
+                          <div className="shrink-0 flex flex-col gap-1 items-end">
+                            {isApproved && <Badge variant="success">Aprobada</Badge>}
+                            {isRejected && (
+                              <Badge variant="destructive" title="Solicita reactivación en Finanzas → Autorización de Clientes">
+                                Rechazada
+                              </Badge>
+                            )}
+                            {isPending && (
+                              <Link href="/finanzas/gobierno-precios">
+                                <Badge variant="warning" className="cursor-pointer hover:opacity-90">
+                                  Pendiente de aprobación
+                                </Badge>
+                              </Link>
+                            )}
+                          </div>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {site.location && (
+                          <div className="flex items-center gap-2 text-sm text-slate-600">
+                            <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{site.location}</span>
+                          </div>
+                        )}
+                        {(site.access_restrictions || site.special_conditions) && (
+                          <div className="text-xs text-slate-500 space-y-0.5">
+                            {site.access_restrictions && <p><span className="font-medium">Restricciones:</span> {site.access_restrictions}</p>}
+                            {site.special_conditions && <p><span className="font-medium">Condiciones:</span> {site.special_conditions}</p>}
+                          </div>
+                        )}
+                        <SiteStatusToggle
+                          site={site}
+                          onStatusChange={loadData}
+                          disableToggle={!isApproved}
+                        />
+                        {mapUrl && (
+                          <a
+                            href={mapUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Ver en mapa
+                          </a>
+                        )}
+                      </CardContent>
+                      <div className="px-6 pb-4 pt-0 flex gap-2">
+                        <RoleProtectedButton
+                          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+                          onClick={() => setEditingSite(site)}
+                          disabled={isRejected}
+                          asChild
+                        >
+                          <Button variant="outline" size="sm" className="gap-1.5" disabled={isRejected}>
+                            <Pencil className="h-3.5 w-3.5" />
+                            Editar
+                          </Button>
+                        </RoleProtectedButton>
+                        <RoleProtectedButton
+                          allowedRoles={['EXECUTIVE']}
+                          onClick={() => setSiteToDelete(site)}
+                          disabled={isRejected}
+                          asChild
+                        >
+                          <Button variant="destructive" size="sm" className="gap-1.5" disabled={isRejected}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Eliminar
+                          </Button>
+                        </RoleProtectedButton>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
             ) : (
               <p className="text-sm text-gray-500">No hay obras registradas para este cliente.</p>
             )}

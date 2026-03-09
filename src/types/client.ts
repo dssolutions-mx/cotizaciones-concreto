@@ -10,6 +10,7 @@ export interface Client {
   phone: string;
   credit_status: string;
   logo_path?: string | null;
+  approval_status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface ConstructionSite {
@@ -21,6 +22,9 @@ export interface ConstructionSite {
   client_id: string;
   created_at: string;
   is_active: boolean;
+  approval_status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  approved_at?: string | null;
+  approved_by?: string | null;
 }
 
 export interface ClientPayment {

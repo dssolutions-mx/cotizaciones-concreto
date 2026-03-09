@@ -12,6 +12,9 @@ interface ConstructionSite {
   is_active: boolean;
   latitude?: number | null;
   longitude?: number | null;
+  approval_status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  approved_at?: string | null;
+  approved_by?: string | null;
 }
 
 export const clientService = {
