@@ -2165,7 +2165,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
       {/* Payment and Balance Adjustment buttons */}
       {balances.length > 0 && (
-        <section className="mt-6">
+        <section className="mt-6 flex flex-wrap gap-2">
           <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
             <DialogTrigger asChild>
               <RoleProtectedButton
@@ -2173,7 +2173,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 onClick={() => setIsPaymentDialogOpen(true)}
                 asChild
               >
-                <Button variant="primary" size="default" className="mt-4">
+                <Button variant="primary" size="default">
                   Registrar Pago
                 </Button>
               </RoleProtectedButton>
@@ -2204,7 +2204,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             onClick={handleBalanceAdjustmentOpen}
             asChild
           >
-            <Button variant="outline" size="default" className="mt-4 ml-2">
+            <Button variant="outline" size="default">
               Ajustar Saldo
             </Button>
           </RoleProtectedButton>
