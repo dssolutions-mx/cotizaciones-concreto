@@ -47,6 +47,16 @@ interface SupabaseApprovedQuote {
     first_name: string;
     last_name: string;
   } | null;
+  plant_id?: string | null;
+  plants?: {
+    id: string;
+    code: string;
+    name: string;
+  } | {
+    id: string;
+    code: string;
+    name: string;
+  }[] | null;
   quote_details: SupabaseQuoteDetail[] | SupabaseQuoteDetail | null;
 }
 
@@ -118,6 +128,7 @@ export interface ApprovedQuote {
   approver_name: string;
   construction_site: string;
   construction_site_id?: string | null;
+  plant: { id: string; code: string; name: string } | null;
   total_amount: number;
   created_at: string;
   validity_date: string;
@@ -188,6 +199,12 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
           quote_number, 
           construction_site,
           construction_site_id,
+          plant_id,
+          plants (
+            id,
+            code,
+            name
+          ),
           created_at,
           validity_date,
           approval_date,
@@ -312,11 +329,15 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         const approverLastName = approverData?.last_name || '';
         const approverFullName = [approverFirstName, approverLastName].filter(Boolean).join(' ') || 'Sin información';
 
+        // Extract plant data
+        const plantData = Array.isArray(quote.plants) ? quote.plants[0] : quote.plants;
+
         return {
           id: quote.id,
           quote_number: quote.quote_number,
           construction_site: quote.construction_site,
           construction_site_id: quote.construction_site_id ?? null,
+          plant: plantData ? { id: plantData.id, code: plantData.code, name: plantData.name } : null,
           created_at: quote.created_at,
           validity_date: quote.validity_date,
           approval_date: quote.approval_date || quote.created_at || new Date().toISOString(),
@@ -365,7 +386,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         quote.client?.business_name?.toLowerCase().includes(searchLower) ||
         quote.client?.client_code?.toLowerCase().includes(searchLower) ||
         quote.quote_number?.toLowerCase().includes(searchLower) ||
-        quote.construction_site?.toLowerCase().includes(searchLower)
+        quote.construction_site?.toLowerCase().includes(searchLower) ||
+        quote.plant?.name?.toLowerCase().includes(searchLower) ||
+        quote.plant?.code?.toLowerCase().includes(searchLower)
       );
     }
 
@@ -549,6 +572,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       };
       if (quote.construction_site_id) {
         insertData.construction_site_id = quote.construction_site_id;
+      }
+      if (quote.plant?.id) {
+        insertData.plant_id = quote.plant.id;
       }
       const { data: newQuote, error: quoteError } = await supabase
         .from('quotes')
@@ -848,6 +874,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 <tr>
                   <th className="px-4 py-3">Número de Cotización</th>
                   <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3">Planta</th>
                   <th className="px-4 py-3">Creada por</th>
                   <th className="px-4 py-3">Sitio de Construcción</th>
                   <th className="px-4 py-3">Fecha de Creación</th>
@@ -862,6 +889,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     <td className="px-4 py-3">{quote.quote_number}</td>
                     <td className="px-4 py-3">
                       {quote.client?.business_name} ({quote.client?.client_code})
+                    </td>
+                    <td className="px-4 py-3">
+                      {quote.plant?.name ?? quote.plant?.code ?? '—'}
                     </td>
                     <td className="px-4 py-3">
                       {quote.creator_initials}
