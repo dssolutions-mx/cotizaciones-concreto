@@ -6,12 +6,12 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
  * 
  * This function sends personalized daily schedule reports for ALL plants.
  * Each recipient receives ONE email with orders from plants they have access to.
+ * Scope is driven by assignment (plant_id, business_unit_id), not role.
  * 
- * RECIPIENT LOGIC:
- * - EXECUTIVE: Receives orders from ALL plants
- * - PLANT_MANAGER: Receives orders only from their assigned plant
- * - DOSIFICADOR: Receives orders only from their assigned plant
- * - SALES_AGENT: Receives orders only from their assigned plant (or all if no plant assigned)
+ * RECIPIENT LOGIC (assignment-based):
+ * - plant_id set: Receives orders only from that plant
+ * - business_unit_id set (plant_id null): Receives orders from ALL plants in that BU, grouped by plant
+ * - Both null (global): Receives orders from ALL plants
  * - EXTERNAL_CLIENT: EXCLUDED from all schedule notifications
  * 
  * FEATURES:
@@ -37,6 +37,7 @@ interface Plant {
   id: string;
   code: string;
   name: string;
+  business_unit_id?: string;
 }
 
 interface OrderItem {
@@ -515,7 +516,7 @@ serve(async (req) => {
     // 1. Get all plants
     const { data: plants, error: plantsError } = await supabase
       .from('plants')
-      .select('id, code, name')
+      .select('id, code, name, business_unit_id')
       .order('code');
 
     if (plantsError) {
@@ -598,20 +599,18 @@ serve(async (req) => {
     const emailErrors: string[] = [];
 
     for (const recipient of recipients as Recipient[]) {
-      // Determine which plants this recipient should see
+      // Determine which plants this recipient should see (scope driven by assignment, not role)
       let visiblePlantIds: string[] = [];
       
-      if (recipient.role === 'EXECUTIVE') {
-        // Executives see ALL plants
-        visiblePlantIds = plants.map(p => p.id);
-      } else if (recipient.plant_id) {
-        // Users with a plant_id only see their plant
+      if (recipient.plant_id) {
         visiblePlantIds = [recipient.plant_id];
+      } else if (recipient.business_unit_id) {
+        visiblePlantIds = plants
+          .filter(p => p.business_unit_id === recipient.business_unit_id)
+          .map(p => p.id);
       } else if (!recipient.plant_id && !recipient.business_unit_id) {
-        // Users with no plant/business unit see ALL plants (global access)
-        visiblePlantIds = plants.map(p => p.id);
+        visiblePlantIds = plants.map(p => p.id);  // Global: no assignment = all plants
       } else {
-        // Users with only business_unit_id - skip for now (no plant assignment)
         continue;
       }
 
