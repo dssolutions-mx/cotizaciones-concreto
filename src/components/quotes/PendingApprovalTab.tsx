@@ -847,24 +847,24 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 min-h-0">
-              {/* Header Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <Card variant="thin" className="p-4 bg-white">
-                  <p className="text-xs text-gray-500 uppercase font-bold mb-1">Cliente</p>
-                  <p className="font-semibold text-gray-900 text-lg">{selectedQuote?.client?.business_name}</p>
-                  <p className="text-sm text-gray-500">{selectedQuote?.client?.client_code}</p>
+              {/* Header Info - compact on mobile */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
+                <Card variant="thin" className="p-3 sm:p-4 bg-white">
+                  <p className="text-xs text-gray-500 uppercase font-bold mb-0.5 sm:mb-1">Cliente</p>
+                  <p className="font-semibold text-gray-900 text-base sm:text-lg">{selectedQuote?.client?.business_name}</p>
+                  <p className="text-xs sm:text-sm text-gray-500">{selectedQuote?.client?.client_code}</p>
                 </Card>
-                <Card variant="thin" className="p-4 bg-white">
-                  <p className="text-xs text-gray-500 uppercase font-bold mb-1">Obra</p>
-                  <p className="font-semibold text-gray-900 text-lg">{selectedQuote?.construction_site}</p>
-                  <p className="text-sm text-gray-500">Creado por: {selectedQuote?.creator_name}</p>
+                <Card variant="thin" className="p-3 sm:p-4 bg-white">
+                  <p className="text-xs text-gray-500 uppercase font-bold mb-0.5 sm:mb-1">Obra</p>
+                  <p className="font-semibold text-gray-900 text-base sm:text-lg">{selectedQuote?.construction_site}</p>
+                  <p className="text-xs sm:text-sm text-gray-500">Creado por: {selectedQuote?.creator_name}</p>
                 </Card>
               </div>
 
               {/* Items - Mobile: cards, Desktop: table */}
               <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6">
-                {/* Mobile: stacked cards */}
-                <div className="sm:hidden space-y-4 p-4">
+                {/* Mobile: stacked cards - full vertical layout, generous spacing */}
+                <div className="sm:hidden space-y-6 p-5">
                   {listPriceLoading ? (
                     <div className="py-8 text-center text-gray-500 text-sm">Cargando datos de precios de lista…</div>
                   ) : (
@@ -881,7 +881,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                         : null;
 
                       return (
-                        <div key={detail.id} className="bg-gray-50/80 rounded-xl p-4 space-y-4 border border-gray-100">
+                        <div key={detail.id} className="bg-gray-50/80 rounded-xl p-5 space-y-5 border border-gray-100">
                           <div>
                             <p className="font-semibold text-gray-900">
                               {(features.masterPricingEnabled && detail.master_code) ? detail.master_code : detail.recipe?.recipe_code}
@@ -896,7 +896,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                             </p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-5">
                             <div>
                               <label className="text-xs font-medium text-gray-500 block mb-1">Volumen</label>
                               <div className="text-sm font-medium text-gray-900">{detail.volume} m³</div>
@@ -913,19 +913,19 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                                   <label className="text-xs font-medium text-gray-500 block mb-1">Piso efectivo</label>
                                   <span className="font-bold tabular-nums text-slate-800">${fmt(resolvedFloor)}</span>
                                 </div>
-                                <div className="col-span-2">
-                                  <label className="text-xs font-medium text-gray-500 block mb-1">Precio de venta</label>
+                                <div className="rounded-lg border-2 border-green-200 bg-white/80 p-3">
+                                  <label className="text-sm font-medium text-gray-700 block mb-1.5">Precio de venta</label>
                                   <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                                     <Input
                                       type="number"
                                       value={detail.final_price.toFixed(2)}
                                       onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
-                                      className="pl-7 h-10 bg-white font-bold text-right w-full"
+                                      className="pl-7 h-11 bg-white font-bold text-right w-full"
                                     />
                                   </div>
                                   {resolvedFloor != null && deltaVsFloor != null && (
-                                    <p className={`mt-1 text-xs font-medium ${deltaVsFloor >= 0 ? 'text-systemGreen' : 'text-systemOrange'}`}>
+                                    <p className={`mt-1.5 text-xs font-medium ${deltaVsFloor >= 0 ? 'text-systemGreen' : 'text-systemOrange'}`}>
                                       {deltaVsFloor >= 0 ? `$${fmt(deltaVsFloor)} sobre piso` : `$${fmt(Math.abs(deltaVsFloor))} bajo piso`}
                                     </p>
                                   )}
@@ -941,7 +941,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                                       type="number"
                                       value={detail.base_price.toFixed(2)}
                                       onChange={(e) => updateQuoteDetailBasePrice(idx, parseFloat(e.target.value) || 0)}
-                                      className="pl-6 h-10 bg-white w-full"
+                                      className="pl-6 h-11 bg-white w-full"
                                     />
                                   </div>
                                 </div>
@@ -952,20 +952,20 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                                       type="number"
                                       value={(detail.profit_margin * 100).toFixed(2)}
                                       onChange={(e) => updateQuoteDetailMargin(idx, parseFloat(e.target.value) || 0)}
-                                      className="pr-8 h-10 bg-white w-full"
+                                      className="pr-8 h-11 bg-white w-full"
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
                                   </div>
                                 </div>
-                                <div className="col-span-2">
-                                  <label className="text-xs font-medium text-gray-500 block mb-1">Precio Final</label>
+                                <div className="rounded-lg border-2 border-green-200 bg-white/80 p-3">
+                                  <label className="text-sm font-medium text-gray-700 block mb-1.5">Precio Final</label>
                                   <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
                                     <Input
                                       type="number"
                                       value={detail.final_price.toFixed(2)}
                                       onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
-                                      className="pl-6 h-10 bg-white font-bold text-right w-full"
+                                      className="pl-6 h-11 bg-white font-bold text-right w-full"
                                     />
                                   </div>
                                 </div>
@@ -1144,7 +1144,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                     {/* Mobile: cards */}
                     <div className="sm:hidden divide-y divide-gray-100">
                       {selectedQuote.quote_additional_products.map((prod) => (
-                        <div key={prod.id} className="p-4 space-y-2">
+                        <div key={prod.id} className="p-5 space-y-2">
                           <div className="font-medium text-gray-900">{prod.additional_products?.name || 'Producto desconocido'}</div>
                           <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
                           <div className="flex justify-between text-sm">
@@ -1193,19 +1193,19 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                 )}
               </Card>
 
-              {/* Pump Service & VAT */}
+              {/* Pump Service & VAT - larger touch targets on mobile */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card variant="thin" className="p-4 bg-blue-50/30 border-blue-100">
-                  <div className="flex items-center gap-2 mb-2">
+                <Card variant="thin" className="p-4 bg-blue-50/30 border-blue-100 min-h-[52px] sm:min-h-0 flex flex-col justify-center">
+                  <div className="flex items-center gap-3 py-2 sm:py-0 min-h-[44px]">
                     <Checkbox.Root
                       id="pumpService"
                       checked={editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service}
                       onCheckedChange={(checked) => updateQuotePumpService(checked === true, editingQuoteDetails[0]?.pump_price)}
-                      className="h-4 w-4 rounded border-blue-300 bg-white data-[state=checked]:bg-blue-600 flex items-center justify-center"
+                      className="h-5 w-5 shrink-0 rounded border-blue-300 bg-white data-[state=checked]:bg-blue-600 flex items-center justify-center"
                     >
                       <Checkbox.Indicator><CheckIcon className="text-white w-3 h-3" /></Checkbox.Indicator>
                     </Checkbox.Root>
-                    <label htmlFor="pumpService" className="text-sm font-medium text-blue-900">Incluir Bombeo</label>
+                    <label htmlFor="pumpService" className="text-sm font-medium text-blue-900 flex-1 cursor-pointer">Incluir Bombeo</label>
                   </div>
                   {editingQuoteDetails[0]?.pump_service && (
                     <Input
@@ -1213,13 +1213,13 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                       placeholder="Precio"
                       value={editingQuoteDetails[0].pump_price || ''}
                       onChange={(e) => updateQuotePumpService(true, parseFloat(e.target.value) || 0)}
-                      className="bg-white h-8 mt-2"
+                      className="bg-white h-11 mt-2 sm:h-8 sm:mt-2"
                     />
                   )}
                 </Card>
-                
-                <Card variant="thin" className="p-4 bg-gray-50">
-                  <div className="flex items-center gap-2">
+
+                <Card variant="thin" className="p-4 bg-gray-50 min-h-[52px] sm:min-h-0 flex flex-col justify-center">
+                  <div className="flex items-center gap-3 py-2 sm:py-0 min-h-[44px]">
                     <Checkbox.Root
                       id="vat"
                       checked={editingQuoteDetails.every(d => d.includes_vat)}
@@ -1227,11 +1227,11 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                         const isChecked = checked === true;
                         setEditingQuoteDetails(prev => prev.map(d => ({ ...d, includes_vat: isChecked })));
                       }}
-                      className="h-4 w-4 rounded border-gray-300 bg-white data-[state=checked]:bg-gray-800 flex items-center justify-center"
+                      className="h-5 w-5 shrink-0 rounded border-gray-300 bg-white data-[state=checked]:bg-gray-800 flex items-center justify-center"
                     >
                       <Checkbox.Indicator><CheckIcon className="text-white w-3 h-3" /></Checkbox.Indicator>
                     </Checkbox.Root>
-                    <label htmlFor="vat" className="text-sm font-medium text-gray-700">Incluir IVA (16%)</label>
+                    <label htmlFor="vat" className="text-sm font-medium text-gray-700 flex-1 cursor-pointer">Incluir IVA (16%)</label>
                   </div>
                 </Card>
               </div>
