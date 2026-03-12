@@ -482,14 +482,34 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
     // Remove immediate clamping to allow temporary values
     const sanitizedMargin = newMargin / 100;
     
-    // Recalculate final price
+    // Recalculate final price from margin
     const finalPriceUnrounded = detail.base_price * (1 + sanitizedMargin);
-    const finalPrice = Math.ceil(finalPriceUnrounded / 5) * 5;
+    const finalPrice = Math.round(finalPriceUnrounded * 100) / 100;
 
     updatedDetails[detailIndex] = {
       ...detail,
       profit_margin: sanitizedMargin,
       final_price: finalPrice
+    };
+
+    setEditingQuoteDetails(updatedDetails);
+  };
+
+  // Function to update quote detail final price (recalculates margin)
+  const updateQuoteDetailFinalPrice = (detailIndex: number, newFinalPrice: number) => {
+    if (!isEditing) setIsEditing(true);
+
+    const updatedDetails = [...editingQuoteDetails];
+    const detail = updatedDetails[detailIndex];
+
+    const finalPrice = Math.max(0, Math.round(newFinalPrice * 100) / 100);
+    const basePrice = detail.base_price || 1;
+    const newMargin = basePrice > 0 ? finalPrice / basePrice - 1 : 0;
+
+    updatedDetails[detailIndex] = {
+      ...detail,
+      final_price: finalPrice,
+      profit_margin: newMargin
     };
 
     setEditingQuoteDetails(updatedDetails);
@@ -1155,7 +1175,29 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                                 `${(Math.round(detail.profit_margin * 1000) / 10).toFixed(1)}%`
                               )}
                             </td>
-                            <td className="px-4 py-3 text-gray-700 font-medium">${detail.final_price.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                            <td className="px-4 py-3">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  value={detail.final_price}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val)) updateQuoteDetailFinalPrice(index, val);
+                                  }}
+                                  onBlur={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val >= 0) updateQuoteDetailFinalPrice(index, val);
+                                  }}
+                                  min="0"
+                                  step="0.01"
+                                  className="w-24 p-1.5 border border-gray-300 rounded text-right font-medium focus:ring-2 focus:ring-blue-500"
+                                />
+                              ) : (
+                                <span className="font-medium text-gray-700">
+                                  ${detail.final_price.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                </span>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right font-semibold text-gray-900">${(detail.final_price * detail.volume).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
                           </tr>
                         );
@@ -1215,9 +1257,24 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     Servicio de Bombeo
                   </h3>
                   <div className="bg-white p-3 rounded border border-blue-100">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center gap-4">
                       <span className="text-gray-700">Precio del Servicio:</span>
-                      <span className="font-bold text-blue-600">${(editingQuoteDetails[0].pump_price || 0).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})} MXN</span>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editingQuoteDetails[0].pump_price ?? 0}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value);
+                            updateQuotePumpService(true, isNaN(val) ? 0 : val);
+                          }}
+                          min="0"
+                          step="10"
+                          className="w-32 p-1.5 border border-gray-300 rounded text-right font-bold text-blue-600 focus:ring-2 focus:ring-blue-500"
+                          placeholder="0"
+                        />
+                      ) : (
+                        <span className="font-bold text-blue-600">${(editingQuoteDetails[0].pump_price || 0).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})} MXN</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1225,9 +1282,10 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
 
               {/* Edit mode notification */}
               {isEditing && (
-                <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm text-yellow-800">
-                    <span className="font-semibold">Modo edición activado.</span> Se está modificando una cotización aprobada. Al guardar, se creará una nueva cotización pendiente.
+                <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-900 font-medium mb-1">Preparando duplicado con cambios</p>
+                  <p className="text-sm text-amber-800">
+                    Puede editar <strong>margen</strong>, <strong>precio final</strong> y <strong>servicio de bombeo</strong>. Al guardar se creará una nueva cotización pendiente (la original permanece sin cambios).
                   </p>
                 </div>
               )}
@@ -1317,9 +1375,10 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                       ) : (
                         <>
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            <path d="M7 9a2 2 0 012-2h6a2 2 0 012 2v6a2 2 0 01-2 2H9a2 2 0 01-2-2V9z" />
+                            <path d="M5 3a2 2 0 00-2 2v6a2 2 0 002 2V5a2 2 0 012-2h6a2 2 0 012 2v2M5 9h2" />
                           </svg>
-                          Guardar Cambios
+                          Crear cotización pendiente
                         </>
                       )}
                     </button>
@@ -1350,23 +1409,25 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       )}
 
       {/* Confirmation dialog */}
-      {showConfirmDialog && (
+      {showConfirmDialog && selectedQuote && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <h3 className="text-xl font-bold mb-4 text-gray-800">Crear Nueva Cotización</h3>
+            <h3 className="text-xl font-bold mb-4 text-gray-800">Crear cotización pendiente</h3>
             <div className="mb-6 text-gray-600">
               <p className="mb-3">
-                Estás modificando una cotización aprobada. Al guardar los cambios:
+                Se creará una nueva cotización con los precios y márgenes que editó:
               </p>
               <ul className="list-disc pl-5 space-y-2">
-                <li>Se creará una <strong>nueva cotización pendiente</strong> con los cambios realizados</li>
-                <li>La cotización original permanecerá <strong>sin cambios</strong></li>
-                <li>La nueva cotización deberá pasar por el proceso de aprobación</li>
+                <li>La cotización original <strong>permanece sin cambios</strong></li>
+                <li>La nueva cotización quedará en <strong>pendiente de aprobación</strong></li>
               </ul>
-              <p className="mt-3 text-sm italic">
-                Nota: Este procedimiento es necesario para mantener un registro de los cambios de precios
-                en cotizaciones que ya fueron aprobadas.
-              </p>
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-sm font-semibold text-gray-700">Resumen del duplicado</p>
+                <p className="text-lg font-bold text-gray-900 mt-1">
+                  ${calculateTotal().toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})} MXN
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">{editingQuoteDetails.length} producto(s)</p>
+              </div>
             </div>
             <div className="flex justify-end space-x-3">
               <button
@@ -1380,7 +1441,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 disabled={isDuplicating}
                 className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
               >
-                {isDuplicating ? 'Procesando...' : 'Crear Nueva Cotización'}
+                {isDuplicating ? 'Procesando...' : 'Confirmar y crear'}
               </button>
             </div>
           </div>
