@@ -27,6 +27,7 @@ interface TabComponentProps {
   onDataSaved?: () => void;
   statusFilter?: string;
   clientFilter?: string;
+  initialQuoteId?: string;
 }
 
 interface TabDefinition {
@@ -109,8 +110,10 @@ function QuotesContent() {
   const pathname = usePathname();
   
   // Get the active tab from URL or default to 'pending'
-  const activeTab = (searchParams.get('tab') as TabId) || 'pending';
-  
+  // When ?id= is present, force pending tab so the quote detail modal can open
+  const quoteIdFromUrl = searchParams.get('id');
+  const activeTab = (quoteIdFromUrl ? 'pending' : (searchParams.get('tab') as TabId)) || 'pending';
+
   // Get filters from URL params
   const statusFilter = searchParams.get('status') || 'todos';
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -205,6 +208,16 @@ function QuotesContent() {
       router.push(`${pathname}?${params.toString()}`);
     }
   }, [profile, TABS, activeTab, pathname, router, searchParams]);
+
+  // When ?id= is present, ensure URL shows tab=pending for consistency
+  useEffect(() => {
+    if (quoteIdFromUrl && searchParams.get('tab') !== 'pending') {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', 'pending');
+      if (quoteIdFromUrl) params.set('id', quoteIdFromUrl);
+      router.replace(`${pathname}?${params.toString()}`);
+    }
+  }, [quoteIdFromUrl, pathname, router, searchParams]);
 
   const handleDataSaved = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -332,6 +345,7 @@ function QuotesContent() {
                 onDataSaved={handleDataSaved}
                 statusFilter={activeTab !== 'create' ? statusFilter : undefined}
                 clientFilter={undefined}
+                initialQuoteId={activeTab === 'pending' ? quoteIdFromUrl || undefined : undefined}
               />
             </div>
           </TabsContent>

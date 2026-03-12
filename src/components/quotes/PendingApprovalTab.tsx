@@ -48,6 +48,7 @@ interface PendingApprovalTabProps {
   onDataSaved?: () => void;
   statusFilter?: string;
   clientFilter?: string;
+  initialQuoteId?: string;
 }
 
 // Interfaces kept intact
@@ -129,7 +130,7 @@ interface SupabaseQuoteDetail {
   }[];
 }
 
-export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFilter }: PendingApprovalTabProps) {
+export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFilter, initialQuoteId }: PendingApprovalTabProps) {
   const [quotes, setQuotes] = useState<PendingQuote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -348,6 +349,143 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
       } catch { /* ignore */ }
     })();
   }, []);
+
+  // When landing with ?id=xxx, fetch and open that quote
+  useEffect(() => {
+    if (!initialQuoteId || selectedQuote) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: quote, error: fetchError } = await supabase
+          .from('quotes')
+          .select(`
+            id,
+            quote_number,
+            construction_site,
+            created_at,
+            validity_date,
+            distance_range_code,
+            plant_id,
+            creator:user_profiles!created_by (
+              first_name,
+              last_name
+            ),
+            clients (
+              business_name,
+              client_code
+            ),
+            quote_details (
+              id,
+              volume,
+              base_price,
+              final_price,
+              pump_service,
+              pump_price,
+              includes_vat,
+              pricing_path,
+              profit_margin,
+              recipe_id,
+              master_recipe_id,
+              recipes (
+                recipe_code,
+                strength_fc,
+                placement_type,
+                max_aggregate_size,
+                slump,
+                age_days
+              ),
+              master_recipes (
+                master_code
+              )
+            ),
+            quote_additional_products (
+              id,
+              additional_product_id,
+              quantity,
+              base_price,
+              margin_percentage,
+              unit_price,
+              total_price,
+              additional_products (
+                name,
+                code,
+                unit
+              )
+            )
+          `)
+          .eq('id', initialQuoteId)
+          .eq('status', 'PENDING_APPROVAL')
+          .eq('is_active', true)
+          .single();
+
+        if (cancelled || fetchError || !quote) {
+          if (fetchError) toast.error('No se encontró la cotización');
+          return;
+        }
+
+        const clientData = Array.isArray(quote.clients) ? quote.clients[0] : quote.clients;
+        const creatorData = Array.isArray((quote as any).creator) ? (quote as any).creator[0] : (quote as any).creator;
+        const creatorFullName = [creatorData?.first_name, creatorData?.last_name].filter(Boolean).join(' ');
+
+        const pendingQuote: PendingQuote = {
+          id: quote.id,
+          quote_number: quote.quote_number,
+          construction_site: quote.construction_site,
+          created_at: quote.created_at,
+          validity_date: (quote as any).validity_date,
+          distance_range_code: (quote as any).distance_range_code,
+          plant_id: (quote as any).plant_id,
+          creator_name: creatorFullName || undefined,
+          client: clientData ? { business_name: clientData.business_name, client_code: clientData.client_code } : null,
+          total_amount: (quote.quote_details || []).reduce((sum: number, detail: SupabaseQuoteDetail) => {
+            const detailTotal = detail.final_price * detail.volume;
+            const pumpTotal = detail.pump_service && detail.pump_price ? detail.pump_price * detail.volume : 0;
+            return sum + detailTotal + pumpTotal;
+          }, 0) + ((quote.quote_additional_products || []) as any[]).reduce((s: number, p: any) => s + (p.total_price || 0), 0),
+          quote_additional_products: (quote.quote_additional_products || []) as PendingQuote['quote_additional_products'],
+          quote_details: (quote.quote_details || []).map((detail: SupabaseQuoteDetail) => {
+            const recipeData = Array.isArray(detail.recipes) ? detail.recipes[0] : detail.recipes;
+            const masterData = Array.isArray(detail.master_recipes) ? detail.master_recipes[0] : detail.master_recipes;
+            const fallbackCode = masterData?.master_code || recipeData?.recipe_code || 'N/A';
+            return {
+              id: detail.id,
+              volume: detail.volume,
+              base_price: detail.base_price,
+              final_price: detail.final_price,
+              pump_service: detail.pump_service,
+              pump_price: detail.pump_price,
+              includes_vat: detail.includes_vat,
+              pricing_path: (detail.pricing_path || 'COST_DERIVED') as 'LIST_PRICE' | 'COST_DERIVED',
+              profit_margin: detail.profit_margin,
+              master_recipe_id: detail.master_recipe_id,
+              recipe: recipeData ? {
+                recipe_code: recipeData.recipe_code,
+                strength_fc: recipeData.strength_fc,
+                placement_type: recipeData.placement_type,
+                max_aggregate_size: recipeData.max_aggregate_size,
+                slump: recipeData.slump,
+                age_days: recipeData.age_days
+              } : {
+                recipe_code: fallbackCode,
+                strength_fc: 0,
+                placement_type: 'N/A',
+                max_aggregate_size: 0,
+                slump: 0,
+                age_days: 0
+              },
+              master_code: masterData?.master_code || null
+            };
+          })
+        };
+
+        openQuoteDetails(pendingQuote);
+      } catch (err) {
+        if (!cancelled) toast.error('No se pudo cargar la cotización');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [initialQuoteId]);
 
   const approveQuote = async (quoteId: string) => {
     try {
@@ -702,13 +840,13 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
 
         {/* Review Modal */}
         <Dialog open={!!selectedQuote} onOpenChange={(open) => !open && closeQuoteDetails()}>
-          <DialogContent className="max-w-5xl h-[90vh] p-0 overflow-hidden flex flex-col">
-            <div className="p-6 border-b bg-white">
-              <DialogTitle className="text-xl font-bold">Revisión de Cotización</DialogTitle>
+          <DialogContent className="max-w-[95vw] sm:max-w-5xl max-h-[95vh] sm:h-[90vh] p-0 overflow-hidden flex flex-col">
+            <div className="p-4 sm:p-6 border-b bg-white shrink-0">
+              <DialogTitle className="text-lg sm:text-xl font-bold">Revisión de Cotización</DialogTitle>
               <DialogDescription>Edite los precios o márgenes antes de aprobar.</DialogDescription>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 min-h-0">
               {/* Header Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <Card variant="thin" className="p-4 bg-white">
@@ -723,9 +861,125 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                 </Card>
               </div>
 
-              {/* Items Table */}
+              {/* Items - Mobile: cards, Desktop: table */}
               <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6">
-                <div className="overflow-x-auto">
+                {/* Mobile: stacked cards */}
+                <div className="sm:hidden space-y-4 p-4">
+                  {listPriceLoading ? (
+                    <div className="py-8 text-center text-gray-500 text-sm">Cargando datos de precios de lista…</div>
+                  ) : (
+                    editingQuoteDetails.map((detail, idx) => {
+                      const isListPriced = detail.pricing_path === 'LIST_PRICE';
+                      const resolvedFloor = detail.effective_floor ?? null;
+                      const deltaVsFloor = resolvedFloor != null ? detail.final_price - resolvedFloor : null;
+                      const rawListPrice =
+                        detail.base_list_price != null && !(detail.includes_vat ?? false) && cashOverpricePct > 0
+                          ? detail.base_list_price / (1 + cashOverpricePct / 100)
+                          : detail.base_list_price ?? null;
+                      const upliftAmount = rawListPrice != null && detail.base_list_price != null
+                        ? detail.base_list_price - rawListPrice
+                        : null;
+
+                      return (
+                        <div key={detail.id} className="bg-gray-50/80 rounded-xl p-4 space-y-4 border border-gray-100">
+                          <div>
+                            <p className="font-semibold text-gray-900">
+                              {(features.masterPricingEnabled && detail.master_code) ? detail.master_code : detail.recipe?.recipe_code}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {detail.recipe?.placement_type === 'D' ? 'Directa' : 'Bombeado'}
+                              {isListPriced && detail.zone_range_code && (
+                                <span className="ml-1.5 rounded bg-slate-200 px-1.5 py-0.5 font-medium text-slate-600">
+                                  Zona {detail.zone_range_code}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs font-medium text-gray-500 block mb-1">Volumen</label>
+                              <div className="text-sm font-medium text-gray-900">{detail.volume} m³</div>
+                            </div>
+                            {isListPriced ? (
+                              <>
+                                <div>
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Lista base</label>
+                                  <div className="text-sm font-semibold tabular-nums text-slate-700">
+                                    ${fmt(detail.base_list_price)}
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Piso efectivo</label>
+                                  <span className="font-bold tabular-nums text-slate-800">${fmt(resolvedFloor)}</span>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Precio de venta</label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                                    <Input
+                                      type="number"
+                                      value={detail.final_price.toFixed(2)}
+                                      onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
+                                      className="pl-7 h-10 bg-white font-bold text-right w-full"
+                                    />
+                                  </div>
+                                  {resolvedFloor != null && deltaVsFloor != null && (
+                                    <p className={`mt-1 text-xs font-medium ${deltaVsFloor >= 0 ? 'text-systemGreen' : 'text-systemOrange'}`}>
+                                      {deltaVsFloor >= 0 ? `$${fmt(deltaVsFloor)} sobre piso` : `$${fmt(Math.abs(deltaVsFloor))} bajo piso`}
+                                    </p>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Precio Base</label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                    <Input
+                                      type="number"
+                                      value={detail.base_price.toFixed(2)}
+                                      onChange={(e) => updateQuoteDetailBasePrice(idx, parseFloat(e.target.value) || 0)}
+                                      className="pl-6 h-10 bg-white w-full"
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Margen %</label>
+                                  <div className="relative">
+                                    <Input
+                                      type="number"
+                                      value={(detail.profit_margin * 100).toFixed(2)}
+                                      onChange={(e) => updateQuoteDetailMargin(idx, parseFloat(e.target.value) || 0)}
+                                      className="pr-8 h-10 bg-white w-full"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
+                                  </div>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="text-xs font-medium text-gray-500 block mb-1">Precio Final</label>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                    <Input
+                                      type="number"
+                                      value={detail.final_price.toFixed(2)}
+                                      onChange={(e) => updateQuoteDetailFinalPrice(idx, parseFloat(e.target.value) || 0)}
+                                      className="pl-6 h-10 bg-white font-bold text-right w-full"
+                                    />
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Desktop: table */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 text-gray-700">
                       <tr>
@@ -880,43 +1134,58 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                 </div>
               </Card>
 
-              {/* Additional Products Table */}
-              <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6 mt-6">
+              {/* Additional Products */}
+              <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6">
                 <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
                   <h3 className="font-semibold text-gray-700">Productos Adicionales / Especiales</h3>
                 </div>
                 {selectedQuote?.quote_additional_products && selectedQuote.quote_additional_products.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 text-gray-700">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-semibold">Producto</th>
-                          <th className="px-4 py-3 text-left font-semibold">Cantidad</th>
-                          <th className="px-4 py-3 text-left font-semibold">Precio Base</th>
-                          <th className="px-4 py-3 text-left font-semibold">Margen</th>
-                          <th className="px-4 py-3 text-right font-semibold">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {selectedQuote.quote_additional_products.map((prod) => (
-                          <tr key={prod.id} className="hover:bg-blue-50/30 transition-colors">
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-gray-900">
-                                {prod.additional_products?.name || 'Producto desconocido'}
-                              </div>
-                              <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
-                            </td>
-                            <td className="px-4 py-3">{prod.quantity} {prod.additional_products?.unit}</td>
-                            <td className="px-4 py-3">${prod.base_price.toFixed(2)}</td>
-                            <td className="px-4 py-3">{prod.margin_percentage.toFixed(1)}%</td>
-                            <td className="px-4 py-3 text-right font-bold text-gray-900">
-                              ${prod.total_price.toFixed(2)}
-                            </td>
+                  <>
+                    {/* Mobile: cards */}
+                    <div className="sm:hidden divide-y divide-gray-100">
+                      {selectedQuote.quote_additional_products.map((prod) => (
+                        <div key={prod.id} className="p-4 space-y-2">
+                          <div className="font-medium text-gray-900">{prod.additional_products?.name || 'Producto desconocido'}</div>
+                          <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">{prod.quantity} {prod.additional_products?.unit}</span>
+                            <span className="font-bold text-gray-900">${prod.total_price.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-500">
+                            <span>Base ${prod.base_price.toFixed(2)} · {prod.margin_percentage.toFixed(1)}% margen</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Desktop: table */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-700">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-semibold">Producto</th>
+                            <th className="px-4 py-3 text-left font-semibold">Cantidad</th>
+                            <th className="px-4 py-3 text-left font-semibold">Precio Base</th>
+                            <th className="px-4 py-3 text-left font-semibold">Margen</th>
+                            <th className="px-4 py-3 text-right font-semibold">Total</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {selectedQuote.quote_additional_products.map((prod) => (
+                            <tr key={prod.id} className="hover:bg-blue-50/30 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900">{prod.additional_products?.name || 'Producto desconocido'}</div>
+                                <div className="text-xs text-gray-500">{prod.additional_products?.code}</div>
+                              </td>
+                              <td className="px-4 py-3">{prod.quantity} {prod.additional_products?.unit}</td>
+                              <td className="px-4 py-3">${prod.base_price.toFixed(2)}</td>
+                              <td className="px-4 py-3">{prod.margin_percentage.toFixed(1)}%</td>
+                              <td className="px-4 py-3 text-right font-bold text-gray-900">${prod.total_price.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : (
                   <div className="px-4 py-6 text-center text-sm text-gray-500">
                     No hay productos adicionales en esta cotización
@@ -969,12 +1238,16 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             </div>
 
             {/* Footer Actions */}
-            <div className="p-4 border-t bg-white flex justify-between items-center gap-4">
-              <Button variant="ghost" onClick={closeQuoteDetails}>Cancelar</Button>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => saveQuoteModifications(true)}>Guardar Cambios</Button>
-                <Button 
-                  className="!bg-green-600 hover:!bg-green-700 !text-white border-0" 
+            <div className="p-4 sm:p-6 border-t bg-white flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-3 shrink-0">
+              <Button variant="ghost" onClick={closeQuoteDetails} className="w-full sm:w-auto order-2 sm:order-1">
+                Cancelar
+              </Button>
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto order-1 sm:order-2">
+                <Button variant="secondary" onClick={() => saveQuoteModifications(true)} className="w-full sm:w-auto">
+                  Guardar Cambios
+                </Button>
+                <Button
+                  className="!bg-green-600 hover:!bg-green-700 !text-white border-0 w-full sm:w-auto"
                   onClick={() => approveQuote(selectedQuote?.id as string)}
                 >
                   <Check className="w-4 h-4 mr-2" /> Aprobar Cotización

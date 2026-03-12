@@ -160,7 +160,7 @@ export function ApprovalTasksSection() {
 
   if (isLoading && totalPending === 0) {
     return (
-      <div className="glass-base rounded-2xl p-6 mb-6 animate-pulse">
+      <div className="glass-base rounded-2xl p-4 sm:p-6 mb-6 animate-pulse">
         <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
@@ -178,12 +178,12 @@ export function ApprovalTasksSection() {
   return (
     <>
       <motion.div
-        className="glass-base rounded-2xl p-6 mb-6"
+        className="glass-base rounded-2xl p-4 sm:p-6 mb-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 200, damping: 20 }}
       >
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
           <h2 className="text-title-3 text-gray-800 flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" />
             Pendientes de Aprobación
@@ -197,7 +197,7 @@ export function ApprovalTasksSection() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Clientes */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-2">
                 <h3 className="text-callout font-semibold text-gray-800">
                   Clientes {clients.length > 0 && (
                     <span className="ml-1.5 text-muted-foreground font-normal">
@@ -240,7 +240,7 @@ export function ApprovalTasksSection() {
 
             {/* Obras */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-2">
                 <h3 className="text-callout font-semibold text-gray-800">
                   Obras {sites.length > 0 && (
                     <span className="ml-1.5 text-muted-foreground font-normal">
@@ -283,7 +283,7 @@ export function ApprovalTasksSection() {
 
             {/* Cotizaciones */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
+              <div className="flex flex-wrap justify-between items-center gap-2">
                 <h3 className="text-callout font-semibold text-gray-800">
                   Cotizaciones {pendingQuotes.length > 0 && (
                     <span className="ml-1.5 text-muted-foreground font-normal">

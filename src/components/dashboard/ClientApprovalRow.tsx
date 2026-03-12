@@ -20,7 +20,7 @@ export function ClientApprovalRow({ client, onApprove, onReject, isActing }: Cli
   });
 
   return (
-    <div className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-muted/50 transition-colors gap-3">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-2.5 px-3 rounded-xl hover:bg-muted/50 transition-colors">
       <div className="flex-1 min-w-0">
         <p className="text-callout text-gray-900 truncate font-medium">
           {client.business_name || 'Sin nombre'}
@@ -29,7 +29,7 @@ export function ClientApprovalRow({ client, onApprove, onReject, isActing }: Cli
           {client.client_code || client.rfc || '—'} • Creado el {createdDate}
         </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0 sm:mt-0 mt-1">
         <Button
           variant="outline"
           size="sm"

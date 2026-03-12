@@ -24,18 +24,16 @@ export function QuoteApprovalRow({ quote, onApprove, onReject, isActing }: Quote
 
   return (
     <>
-      <div className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-muted/50 transition-colors gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 py-2.5 px-3 rounded-xl hover:bg-muted/50 transition-colors">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="text-callout text-gray-900 truncate font-medium">{quote.client}</p>
-            <Link
-              href={`/quotes/${quote.id}`}
-              className="shrink-0 text-muted-foreground hover:text-primary"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
-          </div>
+          <Link
+            href={`/quotes?tab=pending&id=${quote.id}`}
+            className="flex items-center gap-2 group min-w-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-callout text-gray-900 truncate font-medium group-hover:text-primary">{quote.client}</p>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground group-hover:text-primary" />
+          </Link>
           <p className="text-footnote text-muted-foreground">
             {quote.recipeSummary ? (
               <>
@@ -46,7 +44,7 @@ export function QuoteApprovalRow({ quote, onApprove, onReject, isActing }: Quote
             {quote.amount} · {quote.date} · {quote.constructionSite}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 sm:mt-0 mt-1">
           <Button
             variant="outline"
             size="sm"

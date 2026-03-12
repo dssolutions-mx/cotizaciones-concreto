@@ -291,7 +291,7 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
       {displayQuotes.map((quote: PendingQuote) => (
         <Link
           key={quote.id}
-          href={`/quotes/${quote.id}`}
+          href={`/quotes?tab=pending&id=${quote.id}`}
           className="flex items-center justify-between py-3 px-3 rounded-xl hover:bg-muted/50 transition-colors"
         >
           <div className="flex-1 min-w-0">

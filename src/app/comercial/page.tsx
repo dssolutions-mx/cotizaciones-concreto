@@ -93,7 +93,7 @@ async function ComercialPendingActions() {
                 {pendingQuotes.map((q) => (
                   <li key={q.id}>
                     <Link
-                      href={`/quotes/${q.id}`}
+                      href={`/quotes?tab=pending&id=${q.id}`}
                       className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-muted/50 transition-colors"
                     >
                       <div>
