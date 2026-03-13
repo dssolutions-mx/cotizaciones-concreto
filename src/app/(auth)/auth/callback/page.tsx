@@ -50,6 +50,24 @@ function AuthCallbackHandler() {
     try {
       setLoading(true);
 
+      // Check for token_hash in query (survives email link tracking - recommended for invite flow)
+      const tokenHash = searchParams.get('token_hash');
+      const otpType = searchParams.get('type');
+
+      if (tokenHash && otpType) {
+        const { error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: otpType as 'invite' | 'recovery' | 'signup' | 'email',
+        });
+        if (verifyError) {
+          setError(`Error al verificar el enlace: ${verifyError.message}`);
+          return;
+        }
+        const isInvite = otpType === 'invite' || otpType === 'signup';
+        router.push(isInvite ? '/update-password?type=invite' : '/update-password?type=recovery');
+        return;
+      }
+
       // Check for hash parameters (used in invitation and password recovery flows)
       const hashParams = new URLSearchParams(
         typeof window !== 'undefined' ? window.location.hash.substring(1) : ''

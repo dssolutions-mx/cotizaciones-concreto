@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     if (!token) {
       // Redirect to login with error message
       const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
       return NextResponse.redirect(
         `${origin}/login?error=missing_token`
       );
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     if (tokenError || !tokenRecord) {
       console.error('Invalid invitation token:', tokenError);
       const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
       return NextResponse.redirect(
         `${origin}/login?error=invalid_token`
       );
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     if (new Date(tokenRecord.expires_at) < new Date()) {
       console.error('Expired invitation token');
       const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
       return NextResponse.redirect(
         `${origin}/login?error=expired_token`
       );
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     if (tokenRecord.used_at) {
       console.error('Token already used');
       const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
       return NextResponse.redirect(
         `${origin}/login?error=token_already_used`
       );
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     if (userError || !authUser?.user) {
       console.error('User not found for token:', userError);
       const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+        (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
       return NextResponse.redirect(
         `${origin}/login?error=user_not_found`
       );
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error verifying invitation token:', error);
     const origin = process.env.NEXT_PUBLIC_APP_URL || 
-      (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+      (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://dcconcretos-hub.com');
     return NextResponse.redirect(
       `${origin}/login?error=verification_failed`
     );

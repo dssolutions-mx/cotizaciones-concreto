@@ -19,40 +19,50 @@ When SendGrid wraps these links with click tracking, both flows break:
 
 ## Recommended Fix (Supabase Project Level)
 
-**Disable click tracking for authentication emails in SendGrid:**
+**1. Update the Invite user email template** to use `token_hash` in query params (survives link tracking):
 
-1. Go to Supabase Dashboard → Project Settings → Auth → Email Templates
-2. Configure SendGrid SMTP settings to disable click tracking for auth emails
-3. OR configure Supabase to use custom email templates that don't get tracked
+- See [docs/INVITATION_EMAIL_SETUP.md](docs/INVITATION_EMAIL_SETUP.md) for step-by-step instructions.
+- Replace `{{ .ConfirmationURL }}` with a custom link: `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=invite`
+
+**2. Disable click tracking for authentication emails** (SendGrid or custom SMTP):
+
+- Go to Supabase Dashboard → Project Settings → Auth → Email Templates
+- Configure SendGrid SMTP settings to disable click tracking for auth emails
+- OR configure Supabase to use custom email templates that don't get tracked
 
 **Alternative:** Configure SendGrid at the account level to exclude certain URL patterns from tracking (e.g., URLs containing `/auth/callback`).
 
-## Code-Level Workarounds (Already Implemented)
+## Code-Level Fixes (Implemented)
 
-The following improvements have been made to handle this issue:
+The following improvements have been made:
 
-1. **Enhanced callback handler** (`src/app/(auth)/auth/callback/page.tsx`):
+1. **token_hash in query params** (`src/app/(auth)/auth/callback/page.tsx`):
+   - Handles `?token_hash=...&type=invite` (or `recovery`, `signup`, `email`) in the URL
+   - Calls `supabase.auth.verifyOtp()` to establish session - query params survive email link tracking
+   - **Requires** custom invite email template (see [docs/INVITATION_EMAIL_SETUP.md](docs/INVITATION_EMAIL_SETUP.md))
+
+2. **Enhanced callback handler** (`src/app/(auth)/auth/callback/page.tsx`):
    - Detects SendGrid redirects
    - Attempts to recover session from Supabase after redirect
    - Checks for new users even when hash is missing
    - Handles PKCE errors by attempting session recovery
    - Provides helpful error messages
 
-2. **PKCE error recovery**:
+3. **PKCE error recovery**:
    - Detects PKCE errors ("code verifier" or "invalid request" errors)
    - Attempts to recover session from Supabase when PKCE exchange fails
    - Handles both invitation and password recovery flows
 
-3. **Update password page improvements** (`src/app/(auth)/update-password/page.tsx`):
+4. **Update password page improvements** (`src/app/(auth)/update-password/page.tsx`):
    - Handles PKCE errors during code exchange
    - Attempts session recovery when PKCE fails
    - Provides clear error messages for SendGrid-related issues
 
-4. **Auth state change listener**:
+5. **Auth state change listener**:
    - Listens for session establishment via `onAuthStateChange`
    - Handles cases where hash is lost but session is established
 
-5. **Better error handling**:
+6. **Better error handling**:
    - Provides clear error messages when auth parameters are missing
    - Guides users to contact admin or try clicking the link directly
    - Explains that email service link modification is the cause
