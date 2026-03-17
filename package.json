@@ -13,7 +13,7 @@
     "validate:p004p-volumes": "node --env-file=.env.local -r ts-node/register scripts/validate_p004p_volumes.ts"
   },
   "engines": {
-    "node": ">=20.9.0",
+    "node": ">=20.19.0",
     "npm": ">=10.0.0"
   },
   "dependencies": {
@@ -115,6 +115,7 @@
   },
   "overrides": {
     "glob": ">=10.5.0",
-    "js-yaml": ">=4.1.1"
+    "js-yaml": ">=4.1.1",
+    "eslint-visitor-keys": "4.2.1"
   }
 }
