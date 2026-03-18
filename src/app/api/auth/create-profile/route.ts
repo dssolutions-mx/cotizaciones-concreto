@@ -1,15 +1,19 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+
+// Default role for new profiles; never accept role from client to prevent privilege escalation
+const DEFAULT_NEW_PROFILE_ROLE = 'SALES_AGENT';
+// Roles allowed from invite metadata (set server-side by invite-user); client-supplied role is never trusted
+const INVITE_METADATA_ALLOWED_ROLES = ['EXTERNAL_CLIENT'] as const;
 
 export async function POST(request: NextRequest) {
   try {
-    // Create a Supabase client with the URL and anon key from env vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
-    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
+
+    if (!supabaseUrl || !supabaseServiceRoleKey) {
       console.error('Missing Supabase environment variables');
       return NextResponse.json(
         { error: 'Server configuration error - Missing required environment variables' },
@@ -17,7 +21,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create an admin client using the service role key
+    // Verify identity using server client + getUser() — authoritative JWT verification
+    const supabase = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized - No authenticated user found' },
+        { status: 401 }
+      );
+    }
+
+    const userId = user.id;
+    const userEmail = user.email ?? '';
+
+    // Derive role: only from server-set invite metadata, never from client
+    const meta = user.user_metadata as Record<string, unknown> | undefined;
+    const invitedRole = meta?.invited && typeof meta?.role === 'string' && INVITE_METADATA_ALLOWED_ROLES.includes(meta.role as (typeof INVITE_METADATA_ALLOWED_ROLES)[number])
+      ? (meta.role as (typeof INVITE_METADATA_ALLOWED_ROLES)[number])
+      : DEFAULT_NEW_PROFILE_ROLE;
+
+    // Parse body — do NOT accept role from client (prevents privilege escalation)
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+    try {
+      const body = await request.json();
+      firstName = typeof body?.firstName === 'string' ? body.firstName : null;
+      lastName = typeof body?.lastName === 'string' ? body.lastName : null;
+      // role is intentionally ignored; always derived from invite metadata or default
+    } catch {
+      // Allow empty body; firstName/lastName stay null
+    }
+
     const supabaseAdmin = createClient(
       supabaseUrl,
       supabaseServiceRoleKey,
@@ -28,85 +63,6 @@ export async function POST(request: NextRequest) {
         }
       }
     );
-
-    // Get the cookie header
-    const cookieHeader = request.headers.get('cookie') || '';
-
-    // Extract the project reference from the cookie
-    const projectRefMatch = cookieHeader.match(/sb-([a-zA-Z0-9]+)-auth-token/);
-    const projectRef = projectRefMatch ? projectRefMatch[1] : null;
-
-    if (!projectRef) {
-      return NextResponse.json(
-        { error: 'No auth cookie found' },
-        { status: 401 }
-      );
-    }
-
-    // Find and combine all cookie parts
-    const tokenRegex = new RegExp(`sb-${projectRef}-auth-token\\.([0-9]+)=([^;]+)`, 'g');
-    const tokenParts = [];
-    let match;
-    
-    while ((match = tokenRegex.exec(cookieHeader)) !== null) {
-      tokenParts.push({
-        index: parseInt(match[1]),
-        value: match[2]
-      });
-    }
-    
-    if (tokenParts.length === 0) {
-      return NextResponse.json(
-        { error: 'No auth token parts found' },
-        { status: 401 }
-      );
-    }
-    
-    // Combine token parts
-    let combinedToken = '';
-    for (const part of tokenParts) {
-      let value = part.value;
-      if (value.startsWith('base64-')) {
-        value = value.substring(7);
-      }
-      combinedToken += value;
-    }
-    
-    // Extract user info from token
-    let userId = null;
-    let userEmail = null;
-    
-    try {
-      try {
-        const decoded = Buffer.from(combinedToken, 'base64').toString();
-        const tokenData = JSON.parse(decoded);
-        userId = tokenData.user?.id;
-        userEmail = tokenData.user?.email;
-      } catch (_error) {
-        // If parsing fails, try regex
-        const userIdMatch = combinedToken.match(/"id":"([a-f0-9-]+)"/);
-        userId = userIdMatch ? userIdMatch[1] : null;
-        
-        const emailMatch = combinedToken.match(/"email":"([^"]+)"/);
-        userEmail = emailMatch ? emailMatch[1] : null;
-      }
-    } catch (error: unknown) {
-      console.error('Error parsing auth token:', error);
-      return NextResponse.json(
-        { error: 'Failed to parse auth token' },
-        { status: 400 }
-      );
-    }
-    
-    if (!userId || !userEmail) {
-      return NextResponse.json(
-        { error: 'Could not determine user ID or email from token' },
-        { status: 400 }
-      );
-    }
-
-    // Get profile data from request
-    const { firstName, lastName, role } = await request.json();
     
     // Check if the user already has a profile
     const { data: existingProfile } = await supabaseAdmin
@@ -122,7 +78,7 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Create the user profile
+    // Create the user profile — role is always set server-side; never from client
     const { data: newProfile, error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .upsert({
@@ -130,7 +86,7 @@ export async function POST(request: NextRequest) {
         email: userEmail,
         first_name: firstName || null,
         last_name: lastName || null,
-        role: role || 'SALES_AGENT', // Default role
+        role: invitedRole,
         is_active: true
       })
       .select();

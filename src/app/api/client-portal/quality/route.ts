@@ -666,14 +666,8 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error('[Quality API] Unexpected error:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    console.error('[Quality API] Error stack:', errorStack);
     return NextResponse.json(
-      { 
-        error: 'Error interno del servidor',
-        details: errorMessage 
-      },
+      { error: 'Error interno del servidor' },
       { status: 500 }
     );
   }

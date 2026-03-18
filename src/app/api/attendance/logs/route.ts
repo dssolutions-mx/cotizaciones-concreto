@@ -133,7 +133,8 @@ export async function GET(request: Request) {
 
     const { data, error, count } = await query
     if (error) {
-      return NextResponse.json({ error: 'Error obteniendo lista', details: error.message }, { status: 500 })
+      console.error('Error fetching attendance logs:', error);
+      return NextResponse.json({ error: 'Error obteniendo lista' }, { status: 500 })
     }
 
     return NextResponse.json({

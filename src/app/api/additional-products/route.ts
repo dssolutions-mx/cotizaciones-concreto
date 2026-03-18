@@ -242,7 +242,7 @@ export async function PUT(request: NextRequest) {
     if (error) {
       console.error('Error updating additional product:', error);
       return NextResponse.json(
-        { error: 'Failed to update product', details: error.message },
+        { error: 'Failed to update product' },
         { status: 500 }
       );
     }
@@ -251,10 +251,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     console.error('Error updating additional product:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to update additional product',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to update additional product' },
       { status: 500 }
     );
   }

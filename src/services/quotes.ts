@@ -288,12 +288,14 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
   try {
     const safeDetails = quoteData.details || [];
 
-    // Get current user's ID from the auth session
-    const { data: authData } = await supabase.auth.getSession();
-    
-    if (!authData.session?.user?.id) {
+    // Get current user (getUser validates with auth server; getSession does not)
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user?.id) {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear cotizaciones.');
     }
+
+    const userId = user.id;
     
     if (!quoteData.plant_id) {
       throw new Error('plant_id es requerido para calcular la distancia');
@@ -384,7 +386,7 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     // Begin by creating the quote with distance and pricing information
     const quoteInsertData: any = {
       ...quoteMainData,
-      created_by: authData.session.user.id,
+      created_by: userId,
       status: initialStatus,
       quote_number: quoteNumber,
       plant_id: quoteData.plant_id,
@@ -411,7 +413,7 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     // Add approval info if auto-approved
     if (shouldAutoApprove) {
       quoteInsertData.approval_date = new Date().toISOString();
-      quoteInsertData.approved_by = authData.session.user.id;
+      quoteInsertData.approved_by = userId;
     }
     
     const { data: quote, error: quoteError } = await supabase

@@ -56,14 +56,14 @@ export async function createEnsayo(data: {
   evidencia_fotografica?: File[];
 }) {
   try {
-    // Get current user session to include in request
-    const { data: authData } = await supabase.auth.getSession();
+    // Get current user (getUser validates with auth server; getSession does not)
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!authData.session?.user?.id) {
+    if (!user?.id) {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para registrar ensayos.');
     }
 
-    const userId = authData.session.user.id;
+    const userId = user.id;
 
     // First, get the muestra details to validate it exists
     const { data: muestra, error: muestraError } = await supabase

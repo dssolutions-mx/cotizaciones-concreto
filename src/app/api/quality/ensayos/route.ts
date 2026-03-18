@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error creating ensayo:', error);
       return NextResponse.json(
-        { error: `Error creating ensayo: ${error.message}` },
+        { error: 'Error al crear el ensayo' },
         { status: 500 }
       );
     }

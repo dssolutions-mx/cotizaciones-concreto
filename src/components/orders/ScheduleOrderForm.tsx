@@ -13,7 +13,8 @@ import NearbyDeliveriesPanel from '@/components/orders/NearbyDeliveriesPanel';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { cn } from '@/lib/utils';
-import { ChevronRight, ChevronLeft, CheckCircle2, Circle } from 'lucide-react';
+import { ChevronRight, ChevronLeft, CheckCircle2, Circle, MapPin } from 'lucide-react';
+import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
 
 interface Client {
@@ -173,11 +174,15 @@ export default function ScheduleOrderForm({
   onOrderCreated
 }: ScheduleOrderFormProps) {
   const router = useRouter();
-  const { currentPlant } = usePlantContext();
+  const { currentPlant, userAccess, availablePlants } = usePlantContext();
   const tomorrow = addDays(new Date(), 1);
   
-  // Step tracking
+  // Step tracking (1=Planta, 2=Cliente, 3=Obra, 4=Productos)
   const [currentStep, setCurrentStep] = useState(1);
+  
+  // Plant for this order (Step 1) — used for efficient quote loading
+  const [orderPlantId, setOrderPlantId] = useState<string | null>(null);
+  const [orderBusinessUnitId, setOrderBusinessUnitId] = useState<string | null>(null);
   
   // Client selection
   const [clients, setClients] = useState<Client[]>([]);
@@ -256,6 +261,18 @@ export default function ScheduleOrderForm({
   const [siteValidation, setSiteValidation] = useState<SiteValidationState>({ evidence_photo_urls: [] });
   const [siteValidationShowErrors, setSiteValidationShowErrors] = useState<boolean>(false);
   
+  // Sync orderPlantId from currentPlant when context loads (for PLANT users and initial default)
+  useEffect(() => {
+    if (currentPlant?.id && !orderPlantId) {
+      setOrderPlantId(currentPlant.id);
+      setOrderBusinessUnitId(currentPlant.business_unit_id || null);
+    }
+  }, [currentPlant?.id, currentPlant?.business_unit_id, orderPlantId]);
+  
+  // Compute effective plant for quotes and submission
+  const effectivePlantId = orderPlantId ?? currentPlant?.id ?? null;
+  const hasMultiPlantAccess = userAccess?.accessLevel === 'GLOBAL' || userAccess?.accessLevel === 'BUSINESS_UNIT';
+  
   // Load clients on component mount
   useEffect(() => {
     const loadClients = async () => {
@@ -269,10 +286,9 @@ export default function ScheduleOrderForm({
           client_code: client.client_code
         })));
         
-        // If preSelectedClientId is provided, move to next step
+        // If preSelectedClientId is provided, pre-fill (user still starts at Step 1: Planta)
         if (preSelectedClientId) {
           setSelectedClientId(preSelectedClientId);
-          setCurrentStep(2);
         }
       } catch (err) {
         console.error('Error loading clients:', err);
@@ -324,10 +340,10 @@ export default function ScheduleOrderForm({
     loadConstructionSites();
   }, [selectedClientId]);
   
-  // Load approved quotes when client and site are selected
+  // Load approved quotes when plant, client, and site are selected
   useEffect(() => {
-        if (!selectedClientId || !selectedConstructionSiteId || !selectedConstructionSite?.name) {
-          setAvailableQuotes([]); // Clear quotes if client or site changes
+        if (!effectivePlantId || !selectedClientId || !selectedConstructionSiteId || !selectedConstructionSite?.name) {
+          setAvailableQuotes([]); // Clear quotes if plant, client or site changes
           setSelectedProducts([]);
           setSelectedAdditionalProducts(new Set()); // Clear selected additional products
           return;
@@ -354,10 +370,8 @@ export default function ScheduleOrderForm({
           .eq('construction_site', selectedConstructionSite.name)
           .eq('is_active', true);
         
-        // Add plant_id filter if currentPlant is available
-        if (currentPlant?.id) {
-          activePricesQuery = activePricesQuery.eq('plant_id', currentPlant.id);
-        }
+        // Filter by plant for this order
+        activePricesQuery = activePricesQuery.eq('plant_id', effectivePlantId);
         
         const { data: activePrices, error: activePriceError } = await activePricesQuery
           .order('updated_at', { ascending: false });
@@ -732,7 +746,7 @@ export default function ScheduleOrderForm({
             // Check recipe-level fallback (no master linkage anywhere)
             const hasActiveRecipeFallback = detail.recipe_id && activeQuoteRecipeFallbackCombos.has(`${quoteData.id}:${detail.recipe_id}`);
             // Plant guards: only enforce plant scoping for recipe fallback items (master items are validated by active combos)
-            const recipePlantOk = detail.recipes && detail.recipes.plant_id === currentPlant?.id;
+            const recipePlantOk = detail.recipes && detail.recipes.plant_id === effectivePlantId;
             // Check if this is a standalone pumping service quote
             const isStandalonePumping = standalonePumpingQuoteIds.has(quoteData.id) && detail.product_id && !detail.recipe_id && detail.pump_service;
             return hasActiveMaster || (hasActiveRecipeFallback && recipePlantOk) || isStandalonePumping;
@@ -984,7 +998,7 @@ export default function ScheduleOrderForm({
     
     loadActiveQuote();
     // Ensure all dependencies are included and the array size is stable
-  }, [selectedClientId, selectedConstructionSiteId, selectedConstructionSite?.name, preSelectedQuoteId]);
+  }, [effectivePlantId, selectedClientId, selectedConstructionSiteId, selectedConstructionSite?.name, preSelectedQuoteId]);
   
   // Load pumping service pricing for client + construction site
   useEffect(() => {
@@ -1175,7 +1189,7 @@ export default function ScheduleOrderForm({
     const site = constructionSites.find(s => s.id === siteId);
     if (site) {
       setSelectedConstructionSite(site);
-      setCurrentStep(3);
+      setCurrentStep(4);
     }
   };
   
@@ -1362,8 +1376,8 @@ export default function ScheduleOrderForm({
       return;
     }
     
-    if (!currentPlant?.id) {
-      setError('No se pudo determinar la planta. Por favor, asegúrese de estar en el contexto correcto.');
+    if (!effectivePlantId) {
+      setError('No se pudo determinar la planta. Por favor, seleccione la planta de despacho.');
       return;
     }
     
@@ -1473,7 +1487,7 @@ export default function ScheduleOrderForm({
         client_id: selectedClientId,
         construction_site: selectedSite.name,
         construction_site_id: selectedConstructionSiteId,
-        plant_id: currentPlant?.id,
+        plant_id: effectivePlantId,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
@@ -1564,7 +1578,59 @@ export default function ScheduleOrderForm({
     }
   };
   
-  // Render client selection step
+  // Render plant selection step (Step 1)
+  const renderPlantSelection = () => {
+    const selectedPlant = availablePlants.find(p => p.id === orderPlantId);
+    
+    return (
+    <div className="bg-white rounded-lg border shadow-xs p-6">
+      <h2 className="text-xl font-semibold mb-2">¿Desde qué planta se despachará esta orden?</h2>
+      <p className="text-gray-600 mb-6">Esta planta determina las recetas y precios disponibles.</p>
+      
+      {hasMultiPlantAccess ? (
+        <div className="max-w-md space-y-4">
+          <EnhancedPlantSelector
+            mode="CREATE"
+            selectedPlantId={orderPlantId}
+            selectedBusinessUnitId={orderBusinessUnitId}
+            onPlantChange={(id) => {
+              setOrderPlantId(id);
+              setOrderBusinessUnitId(id ? availablePlants.find(p => p.id === id)?.business_unit_id ?? null : null);
+              setAvailableQuotes([]);
+              setSelectedProducts([]);
+              setSelectedAdditionalProducts(new Set());
+            }}
+            onBusinessUnitChange={(buId) => {
+              setOrderBusinessUnitId(buId);
+              if (buId && orderPlantId) {
+                const plant = availablePlants.find(p => p.id === orderPlantId);
+                if (plant?.business_unit_id !== buId) {
+                  setOrderPlantId(null);
+                  setAvailableQuotes([]);
+                  setSelectedProducts([]);
+                  setSelectedAdditionalProducts(new Set());
+                }
+              }
+            }}
+            showLabel={true}
+            required={true}
+            className=""
+          />
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200 max-w-md">
+          <MapPin className="h-8 w-8 text-gray-500" />
+          <div>
+            <p className="text-sm text-gray-600">Planta asignada</p>
+            <p className="font-semibold text-gray-900">{selectedPlant?.name || currentPlant?.name || 'Planta'}</p>
+          </div>
+        </div>
+      )}
+    </div>
+    );
+  };
+  
+  // Render client selection step (Step 2)
   const renderClientSelection = () => (
     <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Seleccionar Cliente</h2>
@@ -1635,7 +1701,7 @@ export default function ScheduleOrderForm({
             No hay obras registradas para este cliente.
           </p>
           <button
-            onClick={() => setCurrentStep(1)}
+            onClick={() => setCurrentStep(2)}
             className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
           >
             Seleccionar otro cliente
@@ -1658,7 +1724,7 @@ export default function ScheduleOrderForm({
       
       <div className="mt-6">
         <button
-          onClick={() => setCurrentStep(1)}
+          onClick={() => setCurrentStep(2)}
           className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
         >
           Atrás
@@ -1667,7 +1733,7 @@ export default function ScheduleOrderForm({
     </div>
   );
   
-  // Render product selection and order details step
+  // Render product selection and order details step (Step 4)
   const renderOrderDetails = () => (
     <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Crear Orden</h2>
@@ -2657,7 +2723,7 @@ export default function ScheduleOrderForm({
           <div className="flex justify-between">
             <button
               type="button"
-              onClick={() => setCurrentStep(2)}
+              onClick={() => setCurrentStep(3)}
               className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Atrás
@@ -2700,9 +2766,10 @@ export default function ScheduleOrderForm({
   );
   
   const steps = [
-    { number: 1, title: 'Cliente & Ubicación', description: 'Selecciona el cliente y la obra' },
-    { number: 2, title: 'Producto & Receta', description: 'Elige productos y recetas' },
-    { number: 3, title: 'Logística', description: 'Fecha, hora y servicios adicionales' }
+    { number: 1, title: 'Planta', description: 'Planta de despacho' },
+    { number: 2, title: 'Cliente', description: 'Selecciona el cliente' },
+    { number: 3, title: 'Obra', description: 'Sitio de construcción' },
+    { number: 4, title: 'Productos & Logística', description: 'Productos, fecha y servicios' }
   ];
 
   // Render based on current step
@@ -2795,23 +2862,27 @@ export default function ScheduleOrderForm({
                 </motion.button>
               )}
               <div className="flex-1" />
-              {currentStep < 3 && (
+              {currentStep < 4 && (
                 <motion.button
                   onClick={() => {
                     // Validate current step before proceeding
-                    if (currentStep === 1 && selectedClientId) {
+                    if (currentStep === 1 && effectivePlantId) {
                       setCurrentStep(2);
-                    } else if (currentStep === 2 && selectedConstructionSiteId) {
+                    } else if (currentStep === 2 && selectedClientId) {
                       setCurrentStep(3);
+                    } else if (currentStep === 3 && selectedConstructionSiteId) {
+                      setCurrentStep(4);
                     }
                   }}
                   disabled={
-                    (currentStep === 1 && !selectedClientId) ||
-                    (currentStep === 2 && !selectedConstructionSiteId)
+                    (currentStep === 1 && !effectivePlantId) ||
+                    (currentStep === 2 && !selectedClientId) ||
+                    (currentStep === 3 && !selectedConstructionSiteId)
                   }
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2 glass-interactive rounded-xl font-medium',
-                    'bg-systemBlue text-white',
+                    'flex items-center gap-2 px-4 py-2 rounded-xl font-medium',
+                    'bg-systemBlue text-white hover:bg-systemBlue/90',
+                    'border border-systemBlue/80 shadow-sm',
                     'disabled:opacity-50 disabled:cursor-not-allowed'
                   )}
                   whileHover={{ scale: 1.05 }}
@@ -2825,9 +2896,10 @@ export default function ScheduleOrderForm({
 
             {/* Step content */}
             <div className="focus-mode-content">
-              {currentStep === 1 && renderClientSelection()}
-              {currentStep === 2 && renderSiteSelection()}
-              {currentStep === 3 && renderOrderDetails()}
+              {currentStep === 1 && renderPlantSelection()}
+              {currentStep === 2 && renderClientSelection()}
+              {currentStep === 3 && renderSiteSelection()}
+              {currentStep === 4 && renderOrderDetails()}
             </div>
           </GlassCard>
         </motion.div>

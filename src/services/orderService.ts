@@ -64,13 +64,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     const randomPart = Math.floor(1000 + Math.random() * 9000); // 4-digit random number
     const orderNumber = `ORD-${dateStr}-${randomPart}`;
     
-    // Get current user's ID from the auth session with fallback to NULL instead of 'system'
-    let userId = null;
+    // Get current user (getUser validates with auth server; getSession does not)
+    let userId: string | null = null;
     try {
-      const { data: authData } = await supabase.auth.getSession();
-      
-      if (authData && authData.session && authData.session.user) {
-        userId = authData.session.user.id;
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user?.id) {
+        userId = user.id;
       } else {
         // Instead of using 'system' string which is not a valid UUID,
         // set to NULL and let the database handle the constraint

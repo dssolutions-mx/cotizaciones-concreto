@@ -128,7 +128,8 @@ export async function GET(request: NextRequest) {
       .eq('plant_id', plantId)
       .order('created_at', { ascending: false });
     if (error) {
-      return NextResponse.json({ success: false, error: `Error al obtener certificados: ${error.message}` }, { status: 500 });
+      console.error('Error fetching plant certificates:', error);
+      return NextResponse.json({ success: false, error: 'Error al obtener certificados' }, { status: 500 });
     }
 
     const withUrls = await Promise.all((certs || []).map(async (c) => {

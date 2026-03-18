@@ -88,10 +88,19 @@ export async function PUT(
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    // Allowlist fields only (mass assignment protection)
+    const updatePayload = {
+      material_code: body.material_code,
+      material_name: body.material_name,
+      category: body.category,
+      unit_of_measure: body.unit_of_measure,
+      is_active: body.is_active ?? true,
+    };
+
     // Update material
     const { data: material, error } = await supabase
       .from('materials')
-      .update(body)
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();

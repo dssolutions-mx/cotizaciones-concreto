@@ -81,7 +81,10 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('plant_id', plantId)
       .order('created_at', { ascending: false });
-    if (error) return NextResponse.json({ success: false, error: `Error al obtener dossier: ${error.message}` }, { status: 500 });
+    if (error) {
+      console.error('Error fetching plant dossier:', error);
+      return NextResponse.json({ success: false, error: 'Error al obtener dossier' }, { status: 500 });
+    }
 
     const withUrls = await Promise.all((data || []).map(async (d) => {
       const { data: signed } = await supabase.storage.from('material-certificates').createSignedUrl(d.file_path, 3600);

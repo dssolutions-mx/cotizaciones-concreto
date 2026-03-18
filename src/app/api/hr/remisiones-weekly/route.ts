@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
         console.error('User role:', profile?.role);
         console.error('Date range:', { startDate, endDate });
         console.error('Pagination state:', { from, pageCount, totalCount });
-        return NextResponse.json({ error: 'Failed to fetch remisiones', details: error.message }, { status: 500 });
+        return NextResponse.json({ error: 'Failed to fetch remisiones' }, { status: 500 });
       }
 
       // Set total count on first page

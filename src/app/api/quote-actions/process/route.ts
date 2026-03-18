@@ -5,7 +5,7 @@ import { productPriceService } from '@/lib/supabase/product-prices';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET || supabaseServiceKey;
+const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET;
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
 
 function successRedirect(action: string) {

@@ -31,10 +31,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching distance ranges:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch distance ranges',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to fetch distance ranges' },
       { status: 500 }
     );
   }
@@ -141,7 +138,7 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error saving distance range config:', error);
       return NextResponse.json(
-        { error: 'Failed to save range config', details: error.message },
+        { error: 'Failed to save range config' },
         { status: 500 }
       );
     }
@@ -150,10 +147,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error saving distance range config:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to save distance range config',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Failed to save distance range config' },
       { status: 500 }
     );
   }

@@ -9,6 +9,11 @@ export async function GET(
     const { id: clientId } = await params;
     const supabase = await createServerSupabaseClient();
 
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Get client orders with remisiones to calculate concrete delivered
     const { data: orders, error: ordersError } = await supabase
       .from('orders')

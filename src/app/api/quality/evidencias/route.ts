@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error uploading file:', error);
       return NextResponse.json(
-        { error: `Error uploading file: ${error.message}` },
+        { error: 'Error al subir el archivo' },
         { status: 500 }
       );
     }

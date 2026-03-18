@@ -101,12 +101,13 @@ export async function POST(
           totalCost: allocationResult.totalCost,
           allocationsCount: allocationResult.allocations.length,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
+        console.error('Error allocating material:', rm.material_id, error);
         errors.push({
           remisionMaterialId: rm.id,
           materialId: rm.material_id,
           materialName: rm.materials?.material_name || 'N/A',
-          error: error.message,
+          error: 'Error al asignar consumo',
         });
       }
     }
@@ -119,10 +120,10 @@ export async function POST(
       allocationResults,
       errors: errors.length > 0 ? errors : undefined,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error allocating FIFO consumption:', error);
     return NextResponse.json(
-      { error: 'Error al asignar consumo FIFO', details: error.message },
+      { error: 'Error al asignar consumo FIFO' },
       { status: 500 }
     );
   }
