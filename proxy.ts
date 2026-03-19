@@ -233,6 +233,7 @@ export async function proxy(request: NextRequest) {
     '/auth-check', // Keep if used for specific checks
     '/contact',
     '/help',
+    '/quote-action-result', // Email approve/reject one-click feedback (no auth)
   ];
   
   const isPublicRoute = 

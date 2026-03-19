@@ -6,7 +6,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
 
 function quoteErrorUrl(reason: string) {
-  return `${baseUrl}/quotes?action=error&reason=${reason}`;
+  return `${baseUrl}/quote-action-result?action=error&reason=${reason}`;
 }
 
 export async function GET(request: Request) {

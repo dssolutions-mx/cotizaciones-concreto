@@ -9,11 +9,11 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET || process.env.JWT_SECRET;
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
 
 function successRedirect(action: string) {
-  return `${baseUrl}/quotes?action=${action === 'approve' ? 'approved' : 'rejected'}`;
+  return `${baseUrl}/quote-action-result?action=${action === 'approve' ? 'approved' : 'rejected'}`;
 }
 
 function errorRedirect(reason: string) {
-  return `${baseUrl}/quotes?action=error&reason=${reason}`;
+  return `${baseUrl}/quote-action-result?action=error&reason=${reason}`;
 }
 
 async function verifyJWT(token: string) {

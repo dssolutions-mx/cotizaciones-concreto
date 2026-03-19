@@ -202,12 +202,14 @@ Note: The deployed `weekly-balance-report` writes into `system_notifications` wh
 - `/api/quote-actions/process` (Next.js API Route):
   - Verifies JWT; decodes `{ quoteId, action, recipientEmail }`.
   - Confirms token in DB; quote must be `PENDING_APPROVAL`.
-  - Approve: update `quotes` (status=APPROVED, approval_date, approved_by); call `productPriceService.handleQuoteApproval`; delete tokens; redirect to `/quotes?action=approved`.
-  - Reject: update `quotes` (status=REJECTED, rejection_reason='Rechazado desde correo electrónico'); delete tokens; redirect to `/quotes?action=rejected`.
+  - Approve: update `quotes` (status=APPROVED, approval_date, approved_by); call `productPriceService.handleQuoteApproval`; delete tokens; redirect to `/quote-action-result?action=approved`.
+  - Reject: update `quotes` (status=REJECTED, rejection_reason='Rechazado desde correo electrónico'); delete tokens; redirect to `/quote-action-result?action=rejected`.
+  - Errors redirect to `/quote-action-result?action=error&reason=...` (same for `/api/quote-actions/direct-action` validation failures).
 
 4) User feedback in UI
 
-- `src/app/quotes/page.tsx` uses `QuotesActionBanner` to read `action` and `reason` query params and show success/error banner plus toast.
+- **`/quote-action-result`** (public page; allowlisted in `proxy.ts`): shows success, error, or “already processed” messaging from `action`, `reason`, and `already_processed` query params, plus Sonner toasts and an “Iniciar sesión” link to `/login?redirect=/quotes`. Recipients often open the email without an app session, so feedback must not depend on `/quotes` (which requires auth).
+- **`src/app/quotes/page.tsx`**: still uses `QuotesActionBanner` for users who land on `/quotes?action=...` while already logged in (e.g. bookmarks).
 
 ## Secrets and configuration
 
