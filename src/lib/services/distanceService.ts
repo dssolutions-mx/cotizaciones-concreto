@@ -181,20 +181,26 @@ export async function getDistanceRange(
 
     if (fetchError) throw fetchError;
 
+    const ranges = (allRanges || []) as DistanceRangeConfig[];
+
     // Find the range that contains this distance
     // Note: max_distance_km is exclusive for all ranges except the last one
-    // For the last range (G), we include distances >= max_distance_km
-    const matchingRange = (allRanges || []).find(
-      (range) => {
-        if (range.range_code === 'G') {
-          // Last range includes distances >= min_distance_km
-          return distanceKm >= range.min_distance_km;
-        }
-        return distanceKm >= range.min_distance_km && distanceKm < range.max_distance_km;
+    // For the last range (G), we include distances >= min_distance_km
+    let matchingRange = ranges.find((range) => {
+      if (range.range_code === 'G') {
+        return distanceKm >= range.min_distance_km;
       }
-    );
+      return distanceKm >= range.min_distance_km && distanceKm < range.max_distance_km;
+    });
 
-    return matchingRange || null;
+    // Fallback: when distance falls in a gap (e.g. 20.54 between "0-20" and "21-40"),
+    // use the next range—the one with smallest min_distance_km > distance
+    if (!matchingRange && ranges.length > 0) {
+      const nextRange = ranges.find((r) => r.min_distance_km > distanceKm);
+      matchingRange = nextRange ?? ranges[ranges.length - 1]; // fallback to last (G) if beyond all
+    }
+
+    return matchingRange ?? null;
   } catch (error) {
     const errorMessage = handleError(error, 'getDistanceRange');
     console.error(errorMessage);
