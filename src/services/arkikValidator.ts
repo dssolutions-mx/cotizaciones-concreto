@@ -265,6 +265,22 @@ export class ArkikValidator {
       });
     }
 
+    // TERMINADO with zero materials — possible cross-plant production
+    const normalizedEstatus = (r.estatus || '').toLowerCase().trim();
+    const isTerminado = normalizedEstatus.includes('terminado') && !normalizedEstatus.includes('incompleto');
+    const hasZeroMaterials = Object.values(r.materials_real || {}).every(v => v === 0);
+    if (isTerminado && hasZeroMaterials) {
+      errors.push({
+        row_number: r.row_number,
+        error_type: ArkikErrorType.ZERO_MATERIAL_TERMINADO,
+        field_name: 'materials_real',
+        field_value: r.materials_real,
+        message: 'Remisión TERMINADO sin materiales — posible producción en otra planta. La confirmación quedará bloqueada hasta que la planta productora vincule su remisión.',
+        suggestion: { action: 'cross_plant_production' },
+        recoverable: true,
+      });
+    }
+
     const finalErrors = [...r.validation_errors, ...errors];
     const status: StagingRemision['validation_status'] = finalErrors.some(e => !e.recoverable) ? 'error' : (finalErrors.length ? 'warning' : 'valid');
 

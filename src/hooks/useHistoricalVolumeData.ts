@@ -94,7 +94,7 @@ export function useHistoricalVolumeData({
         // Fetch pump volume from remisiones (unified view doesn't have pump volume)
         let pumpQuery = supabase
           .from('remisiones')
-          .select('fecha, plant_id, volumen_fabricado, plants!inner(id, name)')
+          .select('fecha, plant_id, volumen_fabricado, plants!plant_id!inner(id, name)')
           .eq('tipo_remision', 'BOMBEO');
         
         // Apply date filters only if dates are specified

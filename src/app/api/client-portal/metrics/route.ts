@@ -14,10 +14,11 @@ export async function GET() {
       .from('orders')
       .select('id', { count: 'exact', head: true });
 
-    // Volume (exclude BOMBEO to match ventas logic)
+    // Volume (exclude BOMBEO and internal cross-plant production records)
     const { data: rems } = await supabase
       .from('remisiones')
       .select('volumen_fabricado, tipo_remision')
+      .eq('is_production_record', false)
       .limit(1000);
     const deliveredVolume = (rems || []).reduce((sum: number, r: any) => {
       if (r.tipo_remision === 'BOMBEO') return sum;

@@ -24,7 +24,8 @@ import {
   Activity,
   Users,
   Building2,
-  RefreshCw
+  RefreshCw,
+  ArrowLeftRight
 } from 'lucide-react'
 import Link from 'next/link'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -43,6 +44,7 @@ export default function DosificadorDashboard() {
     arkikProcessed: 0
   })
   const [loading, setLoading] = useState(true)
+  const [crossPlantPending, setCrossPlantPending] = useState({ billing: 0, production: 0 })
 
   // Prevent hydration mismatch with date formatting
   useEffect(() => {
@@ -80,6 +82,23 @@ export default function DosificadorDashboard() {
           pumpingServices: todayActivities.filter((a: any) => a.type === 'pumping').length,
           arkikProcessed: todayActivities.filter((a: any) => a.type === 'arkik').length
         })
+      }
+
+
+      // Fetch cross-plant pending counts
+      try {
+        const cpQuery = new URLSearchParams()
+        if (currentPlant?.id) cpQuery.set('plant_id', currentPlant.id)
+        const cpRes = await fetch(`/api/production-control/cross-plant-status?${cpQuery.toString()}`)
+        if (cpRes.ok) {
+          const cpData = await cpRes.json()
+          setCrossPlantPending({
+            billing: cpData.summary?.pending_billing ?? 0,
+            production: cpData.summary?.pending_production ?? 0,
+          })
+        }
+      } catch {
+        // Non-critical — don't block dashboard load
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error)
@@ -149,7 +168,7 @@ export default function DosificadorDashboard() {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -213,7 +232,57 @@ export default function DosificadorDashboard() {
               </div>
             </CardContent>
           </Card>
+
+          <Link href="/production-control/cross-plant">
+            <Card className={`bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200 cursor-pointer hover:shadow-md transition-shadow ${(crossPlantPending.billing > 0 || crossPlantPending.production > 0) ? 'ring-2 ring-amber-400' : ''}`}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-amber-700">Prod. Cruzada</p>
+                    <p className="text-2xl font-bold text-amber-900">
+                      {loading ? '...' : crossPlantPending.billing + crossPlantPending.production}
+                    </p>
+                    {!loading && (crossPlantPending.billing > 0 || crossPlantPending.production > 0) && (
+                      <p className="text-xs text-amber-600 mt-0.5">pendientes</p>
+                    )}
+                  </div>
+                  <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${(crossPlantPending.billing > 0 || crossPlantPending.production > 0) ? 'bg-amber-500' : 'bg-amber-300'}`}>
+                    <ArrowLeftRight className="h-6 w-6 text-white" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
         </div>
+
+        {/* Cross-Plant Pending Alert — only shown when there are unresolved records */}
+        {(crossPlantPending.billing > 0 || crossPlantPending.production > 0) && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <ArrowLeftRight className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold text-amber-800 text-sm">Producción Cruzada Pendiente</div>
+                <div className="text-sm text-amber-700 mt-1 space-y-0.5">
+                  {crossPlantPending.billing > 0 && (
+                    <div>
+                      {crossPlantPending.billing} {crossPlantPending.billing === 1 ? 'remisión facturada aquí espera' : 'remisiones facturadas aquí esperan'} que otra planta registre su producción
+                    </div>
+                  )}
+                  {crossPlantPending.production > 0 && (
+                    <div>
+                      {crossPlantPending.production} {crossPlantPending.production === 1 ? 'registro de producción sin' : 'registros de producción sin'} vínculo de facturación
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <Link href="/production-control/cross-plant" className="shrink-0">
+              <Button variant="outline" size="sm" className="border-amber-300 text-amber-800 hover:bg-amber-100">
+                Ver →
+              </Button>
+            </Link>
+          </div>
+        )}
 
         {/* Main Actions Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -323,7 +392,61 @@ export default function DosificadorDashboard() {
             </div>
             
             <div className="space-y-4">
-              
+              <Link href="/production-control/daily-log">
+                <Card className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-yellow-500 hover:border-l-yellow-600">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="h-10 w-10 bg-yellow-100 rounded-lg flex items-center justify-center group-hover:bg-yellow-200 transition-colors">
+                            <Calendar className="h-5 w-5 text-yellow-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900 group-hover:text-yellow-600 transition-colors">
+                              Bitácora Diaria
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              Registro diario de producción
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Consulta y registra la bitácora de actividades del día
+                        </p>
+                      </div>
+                      <ArrowUpDown className="h-5 w-5 text-gray-400 group-hover:text-yellow-500 transition-colors" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+
+              <Link href="/production-control/cross-plant">
+                <Card className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-indigo-500 hover:border-l-indigo-600">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="h-10 w-10 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                            <ArrowLeftRight className="h-5 w-5 text-indigo-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
+                              Producción Cruzada
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              Gestionar vínculos entre plantas
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Rastrea remisiones donde la facturación y la producción ocurren en plantas distintas
+                        </p>
+                      </div>
+                      <ArrowUpDown className="h-5 w-5 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               <Link href="/production-control/reloj-checador">
                 <Card className="group hover:shadow-lg transition-all duration-200 cursor-pointer border-l-4 border-l-emerald-500 hover:border-l-emerald-600">
@@ -486,6 +609,7 @@ export default function DosificadorDashboard() {
           </CardContent>
         </Card>
       </div>
+
     </div>
   )
 }

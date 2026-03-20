@@ -77,25 +77,9 @@ export class ArkikRemisionCreator {
           })(),
           volumen_fabricado: stagingRemision.volumen_fabricado,
           conductor: stagingRemision.conductor,
-          placas: stagingRemision.placas,
-          camion: stagingRemision.camion,
-          punto_entrega: stagingRemision.punto_entrega,
-          comentarios_externos: stagingRemision.comentarios_externos,
-          comentarios_internos: stagingRemision.comentarios_internos,
-          product_description: stagingRemision.product_description,
+          unidad: stagingRemision.placas || null,
           recipe_id: stagingRemision.recipe_id,
-          estatus: stagingRemision.estatus,
           plant_id: this.plantId,
-          // Arkik specific fields
-          arkik_import: true,
-          arkik_session_id: stagingRemision.session_id,
-          arkik_raw_data: {
-            prod_comercial: stagingRemision.prod_comercial,
-            prod_tecnico: stagingRemision.prod_tecnico,
-            elementos: stagingRemision.elementos,
-            bombeable: stagingRemision.bombeable,
-            quote_detail_id: stagingRemision.quote_detail_id
-          }
         })
         .select('id')
         .single();

@@ -35,6 +35,30 @@ export async function POST(
       return NextResponse.json({ error: 'Sin permisos para confirmar remisiones' }, { status: 403 });
     }
 
+    // Guard: block confirmation for zero-material remisiones that haven't been linked yet
+    const { data: remision } = await supabase
+      .from('remisiones')
+      .select('cross_plant_billing_remision_id')
+      .eq('id', remisionId)
+      .single();
+
+    if (remision) {
+      const { count } = await supabase
+        .from('remision_materiales')
+        .select('id', { count: 'exact', head: true })
+        .eq('remision_id', remisionId);
+
+      if ((count ?? 0) === 0 && !remision.cross_plant_billing_remision_id) {
+        return NextResponse.json(
+          {
+            error: 'Remisión sin materiales registrados. Si el concreto fue producido en otra planta, espere a que esa planta procese su archivo Arkik para establecer el vínculo.',
+            code: 'NO_MATERIALS_NO_CROSS_PLANT_LINK',
+          },
+          { status: 422 }
+        );
+      }
+    }
+
     const result = await autoAllocateRemisionFIFO(remisionId, user.id);
 
     return NextResponse.json({

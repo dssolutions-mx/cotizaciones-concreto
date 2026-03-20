@@ -125,7 +125,7 @@ export class ReportDataService {
               email
             )
           ),
-          plant:plants (
+          plant:plants!plant_id (
             id,
             code,
             name,
@@ -342,7 +342,7 @@ export class ReportDataService {
               master_recipes:master_recipe_id(master_code)
             ),
             materiales:remision_materiales(*),
-            plant:plants (
+            plant:plants!plant_id (
               id,
               code,
               name,
@@ -617,7 +617,7 @@ export class ReportDataService {
               master_recipes:master_recipe_id(master_code)
             ),
             materiales:remision_materiales(*),
-            plant:plants (
+            plant:plants!plant_id (
               id,
               code,
               name,
@@ -810,7 +810,7 @@ export class ReportDataService {
             master_recipes:master_recipe_id(master_code)
           ),
           materiales:remision_materiales(*),
-          plant:plants (
+          plant:plants!plant_id (
             id,
             code,
             name,

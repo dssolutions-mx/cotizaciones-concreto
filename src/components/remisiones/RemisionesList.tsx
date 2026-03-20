@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye, ArrowLeftRight, Factory, CheckCircle2, Clock, Building2 } from 'lucide-react';
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
@@ -452,6 +452,9 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
+  const [linkedProduction, setLinkedProduction] = useState<any[]>([]);
+  const [billingCrossPlant, setBillingCrossPlant] = useState<any[]>([]);
+  const [linkedLoading, setLinkedLoading] = useState(false);
   const [expandedRecipes, setExpandedRecipes] = useState<Record<string, boolean>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [remisionToDelete, setRemisionToDelete] = useState<any | null>(null);
@@ -509,7 +512,21 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   useEffect(() => {
     fetchRemisiones();
   }, [fetchRemisiones]);
-  
+
+  // Fetch Plant B production records linked to this order's billing remisiones
+  useEffect(() => {
+    if (!orderId) return;
+    setLinkedLoading(true);
+    fetch(`/api/production-control/cross-plant-linked?order_id=${orderId}`)
+      .then(r => r.json())
+      .then(d => {
+        setLinkedProduction(d.linked || []);
+        setBillingCrossPlant(d.billingCrossPlant || []);
+      })
+      .catch(() => {})
+      .finally(() => setLinkedLoading(false));
+  }, [orderId]);
+
   // Agrupar remisiones por tipo
   const concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
   const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
@@ -704,9 +721,15 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                             <React.Fragment key={remision.id}>
                               <TableRow onClick={() => toggleExpand(remision.id)} className="cursor-pointer hover:bg-gray-50">
                                 <TableCell>
-                                  <button className="flex items-center text-blue-600 hover:text-blue-800">
+                                  <button className="flex items-center gap-2 text-blue-600 hover:text-blue-800">
                                     {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                    <span className="ml-1 font-medium">{remision.remision_number}</span>
+                                    <span className="font-medium">{remision.remision_number}</span>
+                                    {remision.cross_plant_billing_plant_id && (
+                                      <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded px-1 py-0.5 flex items-center gap-1">
+                                        <ArrowLeftRight size={10} />
+                                        Prod. Cruzada
+                                      </span>
+                                    )}
                                   </button>
                                 </TableCell>
                                 <TableCell>
@@ -740,6 +763,45 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                                 <TableRow>
                                   <TableCell colSpan={6} className="p-0">
                                     <div className="p-4 bg-gray-50 border-t">
+                                      {/* Cross-plant production detail */}
+                                      {remision.cross_plant_billing_plant_id && (() => {
+                                        const cpInfo = billingCrossPlant.find(b => b.billing_remision_id === remision.id);
+                                        const prodRecord = linkedProduction.find(p => p.billing_remision_number === remision.remision_number);
+                                        const isResolved = !!prodRecord;
+                                        const plantName = cpInfo?.producing_plant_name || 'otra planta';
+                                        return (
+                                          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 overflow-hidden">
+                                            <div className="flex items-center gap-2 px-4 py-2 bg-amber-100 border-b border-amber-200">
+                                              <ArrowLeftRight className="h-4 w-4 text-amber-700 shrink-0" />
+                                              <span className="text-sm font-semibold text-amber-800">Producción cruzada — {plantName}</span>
+                                              {isResolved
+                                                ? <span className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 border border-green-200 rounded-full px-2 py-0.5"><CheckCircle2 className="h-3 w-3" /> Vinculada</span>
+                                                : <span className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5"><Clock className="h-3 w-3" /> Pendiente</span>
+                                              }
+                                            </div>
+                                            {isResolved && prodRecord ? (
+                                              <div className="px-4 py-3 grid grid-cols-3 gap-4 text-sm">
+                                                <div>
+                                                  <p className="text-xs text-amber-600 font-medium uppercase tracking-wide mb-0.5">Remisión producción</p>
+                                                  <p className="font-semibold text-amber-900">{prodRecord.remision_number}</p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-xs text-amber-600 font-medium uppercase tracking-wide mb-0.5">Planta</p>
+                                                  <p className="font-semibold text-amber-900">{prodRecord.production_plant_name || plantName}</p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-xs text-amber-600 font-medium uppercase tracking-wide mb-0.5">Volumen real</p>
+                                                  <p className="font-semibold text-amber-900">{prodRecord.volumen_fabricado?.toFixed(2)} m³</p>
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="px-4 py-3 text-sm text-amber-700">
+                                                Este concreto se producirá en <strong>{plantName}</strong>. El registro de producción aún no ha sido vinculado.
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                       <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
                                       <RemisionProductosAdicionalesList 
                                         remisionId={remision.id} 
@@ -829,9 +891,76 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
               </div>
             </div>
           )}
+          {/* Producción vinculada — Plant B records linked to this order */}
+          {(linkedLoading || linkedProduction.length > 0 || billingCrossPlant.length > 0) && (
+            <div className="mt-6 pt-6 border-t">
+              <h3 className="text-base font-medium mb-3 flex items-center gap-2">
+                <ArrowLeftRight className="h-4 w-4 text-amber-600" />
+                Producción en otra planta
+              </h3>
+
+              {linkedLoading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                  <div className="w-4 h-4 border-2 border-t-amber-500 border-amber-200 rounded-full animate-spin" />
+                  Cargando registros de producción cruzada...
+                </div>
+              ) : linkedProduction.length > 0 ? (
+                <div className="rounded-lg border border-amber-200 overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-amber-50">
+                        <TableHead className="text-amber-800">Rem. Producción</TableHead>
+                        <TableHead className="text-amber-800">Planta productora</TableHead>
+                        <TableHead className="text-amber-800">Fecha</TableHead>
+                        <TableHead className="text-amber-800">Conductor</TableHead>
+                        <TableHead className="text-amber-800 text-right">Volumen</TableHead>
+                        <TableHead className="text-amber-800 text-right">Estado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {linkedProduction.map(prod => (
+                        <TableRow key={prod.id} className="bg-amber-50/30 hover:bg-amber-50/60">
+                          <TableCell className="font-semibold text-amber-900">{prod.remision_number}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5 text-sm text-gray-700">
+                              <Factory className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                              {prod.production_plant_name || '—'}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-gray-700">{prod.fecha ? formatDateSafely(prod.fecha) : '—'}</TableCell>
+                          <TableCell className="text-sm text-gray-700">{prod.conductor || '—'}</TableCell>
+                          <TableCell className="text-right font-medium text-gray-900">{prod.volumen_fabricado?.toFixed(2)} m³</TableCell>
+                          <TableCell className="text-right">
+                            {prod.is_resolved
+                              ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 border border-green-200 rounded-full px-2 py-0.5"><CheckCircle2 className="h-3 w-3" /> Vinculada</span>
+                              : <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 border border-amber-200 rounded-full px-2 py-0.5"><Clock className="h-3 w-3" /> Pendiente</span>
+                            }
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : billingCrossPlant.length > 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+                  {billingCrossPlant.map(b => (
+                    <div key={b.billing_remision_id} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-amber-800">
+                        <Factory className="h-4 w-4 text-amber-500 shrink-0" />
+                        <span>Rem. <strong>{b.billing_remision_number}</strong> — producida en <strong>{b.producing_plant_name || 'otra planta'}</strong></span>
+                      </div>
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-200 border border-amber-300 rounded-full px-2 py-0.5">
+                        <Clock className="h-3 w-3" /> Sin registro
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
         </CardContent>
       </Card>
-      
+
       {/* Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>

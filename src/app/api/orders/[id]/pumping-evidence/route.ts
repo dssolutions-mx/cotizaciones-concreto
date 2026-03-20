@@ -28,7 +28,7 @@ export async function GET(
         unidad,
         volumen_fabricado,
         plant_id,
-        plants!inner(name)
+        plants!plant_id!inner(name)
       `)
       .eq('order_id', orderId)
       .eq('tipo_remision', 'BOMBEO')

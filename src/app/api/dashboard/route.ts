@@ -140,14 +140,16 @@ export async function GET(request: Request) {
           .select('volumen_fabricado, fecha, tipo_remision')
           .gte('fecha', format(currentMonthStart, 'yyyy-MM-dd'))
           .lte('fecha', format(currentMonthEnd, 'yyyy-MM-dd'))
+          .eq('is_production_record', false)
       ),
-        
+
       applyPlantFilter(
         serviceClient
           .from('remisiones')
           .select('volumen_fabricado, fecha, tipo_remision')
           .gte('fecha', format(previousMonthStart, 'yyyy-MM-dd'))
           .lte('fecha', format(previousMonthEnd, 'yyyy-MM-dd'))
+          .eq('is_production_record', false)
       ),
         
       // Revenue data using same pattern as finanzas/ventas-diarias

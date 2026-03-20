@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy } from 'lucide-react';
+import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy, ArrowLeftRight, Factory, Link as LinkIcon, Building2, Package, Plus, RefreshCw } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
@@ -74,7 +74,16 @@ export default function ArkikProcessor() {
   const [stagingData, setStagingData] = useState<StagingRemision[]>([]);
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestion[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation' | 'manual-assignment' | 'duplicate-handling'>('validation');
+  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation' | 'manual-assignment' | 'duplicate-handling' | 'result'>('validation');
+  const [importResult, setImportResult] = useState<{
+    totalOrdersCreated: number;
+    totalOrdersUpdated: number;
+    totalRemisionesCreated: number;
+    totalMaterialsProcessed: number;
+    crossPlantProduction: Array<{ remisionNumber: string; targetPlantName?: string; targetRemisionNumber?: string; linked: boolean }>;
+    crossPlantBilling: Array<{ remisionNumber: string; producingPlantName?: string }>;
+    autoResolvedLinks: Array<{ billingRemisionNumber: string; productionRemisionNumber: string; productionPlantName: string }>;
+  } | null>(null);
   
   // Manual assignment state for commercial mode
   const [showManualAssignment, setShowManualAssignment] = useState(false);
@@ -369,11 +378,13 @@ Fin del reporte
       });
 
       // Show only remisiones that need status processing decisions
-      // Filter out terminado remisiones that don't need attention
       const remisionesNeedingAttention = result.validated.filter(remision => {
         const status = remision.estatus.toLowerCase();
-        // Include remisiones that are NOT terminado (incompletas, canceladas, pendientes, etc.)
-        return !status.includes('terminado') || status.includes('incompleto');
+        // Include CANCELADO, INCOMPLETO, PENDIENTE
+        if (!status.includes('terminado') || status.includes('incompleto')) return true;
+        // Include TERMINADO with zero real materials (concrete produced at another plant)
+        const hasZeroMaterials = Object.values(remision.materials_real || {}).every(v => v === 0);
+        return hasZeroMaterials;
       });
       
       setProblemRemisiones(remisionesNeedingAttention);
@@ -631,6 +642,11 @@ Fin del reporte
           console.log(`[ArkikProcessor] Excluding remision ${remision.remision_number} due to status processing:`, remision.status_processing_action);
           return false;
         }
+        // Cross-plant production records are handled separately — no order_id
+        if (remision.is_production_record) {
+          console.log(`[ArkikProcessor] Excluding cross-plant production record ${remision.remision_number} from order grouping`);
+          return false;
+        }
         // CRITICAL: Never include omit/skip duplicates in order creation
         if (remision.duplicate_strategy === 'skip') {
           console.log(`[ArkikProcessor] Excluding omit/skip remision ${remision.remision_number} from order creation`);
@@ -684,9 +700,13 @@ Fin del reporte
         return hasRequiredIds && hasValidStatus && hasPricing;
       });
 
+      // Count cross-plant production remisiones (excluded from readyForOrderCreation intentionally)
+      const crossPlantProductionCount = remisionesToProcess.filter(r => r.is_production_record === true).length;
+
       console.log('[ArkikProcessor] Filtered remisiones for order creation:', {
         total: remisionesToProcess.length,
         ready: readyForOrderCreation.length,
+        crossPlantProduction: crossPlantProductionCount,
         filtered_out: remisionesToProcess.length - readyForOrderCreation.length,
         excluded_by_status_processing: remisionesToProcess.filter(r => r.is_excluded_from_import).length
       });
@@ -700,7 +720,7 @@ Fin del reporte
         return !(hasRequiredIds && hasValidStatus && hasPricing);
       });
 
-      if (readyForOrderCreation.length === 0) {
+      if (readyForOrderCreation.length === 0 && crossPlantProductionCount === 0) {
         const reasons = [];
         const excludedByStatus = filteredOut.filter(r => r.is_excluded_from_import).length;
         const missingConstructionSite = filteredOut.filter(r => !r.is_excluded_from_import && !r.construction_site_id).length;
@@ -722,7 +742,7 @@ Fin del reporte
           'Motivos:',
           ...reasons.map(r => `• ${r}`),
           '',
-          '📋 Para resolver estos problemas:',
+          'Para resolver estos problemas:',
           '',
           missingRecipe > 0 ? `• ${missingRecipe} recetas faltantes: Contacta al equipo de calidad` : '',
           missingPrice > 0 ? `• ${missingPrice} precios faltantes: Contacta al equipo de contabilidad` : '',
@@ -752,101 +772,107 @@ Fin del reporte
 
       // Use the UI toggle for processing mode
       let suggestions: OrderSuggestion[] = [];
-      
-      if (processingMode === 'commercial') {
-        // Commercial mode: try to match existing orders first
-        console.log('[ArkikProcessor] Commercial mode: Looking for existing orders to match');
-        
-        const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
-        const matcher = new ArkikOrderMatcher(currentPlant!.id);
-        
-        const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
-        
-        console.log('[ArkikProcessor] Order matching results:', {
-          totalRemisiones: readyForOrderCreation.length,
-          matchedOrders: matchedOrders.length,
-          unmatchedRemisiones: unmatchedRemisiones.length
-        });
-        
-        // Check if we have unmatched remisiones that need manual assignment
-        if (unmatchedRemisiones.length > 0) {
-          console.log('[ArkikProcessor] Found unmatched remisiones, showing manual assignment interface');
-          setUnmatchedRemisiones(unmatchedRemisiones);
-          setShowManualAssignment(true);
-          setCurrentStep('manual-assignment');
-          return; // Stop here and let user manually assign
+
+      if (readyForOrderCreation.length > 0) {
+        // Only run order grouping when there are regular (non-cross-plant) remisiones
+        if (processingMode === 'commercial') {
+          // Commercial mode: try to match existing orders first
+          console.log('[ArkikProcessor] Commercial mode: Looking for existing orders to match');
+
+          const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+          const matcher = new ArkikOrderMatcher(currentPlant!.id);
+
+          const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
+
+          console.log('[ArkikProcessor] Order matching results:', {
+            totalRemisiones: readyForOrderCreation.length,
+            matchedOrders: matchedOrders.length,
+            unmatchedRemisiones: unmatchedRemisiones.length
+          });
+
+          // Check if we have unmatched remisiones that need manual assignment
+          if (unmatchedRemisiones.length > 0) {
+            console.log('[ArkikProcessor] Found unmatched remisiones, showing manual assignment interface');
+            setUnmatchedRemisiones(unmatchedRemisiones);
+            setShowManualAssignment(true);
+            setCurrentStep('manual-assignment');
+            return; // Stop here and let user manually assign
+          }
+
+          // Import the order grouper service
+          const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+          const grouper = new ArkikOrderGrouper();
+
+          // Group with existing orders and any unmatched remisiones
+          suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+            processingMode: 'commercial',
+            existingOrderMatches: matchedOrders
+          });
+
+          if (suggestions.length === 0) {
+            alert('No hay órdenes sugeridas en modo Comercial. Verifica precios/códigos y vuelve a intentar, o cambia a "Obra Dedicada".');
+            return;
+          }
+
+        } else if (processingMode === 'hybrid') {
+          // Hybrid mode: try to match existing orders first, then create new orders for unmatched
+          console.log('[ArkikProcessor] Hybrid mode: Looking for existing orders to match, then creating new orders for unmatched');
+
+          const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+          const matcher = new ArkikOrderMatcher(currentPlant!.id);
+
+          const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
+
+          console.log('[ArkikProcessor] Order matching results:', {
+            totalRemisiones: readyForOrderCreation.length,
+            matchedOrders: matchedOrders.length,
+            unmatchedRemisiones: unmatchedRemisiones.length
+          });
+
+          // Import the order grouper service
+          const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+          const grouper = new ArkikOrderGrouper();
+
+          // Group with existing orders and create new orders for unmatched remisiones
+          // The grouper will handle both matched and unmatched remisiones automatically
+          suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+            processingMode: 'hybrid',
+            existingOrderMatches: matchedOrders
+          });
+
+          if (suggestions.length === 0) {
+            alert('No hay órdenes sugeridas en modo Híbrido. Verifica precios/códigos y vuelve a intentar.');
+            return;
+          }
+
+        } else {
+          // Dedicated site mode: create new orders automatically
+          console.log('[ArkikProcessor] Dedicated site mode: Creating new orders');
+
+          const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+          const grouper = new ArkikOrderGrouper();
+
+          suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+            processingMode: 'dedicated'
+          });
+
+          if (suggestions.length === 0) {
+            alert('No hay órdenes sugeridas en modo Obra Dedicada. Verifica que existan remisiones listas para crear órdenes.');
+            return;
+          }
         }
-        
-        // Import the order grouper service
-        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
-        const grouper = new ArkikOrderGrouper();
-        
-        // Group with existing orders and any unmatched remisiones
-        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
-          processingMode: 'commercial',
-          existingOrderMatches: matchedOrders
-        });
-        
-        if (suggestions.length === 0) {
-          alert('No hay órdenes sugeridas en modo Comercial. Verifica precios/códigos y vuelve a intentar, o cambia a "Obra Dedicada".');
-          return;
-        }
-        
-      } else if (processingMode === 'hybrid') {
-        // Hybrid mode: try to match existing orders first, then create new orders for unmatched
-        console.log('[ArkikProcessor] Hybrid mode: Looking for existing orders to match, then creating new orders for unmatched');
-        
-        const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
-        const matcher = new ArkikOrderMatcher(currentPlant!.id);
-        
-        const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
-        
-        console.log('[ArkikProcessor] Order matching results:', {
-          totalRemisiones: readyForOrderCreation.length,
-          matchedOrders: matchedOrders.length,
-          unmatchedRemisiones: unmatchedRemisiones.length
-        });
-        
-        // Import the order grouper service
-        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
-        const grouper = new ArkikOrderGrouper();
-        
-        // Group with existing orders and create new orders for unmatched remisiones
-        // The grouper will handle both matched and unmatched remisiones automatically
-        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
-          processingMode: 'hybrid',
-          existingOrderMatches: matchedOrders
-        });
-        
-        if (suggestions.length === 0) {
-          alert('No hay órdenes sugeridas en modo Híbrido. Verifica precios/códigos y vuelve a intentar.');
-          return;
-        }
-        
       } else {
-        // Dedicated site mode: create new orders automatically
-        console.log('[ArkikProcessor] Dedicated site mode: Creating new orders');
-        
-        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
-        const grouper = new ArkikOrderGrouper();
-        
-        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
-          processingMode: 'dedicated'
-        });
-        
-        if (suggestions.length === 0) {
-          alert('No hay órdenes sugeridas en modo Obra Dedicada. Verifica que existan remisiones listas para crear órdenes.');
-          return;
-        }
+        // All remisiones are cross-plant production — no order grouping needed, proceed directly
+        console.log('[ArkikProcessor] All remisiones are cross-plant production records. Skipping order grouping.');
       }
-      
+
       setOrderSuggestions(suggestions);
       
       // Update statistics based on all processed remisiones (not just filtered ones)
       const totalRemisionesInSuggestions = suggestions.reduce((total, suggestion) => total + suggestion.remisiones.length, 0);
       
       const newStats = {
-        totalRows: totalRemisionesInSuggestions, // Count remisiones actually in the suggestions
+        totalRows: totalRemisionesInSuggestions + crossPlantProductionCount, // Include cross-plant production records
         validRows: readyForOrderCreation.filter(r => r.validation_status === 'valid').length,
         errorRows: remisionesToProcess.filter(r => r.validation_status === 'error').length, // Show errors from processed data
         ordersToCreate: suggestions.filter((s: OrderSuggestion) => !s.remisiones[0].orden_original).length,
@@ -866,11 +892,18 @@ Fin del reporte
       });
       
       setStats(newStats);
-      setCurrentStep('grouping');
-      
+
+      // If there are no regular-order suggestions (pure cross-plant batch), skip grouping review
+      // and go directly to confirmation so the user can trigger handleFinalConfirmation
+      const nextStep = readyForOrderCreation.length === 0 && crossPlantProductionCount > 0
+        ? 'confirmation'
+        : 'grouping';
+      setCurrentStep(nextStep);
+
       console.log('[ArkikProcessor] Order grouping completed successfully:', {
         suggestions: suggestions.length,
-        step: 'grouping',
+        step: nextStep,
+        crossPlantOnly: readyForOrderCreation.length === 0 && crossPlantProductionCount > 0,
         stats: newStats
       });
       
@@ -892,6 +925,7 @@ Fin del reporte
       const remisionesToProcess = processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []);
       const readyForOrderCreation = remisionesToProcess.filter(remision => {
         if (remision.is_excluded_from_import) return false;
+        if (remision.is_production_record) return false; // cross-plant handled separately
         const hasRequiredIds = remision.client_id && remision.construction_site_id && remision.recipe_id;
         const hasValidStatus = remision.validation_status !== 'error';
         const hasPricing = remision.unit_price != null && (remision.unit_price > 0 || remision.quote_detail_id);
@@ -1250,7 +1284,9 @@ Fin del reporte
   };
 
   const handleFinalConfirmation = async () => {
-    if (!orderSuggestions.length || !currentPlant) return;
+    const hasCrossPlantProduction = (processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []))
+      .some(r => r.is_production_record === true);
+    if ((!orderSuggestions.length && !hasCrossPlantProduction) || !currentPlant) return;
     
     setLoading(true);
     
@@ -1410,43 +1446,95 @@ Fin del reporte
         console.log(`✅ Applied material transfers for reassignments`);
       }
 
-      // Show success message with detailed results
-      const successMessage = [
-        'Importación completada exitosamente!',
-        '',
-        'Resumen:',
-        `• ${totalOrdersCreated} órdenes nuevas creadas`,
-        `• ${totalOrdersUpdated} órdenes existentes actualizadas`,
-        `• ${totalRemisionesCreated} remisiones procesadas`,
-        `• ${totalMaterialsProcessed} registros de materiales procesados`,
-        `• ${totalOrderItemsCreated} items de orden creados/actualizados`,
-        '',
-        'Nota: El conteo de materiales incluye todos los materiales de las remisiones procesadas,',
-        'incluyendo aquellos que ya existían en remisiones previamente importadas.'
-      ].join('\n');
-      
-      alert(successMessage);
-      
-      // Reset to validation step
-      setCurrentStep('validation');
-      setOrderSuggestions([]);
-      setResult(null);
-      setFile(null);
-      setProcessedRemisiones([]);
-      setPendingReassignments([]);
-      setStatusProcessingDecisions([]);
-      setStatusProcessingResult(null);
-      setStats({
-        totalRows: 0,
-        validRows: 0,
-        errorRows: 0,
-        ordersToCreate: 0,
-        remisionsWithoutOrder: 0,
-        newClients: 0,
-        newSites: 0,
-        newTrucks: 0,
-        newDrivers: 0
+      // Create cross-plant production remisiones (order_id = null, is_production_record = true)
+      const crossPlantRemisiones = finalRemisionesData.filter(r => r.is_production_record === true);
+      let crossPlantCreated = 0;
+      let crossPlantLinked = 0;
+
+      if (crossPlantRemisiones.length > 0) {
+        console.log(`[ArkikProcessor] Creating ${crossPlantRemisiones.length} cross-plant production remisiones...`);
+        const { createCrossPlantProductionRemisiones } = await import('@/services/arkikOrderCreator');
+        const cpResults = await createCrossPlantProductionRemisiones(crossPlantRemisiones, currentPlant.id);
+        crossPlantCreated = cpResults.length;
+
+        // Resolve cross-plant links via API (service role needed for cross-plant lookups)
+        const sessionId = crypto.randomUUID();
+        for (const cpResult of cpResults) {
+          if (!cpResult.crossPlantTargetPlantId || !cpResult.crossPlantTargetRemisionNumber) continue;
+          try {
+            const linkRes = await fetch('/api/arkik/cross-plant-link', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                source_remision_id: cpResult.remisionId,
+                source_plant_id: currentPlant.id,
+                target_remision_number: cpResult.crossPlantTargetRemisionNumber,
+                target_plant_id: cpResult.crossPlantTargetPlantId,
+                session_id: sessionId,
+              }),
+            });
+            const linkData = await linkRes.json();
+            if (linkData.status === 'resolved') crossPlantLinked++;
+            console.log(`[ArkikProcessor] Cross-plant link for ${cpResult.remisionNumber}: ${linkData.status}`);
+          } catch (linkErr) {
+            console.error('[ArkikProcessor] Error resolving cross-plant link:', linkErr);
+          }
+        }
+
+      }
+
+      // Always check for pending cross-plant links that match newly created billing remisiones
+      // (i.e., Plant A uploaded after Plant B had already stored pending links)
+      const billingRemisionNumbers = finalRemisionesData
+        .filter(r => !r.is_production_record && !r.is_excluded_from_import)
+        .map(r => r.remision_number);
+      let autoResolvedLinks: Array<{ billingRemisionNumber: string; productionRemisionNumber: string; productionPlantName: string }> = [];
+      if (billingRemisionNumbers.length > 0) {
+        try {
+          const resolveRes = await fetch('/api/arkik/resolve-pending-links', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              plant_id: currentPlant.id,
+              remision_numbers: billingRemisionNumbers,
+            }),
+          });
+          if (resolveRes.ok) {
+            const resolveData = await resolveRes.json();
+            autoResolvedLinks = resolveData.resolved || [];
+          }
+        } catch {
+          // Non-critical — pending links can be resolved on next upload
+        }
+      }
+
+      // Build cross-plant billing records (Plant A side: billed here, produced elsewhere)
+      const crossPlantBillingRemisiones = finalRemisionesData.filter(
+        r => !r.is_production_record && !r.is_excluded_from_import && r.cross_plant_target_plant_id
+      ).map(r => ({
+        remisionNumber: r.remision_number,
+        producingPlantName: r.cross_plant_target_plant_name,
+      }));
+
+      // Build cross-plant production records (Plant B side) for the result screen
+      const crossPlantProductionForResult = crossPlantRemisiones.map(r => ({
+        remisionNumber: r.remision_number,
+        targetPlantName: r.cross_plant_target_plant_name,
+        targetRemisionNumber: r.cross_plant_target_remision_number,
+        linked: r.cross_plant_confirmed === true,
+      }));
+
+      // Show in-page result screen instead of browser alert
+      setImportResult({
+        totalOrdersCreated,
+        totalOrdersUpdated,
+        totalRemisionesCreated,
+        totalMaterialsProcessed,
+        crossPlantProduction: crossPlantProductionForResult,
+        crossPlantBilling: crossPlantBillingRemisiones,
+        autoResolvedLinks,
       });
+      setCurrentStep('result');
       
     } catch (error) {
       console.error('Error in final confirmation:', error);
@@ -2788,9 +2876,39 @@ Fin del reporte
                  </Card>
                ))}
                
-               {/* Action Buttons */}
+               {/* Cross-Plant Production Records — read-only panel */}
+              {(() => {
+                const crossPlantRems = processedRemisiones.filter(r => r.is_production_record === true);
+                if (crossPlantRems.length === 0) return null;
+                return (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-lg">🏭</span>
+                      <span className="font-semibold text-indigo-800">
+                        Remisiones de Producción para Otra Planta ({crossPlantRems.length})
+                      </span>
+                    </div>
+                    <p className="text-sm text-indigo-700 mb-3">
+                      Estas remisiones se registran en esta planta con sus materiales reales. No se asignan a ninguna orden.
+                    </p>
+                    <div className="space-y-2">
+                      {crossPlantRems.map(r => (
+                        <div key={r.id} className="flex items-center justify-between bg-white rounded border border-indigo-100 px-3 py-2 text-sm">
+                          <span className="font-medium text-gray-800">#{r.remision_number} · {r.volumen_fabricado.toFixed(1)} m³</span>
+                          {r.cross_plant_confirmed
+                            ? <span className="text-indigo-700">→ {r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number} <span className="text-green-600">✓ Confirmado</span></span>
+                            : <span className="text-amber-600">→ {r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number || '—'} · vínculo pendiente</span>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Action Buttons */}
                <div className="flex justify-center gap-4 pt-4 border-t">
-                 <Button 
+                 <Button
                    onClick={() => setCurrentStep('validation')}
                    variant="secondary"
                    className="px-6"
@@ -2844,30 +2962,46 @@ Fin del reporte
                 </div>
               </div>
               
-              {/* Show processing mode info */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex items-center gap-2 text-gray-800">
-                  <span className="font-medium">Modo de Procesamiento:</span>
-                  <Badge variant="outline" className={
-                    processingMode === 'commercial' 
-                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+              {/* Cross-plant production banner — shown when batch has no regular orders */}
+              {orderSuggestions.length === 0 && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 flex items-start gap-3">
+                  <Factory className="h-5 w-5 text-indigo-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium text-indigo-900">Lote de Producción Cruzada</p>
+                    <p className="text-sm text-indigo-700 mt-0.5">
+                      Este lote contiene únicamente registros de producción cruzada ({stats.totalRows} remisión{stats.totalRows !== 1 ? 'es' : ''}).
+                      No se crearán órdenes de venta — se registrarán como producción para facturación por otra planta.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Show processing mode info — only relevant when there are regular orders */}
+              {orderSuggestions.length > 0 && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 text-gray-800">
+                    <span className="font-medium">Modo de Procesamiento:</span>
+                    <Badge variant="outline" className={
+                      processingMode === 'commercial'
+                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                        : processingMode === 'hybrid'
+                        ? 'bg-purple-100 text-purple-800 border-purple-300'
+                        : 'bg-green-100 text-green-800 border-green-300'
+                    }>
+                      {processingMode === 'commercial' ? 'Comercial' : processingMode === 'hybrid' ? 'Híbrido' : 'Obra Dedicada'}
+                    </Badge>
+                  </div>
+                  <div className="text-sm text-gray-600 mt-1">
+                    {processingMode === 'commercial'
+                      ? 'Las remisiones se vinculan a órdenes existentes cuando es posible'
                       : processingMode === 'hybrid'
-                      ? 'bg-purple-100 text-purple-800 border-purple-300'
-                      : 'bg-green-100 text-green-800 border-green-300'
-                  }>
-                    {processingMode === 'commercial' ? 'Comercial' : processingMode === 'hybrid' ? 'Híbrido' : 'Obra Dedicada'}
-                  </Badge>
+                      ? 'Inteligente: Se vinculan a órdenes existentes cuando es posible, se crean nuevas cuando no'
+                      : 'Se crean nuevas órdenes automáticamente'
+                    }
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  {processingMode === 'commercial' 
-                    ? 'Las remisiones se vinculan a órdenes existentes cuando es posible'
-                    : processingMode === 'hybrid'
-                    ? 'Inteligente: Se vinculan a órdenes existentes cuando es posible, se crean nuevas cuando no'
-                    : 'Se crean nuevas órdenes automáticamente'
-                  }
-                </div>
-              </div>
-              
+              )}
+
               <div className="text-center">
                 <Button
                   onClick={handleFinalConfirmation}
@@ -2878,16 +3012,185 @@ Fin del reporte
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      Creando Órdenes...
+                      {orderSuggestions.length === 0 ? 'Registrando producción...' : 'Creando Órdenes...'}
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="mr-2 h-5 w-5" />
-                      Confirmar e Importar
+                      {orderSuggestions.length === 0 ? 'Confirmar Producción Cruzada' : 'Confirmar e Importar'}
                     </>
                   )}
                 </Button>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Import Result Screen */}
+      {currentStep === 'result' && importResult && (
+        <Card className="border-0 shadow-sm overflow-hidden">
+          {/* Success hero */}
+          <div className="bg-gradient-to-r from-green-600 to-green-500 px-6 py-6">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="h-7 w-7 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white leading-tight">Importación completada</h3>
+                {currentPlant && (
+                  <div className="flex items-center gap-1.5 mt-0.5 text-green-100 text-sm">
+                    <Building2 className="h-3.5 w-3.5" />
+                    <span>{currentPlant.name}</span>
+                  </div>
+                )}
+                <p className="text-green-200 text-xs mt-0.5">
+                  {new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {' · '}
+                  {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <CardContent className="space-y-5 p-6">
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                { label: 'Órdenes nuevas',       value: importResult.totalOrdersCreated,      icon: Plus,           color: 'text-blue-600',   bg: 'bg-blue-50'   },
+                { label: 'Órdenes actualizadas', value: importResult.totalOrdersUpdated,      icon: RefreshCw,      color: 'text-violet-600', bg: 'bg-violet-50' },
+                { label: 'Remisiones creadas',   value: importResult.totalRemisionesCreated,  icon: FileSpreadsheet, color: 'text-green-600',  bg: 'bg-green-50'  },
+                { label: 'Registros materiales', value: importResult.totalMaterialsProcessed, icon: Package,        color: 'text-orange-600', bg: 'bg-orange-50' },
+              ].map(item => {
+                const Ic = item.icon;
+                return (
+                  <div key={item.label} className={`rounded-lg ${item.bg} p-4`}>
+                    <Ic className={`h-4 w-4 ${item.color} mb-2`} />
+                    <p className="text-2xl font-bold text-gray-900 leading-none">{item.value}</p>
+                    <p className="text-xs text-gray-500 mt-1">{item.label}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Auto-resolved links */}
+            {importResult.autoResolvedLinks.length > 0 && (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                <div className="flex items-center gap-2 mb-3 text-green-800 font-semibold text-sm">
+                  <LinkIcon className="h-4 w-4" />
+                  {importResult.autoResolvedLinks.length} {importResult.autoResolvedLinks.length === 1 ? 'vínculo' : 'vínculos'} resuelto{importResult.autoResolvedLinks.length === 1 ? '' : 's'} automáticamente
+                </div>
+                <div className="space-y-1.5">
+                  {importResult.autoResolvedLinks.map((link, i) => (
+                    <div key={i} className="text-sm text-green-700 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                      Remisión #{link.billingRemisionNumber} ↔ {link.productionPlantName} #{link.productionRemisionNumber}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Cross-plant billing (Plant A) */}
+            {importResult.crossPlantBilling.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-center gap-2 mb-3 text-amber-800 font-semibold text-sm">
+                  <ArrowLeftRight className="h-4 w-4" />
+                  {importResult.crossPlantBilling.length} {importResult.crossPlantBilling.length === 1 ? 'remisión facturada aquí' : 'remisiones facturadas aquí'}, producida{importResult.crossPlantBilling.length === 1 ? '' : 's'} en otra planta
+                </div>
+                <div className="space-y-2">
+                  {importResult.crossPlantBilling.map((r, i) => (
+                    <div key={i} className="bg-white rounded border border-amber-100 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">#{r.remisionNumber}</span>
+                        <span className="text-amber-700 text-xs">→ {r.producingPlantName ?? 'Planta productora'}</span>
+                      </div>
+                      <p className="text-amber-600 text-xs mt-1">
+                        El vínculo se establecerá cuando {r.producingPlantName ?? 'la planta productora'} suba su archivo.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Cross-plant production (Plant B) */}
+            {importResult.crossPlantProduction.length > 0 && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                <div className="flex items-center gap-2 mb-3 text-indigo-800 font-semibold text-sm">
+                  <Factory className="h-4 w-4" />
+                  {importResult.crossPlantProduction.length} {importResult.crossPlantProduction.length === 1 ? 'registro de producción cruzada' : 'registros de producción cruzada'}
+                </div>
+                <div className="space-y-2">
+                  {importResult.crossPlantProduction.map((r, i) => (
+                    <div key={i} className="bg-white rounded border border-indigo-100 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">#{r.remisionNumber}</span>
+                        {r.linked ? (
+                          <span className="text-green-600 text-xs flex items-center gap-1">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Vinculada — {r.targetPlantName} #{r.targetRemisionNumber}
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 text-xs flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" /> Pendiente → {r.targetPlantName ?? 'otra planta'}
+                          </span>
+                        )}
+                      </div>
+                      {!r.linked && (
+                        <p className="text-amber-600 text-xs mt-1">
+                          El vínculo se establecerá cuando {r.targetPlantName ?? 'la planta de facturación'} suba su archivo.
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* CTA to cross-plant page */}
+            {(importResult.crossPlantBilling.length > 0 || importResult.crossPlantProduction.length > 0 || importResult.autoResolvedLinks.length > 0) && (
+              <div className="flex items-center justify-between gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-gray-600">Ver estado completo de vínculos entre plantas.</p>
+                <Button
+                  variant="outline" size="sm"
+                  className="shrink-0 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                  onClick={() => { window.location.href = '/production-control/cross-plant'; }}
+                >
+                  <ArrowLeftRight className="h-4 w-4 mr-1.5" />
+                  Producción Cruzada
+                </Button>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <Button
+                className="bg-green-600 hover:bg-green-700 px-8"
+                onClick={() => {
+                  // Reset wizard
+                  setCurrentStep('validation');
+                  setImportResult(null);
+                  setOrderSuggestions([]);
+                  setResult(null);
+                  setFile(null);
+                  setProcessedRemisiones([]);
+                  setPendingReassignments([]);
+                  setStatusProcessingDecisions([]);
+                  setStatusProcessingResult(null);
+                  setStats({
+                    totalRows: 0,
+                    validRows: 0,
+                    errorRows: 0,
+                    ordersToCreate: 0,
+                    remisionsWithoutOrder: 0,
+                    newClients: 0,
+                    newSites: 0,
+                    newTrucks: 0,
+                    newDrivers: 0
+                  });
+                }}
+              >
+                Finalizar
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -3335,10 +3638,11 @@ Fin del reporte
           setSelectedRemisionForProcessing(null);
         }}
         remision={selectedRemisionForProcessing}
-        potentialTargets={selectedRemisionForProcessing 
+        potentialTargets={selectedRemisionForProcessing
           ? (result?.validated || []).filter(r => r.id !== selectedRemisionForProcessing.id)
           : []}
         onSaveDecision={handleSaveStatusDecision}
+        currentPlantId={currentPlant?.id}
       />
 
       {/* Create Recipe from Arkik Modal (EXECUTIVE only) */}

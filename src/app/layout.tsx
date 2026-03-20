@@ -41,7 +41,8 @@ import {
   GitBranch,
   ShieldCheck,
   Briefcase,
-  MapPin
+  MapPin,
+  ArrowLeftRight
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -169,10 +170,12 @@ const inventorySubMenuItems: InventoryNavItem[] = [
   { title: "Ajustes de Inventario", href: "/production-control/adjustments", IconComponent: Settings },
   { title: "Reportes de Materiales", href: "/production-control/advanced-dashboard", IconComponent: BarChart3 },
   { type: 'group', title: "Producción" },
+  { title: "Remisiones", href: "/production-control/remisiones", IconComponent: FileText },
   { title: "Bitácora Diaria", href: "/production-control/daily-log", IconComponent: Calendar },
   { title: "Reloj Checador", href: "/production-control/reloj-checador", IconComponent: Clock },
   { title: "Servicio de Bombeo", href: "/production-control/pumping-service", IconComponent: Truck },
   { title: "Procesador Arkik", href: "/production-control/arkik-upload", IconComponent: FileUp },
+  { title: "Producción Cruzada", href: "/production-control/cross-plant", IconComponent: ArrowLeftRight },
 ];
 
 // Define quality submenu items (grouped for better UX)

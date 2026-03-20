@@ -39,6 +39,7 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
   const [materialsAnalysis, setMaterialsAnalysis] = useState<MaterialAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [crossPlantBanner, setCrossPlantBanner] = useState<{ remisionNumber: string; plantName: string } | null>(null);
 
   useEffect(() => {
     if (remision) {
@@ -75,9 +76,32 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
         .eq('remision_id', remision.id);
       
       if (materialsError) throw materialsError;
-      
+
+      // Cross-plant read-through: if no local materials but there's a cross-plant link,
+      // fetch production materials from the linked Plant B remision via API (bypasses RLS)
+      let resolvedMaterials = materialsData || [];
+      if (resolvedMaterials.length === 0 && remision.cross_plant_billing_remision_id) {
+        try {
+          const res = await fetch(`/api/remisiones/${remision.id}/cross-plant-materials`);
+          if (res.ok) {
+            const cpData = await res.json();
+            if (cpData.isCrossPlant && cpData.materials?.length > 0) {
+              resolvedMaterials = cpData.materials;
+              if (cpData.productionRemisionNumber && cpData.productionPlantName) {
+                setCrossPlantBanner({
+                  remisionNumber: cpData.productionRemisionNumber,
+                  plantName: cpData.productionPlantName,
+                });
+              }
+            }
+          }
+        } catch {
+          // Non-critical — just show empty state if cross-plant fetch fails
+        }
+      }
+
       // Process the materials with calculated values
-      const analysis: MaterialAnalysis[] = (materialsData || []).map((material: any) => {
+      const analysis: MaterialAnalysis[] = resolvedMaterials.map((material: any) => {
         // Use material_name from materials table if available, otherwise fallback to MATERIAL_TYPE_MAP or material_type
         const materialName = material.materials?.material_name 
           || MATERIAL_TYPE_MAP[material.material_type] 
@@ -190,6 +214,17 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
 
   return (
     <div className="space-y-6">
+      {/* Cross-plant materials banner */}
+      {crossPlantBanner && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
+          <span>⚡</span>
+          <span>
+            Materiales de producción: <strong>{crossPlantBanner.plantName}</strong> — Remisión #{crossPlantBanner.remisionNumber}.
+            Esta remisión fue fabricada en otra planta; los materiales mostrados corresponden a la remisión de producción vinculada.
+          </span>
+        </div>
+      )}
+
       {/* Header with remision info */}
       <Card className="border border-gray-200 bg-white shadow-sm">
         <CardHeader className="pb-4">

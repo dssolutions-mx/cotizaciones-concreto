@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
         volumen_fabricado,
         plant_id,
         order_id,
-        plants!inner(name),
+        plants!plant_id!inner(name),
         orders!inner(
           id,
           order_number,

@@ -12,7 +12,8 @@ export enum ArkikErrorType {
   INVALID_VOLUME = 'INVALID_VOLUME',
   MISSING_REQUIRED_FIELD = 'MISSING_REQUIRED_FIELD',
   DATA_TYPE_ERROR = 'DATA_TYPE_ERROR',
-  PRODUCT_CODE_MISMATCH = 'PRODUCT_CODE_MISMATCH'
+  PRODUCT_CODE_MISMATCH = 'PRODUCT_CODE_MISMATCH',
+  ZERO_MATERIAL_TERMINADO = 'ZERO_MATERIAL_TERMINADO'
 }
 
 // Duplicate Handling Types
@@ -98,7 +99,9 @@ export enum RemisionStatus {
 export enum StatusProcessingAction {
   PROCEED_NORMAL = 'proceed_normal',        // Terminado - process normally
   REASSIGN_TO_EXISTING = 'reassign_to_existing',  // Reassign to another remision
-  MARK_AS_WASTE = 'mark_as_waste'          // Mark materials as waste
+  MARK_AS_WASTE = 'mark_as_waste',          // Mark materials as waste
+  MARK_AS_CROSS_PLANT_PRODUCTION = 'mark_as_cross_plant_production',  // Produced here, billed at another plant (Plant B side)
+  MARK_AS_CROSS_PLANT_BILLING = 'mark_as_cross_plant_billing'  // Billed here, produced at another plant (Plant A side)
 }
 
 export interface RemisionReassignment {
@@ -136,6 +139,10 @@ export interface StatusProcessingDecision {
   materials_to_transfer?: Record<string, number>;
   waste_reason?: string;
   notes?: string;
+  // Cross-plant production fields
+  target_plant_id?: string;
+  target_plant_name?: string;
+  cross_plant_confirmed?: boolean;  // true = preview found the billing remision, false = pending resolution
 }
 
 export interface StatusProcessingResult {
@@ -145,6 +152,7 @@ export interface StatusProcessingResult {
   reassigned_remisiones: number;
   waste_remisiones: number;
   excluded_remisiones: number;
+  cross_plant_remisiones: number;
   decisions: StatusProcessingDecision[];
   waste_materials: WasteMaterial[];
   reassignments: RemisionReassignment[];
@@ -246,6 +254,14 @@ export interface StagingRemision {
   duplicate_strategy?: 'materials_only' | 'update_all' | 'merge' | 'skip';
   existing_remision_id?: string;
   preserve_existing_data?: boolean;
+  // Cross-plant production
+  is_production_record?: boolean;
+  cancelled_reason?: string;
+  cross_plant_target_plant_id?: string;
+  cross_plant_target_plant_name?: string;
+  cross_plant_target_remision_number?: string;
+  cross_plant_confirmed?: boolean;
+  transferred_materials?: Record<string, number>;
 }
 
 export interface OrderSuggestion {
@@ -274,7 +290,7 @@ export interface PlantMaterialMapping {
 }
 
 export interface RemisionInsertPayload {
-  order_id: string;
+  order_id: string | null;
   remision_number: string;
   fecha: string;
   hora_carga: string;
@@ -282,6 +298,9 @@ export interface RemisionInsertPayload {
   conductor?: string | null;
   unidad?: string | null;
   tipo_remision: 'CONCRETO';
+  is_production_record?: boolean;
+  cancelled_reason?: string | null;
+  cross_plant_billing_plant_id?: string | null;
 }
 
 export interface RemisionMaterialInsert {

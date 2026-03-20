@@ -331,7 +331,7 @@ export default function NuevoMuestreoPage() {
           .select(`
             *,
             recipe:recipes(recipe_code, strength_fc, slump, age_days),
-            plants:plant_id(id, code, name),
+            plant:plants!plant_id(id, code, name),
             orders:order_id(
               clients:client_id(business_name),
               construction_site
@@ -348,7 +348,7 @@ export default function NuevoMuestreoPage() {
           ...remision,
           client_name: remision.orders?.clients?.business_name || 'N/A',
           construction_name: remision.orders?.construction_site || 'N/A',
-          planta: remision.plants?.code || remision.plants?.name || 'N/A'
+          planta: remision.plant?.code || remision.plant?.name || 'N/A'
         })) || [];
         
         // console.log('Remisiones cargadas:', remisionesWithClientInfo.length);

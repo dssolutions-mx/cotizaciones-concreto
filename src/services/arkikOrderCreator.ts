@@ -199,6 +199,7 @@ interface RemisionData {
   tipo_remision: 'CONCRETO';
   recipe_id: string;
   plant_id: string;
+  cross_plant_billing_plant_id?: string | null;
 }
 
 interface RemisionMaterialData {
@@ -843,8 +844,9 @@ async function createSingleOrder(
             unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
             tipo_remision: 'CONCRETO',
             recipe_id: fullRemisionData.recipe_id!,
-            master_recipe_id: fullRemisionData.master_recipe_id, // ADD: Master recipe for pricing
-            plant_id: plantId
+            master_recipe_id: fullRemisionData.master_recipe_id,
+            plant_id: plantId,
+            cross_plant_billing_plant_id: fullRemisionData.cross_plant_target_plant_id || null
           });
       }
     });
@@ -1338,8 +1340,9 @@ async function createSingleOrderWithoutBalanceUpdate(
             unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
             tipo_remision: 'CONCRETO',
             recipe_id: fullRemisionData.recipe_id!,
-            master_recipe_id: fullRemisionData.master_recipe_id, // ADD: Master recipe for pricing
-            plant_id: plantId
+            master_recipe_id: fullRemisionData.master_recipe_id,
+            plant_id: plantId,
+            cross_plant_billing_plant_id: fullRemisionData.cross_plant_target_plant_id || null
           });
         }
       });
@@ -1509,6 +1512,132 @@ async function createSingleOrderWithoutBalanceUpdate(
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
     throw new Error(errorMessage);
   }
+}
+
+export interface CrossPlantCreationResult {
+  remisionId: string;
+  remisionNumber: string;
+  crossPlantTargetPlantId?: string;
+  crossPlantTargetRemisionNumber?: string;
+  crossPlantConfirmed: boolean;
+}
+
+/**
+ * Creates production-only remision records for cross-plant scenarios.
+ * These remisiones have order_id = null and is_production_record = true.
+ * After creation, they are passed to the link resolution API.
+ */
+export async function createCrossPlantProductionRemisiones(
+  stagingRemisiones: import('@/types/arkik').StagingRemision[],
+  plantId: string
+): Promise<CrossPlantCreationResult[]> {
+  if (stagingRemisiones.length === 0) return [];
+
+  // Build material codes set for lookup
+  const materialCodes = new Set<string>();
+  stagingRemisiones.forEach(row => {
+    Object.keys(row.materials_teorico || {}).forEach(code => materialCodes.add(code));
+    Object.keys(row.materials_real || {}).forEach(code => materialCodes.add(code));
+  });
+
+  // Fetch materials for this plant
+  const materialsMap = new Map<string, { id: string; material_name: string }>();
+  if (materialCodes.size > 0) {
+    const { data: materials } = await supabase
+      .from('materials')
+      .select('id, material_name, material_code')
+      .eq('plant_id', plantId)
+      .eq('is_active', true)
+      .in('material_code', Array.from(materialCodes));
+    if (materials) {
+      materials.forEach(m => materialsMap.set(m.material_code, { id: m.id, material_name: m.material_name }));
+    }
+  }
+
+  const results: CrossPlantCreationResult[] = [];
+
+  for (const staging of stagingRemisiones) {
+    try {
+      const horaCarga = staging.hora_carga instanceof Date
+        ? formatLocalTime(staging.hora_carga)
+        : typeof staging.hora_carga === 'string' ? staging.hora_carga : '08:00:00';
+
+      const { data: created, error } = await supabase
+        .from('remisiones')
+        .insert({
+          order_id: null,
+          remision_number: staging.remision_number,
+          fecha: formatLocalDate(staging.fecha),
+          hora_carga: horaCarga,
+          volumen_fabricado: staging.volumen_fabricado,
+          conductor: staging.conductor || null,
+          unidad: staging.placas || null,
+          tipo_remision: 'CONCRETO',
+          recipe_id: staging.recipe_id || null,
+          master_recipe_id: staging.master_recipe_id || null,
+          plant_id: plantId,
+          is_production_record: true,
+          cancelled_reason: 'cross_plant_production',
+          cross_plant_billing_plant_id: staging.cross_plant_target_plant_id || null,
+        })
+        .select('id, remision_number')
+        .single();
+
+      if (error || !created) {
+        console.error('[ArkikOrderCreator] Error creating cross-plant production remision:', error);
+        continue;
+      }
+
+      // Create material records
+      const allMaterialCodes = new Set([
+        ...Object.keys(staging.materials_teorico || {}),
+        ...Object.keys(staging.materials_real || {}),
+        ...(staging.materials_retrabajo ? Object.keys(staging.materials_retrabajo) : []),
+        ...(staging.materials_manual ? Object.keys(staging.materials_manual) : []),
+      ]);
+
+      const materialRecords: object[] = [];
+      allMaterialCodes.forEach(code => {
+        const material = materialsMap.get(code);
+        if (material) {
+          const baseReal = staging.materials_real[code] || 0;
+          const retrabajo = staging.materials_retrabajo?.[code] || 0;
+          const manual = staging.materials_manual?.[code] || 0;
+          const ajuste = retrabajo + manual;
+          const finalReal = baseReal + ajuste;
+          materialRecords.push({
+            remision_id: created.id,
+            material_id: material.id,
+            material_type: material.material_name,
+            cantidad_real: finalReal,
+            cantidad_teorica: staging.materials_teorico[code] || 0,
+            ajuste,
+          });
+        }
+      });
+
+      if (materialRecords.length > 0) {
+        const { error: matError } = await supabase.from('remision_materiales').insert(materialRecords);
+        if (matError) {
+          console.error('[ArkikOrderCreator] Error creating cross-plant materials:', matError);
+        }
+      }
+
+      results.push({
+        remisionId: created.id,
+        remisionNumber: created.remision_number,
+        crossPlantTargetPlantId: staging.cross_plant_target_plant_id,
+        crossPlantTargetRemisionNumber: staging.cross_plant_target_remision_number,
+        crossPlantConfirmed: staging.cross_plant_confirmed ?? false,
+      });
+
+      console.log(`[ArkikOrderCreator] ✅ Cross-plant production remision created: ${created.remision_number} (plant: ${plantId} → billing: ${staging.cross_plant_target_plant_id ?? 'unknown'})`);
+    } catch (err) {
+      console.error('[ArkikOrderCreator] Exception creating cross-plant remision:', err);
+    }
+  }
+
+  return results;
 }
 
 // Batch balance recalculation function to prevent race conditions

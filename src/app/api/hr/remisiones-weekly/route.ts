@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
             plant_id,
             hora_carga,
             order_id,
-            plant:plants(id, code, name),
+            plant:plants!plant_id(id, code, name),
             order:orders(
               id,
               construction_site,

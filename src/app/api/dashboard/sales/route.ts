@@ -34,8 +34,9 @@ export async function GET(request: Request) {
         .from('remisiones')
         .select('volumen_fabricado, fecha, tipo_remision')
         .gte('fecha', format(monthStart, 'yyyy-MM-dd'))
-        .lte('fecha', format(monthEnd, 'yyyy-MM-dd'));
-      
+        .lte('fecha', format(monthEnd, 'yyyy-MM-dd'))
+        .eq('is_production_record', false);
+
       if (plantId) {
         remisionesQuery = remisionesQuery.eq('plant_id', plantId);
       }

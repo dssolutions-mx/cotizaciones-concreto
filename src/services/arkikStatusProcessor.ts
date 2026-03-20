@@ -144,7 +144,7 @@ export class ArkikStatusProcessor {
    * Applies processing decisions to remisiones
    */
   applyProcessingDecisions(
-    remisiones: StagingRemision[], 
+    remisiones: StagingRemision[],
     decisions: StatusProcessingDecision[]
   ): StatusProcessingResult {
     const result: StatusProcessingResult = {
@@ -154,6 +154,7 @@ export class ArkikStatusProcessor {
       reassigned_remisiones: 0,
       waste_remisiones: 0,
       excluded_remisiones: 0,
+      cross_plant_remisiones: 0,
       decisions: decisions,
       waste_materials: [],
       reassignments: []
@@ -214,7 +215,13 @@ export class ArkikStatusProcessor {
         this.processWaste(remision, decision, result);
         break;
 
+      case StatusProcessingAction.MARK_AS_CROSS_PLANT_PRODUCTION:
+        this.processForCrossPlantProduction(remision, decision, result);
+        break;
 
+      case StatusProcessingAction.MARK_AS_CROSS_PLANT_BILLING:
+        this.processForCrossPlantBilling(remision, decision, result);
+        break;
     }
   }
 
@@ -337,6 +344,63 @@ export class ArkikStatusProcessor {
     remision.status_processing_notes = decision.notes;
 
     result.waste_remisiones++;
+  }
+
+  /**
+   * Processes a remision as cross-plant production record.
+   * The remision IS saved to DB (not excluded) but with order_id = null and is_production_record = true.
+   * No waste records are created.
+   */
+  private processForCrossPlantProduction(
+    remision: StagingRemision,
+    decision: StatusProcessingDecision,
+    result: StatusProcessingResult
+  ): void {
+    remision.is_excluded_from_import = false; // remision IS saved to DB
+    remision.is_production_record = true;
+    remision.cancelled_reason = 'cross_plant_production';
+    remision.status_processing_action = StatusProcessingAction.MARK_AS_CROSS_PLANT_PRODUCTION;
+    remision.status_processing_notes = decision.notes;
+
+    // Store cross-plant staging metadata for use in ArkikRemisionCreator
+    if (decision.target_plant_id) {
+      remision.cross_plant_target_plant_id = decision.target_plant_id;
+      remision.cross_plant_target_plant_name = decision.target_plant_name;
+    }
+    if (decision.target_remision_number) {
+      remision.cross_plant_target_remision_number = decision.target_remision_number;
+    }
+    remision.cross_plant_confirmed = decision.cross_plant_confirmed ?? false;
+
+    console.log(`[ArkikStatusProcessor] Cross-plant production: ${remision.remision_number} → ${decision.target_plant_name ?? 'unknown plant'} #${decision.target_remision_number ?? '?'} (confirmed: ${remision.cross_plant_confirmed})`);
+
+    result.cross_plant_remisiones++;
+  }
+
+  /**
+   * Processes a billing remision whose concrete was produced at another plant (Plant A side).
+   * The remision is saved normally (with its order_id), but cross_plant_billing_plant_id is set
+   * so the DB record links to the producing plant. is_production_record stays FALSE.
+   */
+  private processForCrossPlantBilling(
+    remision: StagingRemision,
+    decision: StatusProcessingDecision,
+    result: StatusProcessingResult
+  ): void {
+    remision.is_excluded_from_import = false;
+    remision.is_production_record = false; // billing side still owns the order
+    remision.status_processing_action = StatusProcessingAction.MARK_AS_CROSS_PLANT_BILLING;
+    remision.status_processing_notes = decision.notes;
+
+    // Store producing plant for use in ArkikRemisionCreator (sets cross_plant_billing_plant_id)
+    if (decision.target_plant_id) {
+      remision.cross_plant_target_plant_id = decision.target_plant_id;
+      remision.cross_plant_target_plant_name = decision.target_plant_name;
+    }
+
+    console.log(`[ArkikStatusProcessor] Cross-plant billing: ${remision.remision_number} produced at ${decision.target_plant_name ?? 'unknown plant'}`);
+
+    result.cross_plant_remisiones++;
   }
 
   /**
