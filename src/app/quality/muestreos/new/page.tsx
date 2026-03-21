@@ -50,6 +50,7 @@ import {
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
 import { cn } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { createMuestreo, createMuestreoWithSamples } from '@/services/qualityMuestreoService';
@@ -84,6 +85,7 @@ import MeasurementsFields from '@/components/quality/muestreos/MeasurementsField
 export default function NuevoMuestreoPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const [activeStep, setActiveStep] = useState(0);
   // Flow mode: 'linked' uses Orden → Remisión → Datos; 'manual' is single-step capture
   const [mode, setMode] = useState<'linked' | 'manual'>('linked');
@@ -209,33 +211,38 @@ export default function NuevoMuestreoPage() {
     });
   }, [agePlanUnit, edadGarantia, clasificacion]);
 
-  // Cargar órdenes solo cuando el flujo es "Remisión existente"
+  // Cargar órdenes solo cuando el flujo es "Remisión existente".
+  // Filtered by plant via remisiones.plant_id — same source of truth as remisiones page.
+  // PlantContext is the single source: handles non-execs (profile.plant_id), execs (switcher),
+  // BU managers (first plant in BU). Wait for it to finish loading before querying.
   useEffect(() => {
+    if (mode !== 'linked') return;
+    if (plantLoading || !currentPlant?.id) return;
+
     const loadOrders = async () => {
       setIsLoadingOrders(true);
       try {
-        // Using a subquery to only include orders that have remisiones of type CONCRETO
         const { data, error } = await supabase
           .from('orders')
           .select(`
             id, order_number, delivery_date, order_status, total_amount, construction_site,
             client_id,
             clients:client_id(business_name),
-            remisiones!inner(id, tipo_remision, remision_number)
+            remisiones!inner(id, tipo_remision, remision_number, plant_id)
           `)
           .in('order_status', ['created', 'validated', 'scheduled'])
           .eq('remisiones.tipo_remision', 'CONCRETO')
+          .eq('remisiones.plant_id', currentPlant.id)
           .order('delivery_date', { ascending: false })
-          .limit(100);
-        
+          .limit(200);
+
         if (error) throw error;
-        
-        // Remove duplicate orders (an order may have multiple remisiones)
+
+        // Remove duplicate orders (an order may match multiple remisiones)
         const uniqueOrders = Array.from(
-          new Map(data.map(order => [order.id, order])).values()
+          new Map((data ?? []).map((order: any) => [order.id, order])).values()
         );
-        
-        // console.log('Órdenes con remisiones cargadas:', uniqueOrders.length);
+
         setOrders(uniqueOrders);
         setFilteredOrders(uniqueOrders);
       } catch (error) {
@@ -245,10 +252,8 @@ export default function NuevoMuestreoPage() {
       }
     };
 
-    if (mode === 'linked') {
-      loadOrders();
-    }
-  }, [mode]);
+    loadOrders();
+  }, [mode, currentPlant, plantLoading]);
 
   // Load plants dynamically from database
   useEffect(() => {
@@ -326,7 +331,7 @@ export default function NuevoMuestreoPage() {
       setIsLoadingRemisiones(true);
       try {
         // Usar supabase directamente para obtener las remisiones
-        const { data, error } = await supabase
+        let remisionQuery = supabase
           .from('remisiones')
           .select(`
             *,
@@ -338,8 +343,14 @@ export default function NuevoMuestreoPage() {
             )
           `)
           .eq('order_id', selectedOrder)
-          .eq('tipo_remision', 'CONCRETO')
-          .order('fecha', { ascending: false });
+          .eq('tipo_remision', 'CONCRETO');
+
+        // Scope to current plant if available (same source of truth as order list query)
+        if (currentPlant?.id) {
+          remisionQuery = remisionQuery.eq('plant_id', currentPlant.id);
+        }
+
+        const { data, error } = await remisionQuery.order('fecha', { ascending: false });
         
         if (error) throw error;
         

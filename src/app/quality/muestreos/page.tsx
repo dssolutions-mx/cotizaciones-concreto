@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, ChevronDown, Filter, X } from 'lucide-react';
+import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, ChevronDown, Filter, X, Factory } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 import { fetchMuestreos } from '@/services/qualityMuestreoService';
 import type { MuestreoWithRelations } from '@/types/quality';
@@ -556,8 +556,13 @@ export default function MuestreosPage() {
                     }
                   </TableCell>
                   <TableCell className="text-center">
-                    <div className="font-medium">
+                    <div className="font-medium flex items-center justify-center gap-1.5">
                       {muestreo.remision?.remision_number || muestreo.manual_reference || 'N/A'}
+                      {muestreo.remision?.is_production_record && (
+                        <span title="Producción cruzada — producido aquí para otra planta">
+                          <Factory className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-gray-500">
                       {muestreo.planta || 'Sin planta'}

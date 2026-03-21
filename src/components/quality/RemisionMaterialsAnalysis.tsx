@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-import { Loader2, Package, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle, BarChart3, Settings } from 'lucide-react';
+import { Loader2, Package, TrendingUp, TrendingDown, Minus, AlertTriangle, CheckCircle, BarChart3, Settings, Factory, Clock, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
 interface RemisionMaterialsAnalysisProps {
@@ -39,7 +39,12 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
   const [materialsAnalysis, setMaterialsAnalysis] = useState<MaterialAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [crossPlantBanner, setCrossPlantBanner] = useState<{ remisionNumber: string; plantName: string } | null>(null);
+  const [crossPlantBanner, setCrossPlantBanner] = useState<{ remisionNumber: string; plantName: string; horaCarga?: string | null } | null>(null);
+  // Production remision data — overrides billing remision fields in summary for cross-plant cases
+  const [productionData, setProductionData] = useState<{
+    volumen_fabricado?: number | null;
+    recipe?: { recipe_code?: string | null; strength_fc?: number | null } | null;
+  } | null>(null);
 
   useEffect(() => {
     if (remision) {
@@ -91,8 +96,14 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                 setCrossPlantBanner({
                   remisionNumber: cpData.productionRemisionNumber,
                   plantName: cpData.productionPlantName,
+                  horaCarga: cpData.productionHoraCarga ?? null,
                 });
               }
+              // Store production remision data to use for the summary card
+              setProductionData({
+                volumen_fabricado: cpData.productionVolumen ?? null,
+                recipe: cpData.productionRecipe ?? null,
+              });
             }
           }
         } catch {
@@ -212,109 +223,162 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
     );
   }
 
+  // Derive display remision number and plant context upfront
+  const isCrossPlant = !!crossPlantBanner;
+  const displayRemisionNumber = isCrossPlant ? crossPlantBanner!.remisionNumber : remision.remision_number;
+  const displayPlantName = isCrossPlant ? crossPlantBanner!.plantName : null;
+
   return (
     <div className="space-y-6">
-      {/* Cross-plant materials banner */}
-      {crossPlantBanner && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center gap-2">
-          <span>⚡</span>
-          <span>
-            Materiales de producción: <strong>{crossPlantBanner.plantName}</strong> — Remisión #{crossPlantBanner.remisionNumber}.
-            Esta remisión fue fabricada en otra planta; los materiales mostrados corresponden a la remisión de producción vinculada.
-          </span>
-        </div>
-      )}
 
       {/* Header with remision info */}
       <Card className="border border-gray-200 bg-white shadow-sm">
+
         <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Package className="h-5 w-5 text-gray-600" />
-            Análisis de Materiales - Remisión {remision.remision_number}
-          </CardTitle>
-          <CardDescription>
-            Comparación entre cantidades teóricas y reales de materiales en la fabricación
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-gray-500 flex-shrink-0" />
+              <div>
+                <CardTitle className="text-base font-semibold text-gray-900">
+                  Análisis de Materiales
+                </CardTitle>
+                <CardDescription className="mt-0.5">
+                  {isCrossPlant
+                    ? 'Comparación teórico vs real — datos de remisión de producción'
+                    : 'Comparación entre cantidades teóricas y reales'
+                  }
+                </CardDescription>
+              </div>
+            </div>
+            {isCrossPlant && (
+              <Badge variant="outline" className="flex-shrink-0 flex items-center gap-1.5 bg-amber-50 text-amber-700 border-amber-300 text-xs font-medium px-2.5 py-1">
+                <Factory className="h-3.5 w-3.5" />
+                Producción Cruzada
+              </Badge>
+            )}
+          </div>
+
+          {/* Cross-plant provenance strip */}
+          {isCrossPlant && (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/60 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-amber-600 mb-0.5">Planta productora</p>
+                  <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                    <Factory className="h-3.5 w-3.5 text-amber-500" />
+                    {displayPlantName}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-amber-600 mb-0.5">Remisión de producción</p>
+                  <p className="text-sm font-semibold text-gray-900 font-mono">#{displayRemisionNumber}</p>
+                </div>
+                {crossPlantBanner!.horaCarga && (
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-amber-600 mb-0.5">Hora de carga</p>
+                    <p className="text-sm font-semibold text-gray-900 font-mono flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5 text-amber-500" />
+                      {crossPlantBanner!.horaCarga}
+                    </p>
+                  </div>
+                )}
+                <div className="ml-auto text-right">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-0.5">Remisión de facturación</p>
+                  <p className="text-sm text-gray-400 font-mono flex items-center gap-1 justify-end">
+                    #{remision.remision_number}
+                    <ArrowRight className="h-3 w-3 text-gray-300" />
+                    <span className="text-gray-600 font-semibold">#{displayRemisionNumber}</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Volumen Fabricado</p>
-              <div className="text-lg font-bold text-gray-900">
-                {remision.volumen_fabricado} m³
+          {(() => {
+            // Use production remision data for cross-plant cases; fall back to billing remision
+            const vol = productionData?.volumen_fabricado ?? remision.volumen_fabricado;
+            const recipe = productionData?.recipe ?? remision.recipe;
+            const horaCarga = crossPlantBanner?.horaCarga ?? remision.hora_carga;
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Volumen Fabricado</p>
+                  <div className="text-lg font-bold text-gray-900">{vol} m³</div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Hora de Carga</p>
+                  <div className={`text-lg font-bold font-mono ${horaCarga ? 'text-gray-900' : 'text-gray-300'}`}>
+                    {horaCarga || '—'}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Cemento kg/m³</p>
+                  <div className="text-lg font-bold text-green-600">
+                    {(() => {
+                      const cementMaterial = materialsAnalysis.find(m => {
+                        const type = m.material_type.toLowerCase();
+                        const name = m.material_name.toLowerCase();
+                        return type === 'cement' || type.includes('cemento') || name.includes('cemento') || name.includes('cpc') || /^c\d+$/.test(type);
+                      });
+                      return cementMaterial && vol > 0 ? (cementMaterial.theoretical_quantity / vol).toFixed(2) : '--';
+                    })()}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Agua L/m³</p>
+                  <div className="text-lg font-bold text-green-600">
+                    {(() => {
+                      const waterMaterial = materialsAnalysis.find(m => {
+                        const type = m.material_type.toLowerCase();
+                        const name = m.material_name.toLowerCase();
+                        return type === 'water' || type.includes('agua') || name.includes('agua');
+                      });
+                      return waterMaterial && vol > 0 ? (waterMaterial.theoretical_quantity / vol).toFixed(2) : '--';
+                    })()}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Fórmula</p>
+                  <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
+                    {recipe?.recipe_code || 'N/A'}
+                  </Badge>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Resistencia</p>
+                  <div className="text-lg font-bold text-gray-900">
+                    {recipe?.strength_fc || '--'} kg/cm²
+                  </div>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-500 mb-1">Ajustes Realizados</p>
+                  <div className={`text-lg font-bold ${materialsAnalysis.some(m => m.has_adjustments) ? 'text-orange-600' : 'text-gray-400'}`}>
+                    {materialsAnalysis.some(m => m.has_adjustments) ? '✓ Sí' : '✗ No'}
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Cemento kg/m³</p>
-              <div className="text-lg font-bold text-green-600">
-                {(() => {
-                  const cementMaterial = materialsAnalysis.find(m => {
-                    const type = m.material_type.toLowerCase();
-                    const name = m.material_name.toLowerCase();
-                    return type === 'cement' || 
-                           type.includes('cemento') || 
-                           name.includes('cemento') ||
-                           name.includes('cpc') ||
-                           /^c\d+$/.test(type);
-                  });
-                  if (cementMaterial && remision.volumen_fabricado > 0) {
-                    return (cementMaterial.theoretical_quantity / remision.volumen_fabricado).toFixed(2);
-                  }
-                  return '--';
-                })()}
-              </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Agua L/m³</p>
-              <div className="text-lg font-bold text-green-600">
-                {(() => {
-                  const waterMaterial = materialsAnalysis.find(m => {
-                    const type = m.material_type.toLowerCase();
-                    const name = m.material_name.toLowerCase();
-                    return type === 'water' || 
-                           type.includes('agua') || 
-                           name.includes('agua');
-                  });
-                  if (waterMaterial && remision.volumen_fabricado > 0) {
-                    return (waterMaterial.theoretical_quantity / remision.volumen_fabricado).toFixed(2);
-                  }
-                  return '--';
-                })()}
-              </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Fórmula</p>
-              <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
-                {remision.recipe?.recipe_code || 'N/A'}
-              </Badge>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Resistencia</p>
-              <div className="text-lg font-bold text-gray-900">
-                {remision.recipe?.strength_fc || '--'} kg/cm²
-              </div>
-            </div>
-            <div className="text-center">
-              <p className="text-sm font-medium text-gray-500 mb-1">Ajustes Realizados</p>
-              <div className={`text-lg font-bold ${
-                materialsAnalysis.some(m => m.has_adjustments) ? 'text-orange-600' : 'text-gray-400'
-              }`}>
-                {materialsAnalysis.some(m => m.has_adjustments) ? '✓ Sí' : '✗ No'}
-              </div>
-            </div>
-          </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
       {/* Materials analysis table */}
       <Card className="border border-gray-200 bg-white shadow-sm">
         <CardHeader className="pb-4">
-          <CardTitle className="text-lg">
-            Comparación de Materiales
-          </CardTitle>
-          <CardDescription>
-            Análisis detallado de variaciones entre cantidades teóricas y reales
-          </CardDescription>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base font-semibold text-gray-900">Comparación de Materiales</CardTitle>
+              <CardDescription className="mt-0.5">
+                Análisis detallado de variaciones entre cantidades teóricas y reales
+              </CardDescription>
+            </div>
+            {isCrossPlant && (
+              <div className="text-right flex-shrink-0">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400 mb-0.5">Remisión fuente</p>
+                <p className="text-sm font-mono font-semibold text-gray-700">#{displayRemisionNumber}</p>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {materialsAnalysis.length > 0 ? (

@@ -10,6 +10,9 @@ export type HrWeeklyRemisionRow = {
   plant?: { id: string; code: string | null; name: string | null } | null;
   hora_carga?: string | null;
   order_id?: string | null;
+  is_production_record?: boolean | null;
+  cross_plant_billing_plant_id?: string | null;
+  billing_plant?: { id: string; code: string | null; name: string | null } | null;
   order?: {
     id: string;
     construction_site: string | null;

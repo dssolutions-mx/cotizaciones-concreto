@@ -4,7 +4,7 @@ import React from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Search, Truck } from "lucide-react";
+import { Loader2, Search, Truck, Factory } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { adjustDateForTimezone } from "./dateUtils";
 
@@ -83,15 +83,23 @@ export default function RemisionesStep({
               >
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="bg-primary-50 p-2 rounded-full">
-                      <Truck className="h-5 w-5 text-primary" />
+                    <div className={cn("p-2 rounded-full", remision.is_production_record ? "bg-orange-50" : "bg-primary-50")}>
+                      {remision.is_production_record
+                        ? <Factory className="h-5 w-5 text-orange-500" />
+                        : <Truck className="h-5 w-5 text-primary" />
+                      }
                     </div>
-                    <div>
+                    <div className="flex-1 min-w-0">
                       <h4 className="font-semibold">Remisión #{remision.remision_number}</h4>
                       <p className="text-sm text-gray-500">
                         {remision.fecha ? formatDate(adjustDateForTimezone(remision.fecha) || new Date(), "dd/MM/yyyy") : "Sin fecha"}
                       </p>
                     </div>
+                    {remision.is_production_record && (
+                      <span className="text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200 rounded px-1.5 py-0.5 whitespace-nowrap flex-shrink-0">
+                        Prod. Cruzada
+                      </span>
+                    )}
                   </div>
                   <div className="space-y-1 mt-3">
                     <p className="text-sm">

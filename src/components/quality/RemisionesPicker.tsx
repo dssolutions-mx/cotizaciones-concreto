@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Factory } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
 import RemisionesList from '@/components/quality/muestreos/RemisionesList';
@@ -16,6 +16,8 @@ interface RemisionData {
   fecha: string;
   volumen_fabricado: number;
   recipe_id: string;
+  is_production_record?: boolean | null;
+  cross_plant_billing_remision_id?: string | null;
   recipe: {
     recipe_code: string;
     strength_fc: number;
@@ -53,6 +55,8 @@ export default function RemisionesPicker({ onRemisionSelected }: RemisionesPicke
           fecha,
           volumen_fabricado,
           recipe_id,
+          is_production_record,
+          cross_plant_billing_remision_id,
           recipe:recipes(
             recipe_code,
             strength_fc,

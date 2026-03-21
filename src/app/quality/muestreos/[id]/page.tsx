@@ -23,11 +23,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Loader2, 
-  AlertTriangle, 
-  ChevronLeft, 
-  FileText, 
+import {
+  Loader2,
+  AlertTriangle,
+  ChevronLeft,
+  FileText,
   Calendar,
   Building,
   User,
@@ -40,7 +40,11 @@ import {
   ArrowUpRight,
   Thermometer,
   Trash2,
-  Pencil
+  Pencil,
+  Factory,
+  FlaskConical,
+  Gauge,
+  Waves
 } from 'lucide-react';
 import { fetchMuestreoById, updateMuestreo, deleteMuestreo } from '@/services/qualityMuestreoService';
 import { deleteMuestra } from '@/services/qualityMuestraService';
@@ -100,6 +104,9 @@ export default function MuestreoDetailPage() {
   const [revenimientoValue, setRevenimientoValue] = useState<string>('');
   const [isUpdatingRevenimiento, setIsUpdatingRevenimiento] = useState(false);
   const { toast } = useToast();
+
+  // Cross-plant: production remision full metadata (Plant B's record)
+  const [productionRemision, setProductionRemision] = useState<any | null>(null);
   
   const fetchMuestreoDetails = async () => {
     if (!params.id) return;
@@ -111,7 +118,34 @@ export default function MuestreoDetailPage() {
       const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id;
       const data = await fetchMuestreoById(muestreoId);
       setMuestreo(data);
-      
+
+      // Cross-plant: if this remision is a billing remision with a linked production record,
+      // fetch all production remision metadata so quality can see what was actually produced.
+      const cpRemisionId = (data?.remision as any)?.cross_plant_billing_remision_id;
+      if (cpRemisionId) {
+        try {
+          const { data: cpData } = await supabase
+            .from('remisiones')
+            .select(`
+              id,
+              remision_number,
+              fecha,
+              hora_carga,
+              conductor,
+              unidad,
+              volumen_fabricado,
+              plant_id,
+              plant:plants!plant_id(id, code, name),
+              recipe:recipes(recipe_code, strength_fc, slump, age_days, age_hours, tma)
+            `)
+            .eq('id', cpRemisionId)
+            .maybeSingle();
+          if (cpData) setProductionRemision(cpData);
+        } catch {
+          // Non-critical — production remision block just won't render
+        }
+      }
+
       // Fetch order totals if we have order info
       if (data?.remision?.order?.id) {
         setOrderTotalsLoading(true);
@@ -807,6 +841,153 @@ export default function MuestreoDetailPage() {
           </CardContent>
         </Card>
         
+        {/* Cross-plant production remision — full metadata card */}
+        {productionRemision && (
+          <div className="lg:col-span-3 mt-0">
+            <Card className="border border-orange-200 bg-orange-50/30 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Factory className="h-4 w-4 text-orange-500" />
+                  Datos de Producción — Remisión #{productionRemision.remision_number}
+                  <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-300 font-normal ml-1">
+                    {productionRemision.plant?.name || productionRemision.plant?.code || 'Planta externa'}
+                  </Badge>
+                </CardTitle>
+                <CardDescription className="text-orange-700/70">
+                  Este concreto fue fabricado en otra planta. Los datos siguientes corresponden a la remisión de producción real.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-4">
+
+                  {/* Fecha */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Fecha</p>
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-gray-900">
+                        {productionRemision.fecha
+                          ? format(new Date(`${productionRemision.fecha}T12:00:00`), "dd MMM yyyy", { locale: es })
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Hora de carga */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Hora de Carga</p>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className={`text-sm font-mono font-semibold ${productionRemision.hora_carga ? 'text-gray-900' : 'text-gray-300'}`}>
+                        {productionRemision.hora_carga || '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Volumen fabricado */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Volumen Fabricado</p>
+                    <div className="flex items-center gap-1.5">
+                      <Package className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-gray-900">
+                        {productionRemision.volumen_fabricado != null ? `${productionRemision.volumen_fabricado} m³` : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Conductor */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Conductor</p>
+                    <div className="flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm text-gray-900">{productionRemision.conductor || '—'}</span>
+                    </div>
+                  </div>
+
+                  {/* Unidad */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Unidad</p>
+                    <div className="flex items-center gap-1.5">
+                      <Truck className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm font-mono text-gray-900">{productionRemision.unidad || '—'}</span>
+                    </div>
+                  </div>
+
+                  {/* Planta */}
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Planta Productora</p>
+                    <div className="flex items-center gap-1.5">
+                      <Factory className="h-3.5 w-3.5 text-orange-400 flex-shrink-0" />
+                      <span className="text-sm font-semibold text-orange-700">
+                        {productionRemision.plant?.name || productionRemision.plant?.code || '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Recipe divider row — spans full width */}
+                  {productionRemision.recipe && (
+                    <>
+                      <div className="col-span-2 sm:col-span-3 lg:col-span-6 border-t border-orange-100 pt-3 mt-1">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-3">Fórmula de Producción</p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-3">
+
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-0.5">Código</p>
+                            <Badge variant="outline" className="bg-white text-gray-700 border-gray-300 font-mono text-xs">
+                              {productionRemision.recipe.recipe_code || '—'}
+                            </Badge>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-0.5">Resistencia f'c</p>
+                            <div className="flex items-center gap-1">
+                              <Gauge className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="text-sm font-bold text-gray-900">
+                                {productionRemision.recipe.strength_fc != null ? `${productionRemision.recipe.strength_fc} kg/cm²` : '—'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-0.5">Revenimiento teórico</p>
+                            <div className="flex items-center gap-1">
+                              <Waves className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="text-sm font-semibold text-gray-900">
+                                {productionRemision.recipe.slump != null ? `${productionRemision.recipe.slump} cm` : '—'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-0.5">TMA</p>
+                            <div className="flex items-center gap-1">
+                              <FlaskConical className="h-3.5 w-3.5 text-gray-400" />
+                              <span className="text-sm font-semibold text-gray-900">
+                                {productionRemision.recipe.tma != null ? `${productionRemision.recipe.tma} mm` : '—'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-gray-400 mb-0.5">Edad garantía</p>
+                            <span className="text-sm font-semibold text-gray-900">
+                              {productionRemision.recipe.age_hours
+                                ? `${productionRemision.recipe.age_hours} hrs`
+                                : productionRemision.recipe.age_days != null
+                                ? `${productionRemision.recipe.age_days} días`
+                                : '—'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Environmental Conditions & Sample Summary */}
         <div className="space-y-6">
           {/* Environmental Conditions */}

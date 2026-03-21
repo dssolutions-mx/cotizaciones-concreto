@@ -14,6 +14,9 @@ type RemisionRow = {
   plant?: { id: string; code: string | null; name: string | null } | null;
   hora_carga?: string | null;
   order_id?: string | null;
+  is_production_record?: boolean | null;
+  cross_plant_billing_plant_id?: string | null;
+  billing_plant?: { id: string; code: string | null; name: string | null } | null;
   order?: {
     id: string;
     construction_site: string | null;
@@ -171,7 +174,10 @@ export async function POST(request: NextRequest) {
             plant_id,
             hora_carga,
             order_id,
+            is_production_record,
+            cross_plant_billing_plant_id,
             plant:plants!plant_id(id, code, name),
+            billing_plant:plants!cross_plant_billing_plant_id(id, code, name),
             order:orders(
               id,
               construction_site,

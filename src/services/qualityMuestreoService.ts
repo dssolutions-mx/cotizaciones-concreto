@@ -83,6 +83,8 @@ export async function fetchMuestreos(
           fecha,
           volumen_fabricado,
           remision_number,
+          is_production_record,
+          cross_plant_billing_remision_id,
           recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
           orders(id, order_number, construction_site, clients(id, business_name, client_code))
         ),

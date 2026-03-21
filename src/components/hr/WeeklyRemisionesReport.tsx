@@ -22,7 +22,7 @@ import DriverTruckFilters, { type DriverTruckFiltersValue } from '@/components/h
 import PayrollWeekGrid from '@/components/hr/PayrollWeekGrid';
 import { fetchHrWeeklyRemisiones, type HrWeeklyResponse } from '@/services/hrWeeklyRemisionesService';
 import { cn } from '@/lib/utils';
-import { Download, RefreshCw, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Download, RefreshCw, Search, ChevronLeft, ChevronRight, Factory } from 'lucide-react';
 
 function toYyyyMmDd(d: Date): string {
   return format(d, 'yyyy-MM-dd');
@@ -176,6 +176,8 @@ export default function WeeklyRemisionesReport() {
           'construction_site',
           'plant_code',
           'plant_name',
+          'produccion_cruzada',
+          'planta_facturacion',
         ];
         const lines = [
           header.join(','),
@@ -191,6 +193,8 @@ export default function WeeklyRemisionesReport() {
               escapeCsv(r.order?.construction_site ?? ''),
               escapeCsv(r.plant?.code ?? ''),
               escapeCsv(r.plant?.name ?? ''),
+              escapeCsv(r.is_production_record ? 'Sí' : 'No'),
+              escapeCsv(r.billing_plant?.name ?? r.cross_plant_billing_plant_id ?? ''),
             ].join(',')
           ),
         ];
@@ -581,20 +585,21 @@ export default function WeeklyRemisionesReport() {
                       <TableHead>Obra</TableHead>
                       <TableHead>Planta</TableHead>
                       <TableHead className="text-right">Volumen</TableHead>
+                      <TableHead>Tipo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       Array.from({ length: 8 }).map((_, i) => (
                         <TableRow key={`sk-${i}`}>
-                          <TableCell colSpan={9}>
+                          <TableCell colSpan={10}>
                             <Skeleton className="h-6 w-full" />
                           </TableCell>
                         </TableRow>
                       ))
                     ) : data.rows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center py-10 text-gray-500">
+                        <TableCell colSpan={10} className="text-center py-10 text-gray-500">
                           No hay remisiones para los filtros seleccionados.
                         </TableCell>
                       </TableRow>
@@ -654,6 +659,16 @@ export default function WeeklyRemisionesReport() {
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {(Number(r.volumen_fabricado) || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³
+                          </TableCell>
+                          <TableCell>
+                            {r.is_production_record ? (
+                              <div className="flex items-center gap-1.5" title={r.billing_plant?.name ? `Factura a: ${r.billing_plant.name}` : 'Producción cruzada'}>
+                                <Factory className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 whitespace-nowrap">
+                                  {r.billing_plant?.code ?? 'Cruzada'}
+                                </Badge>
+                              </div>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       ))

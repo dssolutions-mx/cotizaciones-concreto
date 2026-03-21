@@ -46,10 +46,17 @@ export async function GET(
       return NextResponse.json({ materials: [], isCrossPlant: false });
     }
 
-    // Fetch Plant B's production remision details for the banner
+    // Fetch Plant B's production remision details for the banner and summary
     const { data: productionRemision } = await supabaseAdmin
       .from('remisiones')
-      .select('remision_number, plant_id, plant:plants!plant_id(name)')
+      .select(`
+        remision_number,
+        plant_id,
+        hora_carga,
+        volumen_fabricado,
+        plant:plants!plant_id(name),
+        recipe:recipes(recipe_code, strength_fc, slump, age_days, age_hours)
+      `)
       .eq('id', remision.cross_plant_billing_remision_id)
       .maybeSingle();
 
@@ -71,11 +78,23 @@ export async function GET(
       return NextResponse.json({ error: materialsError.message }, { status: 500 });
     }
 
+    const prodRecipe = (productionRemision as any)?.recipe;
     return NextResponse.json({
       materials: materials || [],
       isCrossPlant: true,
       productionRemisionNumber: productionRemision?.remision_number ?? null,
       productionPlantName: (productionRemision?.plant as any)?.name ?? null,
+      productionHoraCarga: (productionRemision as any)?.hora_carga ?? null,
+      productionVolumen: (productionRemision as any)?.volumen_fabricado ?? null,
+      productionRecipe: prodRecipe
+        ? {
+            recipe_code: prodRecipe.recipe_code ?? null,
+            strength_fc: prodRecipe.strength_fc ?? null,
+            slump: prodRecipe.slump ?? null,
+            age_days: prodRecipe.age_days ?? null,
+            age_hours: prodRecipe.age_hours ?? null,
+          }
+        : null,
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Unknown error';

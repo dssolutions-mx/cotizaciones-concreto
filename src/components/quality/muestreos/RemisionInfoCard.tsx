@@ -3,7 +3,7 @@
 import React from "react";
 import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Truck, User, Package, Droplets, Clock, Building2 } from "lucide-react";
+import { Truck, User, Package, Droplets, Clock, Building2, Factory } from "lucide-react";
 import { adjustDateForTimezone } from "./dateUtils";
 import { formatDate } from "@/lib/utils";
 
@@ -41,6 +41,21 @@ export default function RemisionInfoCard({ remision, onChange }: Props) {
               <p className="text-sm">{remision.planta || remision.plants?.code || remision.plants?.name || 'N/A'}</p>
             </div>
           </div>
+
+          {/* Cross-plant production banner */}
+          {(remision.is_production_record || remision.cross_plant_billing_remision_id) && (
+            <div className="flex items-start gap-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2">
+              <Factory className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-orange-800">Producción Cruzada</p>
+                <p className="text-xs text-orange-600">
+                  {remision.is_production_record
+                    ? 'Este concreto fue producido aquí para otra planta.'
+                    : 'Este concreto fue producido en otra planta.'}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-gray-500" />
