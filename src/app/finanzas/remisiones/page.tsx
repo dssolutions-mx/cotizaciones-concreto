@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { format, parse, subDays } from 'date-fns';
+import { format, parse, subDays, addDays, isToday, isYesterday } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-wi
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Check, Copy, FileDown, ChevronDown, ChevronRight, Search, X, Edit } from 'lucide-react';
+import { Check, Copy, FileDown, ChevronDown, ChevronRight, ChevronLeft, Search, X, Edit, Factory, ArrowLeft, ArrowRight, Calendar } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { supabase } from '@/lib/supabase';
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,6 +35,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { usePlantContext } from '@/contexts/PlantContext';
 
 // Helper function to safely format dates
 const formatDateSafely = (dateStr: string): string => {
@@ -48,6 +49,10 @@ const formatDateSafely = (dateStr: string): string => {
 };
 
 export default function RemisionesPorCliente() {
+  // PlantContext is the single source of truth for the active plant.
+  // It handles ALL user types: non-executives (set from profile.plant_id),
+  // executives (set from plant-switcher in header), BU managers (first plant in BU).
+  const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const [clients, setClients] = useState<any[]>([]);
   const [filteredClients, setFilteredClients] = useState<any[]>([]);
   const [clientsWithRemisiones, setClientsWithRemisiones] = useState<string[]>([]);
@@ -74,6 +79,14 @@ export default function RemisionesPorCliente() {
   const [editingRemision, setEditingRemision] = useState<any>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [plants, setPlants] = useState<Record<string, string>>({}); // id → name
+
+  // Load plant names once on mount for cross-plant labels
+  useEffect(() => {
+    supabase.from('plants').select('id, name').then(({ data }) => {
+      if (data) setPlants(Object.fromEntries(data.map((p: any) => [p.id, p.name])));
+    });
+  }, []);
   
   // Determine display name for recipe/product
   // Use remision's recipe_id and recipe data directly
@@ -87,73 +100,68 @@ export default function RemisionesPorCliente() {
     return remision.recipe?.recipe_code || 'N/A';
   }, []);
   
-  // Load clients based on date range
+  // Load clients that have remisiones at the current plant within the date range.
+  // Source of plant: currentPlant from PlantContext (single source of truth).
+  // Flow: remisiones (plant_id + date range) → order_ids → client_ids → client names.
   const loadClientsWithRemisiones = useCallback(async () => {
-    if (!dateRange.from || !dateRange.to) return;
-    
+    if (!dateRange.from || !dateRange.to || !currentPlant?.id || plantLoading) return;
+
     setLoadingClients(true);
     try {
-      // Format dates for Supabase query
       const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
       const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
-      
-      // First get all remisiones within the date range
+
+      // Step 1: get distinct order_ids from remisiones at this plant in this date range.
+      // Filtering by remision.plant_id is the authoritative plant scope — it's set on every
+      // remision at creation time and never changes.
       const { data: remisionesInRange, error: remisionesError } = await supabase
         .from('remisiones')
         .select('order_id')
+        .eq('plant_id', currentPlant.id)
         .gte('fecha', formattedStartDate)
-        .lte('fecha', formattedEndDate);
-      
+        .lte('fecha', formattedEndDate)
+        .not('order_id', 'is', null); // exclude cross-plant production records (order_id=null)
+
       if (remisionesError) throw remisionesError;
-      
+
       if (!remisionesInRange || remisionesInRange.length === 0) {
         setClientsWithRemisiones([]);
         setFilteredClients([]);
-        setLoadingClients(false);
         return;
       }
-      
-      // Get unique order IDs
+
       const orderIds = Array.from(new Set(remisionesInRange.map(r => r.order_id)));
-      
-      // Get orders with those IDs to find client IDs
+
+      // Step 2: resolve order_ids → client_ids
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('id, client_id')
         .in('id', orderIds);
-      
+
       if (ordersError) throw ordersError;
-      
+
       if (!orders || orders.length === 0) {
         setClientsWithRemisiones([]);
         setFilteredClients([]);
-        setLoadingClients(false);
         return;
       }
-      
-      // Get unique client IDs
-      const clientIds = Array.from(new Set(orders.map(order => order.client_id)));
+
+      const clientIds = Array.from(new Set(orders.map(o => o.client_id)));
       setClientsWithRemisiones(clientIds);
-      
-      // Get client details for those IDs
+
+      // Step 3: get client display names
       const allClients = await clientService.getApprovedClients();
-      
-      // Filter to only clients with remisiones in the date range
-      const relevantClients = allClients.filter(client => 
-        clientIds.includes(client.id)
-      );
-      
       setClients(allClients);
-      setFilteredClients(relevantClients);
+      setFilteredClients(allClients.filter(c => clientIds.includes(c.id)));
     } catch (error) {
       console.error('Error loading clients with remisiones:', error);
       setFilteredClients([]);
     } finally {
       setLoadingClients(false);
     }
-  }, [dateRange]);
-  
-  // Load clients with remisiones when date range changes
+  }, [dateRange, currentPlant, plantLoading]);
+
+  // Load clients with remisiones when date range or plant changes
   useEffect(() => {
     loadClientsWithRemisiones();
   }, [loadClientsWithRemisiones]);
@@ -215,9 +223,9 @@ export default function RemisionesPorCliente() {
     loadClientSites();
   }, [selectedClientId]);
   
-  // Fetch remisiones when client, date range, or site changes
+  // Fetch remisiones when client, date range, or plant changes
   const fetchRemisiones = useCallback(async () => {
-    if (!selectedClientId || !dateRange.from || !dateRange.to) return;
+    if (!selectedClientId || !dateRange.from || !dateRange.to || !currentPlant?.id || plantLoading) return;
     
     setLoading(true);
     
@@ -226,7 +234,8 @@ export default function RemisionesPorCliente() {
       const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
       const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
       
-      // Query remisiones directly by client via orders!inner - avoids URL overflow from .in(order_id, hundreds of IDs)
+      // Scope to current plant (plant_id) AND client (via orders join).
+      // plant_id on remision is the authoritative filter — same column used in loadClientsWithRemisiones.
       let remisionesQuery = supabase
         .from('remisiones')
         .select(`
@@ -235,6 +244,7 @@ export default function RemisionesPorCliente() {
           recipe:recipes(recipe_code),
           materiales:remision_materiales(*)
         `)
+        .eq('plant_id', currentPlant.id)
         .eq('orders.client_id', selectedClientId);
       
       // Apply date filtering based on mode
@@ -365,14 +375,13 @@ export default function RemisionesPorCliente() {
         });
       setTotalAmount(amount);
       
-      // Apply initial site filter (pass products so totals use fresh data, not stale state)
-      filterRemisiones(enrichedRemisiones, selectedSite, searchTerm, products);
+      // Filtering is handled by the useEffect below — no inline call needed
     } catch (error) {
       console.error('Error fetching remisiones:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedClientId, dateRange, selectedSite, searchTerm, singleDateMode]);
+  }, [selectedClientId, dateRange, singleDateMode, currentPlant, plantLoading]);
   
   // Filter remisiones based on selected site and search term
   // productsOverride: when provided (e.g. from fetchRemisiones), use it for price lookup; else use orderProducts state
@@ -433,10 +442,10 @@ export default function RemisionesPorCliente() {
     setTotalAmount(amount);
   };
   
-  // Handle site selection changes
+  // Re-filter whenever data, site, or search changes — all client-side, no Supabase calls
   useEffect(() => {
     filterRemisiones(remisiones, selectedSite, searchTerm);
-  }, [selectedSite, searchTerm]);
+  }, [remisiones, orderProducts, selectedSite, searchTerm]);
   
   // Handle client change
   const handleClientSelect = (clientId: string) => {
@@ -487,6 +496,39 @@ export default function RemisionesPorCliente() {
     }
   };
   
+  // ── Day-by-day navigation ─────────────────────────────────────────────────
+  // Moves the date one day in either direction while keeping the selected client.
+  // The fetchRemisiones callback re-fires automatically because dateRange changes.
+  const navigateDay = (direction: 1 | -1) => {
+    setDateRange(prev => {
+      if (!prev.from) return prev;
+      const newDate = addDays(prev.from, direction);
+      return { from: newDate, to: newDate };
+    });
+    if (!singleDateMode) setSingleDateMode(true);
+  };
+
+  // Jump to a specific date (used by Hoy / Ayer shortcuts); resets client.
+  const jumpToDate = (date: Date) => {
+    setDateRange({ from: date, to: date });
+    setSingleDateMode(true);
+    setSelectedClientId('');
+    setRemisiones([]);
+    setFilteredRemisiones([]);
+  };
+
+  // Human-readable label for the current date context
+  const dateLabel = (() => {
+    if (!dateRange.from) return '';
+    if (singleDateMode || (dateRange.to && dateRange.from.toDateString() === dateRange.to.toDateString())) {
+      if (isToday(dateRange.from)) return 'Hoy';
+      if (isYesterday(dateRange.from)) return 'Ayer';
+      return format(dateRange.from, "EEEE d 'de' MMMM", { locale: es });
+    }
+    return `${format(dateRange.from, 'd MMM', { locale: es })} – ${dateRange.to ? format(dateRange.to, 'd MMM yyyy', { locale: es }) : ''}`;
+  })();
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Toggle remision details expansion
   const toggleExpand = (remisionId: string) => {
     setExpandedRemisionId(expandedRemisionId === remisionId ? null : remisionId);
@@ -583,16 +625,60 @@ export default function RemisionesPorCliente() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {/* Date Range Picker */}
+            {/* Date Navigator */}
             <div className="flex flex-col">
-              <Label>Fechas</Label>
-              <DateRangePickerWithPresets 
-                dateRange={dateRange} 
-                onDateRangeChange={handleDateRangeChange}
-                className="mt-1"
-                singleDateMode={singleDateMode}
-                onSingleDateModeChange={handleDateModeChange}
-              />
+              <div className="flex items-center justify-between mb-1">
+                <Label>Fechas</Label>
+                {/* Quick-jump pills */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => jumpToDate(new Date())}
+                    className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                      singleDateMode && dateRange.from && isToday(dateRange.from)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-600'
+                    }`}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    onClick={() => jumpToDate(subDays(new Date(), 1))}
+                    className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                      singleDateMode && dateRange.from && isYesterday(dateRange.from)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-200 text-gray-500 hover:border-blue-400 hover:text-blue-600'
+                    }`}
+                  >
+                    Ayer
+                  </button>
+                </div>
+              </div>
+              {/* Prev / picker / Next row */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => navigateDay(-1)}
+                  className="flex-none h-9 w-9 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+                  title="Día anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex-1">
+                  <DateRangePickerWithPresets
+                    dateRange={dateRange}
+                    onDateRangeChange={handleDateRangeChange}
+                    singleDateMode={singleDateMode}
+                    onSingleDateModeChange={handleDateModeChange}
+                  />
+                </div>
+                <button
+                  onClick={() => navigateDay(1)}
+                  disabled={singleDateMode && dateRange.from ? isToday(dateRange.from) : false}
+                  className="flex-none h-9 w-9 flex items-center justify-center rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Día siguiente"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
             
             {/* Client Selection */}
@@ -811,9 +897,14 @@ export default function RemisionesPorCliente() {
                             className="cursor-pointer hover:bg-gray-50"
                           >
                             <TableCell>
-                              <button className="flex items-center text-blue-600 hover:text-blue-800">
+                              <button className="flex items-center gap-1.5 text-blue-600 hover:text-blue-800">
                                 {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                <span className="ml-1 font-medium">{remision.remision_number}</span>
+                                <span className="font-medium">{remision.remision_number}</span>
+                                {remision.cross_plant_billing_plant_id && (
+                                  <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 font-normal">
+                                    Producción Cruzada
+                                  </Badge>
+                                )}
                               </button>
                             </TableCell>
                             <TableCell>{formatDateSafely(remision.fecha)}</TableCell>
@@ -867,6 +958,16 @@ export default function RemisionesPorCliente() {
                                         {remision.order_id}
                                       </dd>
                                     </div>
+                                    {remision.cross_plant_billing_plant_id && (
+                                      <div className="sm:col-span-2">
+                                        <dt className="text-sm font-medium text-gray-500">Planta Productora</dt>
+                                        <dd className="mt-1 text-sm text-gray-900 flex items-center gap-1.5">
+                                          <Factory size={14} className="text-orange-500" />
+                                          {plants[remision.cross_plant_billing_plant_id] ?? remision.cross_plant_billing_plant_id}
+                                          <span className="text-xs text-gray-400">(producción en planta externa)</span>
+                                        </dd>
+                                      </div>
+                                    )}
                                   </dl>
                                 </div>
                               </TableCell>
