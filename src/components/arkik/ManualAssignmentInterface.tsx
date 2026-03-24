@@ -659,9 +659,9 @@ export default function ManualAssignmentInterface({
                             </div>
                             
                             <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-gray-600 mb-2">
-                              <span>📍 {order.construction_site}</span>
-                              <span>📅 {formatDate(order.delivery_date)}</span>
-                              <span>📦 {order.order_items.length} productos</span>
+                              <span>Obra: {order.construction_site}</span>
+                              <span>Entrega: {formatDate(order.delivery_date)}</span>
+                              <span>{order.order_items.length} productos</span>
                             </div>
                             
                             <div className="flex flex-wrap gap-1">
@@ -723,8 +723,9 @@ export default function ManualAssignmentInterface({
           <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
             <div className="text-sm text-gray-600">
               {assignedCount === candidates.length ? (
-                <span className="text-green-600 font-medium">
-                  ✅ Todas las remisiones han sido procesadas
+                <span className="text-green-600 font-medium inline-flex items-center gap-1.5">
+                  <CheckCircle className="h-4 w-4 shrink-0" aria-hidden />
+                  Todas las remisiones han sido procesadas
                 </span>
               ) : (
                 <span>

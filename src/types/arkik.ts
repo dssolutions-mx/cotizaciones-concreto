@@ -120,12 +120,15 @@ export interface WasteMaterial {
   remision_number: string;
   material_code: string;
   material_name?: string;
+  /** Resolved from materials table at save time (optional until persisted) */
+  material_id?: string | null;
   theoretical_amount: number;
   actual_amount: number;
   waste_amount: number;
   waste_reason: 'cancelled' | 'incomplete' | 'quality_issue' | 'other';
   plant_id: string;
   fecha: Date;
+  /** User-facing reason / context (dialog + optional notes) */
   notes?: string;
   created_at: Date;
 }

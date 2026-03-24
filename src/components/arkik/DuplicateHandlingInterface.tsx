@@ -136,7 +136,7 @@ export default function DuplicateHandlingInterface({
     // Warn for high-risk items with UPDATE_ALL or MERGE
     if (selectedHighRisk.length > 0 && (strategy === DuplicateHandlingStrategy.UPDATE_ALL || strategy === DuplicateHandlingStrategy.MERGE)) {
       const confirmed = window.confirm(
-        `⚠️ Advertencia: ${selectedHighRisk.length} de las remisiones seleccionadas tienen riesgo alto. ` +
+        `Advertencia: ${selectedHighRisk.length} de las remisiones seleccionadas tienen riesgo alto. ` +
         `¿Estás seguro de que deseas aplicar "${getStrategyDescription(strategy)}" a todas las seleccionadas?`
       );
       if (!confirmed) return;
@@ -279,7 +279,7 @@ export default function DuplicateHandlingInterface({
                   </span>
                 </div>
                 <div className="text-sm text-amber-700 mt-1">
-                  ⚠️ Actualizar estas remisiones puede afectar decisiones ya tomadas.
+                  Actualizar estas remisiones puede afectar decisiones ya tomadas.
                 </div>
               </div>
             )}
@@ -293,7 +293,7 @@ export default function DuplicateHandlingInterface({
                   </span>
                 </div>
                 <div className="text-sm text-red-700 mt-1">
-                  🚨 Estas remisiones tienen reasignaciones que podrían perderse si se actualizan.
+                  Estas remisiones tienen reasignaciones que podrían perderse si se actualizan.
                 </div>
               </div>
             )}
@@ -307,7 +307,7 @@ export default function DuplicateHandlingInterface({
                   </span>
                 </div>
                 <div className="text-sm text-orange-700 mt-1">
-                  ⚠️ Estas remisiones tienen registros de desperdicio que podrían perderse si se actualizan.
+                  Estas remisiones tienen registros de desperdicio que podrían perderse si se actualizan.
                 </div>
               </div>
             )}
@@ -624,7 +624,8 @@ export default function DuplicateHandlingInterface({
           onClick={handleContinue}
           className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
         >
-          Continuar con Decisiones →
+          Continuar con decisiones
+          <ArrowRight className="ml-2 h-4 w-4" />
         </Button>
       </div>
     </div>

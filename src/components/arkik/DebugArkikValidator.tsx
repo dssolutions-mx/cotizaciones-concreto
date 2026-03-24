@@ -5,7 +5,7 @@ import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
 import type { StagingRemision, ValidationError } from '@/types/arkik';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { FileSpreadsheet, PlayCircle, AlertTriangle } from 'lucide-react';
+import { FileSpreadsheet, PlayCircle, AlertTriangle, Wrench, BarChart3, Check, X } from 'lucide-react';
 
 // Helper functions for date formatting without timezone conversion
 const formatLocalDate = (date: Date): string => {
@@ -87,10 +87,13 @@ export default function DebugArkikRunner() {
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-4">🔧 Debug Arkik Validator</h1>
+        <h1 className="text-2xl font-bold mb-4 inline-flex items-center gap-2">
+          <Wrench className="h-7 w-7 text-gray-700 shrink-0" aria-hidden />
+          Debug Arkik Validator
+        </h1>
         <p className="text-gray-600 mb-6">
           Simple step-by-step validator for debugging the core logic.
-          Strategy: Recipe → Unified Pricing → Client/Site Auto-Detection
+          Strategy: Recipe, then unified pricing, then client/site auto-detection
         </p>
         
         <div className="space-y-4">
@@ -231,8 +234,12 @@ export default function DebugArkikRunner() {
                       <div className="text-sm text-amber-800">Errores de Materiales</div>
                     </div>
                     <div className="bg-gray-50 p-4 rounded-lg">
-                      <div className="text-2xl font-bold text-gray-600">
-                        {materialCodeArray.length > 0 ? '✅' : '❌'}
+                      <div className="text-2xl font-bold text-gray-600 flex justify-center">
+                        {materialCodeArray.length > 0 ? (
+                          <Check className="h-8 w-8 text-green-600" aria-hidden />
+                        ) : (
+                          <X className="h-8 w-8 text-red-600" aria-hidden />
+                        )}
                       </div>
                       <div className="text-sm text-gray-800">Estado Detección</div>
                     </div>
@@ -251,7 +258,10 @@ export default function DebugArkikRunner() {
                       
                       {/* Material Quantities Summary */}
                       <div className="mt-4 bg-gray-50 rounded p-4">
-                        <h5 className="font-medium text-gray-800 mb-3">📊 Resumen de Cantidades Extraídas:</h5>
+                        <h5 className="font-medium text-gray-800 mb-3 inline-flex items-center gap-2">
+                          <BarChart3 className="h-4 w-4 shrink-0" aria-hidden />
+                          Resumen de cantidades extraídas
+                        </h5>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <h6 className="text-sm font-medium text-blue-700 mb-2">Teórica (kg/m³):</h6>
@@ -301,7 +311,10 @@ export default function DebugArkikRunner() {
                       {/* Material Mapping Status */}
                       {materialErrors.length > 0 && (
                         <div className="mt-4 bg-amber-50 border border-amber-200 rounded p-4">
-                          <h5 className="font-medium text-amber-800 mb-2">⚠️ Materiales sin Mapear:</h5>
+                          <h5 className="font-medium text-amber-800 mb-2 inline-flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+                            Materiales sin mapear
+                          </h5>
                           <div className="text-sm text-amber-700">
                             {materialErrors.map((error, idx) => (
                               <div key={idx}>• {error.message}</div>
@@ -317,7 +330,7 @@ export default function DebugArkikRunner() {
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
                         <div className="ml-3">
-                          <h3 className="text-sm font-medium text-red-800">❌ No se Detectaron Materiales</h3>
+                          <h3 className="text-sm font-medium text-red-800">No se detectaron materiales</h3>
                           <div className="mt-2 text-sm text-red-700">
                             El parser no pudo detectar códigos de materiales en el archivo Excel. 
                             Esto puede indicar un problema con el formato del archivo o la estructura de columnas.

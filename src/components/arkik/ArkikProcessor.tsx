@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy, ArrowLeftRight, Factory, Link as LinkIcon, Building2, Package, Plus, RefreshCw } from 'lucide-react';
+import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, ChevronLeft, CheckCircle2, Copy, ArrowLeftRight, ArrowRight, Factory, Link as LinkIcon, Building2, Package, Plus, RefreshCw, Info, Check } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
@@ -27,6 +27,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import { supabase } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 
 // Helper functions for date formatting without timezone conversion
 const formatLocalDate = (date: Date): string => {
@@ -141,6 +142,19 @@ export default function ArkikProcessor() {
   // One-time initializer to prevent re-running status processing automatically
   const [statusProcessingInitialized, setStatusProcessingInitialized] = useState(false);
 
+  /** After duplicate decisions are applied, Continue skips re-detecting duplicates */
+  const [duplicatesResolved, setDuplicatesResolved] = useState(false);
+
+  const showArkikDebugPanels =
+    process.env.NEXT_PUBLIC_ARKIK_DEBUG === 'true' ||
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'PLANT_MANAGER';
+
+  const canCreateRecipeFromArkik =
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'PLANT_MANAGER' ||
+    profile?.role === 'QUALITY_TEAM';
+
   // Helper function to translate technical error messages into user-friendly messages for dosificadores
   const translateErrorForDosificador = (error: any): string => {
     if (!error || !error.error_type) return error?.message || 'Error desconocido';
@@ -152,14 +166,14 @@ export default function ArkikProcessor() {
       case 'RECIPE_NO_PRICE':
         // Check if this is a client-recipe mismatch (strict validation failure)
         if (error.message?.includes('Se encontró precio para un cliente diferente')) {
-          return `❌ PRECIO NO DISPONIBLE: ${error.message}. ${error.suggestion?.suggestion || 'Contacta al equipo comercial para resolver este problema.'}`;
+          return `Precio no disponible: ${error.message}. ${error.suggestion?.suggestion || 'Contacta al equipo comercial para resolver este problema.'}`;
         }
         return `La receta "${error.field_value || 'sin código'}" no tiene precio configurado. Contacta al equipo de contabilidad para que configure el precio.`;
       
       case 'CLIENT_NOT_FOUND':
         // Check if this is a strict validation failure
         if (error.message?.includes('does not closely match')) {
-          return `❌ VALIDACIÓN ESTRICTA: El cliente "${error.field_value || 'sin nombre'}" no coincide lo suficiente con ningún cliente registrado. ${error.suggestion?.suggestion || 'Verifica el nombre del cliente o contacta al equipo comercial.'}`;
+          return `Validación estricta: el cliente "${error.field_value || 'sin nombre'}" no coincide lo suficiente con ningún cliente registrado. ${error.suggestion?.suggestion || 'Verifica el nombre del cliente o contacta al equipo comercial.'}`;
         }
         return `El cliente "${error.field_value || 'sin nombre'}" no está registrado. Contacta al equipo comercial para que lo registre.`;
       
@@ -230,7 +244,7 @@ Usuario: Dosificador
 `;
 
     if (summary.missingRecipes.length > 0) {
-      report += `🧪 RECETAS FALTANTES (${summary.missingRecipes.length})
+      report += `RECETAS FALTANTES (${summary.missingRecipes.length})
 Equipo responsable: Control de Calidad
 Problema: Recetas no registradas en el sistema
 Impacto: No se pueden procesar remisiones
@@ -247,7 +261,7 @@ NOTA: Después de registrar cada receta, también necesitarás configurar un pre
     }
 
     if (summary.missingPrices.length > 0) {
-      report += `💰 PRECIOS FALTANTES (${summary.missingPrices.length})
+      report += `PRECIOS FALTANTES (${summary.missingPrices.length})
 Equipo responsable: Contabilidad
 Problema: Recetas sin precio configurado
 Impacto: No se pueden calcular costos ni generar facturas
@@ -281,6 +295,62 @@ Fin del reporte
     return report;
   };
 
+  const [notifyingRecipeCode, setNotifyingRecipeCode] = useState<string | null>(null);
+
+  const sendQualityRecipeRequest = async (primaryCode: string) => {
+    if (!currentPlant?.id || !result?.validated) return;
+    setNotifyingRecipeCode(primaryCode);
+    try {
+      const rows = result.validated.filter(
+        (r) => (r.product_description || r.recipe_code) === primaryCode
+      );
+      const payload = {
+        remision_numbers: rows.map((r) => r.remision_number),
+        file_label: file?.name ?? null,
+        rows: rows.map((r) => ({
+          id: r.id,
+          session_id: r.session_id,
+          row_number: r.row_number,
+          remision_number: r.remision_number,
+          product_description: r.product_description,
+          recipe_code: r.recipe_code,
+          prod_tecnico: r.prod_tecnico,
+          materials_teorico: r.materials_teorico,
+          materials_real: r.materials_real,
+          materials_retrabajo: r.materials_retrabajo,
+          materials_manual: r.materials_manual,
+          cliente_name: r.cliente_name,
+          obra_name: r.obra_name,
+          volumen_fabricado: r.volumen_fabricado,
+          validation_status: r.validation_status,
+          validation_errors: r.validation_errors,
+          estatus: r.estatus,
+        })),
+      };
+      const res = await fetch('/api/arkik/quality-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plant_id: currentPlant.id,
+          primary_code: primaryCode,
+          request_type: 'recipe',
+          payload,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || 'Error al enviar solicitud');
+      if ((json as { duplicate?: boolean }).duplicate) {
+        toast.message('Ya existe una solicitud abierta para este código en calidad.');
+      } else {
+        toast.success('Solicitud enviada al equipo de calidad.');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo enviar la solicitud');
+    } finally {
+      setNotifyingRecipeCode(null);
+    }
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -291,47 +361,36 @@ Fin del reporte
   const handleValidationContinue = async () => {
     if (!result?.validated || !currentPlant) return;
 
-    // Check if there are validation errors that prevent continuation
-    const hasErrors = result.validated.filter(r => r.validation_status === 'error').length > 0;
+    const hasErrors = result.validated.filter((r) => r.validation_status === 'error').length > 0;
     if (hasErrors) {
-      alert('❌ No puedes continuar hasta resolver todos los errores de validación. Revisa las remisiones con errores y contacta a los equipos correspondientes.');
+      toast.error(
+        'No puedes continuar hasta resolver todos los errores de validación. Revisa las remisiones con errores y contacta a los equipos correspondientes.'
+      );
       return;
     }
 
     setLoading(true);
     try {
-      if (processingMode === 'commercial' || processingMode === 'hybrid') {
-        // Commercial and Hybrid modes: Duplicates already handled, proceed to status processing
-        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Duplicates already handled, proceeding to status processing`);
-        handleStatusProcessing();
-      } else {
-        // Dedicated mode: Check for duplicates after validation is complete
-        console.log('[ArkikProcessor] Dedicated mode: Starting duplicate detection after validation...');
+      if (!duplicatesResolved) {
         const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
         setDuplicateHandler(duplicateHandlerInstance);
 
-        console.log('[ArkikProcessor] Calling detectDuplicates with', result.validated.length, 'remisiones');
         const duplicates = await duplicateHandlerInstance.detectDuplicates(result.validated);
-        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
-
         setDuplicateRemisiones(duplicates);
 
         if (duplicates.length > 0) {
-          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing manual interface`);
-          // Show duplicate handling interface for user to decide
           setShowDuplicateHandling(true);
           setCurrentStep('duplicate-handling');
           return;
         }
 
-        // No duplicates found, proceed directly to status processing
-        console.log('[ArkikProcessor] No duplicates found, proceeding to status processing');
-        handleStatusProcessing();
+        setDuplicatesResolved(true);
       }
 
+      handleStatusProcessing();
     } catch (error) {
       console.error('Error in duplicate processing:', error);
-      alert('Error al detectar duplicados');
+      toast.error('Error al detectar duplicados');
     } finally {
       setLoading(false);
     }
@@ -357,8 +416,9 @@ Fin del reporte
       result.validated.every(r => r.duplicate_strategy === 'materials_only');
 
     if (allAreMaterialsOnlyUpdates) {
-      console.log('[ArkikProcessor] All remisiones are materials-only updates - skipping status processing');
-      alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
+      toast.message(
+        'Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.'
+      );
       return;
     }
 
@@ -490,7 +550,7 @@ Fin del reporte
       // Cache reassignments until after remisiones are created in the database
       if (processingResult.reassignments.length > 0) {
         setPendingReassignments(processingResult.reassignments);
-        console.log(`💾 Cached ${processingResult.reassignments.length} reassignments until remisiones are created`);
+        console.log(`[ArkikProcessor] Cached ${processingResult.reassignments.length} reassignments until remisiones are created`);
       }
       
       // Note: Reassignments will be saved after order/remision creation completes
@@ -527,7 +587,7 @@ Fin del reporte
         
         // Show summary and return to validation
         const summaryMessage = [
-          '✅ Procesamiento completado',
+          'Procesamiento completado',
           '',
           `• ${remainingRemisiones.length} remisiones con actualizaciones de materiales`,
           `• ${processingResult.waste_remisiones} remisiones marcadas como desperdicio`,
@@ -590,7 +650,9 @@ Fin del reporte
     
     if (allAreMaterialsOnlyUpdates) {
       console.log('[ArkikProcessor] All remisiones are materials-only updates - skipping order grouping');
-      alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
+      toast.message(
+        'Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.'
+      );
       return;
     }
     
@@ -678,23 +740,23 @@ Fin del reporte
         });
         
         if (!hasClientId) {
-          console.warn('[ArkikProcessor] ❌ Missing client_id for remision:', remision.remision_number, 'Cliente:', remision.cliente_name);
+          console.warn('[ArkikProcessor] Missing client_id for remision:', remision.remision_number, 'Cliente:', remision.cliente_name);
         }
         
         if (!hasConstructionSiteId) {
-          console.warn('[ArkikProcessor] ❌ Missing construction_site_id for remision:', remision.remision_number, 'Obra:', remision.obra_name);
+          console.warn('[ArkikProcessor] Missing construction_site_id for remision:', remision.remision_number, 'Obra:', remision.obra_name);
         }
         
         if (!hasRecipeId) {
-          console.warn('[ArkikProcessor] ❌ Missing recipe_id for remision:', remision.remision_number);
+          console.warn('[ArkikProcessor] Missing recipe_id for remision:', remision.remision_number);
         }
         
         if (!hasValidStatus) {
-          console.warn('[ArkikProcessor] ❌ Invalid validation status for remision:', remision.remision_number, 'Status:', remision.validation_status);
+          console.warn('[ArkikProcessor] Invalid validation status for remision:', remision.remision_number, 'Status:', remision.validation_status);
         }
         
         if (!hasPricing) {
-          console.warn('[ArkikProcessor] ❌ Missing pricing for remision:', remision.remision_number, 'Price:', remision.unit_price);
+          console.warn('[ArkikProcessor] Missing pricing for remision:', remision.remision_number, 'Price:', remision.unit_price);
         }
         
         return hasRequiredIds && hasValidStatus && hasPricing;
@@ -966,100 +1028,81 @@ Fin del reporte
   };
 
     const handleDuplicateHandlingComplete = async (decisions: DuplicateHandlingDecision[]) => {
-    console.log('[ArkikProcessor] Duplicate handling decisions completed:', decisions);
-
-    // Store the decisions
     setDuplicateHandlingDecisions(decisions);
     setShowDuplicateHandling(false);
 
     try {
-      if (!duplicateHandler) return;
+      if (!duplicateHandler || !currentPlant) return;
 
-      // In commercial and hybrid modes, we need to work with staging data since duplicates were checked before validation
-      const dataToProcess = (processingMode === 'commercial' || processingMode === 'hybrid') ? stagingData : (result?.validated || []);
-      
+      const dataToProcess = result?.validated || [];
       if (dataToProcess.length === 0) return;
 
-      // Apply duplicate decisions to the data
-      const { processedRemisiones: processed, skippedRemisiones: skipped, updatedRemisiones: updated, result: duplicateResult } =
-        duplicateHandler.applyDuplicateDecisions(dataToProcess, decisions, duplicateRemisiones);
+      const {
+        processedRemisiones: processed,
+        skippedRemisiones: skippedRows,
+        updatedRemisiones: updated,
+        result: duplicateResult,
+      } = duplicateHandler.applyDuplicateDecisions(dataToProcess, decisions, duplicateRemisiones);
 
-      console.log('[ArkikProcessor] Duplicate handling results:', {
-        processed: processed.length,
-        skipped: skipped.length,
-        updated: updated.length,
-        summary: duplicateResult.summary
+      const merged = [...processed, ...updated, ...skippedRows];
+
+      const validator = new DebugArkikValidator(currentPlant.id);
+      const { validated: fullyValidated, errors: validationErrors } = await validator.validateBatch(merged);
+
+      setValidationErrors(validationErrors);
+
+      const successRate =
+        fullyValidated.length > 0
+          ? (fullyValidated.filter((r) => r.validation_status === 'valid').length / fullyValidated.length) * 100
+          : 0;
+
+      setResult({
+        validated: fullyValidated,
+        errors: validationErrors,
+        debugLogs: [],
+        processingTime: 0,
+        totalRows: fullyValidated.length,
+        successRate,
       });
+      setStagingData(fullyValidated);
 
-      // In commercial and hybrid modes, validate the processed remisiones now
-      let updatedValidated: StagingRemision[];
-      if ((processingMode === 'commercial' || processingMode === 'hybrid') && processed.length > 0) {
-        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Validating processed remisiones after duplicate handling...`);
-        const validator = new DebugArkikValidator(currentPlant!.id);
-        const { validated: validatedProcessed, errors: validationErrors } = await validator.validateBatch(processed);
-        
-        // Update validation errors state
-        setValidationErrors(validationErrors);
-        
-        // Combine validated processed remisiones with updated ones
-        updatedValidated = [...validatedProcessed, ...updated];
-        
-        // Update or create the result object
-        const processingTime = Date.now() - Date.now(); // Placeholder
-        const successRate = validatedProcessed.length > 0 ? (validatedProcessed.filter(r => r.validation_status === 'valid').length / validatedProcessed.length) * 100 : 0;
-        
-        setResult({
-          validated: updatedValidated,
-          errors: validationErrors,
-          debugLogs: [],
-          processingTime,
-          totalRows: updatedValidated.length,
-          successRate
-        });
-      } else {
-        // Dedicated mode: use existing validated data
-        updatedValidated = [...processed, ...updated];
-        setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
+      setDuplicatesResolved(true);
+
+      const hasPostDuplicateErrors = fullyValidated.some((r) => r.validation_status === 'error');
+      if (hasPostDuplicateErrors) {
+        loadNamesFromDatabase(fullyValidated);
+        setCurrentStep('validation');
+        toast.error(
+          'Hay errores de validación después de resolver duplicados. Corrígelos y vuelve a continuar.'
+        );
+        return;
       }
 
-      // Check if ALL remisiones are materials-only updates (no new orders needed)
-      const allAreMaterialsOnlyUpdates = updated.length > 0 &&
-        updated.every(r => r.duplicate_strategy === 'materials_only') &&
-        processed.length === 0; // No new remisiones to process
+      if (fullyValidated.length > 0) {
+        loadNamesFromDatabase(fullyValidated);
+      }
+
+      const allAreMaterialsOnlyUpdates =
+        updated.length > 0 &&
+        updated.every((r) => r.duplicate_strategy === 'materials_only') &&
+        processed.length === 0;
 
       if (allAreMaterialsOnlyUpdates) {
-        console.log('[ArkikProcessor] All remisiones are materials-only updates - processing directly');
-
-        // Show summary
-        const summaryMessage = [
-          'Manejo de duplicados completado:',
-          '',
-          `• ${duplicateResult.total_duplicates} duplicados detectados`,
-          `• ${duplicateResult.summary.materials_only_updates} actualizaciones de materiales`,
-          `• ${duplicateResult.summary.skipped} omitidos`,
-          '',
-          '🔄 Actualizando materiales en la base de datos...'
-        ].join('\n');
-
-        alert(summaryMessage);
-
-        // Process materials-only updates directly
+        toast.message('Actualizando materiales en la base de datos…');
         await handleMaterialsOnlyUpdates(updated, duplicateResult);
 
-        // Reset to validation step since we're done
         setCurrentStep('validation');
         setResult(null);
         setFile(null);
         setProcessedRemisiones([]);
         setDuplicateRemisiones([]);
         setDuplicateHandlingDecisions([]);
+        setDuplicatesResolved(false);
 
         return;
       }
 
-      // If there are any materials-only updates among duplicates, process them immediately
-      // CRITICAL: Only process materials_only - exclude skip/omit (defensive)
-      const materialsOnlyUpdates = updated.filter(r => r.duplicate_strategy === 'materials_only');
+      const materialsOnlyUpdates = updated.filter((r) => r.duplicate_strategy === 'materials_only');
       if (materialsOnlyUpdates.length > 0) {
         try {
           await handleMaterialsOnlyUpdates(materialsOnlyUpdates, duplicateResult);
@@ -1068,50 +1111,11 @@ Fin del reporte
         }
       }
 
-      // Show summary for normal processing
-      const summaryMessage = [
-        'Manejo de duplicados completado:',
-        '',
-        `• ${duplicateResult.total_duplicates} duplicados detectados`,
-        `• ${duplicateResult.summary.materials_only_updates} actualizaciones de materiales`,
-        `• ${duplicateResult.summary.full_updates} actualizaciones completas`,
-        `• ${duplicateResult.merged} combinaciones`,
-        `• ${duplicateResult.summary.skipped} omitidos`,
-        '',
-        'Continuando con el procesamiento...'
-      ].join('\n');
-
-      alert(summaryMessage);
-
-      // Continue to status processing step for mixed scenarios
-      console.log('[ArkikProcessor] Proceeding to status processing after duplicate handling');
-      console.log('[ArkikProcessor] Updated validated data for status processing:', {
-        totalRemisiones: updatedValidated.length,
-        excludedFromImport: updatedValidated.filter(r => r.is_excluded_from_import).length,
-        materialsOnlyUpdates: updatedValidated.filter(r => r.duplicate_strategy === 'materials_only').length,
-        normalRemisiones: updatedValidated.filter(r => !r.is_excluded_from_import && r.duplicate_strategy !== 'materials_only').length
-      });
-
-      // Ensure the result state is properly updated before moving to status processing
-      setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
-
-              // Move to status processing step immediately with updated data
-        console.log('[ArkikProcessor] Moving to status processing with updated data:', {
-          totalRemisiones: updatedValidated.length,
-          sampleRemision: updatedValidated[0] ? {
-            id: updatedValidated[0].id,
-            remision_number: updatedValidated[0].remision_number,
-            estatus: updatedValidated[0].estatus,
-            duplicate_strategy: updatedValidated[0].duplicate_strategy,
-            is_excluded_from_import: updatedValidated[0].is_excluded_from_import
-          } : null
-        });
-        
-        setCurrentStep('status-processing');
-
+      toast.message('Duplicados resueltos. Continuando con el procesamiento de estatus…');
+      setCurrentStep('status-processing');
     } catch (error) {
       console.error('Error processing duplicate decisions:', error);
-      alert('Error al procesar las decisiones de duplicados');
+      toast.error('Error al procesar las decisiones de duplicados');
     }
   };
 
@@ -1244,14 +1248,14 @@ Fin del reporte
                 .insert(materialsToInsert);
 
               if (insertError) {
-                console.error(`[ArkikProcessor] ❌ Failed to insert materials for remision ${remision.remision_number}:`, insertError);
+                console.error(`[ArkikProcessor] Failed to insert materials for remision ${remision.remision_number}:`, insertError);
               } else {
-                console.log(`[ArkikProcessor] ✅ Updated ${materialsToInsert.length} materials for remision ${remision.remision_number}`);
+                console.log(`[ArkikProcessor] Updated ${materialsToInsert.length} materials for remision ${remision.remision_number}`);
                 totalMaterialsUpdated += materialsToInsert.length;
               }
             } else {
               // No materials to insert means we're clearing existing materials
-              console.log(`[ArkikProcessor] ✅ Cleared all materials for remision ${remision.remision_number}`);
+              console.log(`[ArkikProcessor] Cleared all materials for remision ${remision.remision_number}`);
             }
             
             totalRemisionesUpdated++;
@@ -1263,7 +1267,7 @@ Fin del reporte
       
       // Show success message
       const successMessage = [
-        '✅ Actualización de materiales completada',
+        'Actualización de materiales completada',
         '',
         `• ${totalRemisionesUpdated} remisiones actualizadas`,
         `• ${totalMaterialsUpdated} registros de materiales procesados`,
@@ -1352,16 +1356,16 @@ Fin del reporte
               ? `${updateResult.totalMaterialsProcessed} materiales totales (${updateResult.materialsCreated || 0} nuevos, ${updateResult.remisionesWithExistingMaterials || 0} remisiones ya tenían materiales)`
               : `${updateResult.materialsCreated || 0} materiales`;
             
-            console.log(`[ArkikProcessor] ✅ Updated order ${suggestion.existing_order_number}: ${suggestion.remisiones.length} remisiones, ${materialsDetail}`);
+            console.log(`[ArkikProcessor] Updated order ${suggestion.existing_order_number}: ${suggestion.remisiones.length} remisiones, ${materialsDetail}`);
           } else {
-            console.error(`[ArkikProcessor] ❌ Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
+            console.error(`[ArkikProcessor] Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
           }
         }
 
         // OPTIMIZATION: Batch recalculate all affected orders in parallel
         if (affectedOrderIds.size > 0) {
           const uniqueOrderIds = Array.from(new Set(affectedOrderIds));
-          console.log(`[ArkikProcessor] 🔄 Batch recalculating ${uniqueOrderIds.length} affected orders...`);
+          console.log(`[ArkikProcessor] Batch recalculating ${uniqueOrderIds.length} affected orders...`);
           
           try {
             const { recalculateOrderAmount } = await import('@/services/orderService');
@@ -1377,7 +1381,7 @@ Fin del reporte
             recalcResults.forEach((result, index) => {
               if (result.status === 'rejected') {
                 failedOrderIds.push(uniqueOrderIds[index]);
-                console.error(`[ArkikProcessor] ❌ Recalculation failed for orderId=${uniqueOrderIds[index]}:`, result.reason);
+                console.error(`[ArkikProcessor] Recalculation failed for orderId=${uniqueOrderIds[index]}:`, result.reason);
               }
             });
             
@@ -1386,7 +1390,7 @@ Fin del reporte
             
             // One controlled retry for transient failures (e.g. timeout, network)
             if (failedOrderIds.length > 0) {
-              console.log(`[ArkikProcessor] 🔄 Retrying ${failedOrderIds.length} failed recalculations (1 attempt)...`);
+              console.log(`[ArkikProcessor] Retrying ${failedOrderIds.length} failed recalculations (1 attempt)...`);
               const retryResults = await Promise.allSettled(
                 failedOrderIds.map(orderId => recalculateOrderAmount(orderId))
               );
@@ -1395,14 +1399,14 @@ Fin del reporte
                   retriedOk++;
                 } else {
                   retriedFailed++;
-                  console.error(`[ArkikProcessor] ❌ Retry failed for orderId=${failedOrderIds[index]}:`, result.reason);
+                  console.error(`[ArkikProcessor] Retry failed for orderId=${failedOrderIds[index]}:`, result.reason);
                 }
               });
             }
             
-            console.log(`[ArkikProcessor] ✅ Batch recalculation complete: ok=${successCount} failed=${failureCount} retried_ok=${retriedOk} retried_failed=${retriedFailed}`);
+            console.log(`[ArkikProcessor] Batch recalculation complete: ok=${successCount} failed=${failureCount} retried_ok=${retriedOk} retried_failed=${retriedFailed}`);
           } catch (recalcError) {
-            console.error('[ArkikProcessor] ❌ Error during batch recalculation:', recalcError);
+            console.error('[ArkikProcessor] Error during batch recalculation:', recalcError);
           }
         }
       }
@@ -1427,7 +1431,7 @@ Fin del reporte
       
       // Save pending reassignments after remisiones are created
       if (pendingReassignments.length > 0) {
-        console.log(`🔄 Now saving ${pendingReassignments.length} cached reassignments to database`);
+        console.log(`[ArkikProcessor] Now saving ${pendingReassignments.length} cached reassignments to database`);
         const { arkikStatusService } = await import('@/services/arkikStatusStorage');
 
         // Use the same session ID that was used during status processing
@@ -1435,15 +1439,15 @@ Fin del reporte
 
         // Save reassignments (without applying material transfers yet)
         await arkikStatusService.saveRemisionReassignments(pendingReassignments, sessionId, currentPlant.id);
-        console.log(`✅ Saved ${pendingReassignments.length} reassignment records to database`);
+        console.log(`[ArkikProcessor] Saved ${pendingReassignments.length} reassignment records to database`);
 
         // Clear the cache
         setPendingReassignments([]);
 
         // Apply material transfers now that remisiones are created
-        console.log(`🔄 Applying material transfers for saved reassignments...`);
+        console.log('[ArkikProcessor] Applying material transfers for saved reassignments...');
         await arkikStatusService.applyPendingMaterialTransfers(currentPlant.id, sessionId);
-        console.log(`✅ Applied material transfers for reassignments`);
+        console.log('[ArkikProcessor] Applied material transfers for reassignments');
       }
 
       // Create cross-plant production remisiones (order_id = null, is_production_record = true)
@@ -1549,6 +1553,7 @@ Fin del reporte
     if (!file || !currentPlant) return;
 
     setLoading(true);
+    setDuplicatesResolved(false);
     const startTime = Date.now();
 
     try {
@@ -1558,7 +1563,7 @@ Fin del reporte
       
       // Debug: Log first few rows to verify date parsing after our fixes
       if (rawData.length > 0) {
-        console.log('[ArkikProcessor] ✅ Date parsing verification after timezone fix - first 3 rows:');
+        console.log('[ArkikProcessor] Date parsing verification after timezone fix - first 3 rows:');
         rawData.slice(0, 3).forEach((row, index) => {
           console.log(`[ArkikProcessor] Row ${index + 1}:`, {
             remision: row.remision,
@@ -1640,33 +1645,9 @@ Fin del reporte
           suggested_order_group: ''
         } as StagingRemision));
 
-      // Handle processing based on mode
-      if (processingMode === 'commercial' || processingMode === 'hybrid') {
-        // Commercial and Hybrid modes: Check duplicates BEFORE validation
-        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Checking duplicates before validation...`);
-        
-        const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
-        setDuplicateHandler(duplicateHandlerInstance);
-        
-        const duplicates = await duplicateHandlerInstance.detectDuplicates(stagingRows);
-        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
-        
-        setDuplicateRemisiones(duplicates);
-        
-        if (duplicates.length > 0) {
-          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing duplicate handling interface`);
-          // Set staging data and show duplicate handling interface
-          setStagingData(stagingRows);
-          setShowDuplicateHandling(true);
-          setCurrentStep('duplicate-handling');
-          setLoading(false);
-          return;
-        } else {
-          console.log('[ArkikProcessor] No duplicates found, proceeding with validation...');
-        }
-      }
+      // Validate first for all modes; duplicates run after validation gate (handleValidationContinue)
 
-      // Then validate using the debug validator
+      // Validate using the debug validator
       const validator = new DebugArkikValidator(currentPlant.id);
       const { validated, errors } = await validator.validateBatch(stagingRows);
 
@@ -1717,15 +1698,15 @@ Fin del reporte
   };
 
   const revalidateAfterRecipeCreation = async () => {
-    if (!currentPlant || !stagingData.length) return;
+    if (!currentPlant) return;
+    const source =
+      result?.validated && result.validated.length > 0 ? result.validated : stagingData;
+    if (!source.length) return;
     try {
       const validator = new DebugArkikValidator(currentPlant.id);
-      const { validated, errors } = await validator.validateBatch(stagingData);
-      setResult((prev) =>
-        prev
-          ? { ...prev, validated, errors }
-          : null
-      );
+      const { validated, errors } = await validator.validateBatch(source);
+      setStagingData(validated);
+      setResult((prev) => (prev ? { ...prev, validated, errors } : null));
       if (validated.length > 0) loadNamesFromDatabase(validated);
     } catch (e) {
       console.error('[ArkikProcessor] Revalidation error:', e);
@@ -1993,7 +1974,7 @@ Fin del reporte
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-start gap-3">
                   <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-blue-600 text-sm font-bold">ℹ️</span>
+                    <Info className="h-3.5 w-3.5 text-blue-600" aria-hidden />
                   </div>
                   <div className="flex-1">
                     <h4 className="font-medium text-blue-900 mb-2">
@@ -2207,7 +2188,7 @@ Fin del reporte
                     {summary.missingRecipes.length > 0 && summary.missingPrices.length > 0 && (
                       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="text-sm text-blue-800">
-                          <strong>📋 Orden de Resolución:</strong> 
+                          <strong>Orden de resolución sugerido</strong>
                         </div>
                         <div className="text-sm text-blue-800 mt-1 space-y-1">
                           <div>1. <strong>Recetas faltantes:</strong> El equipo de calidad las registra</div>
@@ -2221,34 +2202,48 @@ Fin del reporte
                     {summary.missingRecipes.length > 0 && (
                       <div className="mb-4">
                         <h4 className="font-medium text-gray-900 mb-2">
-                          🧪 Recetas Faltantes ({summary.missingRecipes.length})
+                          Recetas faltantes ({summary.missingRecipes.length})
                         </h4>
                         <p className="text-sm text-gray-600 mb-2">
                           Estas recetas no están registradas en el sistema:
                         </p>
-                        <div className="bg-white border rounded p-3 max-h-32 overflow-y-auto">
+                        <div className="bg-white border rounded p-3 max-h-40 overflow-y-auto space-y-2">
                           {summary.missingRecipes.map((recipe, idx) => (
-                            <div key={idx} className="flex items-center justify-between gap-2 py-1">
+                            <div key={idx} className="flex flex-wrap items-center justify-between gap-2 py-1 border-b border-gray-100 last:border-0">
                               <span className="font-mono text-sm">{recipe}</span>
-                              {profile?.role === 'EXECUTIVE' && (
+                              <div className="flex flex-wrap gap-2">
+                                {canCreateRecipeFromArkik && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setCreateRecipeModalCode(recipe)}
+                                  >
+                                    Crear receta
+                                  </Button>
+                                )}
                                 <Button
-                                  variant="outline"
+                                  variant="secondary"
                                   size="sm"
-                                  onClick={() => setCreateRecipeModalCode(recipe)}
+                                  disabled={notifyingRecipeCode === recipe}
+                                  onClick={() => sendQualityRecipeRequest(recipe)}
                                 >
-                                  Crear receta
+                                  {notifyingRecipeCode === recipe ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    'Notificar a calidad'
+                                  )}
                                 </Button>
-                              )}
+                              </div>
                             </div>
                           ))}
                         </div>
-                        {profile?.role !== 'EXECUTIVE' && (
+                        {!canCreateRecipeFromArkik && (
                           <p className="text-sm text-gray-600 mt-2">
-                            <strong>Acción:</strong> Solo un ejecutivo puede crear recetas desde Arkik. Contacta a un ejecutivo para registrar estas recetas
+                            <strong>Acción:</strong> Usa &quot;Notificar a calidad&quot; para que el equipo registre la receta, o pide a calidad / planta que la creen desde este mismo flujo.
                           </p>
                         )}
                         <p className="text-sm text-gray-600 mt-1">
-                          <strong>⚠️ Nota:</strong> Después de registrar cada receta, también necesitarás configurar un precio para ella.
+                          <strong>Nota:</strong> Después de registrar cada receta, también necesitarás configurar un precio para ella.
                         </p>
                       </div>
                     )}
@@ -2257,7 +2252,7 @@ Fin del reporte
                     {summary.missingPrices.length > 0 && (
                       <div className="mb-4">
                         <h4 className="font-medium text-gray-900 mb-2">
-                          💰 Precios Faltantes ({summary.missingPrices.length})
+                          Precios faltantes ({summary.missingPrices.length})
                         </h4>
                         <p className="text-sm text-gray-600 mb-2">
                           Estas recetas no tienen precio configurado:
@@ -2270,7 +2265,7 @@ Fin del reporte
                           ))}
                         </div>
                         <p className="text-sm text-gray-600 mt-2">
-                          <strong>⚠️ Importante:</strong> Para configurar un precio, la receta debe existir primero en la planta.
+                          <strong>Importante:</strong> Para configurar un precio, la receta debe existir primero en la planta.
                         </p>
                         <p className="text-sm text-gray-600 mt-1">
                           <strong>Acción:</strong> Si la receta no existe, contacta al equipo de calidad primero. Si ya existe, contacta al equipo de contabilidad para configurar el precio.
@@ -2306,40 +2301,41 @@ Fin del reporte
               );
             })()}
             
-            {/* Debug Duplicate Detection Status */}
+            {showArkikDebugPanels && (
             <div className="mb-6">
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-lg font-bold">🔍</span>
+                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white">
+                    <RefreshCw className="h-4 w-4" />
                   </div>
                   <div className="flex-1">
                     <h3 className="text-lg font-bold text-gray-900 mb-1">
-                      ESTADO DE DETECCIÓN DE DUPLICADOS
+                      ESTADO DE DETECCIÓN DE DUPLICADOS (soporte)
                     </h3>
                     <div className="text-sm text-gray-700 space-y-1">
                       <div><strong>Duplicados detectados:</strong> {duplicateRemisiones.length}</div>
-                      <div><strong>Handler disponible:</strong> {duplicateHandler ? '✅ Sí' : '❌ No'}</div>
+                      <div><strong>Handler disponible:</strong> {duplicateHandler ? 'Sí' : 'No'}</div>
                       <div><strong>Remisiones validadas:</strong> {result?.validated?.length || 0}</div>
                       <div><strong>Plant ID:</strong> {currentPlant?.id || 'No disponible'}</div>
                     </div>
                     {duplicateRemisiones.length === 0 && (
                       <div className="mt-2 text-xs text-gray-500">
-                        💡 Si esperabas duplicados, usa el botón "Test Duplicados" para verificar manualmente
+                        Si esperabas duplicados, usa el botón &quot;Test duplicados&quot; para verificar manualmente.
                       </div>
                     )}
                   </div>
                 </div>
               </div>
             </div>
+            )}
             
             {/* Duplicate Detection Summary */}
             {duplicateRemisiones.length > 0 && (
               <div className="mb-6">
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-lg font-bold">🔄</span>
+                    <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white">
+                      <AlertTriangle className="h-4 w-4" />
                     </div>
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-amber-900 mb-1">
@@ -2369,8 +2365,8 @@ Fin del reporte
                   <div className="mb-6">
                     <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
-                          <span className="text-white text-lg font-bold">⚠️</span>
+                        <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white">
+                          <AlertTriangle className="h-5 w-5" />
                         </div>
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-red-900 mb-1">
@@ -2389,8 +2385,8 @@ Fin del reporte
                   <div className="mb-6">
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                          <span className="text-white text-lg font-bold">✅</span>
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white">
+                          <CheckCircle2 className="h-5 w-5" />
                         </div>
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-green-900 mb-1">
@@ -2416,29 +2412,25 @@ Fin del reporte
                 Tiempo de procesamiento: {result.processingTime}ms
               </div>
               <div className="flex gap-3">
-                {/* Debug button to test duplicate detection */}
+                {showArkikDebugPanels && (
                 <Button
                   onClick={async () => {
-                    console.log('[DEBUG] Manual duplicate detection test');
                     if (duplicateHandler && result?.validated) {
-                      console.log('[DEBUG] Testing duplicate detection with', result.validated.length, 'remisiones');
                       const duplicates = await duplicateHandler.detectDuplicates(result.validated);
-                      console.log('[DEBUG] Manual test result:', duplicates);
                       setDuplicateRemisiones(duplicates);
                       if (duplicates.length > 0) {
                         setShowDuplicateHandling(true);
                         setCurrentStep('duplicate-handling');
                       }
-                    } else {
-                      console.log('[DEBUG] No duplicate handler or validated data available');
                     }
                   }}
                   variant="secondary"
                   size="sm"
                   className="text-label-primary"
                 >
-                  🧪 Test Duplicados
+                  Test duplicados
                 </Button>
+                )}
                 
                 {duplicateRemisiones.length > 0 && (
                   <Button
@@ -2627,7 +2619,8 @@ Fin del reporte
                   variant="secondary"
                   className="px-6"
                 >
-                  ← Volver a Validación
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Volver a Validación
                 </Button>
                 
                 {/* Show "Continue to Grouping" only if no decisions were made at all */}
@@ -2640,7 +2633,8 @@ Fin del reporte
                     variant="secondary"
                     className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
                   >
-                    Continuar a Agrupación →
+                    Continuar a Agrupación
+                    <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
                 )}
                 
@@ -2658,7 +2652,10 @@ Fin del reporte
                         Guardando Decisiones...
                       </>
                     ) : (
-                      `Aplicar ${statusProcessingDecisions.length} Decisiones y Continuar →`
+                      <span className="inline-flex items-center">
+                        Aplicar {statusProcessingDecisions.length} Decisiones y Continuar
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </span>
                     )}
                   </Button>
                 )}
@@ -2883,7 +2880,7 @@ Fin del reporte
                 return (
                   <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="text-lg">🏭</span>
+                      <Factory className="h-5 w-5 text-indigo-700 shrink-0" aria-hidden />
                       <span className="font-semibold text-indigo-800">
                         Remisiones de Producción para Otra Planta ({crossPlantRems.length})
                       </span>
@@ -2896,8 +2893,22 @@ Fin del reporte
                         <div key={r.id} className="flex items-center justify-between bg-white rounded border border-indigo-100 px-3 py-2 text-sm">
                           <span className="font-medium text-gray-800">#{r.remision_number} · {r.volumen_fabricado.toFixed(1)} m³</span>
                           {r.cross_plant_confirmed
-                            ? <span className="text-indigo-700">→ {r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number} <span className="text-green-600">✓ Confirmado</span></span>
-                            : <span className="text-amber-600">→ {r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number || '—'} · vínculo pendiente</span>
+                            ? (
+                              <span className="text-indigo-700 inline-flex items-center gap-1 flex-wrap justify-end">
+                                <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span>{r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number}</span>
+                                <span className="text-green-600 inline-flex items-center gap-0.5">
+                                  <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                  Confirmado
+                                </span>
+                              </span>
+                            )
+                            : (
+                              <span className="text-amber-600 inline-flex items-center gap-1 justify-end">
+                                <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span>{r.cross_plant_target_plant_name || 'Otra Planta'} #{r.cross_plant_target_remision_number || '—'} · vínculo pendiente</span>
+                              </span>
+                            )
                           }
                         </div>
                       ))}
@@ -2913,14 +2924,16 @@ Fin del reporte
                    variant="secondary"
                    className="px-6"
                  >
-                   ← Volver a Validación
+                   <ChevronLeft className="mr-2 h-4 w-4" />
+                   Volver a Validación
                  </Button>
                <Button
                   onClick={() => setCurrentStep('confirmation')}
                  variant="secondary"
                   className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
                 >
-                  Continuar a Confirmación →
+                  Continuar a Confirmación
+                  <ChevronRight className="ml-2 h-4 w-4" />
                 </Button>
                </div>
              </div>
@@ -3103,7 +3116,10 @@ Fin del reporte
                     <div key={i} className="bg-white rounded border border-amber-100 px-3 py-2 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="font-medium">#{r.remisionNumber}</span>
-                        <span className="text-amber-700 text-xs">→ {r.producingPlantName ?? 'Planta productora'}</span>
+                        <span className="text-amber-700 text-xs inline-flex items-center gap-1">
+                          <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
+                          {r.producingPlantName ?? 'Planta productora'}
+                        </span>
                       </div>
                       <p className="text-amber-600 text-xs mt-1">
                         El vínculo se establecerá cuando {r.producingPlantName ?? 'la planta productora'} suba su archivo.
@@ -3131,8 +3147,11 @@ Fin del reporte
                             <CheckCircle2 className="h-3.5 w-3.5" /> Vinculada — {r.targetPlantName} #{r.targetRemisionNumber}
                           </span>
                         ) : (
-                          <span className="text-amber-600 text-xs flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5" /> Pendiente → {r.targetPlantName ?? 'otra planta'}
+                          <span className="text-amber-600 text-xs inline-flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            <span>Pendiente:</span>
+                            <ArrowRight className="h-3 w-3 shrink-0" aria-hidden />
+                            <span>{r.targetPlantName ?? 'otra planta'}</span>
                           </span>
                         )}
                       </div>
@@ -3176,6 +3195,7 @@ Fin del reporte
                   setPendingReassignments([]);
                   setStatusProcessingDecisions([]);
                   setStatusProcessingResult(null);
+                  setDuplicatesResolved(false);
                   setStats({
                     totalRows: 0,
                     validRows: 0,
@@ -3222,7 +3242,7 @@ Fin del reporte
                     Mostrando: {visibleRows.length} de {result.totalRows}
                   </span>
                   <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
-                    💡 Útil para enfocarte en los problemas que necesitan resolución
+                    Útil para enfocarte en los problemas que necesitan resolución
                   </div>
                 </div>
 
@@ -3472,7 +3492,7 @@ Fin del reporte
                                   {row.validation_errors && row.validation_errors.length > 0 && (
                                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
                                       <div className="text-sm font-medium text-red-900 mb-2">
-                                        ⚠️ Problemas Detectados
+                                        Problemas detectados
                                       </div>
                                       <div className="space-y-2">
                                         {row.validation_errors.map((error, idx) => (
@@ -3482,7 +3502,7 @@ Fin del reporte
                                             </div>
                                             {error.suggestion && (
                                               <div className="text-red-700 text-xs mt-1">
-                                                💡 <strong>Sugerencia:</strong> {error.suggestion.action === 'create_price' ? 
+                                                <strong>Sugerencia:</strong> {error.suggestion.action === 'create_price' ? 
                                                   'Contacta al equipo de contabilidad para crear el precio' :
                                                   'Contacta al equipo correspondiente para resolver este problema'
                                                 }
@@ -3645,7 +3665,7 @@ Fin del reporte
         currentPlantId={currentPlant?.id}
       />
 
-      {/* Create Recipe from Arkik Modal (EXECUTIVE only) */}
+      {/* Create Recipe from Arkik Modal (EXECUTIVE | PLANT_MANAGER | QUALITY_TEAM) */}
       {createRecipeModalCode && currentPlant?.id && (
         <CreateRecipeFromArkikModal
           isOpen={!!createRecipeModalCode}

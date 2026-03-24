@@ -824,7 +824,7 @@ async function createSingleOrder(
         row.remision_number === remisionStaging.remision_number
       );
 
-              if (fullRemisionData) {
+              if (fullRemisionData && !fullRemisionData.is_excluded_from_import) {
           let horaCarga: string;
           if (fullRemisionData.hora_carga instanceof Date) {
             horaCarga = formatLocalTime(fullRemisionData.hora_carga);

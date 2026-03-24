@@ -316,26 +316,120 @@ export async function POST(request: NextRequest) {
     const inventoryBefore = currentInventory?.current_stock || 0;
     const inventoryAfter = inventoryBefore + validatedData.quantity_received;
 
+    const ALERT_RESOLVABLE_ON_ENTRY = [
+      'confirmed',
+      'pending_validation',
+      'validated',
+      'pending_po',
+      'po_linked',
+      'delivery_scheduled',
+    ] as const;
+
+    let effectivePoId: string | null = validatedData.po_id || null;
+    let effectivePoItemId: string | null = validatedData.po_item_id || null;
+    let effectiveSupplierId: string | null = validatedData.supplier_id || null;
+
+    type ExplicitAlertCtx = { id: string; status: string; alert_number: string | null };
+    let explicitAlertCtx: ExplicitAlertCtx | null = null;
+
+    if (validatedData.alert_id) {
+      const { data: linkAlert, error: linkAlertErr } = await supabase
+        .from('material_alerts')
+        .select('id, status, alert_number, plant_id, material_id, existing_po_id')
+        .eq('id', validatedData.alert_id)
+        .single();
+
+      if (linkAlertErr || !linkAlert) {
+        return NextResponse.json(
+          { success: false, error: 'La alerta indicada no existe' },
+          { status: 404 }
+        );
+      }
+      if (linkAlert.plant_id !== targetPlantId) {
+        return NextResponse.json(
+          { success: false, error: 'La alerta no pertenece a la planta de esta entrada' },
+          { status: 400 }
+        );
+      }
+      if (linkAlert.material_id !== validatedData.material_id) {
+        return NextResponse.json(
+          { success: false, error: 'La alerta no corresponde al material de esta entrada' },
+          { status: 400 }
+        );
+      }
+      if (!ALERT_RESOLVABLE_ON_ENTRY.includes(linkAlert.status as (typeof ALERT_RESOLVABLE_ON_ENTRY)[number])) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Esta alerta no puede cerrarse con una entrada en su estado actual. Complete confirmación o validación según corresponda.',
+          },
+          { status: 400 }
+        );
+      }
+
+      explicitAlertCtx = {
+        id: linkAlert.id,
+        status: linkAlert.status,
+        alert_number: linkAlert.alert_number ?? null,
+      };
+
+      // Bridge admin PO link → entry (dosificador does not pick PO in UI)
+      if (!effectivePoId && linkAlert.existing_po_id) {
+        const { data: poRow } = await supabase
+          .from('purchase_orders')
+          .select('id, plant_id, supplier_id')
+          .eq('id', linkAlert.existing_po_id)
+          .single();
+
+        if (poRow?.plant_id === targetPlantId) {
+          const { data: poItems } = await supabase
+            .from('purchase_order_items')
+            .select('id, qty_ordered, qty_received, status, is_service')
+            .eq('po_id', linkAlert.existing_po_id)
+            .eq('material_id', validatedData.material_id)
+            .eq('is_service', false)
+            .in('status', ['open', 'partial']);
+
+          const withBalance = (poItems || []).find((row) => {
+            const ordered = Number(row.qty_ordered) || 0;
+            const received = Number(row.qty_received) || 0;
+            return ordered - received > 1e-9;
+          });
+
+          if (withBalance) {
+            effectivePoId = linkAlert.existing_po_id;
+            effectivePoItemId = withBalance.id;
+            if (!effectiveSupplierId && poRow.supplier_id) {
+              effectiveSupplierId = poRow.supplier_id;
+            }
+          }
+        }
+      }
+    }
+
     // Calculate received quantity in kg for FIFO tracking
-    const receivedQtyKg = validatedData.received_uom === 'l' && validatedData.received_qty_entered
-      ? null // liters pass-through; not converting
-      : (validatedData.po_item_id && validatedData.received_qty_kg
-          ? validatedData.received_qty_kg
-          : validatedData.quantity_received);
+    const receivedQtyKg =
+      validatedData.received_uom === 'l' && validatedData.received_qty_entered
+        ? null // liters pass-through; not converting
+        : effectivePoItemId && (validatedData as { received_qty_kg?: number }).received_qty_kg
+          ? (validatedData as { received_qty_kg?: number }).received_qty_kg!
+          : validatedData.quantity_received;
 
     // Create material entry (optional immediate PO linkage on create)
     const entryData = {
       entry_number: entryNumber,
       plant_id: targetPlantId,
       material_id: validatedData.material_id,
-      supplier_id: validatedData.supplier_id || null,
+      supplier_id: effectiveSupplierId,
       entry_date: entryDate,
       entry_time: new Date().toTimeString().split(' ')[0],
       quantity_received: validatedData.quantity_received,
-      po_id: validatedData.po_id || null,
-      po_item_id: validatedData.po_item_id || null,
-      received_uom: validatedData.received_uom || (validatedData.po_item_id ? 'kg' : null),
-      received_qty_entered: validatedData.received_qty_entered || (validatedData.po_item_id ? validatedData.quantity_received : null),
+      po_id: effectivePoId,
+      po_item_id: effectivePoItemId,
+      received_uom: validatedData.received_uom || (effectivePoItemId ? 'kg' : null),
+      received_qty_entered:
+        validatedData.received_qty_entered || (effectivePoItemId ? validatedData.quantity_received : null),
       received_qty_kg: receivedQtyKg,
       remaining_quantity_kg: receivedQtyKg, // Initialize FIFO remaining quantity
       supplier_invoice: validatedData.supplier_invoice || null,
@@ -365,10 +459,82 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear entrada: ${entryError.message}`);
     }
 
+    // Get the auto-created lot (trigger creates it on insert)
+    const { data: lot } = await supabase
+      .from('material_lots')
+      .select('id, lot_number')
+      .eq('entry_id', entry.id)
+      .single();
+
+    // Resolve material alert: explicit alert_id (dosificador) or legacy heuristic
+    let resolvedAlertNumber: string | null = null;
+    try {
+      if (explicitAlertCtx) {
+        resolvedAlertNumber = explicitAlertCtx.alert_number;
+        await supabase
+          .from('material_alerts')
+          .update({
+            status: 'closed',
+            resolved_entry_id: entry.id,
+            resolved_lot_id: lot?.id || null,
+            resolved_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', explicitAlertCtx.id);
+
+        await supabase.from('material_alert_events').insert({
+          alert_id: explicitAlertCtx.id,
+          event_type: 'resolved_by_dosificador_entry',
+          from_status: explicitAlertCtx.status,
+          to_status: 'closed',
+          performed_by: profile.id,
+          details: { entry_id: entry.id, lot_id: lot?.id, alert_id: explicitAlertCtx.id },
+        });
+      } else {
+        const { data: activeAlert } = await supabase
+          .from('material_alerts')
+          .select('id, status, alert_number')
+          .eq('plant_id', targetPlantId)
+          .eq('material_id', validatedData.material_id)
+          .in('status', ['delivery_scheduled', 'po_linked', 'validated'])
+          .limit(1)
+          .single();
+
+        if (activeAlert) {
+          resolvedAlertNumber = activeAlert.alert_number ?? null;
+          await supabase
+            .from('material_alerts')
+            .update({
+              status: 'closed',
+              resolved_entry_id: entry.id,
+              resolved_lot_id: lot?.id || null,
+              resolved_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', activeAlert.id);
+
+          await supabase.from('material_alert_events').insert({
+            alert_id: activeAlert.id,
+            event_type: 'auto_resolved_on_entry',
+            from_status: activeAlert.status,
+            to_status: 'closed',
+            performed_by: profile.id,
+            details: { entry_id: entry.id, lot_id: lot?.id },
+          });
+        }
+      }
+    } catch (alertErr) {
+      // Non-blocking — alert resolution failure should not block entry creation
+      console.warn('Alert resolution failed:', alertErr);
+    }
+
     return NextResponse.json({
       success: true,
-      data: entry,
-      entry_id: entry.id, // Include entry_id for document uploads
+      data: { ...entry, lot_id: lot?.id, lot_number: lot?.lot_number },
+      entry_id: entry.id,
+      lot_id: lot?.id || null,
+      lot_number: lot?.lot_number || null,
+      resolved_alert_number: resolvedAlertNumber,
       message: 'Entrada de material creada exitosamente',
     }, { status: 201 });
 

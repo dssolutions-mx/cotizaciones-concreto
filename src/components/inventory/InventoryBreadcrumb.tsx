@@ -11,7 +11,7 @@ import {
   BreadcrumbLink,
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb'
-import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight } from 'lucide-react'
+import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus } from 'lucide-react'
 
 interface BreadcrumbItem {
   label: string
@@ -50,6 +50,22 @@ const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
   '/production-control/cross-plant': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Producción Cruzada', href: '/production-control/cross-plant', icon: ArrowLeftRight }
+  ],
+  '/production-control/alerts': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Alertas de Material', href: '/production-control/alerts', icon: Package }
+  ],
+  '/production-control/material-request': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Solicitar material', href: '/production-control/material-request', icon: ClipboardPlus }
+  ],
+  '/production-control/lots': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Lotes de Material', href: '/production-control/lots', icon: Package }
+  ],
+  '/production-control/reorder-config': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Puntos de Reorden', href: '/production-control/reorder-config', icon: Settings }
   ],
 }
 

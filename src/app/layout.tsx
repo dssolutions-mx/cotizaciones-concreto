@@ -42,7 +42,10 @@ import {
   ShieldCheck,
   Briefcase,
   MapPin,
-  ArrowLeftRight
+  ArrowLeftRight,
+  AlertTriangle,
+  TrendingDown,
+  ClipboardPlus
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -158,25 +161,146 @@ const rhSubMenuItems = [
   },
 ];
 
-// Define inventory submenu items
-type InventoryNavItem = 
-  | { title: string; href: string; IconComponent: React.ElementType }
-  | { type: 'group'; title: string };
+// Control de Producción: solo Inicio + 4 acciones frecuentes; el resto vive en /production-control (dashboard).
+type InventoryNavLink = {
+  title: string;
+  href: string;
+  IconComponent: React.ElementType;
+  badge?: 'pending_alerts';
+  primary?: boolean;
+};
 
-const inventorySubMenuItems: InventoryNavItem[] = [
-  { title: "Inicio", href: "/production-control", IconComponent: Home },
-  { type: 'group', title: "Materiales" },
-  { title: "Entradas de Material", href: "/production-control/entries", IconComponent: Inbox },
-  { title: "Ajustes de Inventario", href: "/production-control/adjustments", IconComponent: Settings },
-  { title: "Reportes de Materiales", href: "/production-control/advanced-dashboard", IconComponent: BarChart3 },
-  { type: 'group', title: "Producción" },
-  { title: "Remisiones", href: "/production-control/remisiones", IconComponent: FileText },
-  { title: "Bitácora Diaria", href: "/production-control/daily-log", IconComponent: Calendar },
-  { title: "Reloj Checador", href: "/production-control/reloj-checador", IconComponent: Clock },
-  { title: "Servicio de Bombeo", href: "/production-control/pumping-service", IconComponent: Truck },
-  { title: "Procesador Arkik", href: "/production-control/arkik-upload", IconComponent: FileUp },
-  { title: "Producción Cruzada", href: "/production-control/cross-plant", IconComponent: ArrowLeftRight },
+const productionControlSidebarLinks: InventoryNavLink[] = [
+  { title: 'Inicio', href: '/production-control', IconComponent: Home },
+  {
+    title: 'Solicitar material',
+    href: '/production-control/material-request',
+    IconComponent: ClipboardPlus,
+    primary: true,
+  },
+  {
+    title: 'Alertas de Material',
+    href: '/production-control/alerts',
+    IconComponent: AlertTriangle,
+    badge: 'pending_alerts',
+  },
+  { title: 'Entradas de Material', href: '/production-control/entries', IconComponent: Inbox },
+  { title: 'Lotes de Material', href: '/production-control/lots', IconComponent: Package },
 ];
+
+function isProductionControlLinkActive(pathname: string | null | undefined, href: string): boolean {
+  if (!pathname) return false;
+  if (href === '/production-control') return pathname === '/production-control';
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function ProductionControlSubnav({
+  pathname,
+  pendingMaterialAlerts,
+  variant,
+  onNavigate,
+}: {
+  pathname: string | null | undefined;
+  pendingMaterialAlerts: number;
+  variant: 'inset' | 'flyout' | 'mobile';
+  onNavigate?: () => void;
+}) {
+  const linkClassesInset = (active: boolean) =>
+    cn(
+      'flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full',
+      active ? 'bg-primary/10 text-gray-900 font-medium' : 'text-gray-600 hover:bg-muted/50'
+    );
+
+  const linkClassesFlyout = (active: boolean) =>
+    cn(
+      'flex items-center gap-2 px-3 py-2 rounded text-sm w-full',
+      active ? 'bg-gray-100' : 'hover:bg-gray-50'
+    );
+
+  const linkClassesMobile = (active: boolean) =>
+    cn(
+      'flex items-center gap-2 py-1.5 px-2 rounded-md text-footnote w-full',
+      active ? 'bg-primary/10 text-gray-900 font-medium' : 'text-gray-600 hover:bg-muted/50'
+    );
+
+  return (
+    <div className={variant === 'flyout' ? 'py-0.5' : undefined}>
+      {productionControlSidebarLinks.map((item, i) => {
+        const active = isProductionControlLinkActive(pathname, item.href);
+        const showAlertBadge = item.badge === 'pending_alerts' && pendingMaterialAlerts > 0;
+        const SubIcon = item.IconComponent;
+        const key = `pc-${variant}-${i}`;
+
+        if (variant === 'flyout') {
+          return (
+            <Link
+              key={key}
+              href={item.href}
+              className={linkClassesFlyout(active)}
+              onClick={onNavigate}
+            >
+              <SubIcon size={16} className="shrink-0" />
+              <span
+                className={cn('flex-1 min-w-0 truncate', item.primary && 'font-semibold text-emerald-900')}
+              >
+                {item.title}
+              </span>
+              {showAlertBadge && (
+                <span className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {pendingMaterialAlerts > 9 ? '9+' : pendingMaterialAlerts}
+                </span>
+              )}
+            </Link>
+          );
+        }
+
+        if (variant === 'mobile') {
+          return (
+            <Link
+              key={key}
+              href={item.href}
+              onClick={onNavigate}
+              className={linkClassesMobile(active)}
+            >
+              <span className="mr-2 shrink-0">{SubIcon && <SubIcon size={16} />}</span>
+              <span
+                className={cn('flex-1 min-w-0 truncate', item.primary && 'font-semibold text-emerald-900')}
+              >
+                {item.title}
+              </span>
+              {showAlertBadge && (
+                <span className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                  {pendingMaterialAlerts > 9 ? '9+' : pendingMaterialAlerts}
+                </span>
+              )}
+            </Link>
+          );
+        }
+
+        return (
+          <Link key={key} href={item.href} className={linkClassesInset(active)}>
+            <span className="mr-2 shrink-0">{SubIcon && <SubIcon size={16} />}</span>
+            <span
+              className={cn('flex-1 min-w-0 truncate', item.primary && 'font-semibold text-emerald-900')}
+            >
+              {item.title}
+            </span>
+            {showAlertBadge && (
+              <span className="shrink-0 min-w-[1.25rem] h-5 px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                {pendingMaterialAlerts > 9 ? '9+' : pendingMaterialAlerts}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+      {variant === 'flyout' && (
+        <p className="px-3 pt-2 pb-1 text-[10px] leading-snug text-stone-400 border-t border-stone-100 mt-1">
+          Remisiones, reportes y más: abra <span className="font-medium text-stone-500">Inicio</span>.
+        </p>
+      )}
+    </div>
+  );
+}
 
 // Define quality submenu items (grouped for better UX)
 type QualityNavItem =
@@ -195,6 +319,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Reportes", href: "/quality/reportes", IconComponent: Clipboard },
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
+  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
   { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
@@ -219,6 +344,7 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { title: "Reportes", href: "/quality/reportes", IconComponent: Clipboard },
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
+  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
   { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
   { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
   { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
@@ -241,6 +367,7 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
   { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
   { type: 'group', title: "Gestión" },
+  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
   { type: 'group', title: "Laboratorio" },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
   { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
@@ -317,6 +444,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+  const [pendingMaterialAlerts, setPendingMaterialAlerts] = useState(0);
   const isLandingRoute = pathname?.startsWith('/landing');
   const isAuthRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth') || pathname?.startsWith('/reset-password') || pathname?.startsWith('/update-password');
   const isGobiernoPreciosOrCredito =
@@ -362,6 +490,31 @@ function Navigation({ children }: { children: React.ReactNode }) {
     if (mobileMenuOpen) setMobileMenuOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Badge: material alerts pending confirmation (dosificador action)
+  useEffect(() => {
+    if (!currentPlant?.id || !session?.user) {
+      setPendingMaterialAlerts(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(
+          `/api/alerts/material?plant_id=${currentPlant.id}&status=pending_confirmation`
+        );
+        const j = await r.json();
+        if (!cancelled && j.success && Array.isArray(j.data)) {
+          setPendingMaterialAlerts(j.data.length);
+        }
+      } catch {
+        if (!cancelled) setPendingMaterialAlerts(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPlant?.id, session?.user, pathname]);
 
   // Check for new users (invited but haven't set password) and redirect to password setup
   useEffect(() => {
@@ -434,7 +587,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     .filter(item => item !== undefined) as typeof navItems;
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[#f5f3f0]">
       {/* Sidebar - fixed, collapsible with glass */}
       <aside
         className={cn(
@@ -488,6 +641,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 ? isComercialRoute
                 : item.href === '/admin'
                 ? isAdminRoute
+                : item.href === '/production-control'
+                ? isInventoryRoute
                 : pathname === item.href;
               const Icon = item.IconComponent;
 
@@ -608,34 +763,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                   {item.href === '/production-control' && isInventoryRoute && (
                     <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                      {inventorySubMenuItems.map((subItem, subIndex) => {
-                        if (!('href' in subItem)) {
-                          return (
-                            <div
-                              key={`inventory-group-${subIndex}`}
-                              className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
-                            >
-                              {subItem.title}
-                            </div>
-                          );
-                        }
-                        const SubIcon = subItem.IconComponent;
-                        return (
-                          <Link
-                            key={`inventory-subnav-${subIndex}`}
-                            href={subItem.href}
-                            className={cn(
-                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
-                              pathname === subItem.href
-                                ? "bg-primary/10 text-gray-900 font-medium"
-                                : "text-gray-600 hover:bg-muted/50"
-                            )}
-                          >
-                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
-                            {subItem.title}
-                          </Link>
-                        );
-                      })}
+                      <ProductionControlSubnav
+                        pathname={pathname}
+                        pendingMaterialAlerts={pendingMaterialAlerts}
+                        variant="inset"
+                      />
                     </div>
                   )}
 
@@ -685,6 +817,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   ? isComercialRoute
                   : isAdminMainLink
                   ? isAdminRoute
+                  : item.href === '/production-control'
+                  ? isInventoryRoute
                   : pathname === item.href;
                 const Icon = item.IconComponent;
 
@@ -827,31 +961,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       <TooltipContent sideOffset={8} side="right" className="p-0">
                         <div className="min-w-56 bg-white text-gray-700 rounded-md shadow-md p-1">
                           <div className="px-3 py-2 text-xs font-semibold text-gray-500">Control de Producción</div>
-                          {inventorySubMenuItems.map((subItem, subIndex) => {
-                            if (!('href' in subItem)) {
-                              return (
-                                <div
-                                  key={`inv-group-${subIndex}`}
-                                  className="px-3 pt-2 pb-1 text-[10px] tracking-wider uppercase text-gray-400"
-                                >
-                                  {subItem.title}
-                                </div>
-                              );
-                            }
-                            return (
-                              <Link
-                                key={`inv-sub-${subIndex}`}
-                                href={subItem.href}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-2 rounded text-sm",
-                                  pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
-                                )}
-                              >
-                                <subItem.IconComponent size={16} />
-                                {subItem.title}
-                              </Link>
-                            );
-                          })}
+                          <ProductionControlSubnav
+                            pathname={pathname}
+                            pendingMaterialAlerts={pendingMaterialAlerts}
+                            variant="flyout"
+                          />
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -902,7 +1016,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Contenido principal - scroll independiente del sidebar */}
-      <main className="flex-1 min-h-0 overflow-y-auto bg-gray-100 p-4 md:p-6 pb-24 md:pb-6">
+      <main className="flex-1 min-h-0 overflow-y-auto bg-[#f5f3f0] p-4 md:p-6 pb-24 md:pb-6">
         {/* Header móvil */}
         <div className="md:hidden flex items-center justify-between mb-4">
           <Link href="/dashboard">
@@ -922,7 +1036,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
             {/* Botón de menú móvil */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 
+              className="p-2 rounded-full bg-stone-200/70 hover:bg-stone-300/80 active:bg-stone-300 
                          focus:outline-hidden focus:ring-2 focus:ring-green-500 transition-all
                          transform active:scale-95"
               aria-label={mobileMenuOpen ? "Cerrar menú" : "Abrir menú"}
@@ -977,6 +1091,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   ? isQualityRoute
                   : item.href === '/admin'
                   ? isAdminRoute
+                  : item.href === '/production-control'
+                  ? isInventoryRoute
                   : pathname === item.href;
 
                 return (
@@ -1074,34 +1190,12 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                     {item.href === '/production-control' && isInventoryRoute && (
                       <div className="pl-6 mb-2 space-y-1">
-                        {inventorySubMenuItems.map((subItem, subIndex) => {
-                          if (!('href' in subItem)) {
-                            return (
-                              <div
-                                key={`mobile-inventory-group-${subIndex}`}
-                                className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
-                              >
-                                {subItem.title}
-                              </div>
-                            );
-                          }
-                          const SubIcon = subItem.IconComponent;
-                          const isSubItemActive = pathname === subItem.href;
-                          return (
-                            <Link
-                              key={`mobile-inventory-sub-${subIndex}`}
-                              href={subItem.href}
-                              onClick={() => setMobileMenuOpen(false)}
-                              className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
-                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
-                              )}
-                            >
-                              <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
-                              {subItem.title}
-                            </Link>
-                          );
-                        })}
+                        <ProductionControlSubnav
+                          pathname={pathname}
+                          pendingMaterialAlerts={pendingMaterialAlerts}
+                          variant="mobile"
+                          onNavigate={() => setMobileMenuOpen(false)}
+                        />
                       </div>
                     )}
 
@@ -1254,6 +1348,8 @@ const protectedRoutes = [
   { path: '/api/quality', method: 'POST' },
   // Arkik integration routes
   { path: '/api/arkik/process', method: 'POST' },
+  { path: '/api/arkik/quality-request', method: 'POST' },
+  { path: '/api/arkik/quality-request', method: 'PATCH' },
 ];
 
 // Componente principal
@@ -1273,7 +1369,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <BotIdClient protect={protectedRoutes} />
       </head>
       {/* Body doesn't need conditional class anymore based on route */}
-      <body className="bg-gray-100" suppressHydrationWarning>
+      <body className="min-h-screen bg-[#f5f3f0]" suppressHydrationWarning>
         {/* Initialize Zustand auth store */}
         <AuthInitializer />
         <PlantProvider>

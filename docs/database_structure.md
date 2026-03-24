@@ -217,6 +217,19 @@ Historical record of orders (appears to be a legacy table).
 - Notable columns:
   - Various order details similar to the orders table
 
+#### remisiones
+Delivery / production tickets linked to orders and plants. Critical for Arkik import, FIFO confirmation, and cross-plant workflows.
+- Primary key: `id` (UUID)
+- Typical foreign keys: `order_id` → `orders(id)`, `plant_id` → `plants(id)`, `recipe_id` → `recipes(id)`
+- Cross-plant and production-only columns (verify exact types and constraints in Supabase):
+  - `is_production_record`: when `true`, row represents production at this plant for a ticket billed elsewhere (`order_id` often null).
+  - `cancelled_reason`: e.g. `cross_plant_production` for production-only cross-plant rows.
+  - `cross_plant_billing_plant_id`: UUID of the **other** plant (billing ↔ producing).
+  - `cross_plant_billing_remision_id`: UUID of the **paired** remisión in the other plant.
+- Related queue table: `cross_plant_pending_links` (pending correlation until both plants’ Arkik data exist).
+
+**Full process, SOPs, and API index:** [CROSS_PLANT_PRODUCTION_AND_LINKING.md](./CROSS_PLANT_PRODUCTION_AND_LINKING.md)
+
 ### Users and Authentication
 
 - **auth.users**: Built-in Supabase auth table

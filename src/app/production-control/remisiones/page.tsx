@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/table';
 import {
   ArrowLeftRight, CheckCircle2, Clock, RefreshCw, Factory,
-  FileText, Building2, Truck, Search, CalendarDays,
+  FileText, Building2, Truck, Search, CalendarDays, Trash2,
 } from 'lucide-react';
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -43,14 +43,28 @@ interface CrossPlantRemision {
   is_resolved: boolean;
 }
 
+interface ArkikWasteLine {
+  id: string;
+  remision_number: string;
+  fecha: string;
+  material_code: string;
+  material_id: string | null;
+  waste_amount: number;
+  waste_reason: string;
+  notes: string | null;
+  session_id: string;
+}
+
 interface LogData {
   regular: RegularRemision[];
   crossPlant: CrossPlantRemision[];
+  arkik_waste: ArkikWasteLine[];
   summary: {
     total_regular: number;
     total_cross_plant: number;
     total_volume_regular: number;
     total_volume_cross_plant: number;
+    total_arkik_waste_lines?: number;
   };
 }
 
@@ -65,7 +79,7 @@ export default function RemisionesLogPage() {
   const [dateFrom, setDateFrom] = useState(todayISO());
   const [dateTo, setDateTo] = useState(todayISO());
   const [search, setSearch] = useState('');
-  const [activeSection, setActiveSection] = useState<'all' | 'regular' | 'cross-plant'>('all');
+  const [activeSection, setActiveSection] = useState<'all' | 'regular' | 'cross-plant' | 'arkik-waste'>('all');
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -83,7 +97,18 @@ export default function RemisionesLogPage() {
       const res = await fetch(`/api/production-control/remisiones-log?${params}`);
       if (!res.ok) throw new Error('Error al cargar remisiones');
       const json = await res.json();
-      setData(json);
+      setData({
+        regular: json.regular ?? [],
+        crossPlant: json.crossPlant ?? [],
+        arkik_waste: json.arkik_waste ?? [],
+        summary: {
+          total_regular: json.summary?.total_regular ?? 0,
+          total_cross_plant: json.summary?.total_cross_plant ?? 0,
+          total_volume_regular: json.summary?.total_volume_regular ?? 0,
+          total_volume_cross_plant: json.summary?.total_volume_cross_plant ?? 0,
+          total_arkik_waste_lines: json.summary?.total_arkik_waste_lines ?? (json.arkik_waste?.length ?? 0),
+        },
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -110,6 +135,13 @@ export default function RemisionesLogPage() {
     r.remision_number.includes(search) ||
     (r.conductor || '').toLowerCase().includes(search.toLowerCase()) ||
     (r.billing_plant_name || '').toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const filteredArkikWaste = (data?.arkik_waste || []).filter(w =>
+    !search ||
+    w.remision_number.includes(search) ||
+    w.material_code.toLowerCase().includes(search.toLowerCase()) ||
+    (w.notes || '').toLowerCase().includes(search.toLowerCase()),
   );
 
   if (!mounted) return null;
@@ -178,7 +210,7 @@ export default function RemisionesLogPage() {
 
         {/* Summary KPIs */}
         {data && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <Card
               className={`cursor-pointer transition-shadow hover:shadow-md ${activeSection === 'regular' ? 'ring-2 ring-blue-400' : ''}`}
               onClick={() => setActiveSection(s => s === 'regular' ? 'all' : 'regular')}
@@ -225,7 +257,91 @@ export default function RemisionesLogPage() {
                 </div>
               </CardContent>
             </Card>
+            <Card
+              className={`cursor-pointer transition-shadow hover:shadow-md ${activeSection === 'arkik-waste' ? 'ring-2 ring-red-400' : ''}`}
+              onClick={() => setActiveSection(s => s === 'arkik-waste' ? 'all' : 'arkik-waste')}
+            >
+              <CardContent className="p-4">
+                <div className="text-2xl font-bold text-red-700">
+                  {data.summary.total_arkik_waste_lines ?? data.arkik_waste.length}
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5">Desperdicio Arkik</div>
+                <div className="text-xs text-red-600 mt-1 font-medium">Líneas de material</div>
+              </CardContent>
+            </Card>
           </div>
+        )}
+
+        {/* Arkik waste (cancelled / incomplete — no remisión row) */}
+        {(activeSection === 'all' || activeSection === 'arkik-waste') && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <div className="h-8 w-8 bg-red-100 rounded-lg flex items-center justify-center">
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                </div>
+                Desperdicio (importación Arkik)
+                {data && (
+                  <Badge variant="secondary" className="ml-auto bg-red-100 text-red-800 text-xs">
+                    {filteredArkikWaste.length} líneas
+                  </Badge>
+                )}
+              </CardTitle>
+              <p className="text-xs text-gray-500">
+                Remisiones marcadas como desperdicio — no generan fila en remisiones; afectan reconciliación de inventario teórico
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="p-6 space-y-2">
+                  {[1, 2, 3].map(i => <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />)}
+                </div>
+              ) : filteredArkikWaste.length === 0 ? (
+                <div className="p-8 text-center text-gray-400">
+                  <Trash2 className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">
+                    {search ? 'Sin resultados para esa búsqueda' : 'No hay registros de desperdicio Arkik en este período'}
+                  </p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-red-50/50">
+                      <TableHead className="text-xs">Remisión</TableHead>
+                      <TableHead className="text-xs">Fecha</TableHead>
+                      <TableHead className="text-xs">Material</TableHead>
+                      <TableHead className="text-xs text-right">Cantidad (kg)</TableHead>
+                      <TableHead className="text-xs">Motivo</TableHead>
+                      <TableHead className="text-xs">Notas</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredArkikWaste.map(w => (
+                      <TableRow key={w.id} className="hover:bg-red-50/20">
+                        <TableCell className="font-medium text-sm">#{w.remision_number}</TableCell>
+                        <TableCell className="text-sm text-gray-600">{w.fecha}</TableCell>
+                        <TableCell className="text-sm">
+                          <span className="font-mono text-gray-800">{w.material_code}</span>
+                          {w.material_id && (
+                            <span className="block text-[10px] text-gray-400 truncate max-w-[120px]" title={w.material_id}>
+                              id: …{w.material_id.slice(-8)}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-right font-semibold text-red-800">
+                          {Number(w.waste_amount).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-700 capitalize">{w.waste_reason}</TableCell>
+                        <TableCell className="text-xs text-gray-600 max-w-[200px] truncate" title={w.notes || ''}>
+                          {w.notes || '—'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* Cross-plant production section */}

@@ -31,6 +31,8 @@ const BaseMaterialEntryInputSchema = z.object({
   fleet_po_item_id: z.string().uuid('ID de ítem de PO de flota debe ser un UUID válido').optional(),
   fleet_qty_entered: z.number().positive('Cantidad de servicio debe ser positiva').optional(),
   fleet_uom: z.enum(['trips', 'tons', 'hours', 'loads', 'units']).optional(),
+  /** When set, this entry explicitly closes the linked material alert (dosificador flow). */
+  alert_id: z.string().uuid('ID de alerta debe ser un UUID válido').optional(),
 });
 
 export const MaterialEntryInputSchema = BaseMaterialEntryInputSchema.refine(

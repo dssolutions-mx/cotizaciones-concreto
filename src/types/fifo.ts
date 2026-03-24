@@ -10,12 +10,14 @@ export interface MaterialConsumptionAllocation {
   remision_id: string;
   remision_material_id: string;
   entry_id: string;
+  lot_id?: string | null;
   material_id: string;
   plant_id: string;
   quantity_consumed_kg: number;
   unit_price: number;
   total_cost: number;
   consumption_date: string; // YYYY-MM-DD
+  cost_basis?: 'material_only' | 'landed'; // 'landed' includes fleet cost
   created_at: string;
   created_by?: string | null;
 }

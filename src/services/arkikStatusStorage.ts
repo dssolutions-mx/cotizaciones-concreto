@@ -10,25 +10,56 @@ export const arkikStatusService = {
     if (wasteMaterials.length === 0) return;
 
     try {
-      const { error } = await supabase
-        .from('waste_materials')
-        .insert(wasteMaterials.map(waste => ({
-          id: waste.id,
-          session_id: waste.session_id,
-          remision_number: waste.remision_number,
-          material_code: waste.material_code,
-          material_name: waste.material_name,
-          theoretical_amount: waste.theoretical_amount,
-          actual_amount: waste.actual_amount,
-          waste_amount: waste.waste_amount,
-          waste_reason: waste.waste_reason,
-          plant_id: waste.plant_id,
-          fecha: waste.fecha.toISOString().split('T')[0]
-        })));
+      const byPlant = new Map<string, WasteMaterial[]>();
+      wasteMaterials.forEach(w => {
+        if (!byPlant.has(w.plant_id)) byPlant.set(w.plant_id, []);
+        byPlant.get(w.plant_id)!.push(w);
+      });
 
-      if (error) throw error;
-      
-      console.log(`✅ Saved ${wasteMaterials.length} waste material records to database`);
+      let totalInserted = 0;
+
+      const plantBatches = Array.from(byPlant.entries()) as [string, WasteMaterial[]][];
+      for (const [plantId, batch] of plantBatches) {
+        const codes = Array.from(new Set(batch.map((w: WasteMaterial) => w.material_code)));
+        const { data: materialsRows, error: matErr } = await supabase
+          .from('materials')
+          .select('id, material_name, material_code')
+          .eq('plant_id', plantId)
+          .in('material_code', codes);
+
+        if (matErr) {
+          console.error('[arkikStatusService] Could not resolve materials for waste batch:', matErr);
+        }
+
+        const codeToMaterial = new Map(
+          (materialsRows || []).map((m: { material_code: string; id: string; material_name: string }) => [m.material_code, m])
+        );
+
+        const rows = batch.map((waste: WasteMaterial) => {
+          const m = codeToMaterial.get(waste.material_code);
+          return {
+            id: waste.id,
+            session_id: waste.session_id,
+            remision_number: waste.remision_number,
+            material_code: waste.material_code,
+            material_name: waste.material_name ?? m?.material_name ?? null,
+            material_id: waste.material_id ?? m?.id ?? null,
+            theoretical_amount: waste.theoretical_amount,
+            actual_amount: waste.actual_amount,
+            waste_amount: waste.waste_amount,
+            waste_reason: waste.waste_reason,
+            plant_id: waste.plant_id,
+            fecha: waste.fecha.toISOString().split('T')[0],
+            notes: waste.notes ?? null
+          };
+        });
+
+        const { error } = await supabase.from('waste_materials').insert(rows);
+        if (error) throw error;
+        totalInserted += rows.length;
+      }
+
+      console.log(`✅ Saved ${totalInserted} waste material records to database`);
     } catch (error) {
       console.error('Failed to save waste materials:', error);
       throw new Error(`Failed to save waste materials: ${error}`);

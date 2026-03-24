@@ -309,6 +309,14 @@ export class ArkikStatusProcessor {
   }
 
   /**
+   * Free-text context for waste rows (DB enum stays on waste_reason via getWasteReason).
+   */
+  private wasteNotesFromDecision(decision: StatusProcessingDecision): string | undefined {
+    const parts = [decision.waste_reason?.trim(), decision.notes?.trim()].filter(Boolean);
+    return parts.length ? parts.join(' — ') : undefined;
+  }
+
+  /**
    * Processes waste materials
    */
   private processWaste(
@@ -316,6 +324,8 @@ export class ArkikStatusProcessor {
     decision: StatusProcessingDecision,
     result: StatusProcessingResult
   ): void {
+    const wasteNotes = this.wasteNotesFromDecision(decision);
+
     // Create waste records for all materials
     Object.entries(remision.materials_real).forEach(([materialCode, actualAmount]) => {
       const theoreticalAmount = remision.materials_teorico[materialCode] || 0;
@@ -331,6 +341,7 @@ export class ArkikStatusProcessor {
         waste_reason: this.getWasteReason(remision.estatus),
         plant_id: this.plantId,
         fecha: remision.fecha,
+        notes: wasteNotes,
         created_at: new Date()
       };
 

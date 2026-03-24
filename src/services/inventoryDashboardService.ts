@@ -21,6 +21,34 @@ export class InventoryDashboardService {
   }
 
   /**
+   * Split waste rows: rows with material_id attribute to that material; legacy rows (null material_id) by code only.
+   */
+  private buildWasteLookupMaps(
+    rows: Array<{ material_id?: string | null; material_code: string; waste_amount: unknown }>
+  ) {
+    const byMaterialId = new Map<string, typeof rows>();
+    const byCodeLegacy = new Map<string, typeof rows>();
+    for (const w of rows) {
+      if (w.material_id) {
+        if (!byMaterialId.has(w.material_id)) byMaterialId.set(w.material_id, []);
+        byMaterialId.get(w.material_id)!.push(w);
+      } else {
+        if (!byCodeLegacy.has(w.material_code)) byCodeLegacy.set(w.material_code, []);
+        byCodeLegacy.get(w.material_code)!.push(w);
+      }
+    }
+    return { byMaterialId, byCodeLegacy };
+  }
+
+  private wasteRowsForMaterial(
+    material: { id: string; material_code: string },
+    byMaterialId: Map<string, Array<{ material_id?: string | null; material_code: string; waste_amount: unknown }>>,
+    byCodeLegacy: Map<string, Array<{ material_id?: string | null; material_code: string; waste_amount: unknown }>>
+  ) {
+    return [...(byMaterialId.get(material.id) || []), ...(byCodeLegacy.get(material.material_code) || [])];
+  }
+
+  /**
    * Calculate historical inventory using proper date-based approach
    * This ensures accurate initial stock calculation for any period
    */
@@ -289,7 +317,8 @@ export class InventoryDashboardService {
         historicalEntriesAgg,
         historicalAdjustmentsAgg,
         historicalConsumptionAgg,
-        historicalWasteAgg
+        historicalWasteByMaterialIdAgg,
+        historicalWasteLegacyAgg
       ] = await Promise.all([
         // Aggregate historical entries: SUM by material_id
         this.supabase
@@ -329,11 +358,18 @@ export class InventoryDashboardService {
             .in('material_id', materialIdsList);
         })(),
         
-        // Aggregate historical waste: SUM by material_code
+        // Historical waste: by material_id (new rows) + legacy rows (null material_id) by code
         this.supabase
           .from('waste_materials')
-          .select('material_code, waste_amount')
+          .select('material_id, material_code, waste_amount')
           .eq('plant_id', plantId)
+          .in('material_id', materialIdsList)
+          .lt('fecha', startDate),
+        this.supabase
+          .from('waste_materials')
+          .select('material_id, material_code, waste_amount')
+          .eq('plant_id', plantId)
+          .is('material_id', null)
           .in('material_code', materialCodesList)
           .lt('fecha', startDate)
       ]);
@@ -371,22 +407,28 @@ export class InventoryDashboardService {
         }
       });
 
-      // Process aggregated historical waste
-      const historicalWasteByCode = new Map<string, number>();
-      (historicalWasteAgg.data || []).forEach(w => {
-        const current = historicalWasteByCode.get(w.material_code) || 0;
-        historicalWasteByCode.set(w.material_code, current + Number(w.waste_amount || 0));
-      });
+      const historicalWasteRows = [
+        ...(historicalWasteByMaterialIdAgg.data || []),
+        ...(historicalWasteLegacyAgg.data || [])
+      ];
+      const historicalWasteMaps = this.buildWasteLookupMaps(historicalWasteRows);
 
       console.log('✅ Historical aggregations complete:', {
         entriesMaterials: historicalEntriesByMaterial.size,
         adjustmentsMaterials: historicalAdjustmentsByMaterial.size,
         consumptionMaterials: historicalConsumptionByMaterial.size,
-        wasteMaterials: historicalWasteByCode.size
+        wasteMaterialRows: historicalWasteRows.length,
+        wasteTrackedMaterials: historicalWasteMaps.byMaterialId.size + historicalWasteMaps.byCodeLegacy.size
       });
 
       // OPTIMIZED: Fetch all period data in parallel, including remision materials in same batch
-      const [periodEntriesResult, periodAdjustmentsResult, periodRemisionesResult, periodWasteResult] = await Promise.all([
+      const [
+        periodEntriesResult,
+        periodAdjustmentsResult,
+        periodRemisionesResult,
+        periodWasteByMaterialIdResult,
+        periodWasteLegacyResult
+      ] = await Promise.all([
         // Batch fetch ALL period entries (between startDate and endDate)
         this.supabase
           .from('material_entries')
@@ -413,11 +455,18 @@ export class InventoryDashboardService {
           .gte('fecha', startDate)
           .lte('fecha', endDate),
         
-        // Batch fetch ALL period waste (between startDate and endDate) - included in parallel batch
         this.supabase
           .from('waste_materials')
-          .select('material_code, waste_amount')
+          .select('material_id, material_code, waste_amount')
           .eq('plant_id', plantId)
+          .in('material_id', materialIdsList)
+          .gte('fecha', startDate)
+          .lte('fecha', endDate),
+        this.supabase
+          .from('waste_materials')
+          .select('material_id, material_code, waste_amount')
+          .eq('plant_id', plantId)
+          .is('material_id', null)
           .in('material_code', materialCodesList)
           .gte('fecha', startDate)
           .lte('fecha', endDate)
@@ -426,7 +475,11 @@ export class InventoryDashboardService {
       const allPeriodEntries = periodEntriesResult.data || [];
       const allPeriodAdjustments = periodAdjustmentsResult.data || [];
       const periodRemisiones = periodRemisionesResult.data || [];
-      const allPeriodWaste = periodWasteResult.data || [];
+      const allPeriodWaste = [
+        ...(periodWasteByMaterialIdResult.data || []),
+        ...(periodWasteLegacyResult.data || [])
+      ];
+      const periodWasteMaps = this.buildWasteLookupMaps(allPeriodWaste);
 
       const periodRemisionIdSet = new Set(periodRemisiones?.map(r => r.id) || []);
       console.log('📊 Period remisiones (between dates):', {
@@ -504,14 +557,6 @@ export class InventoryDashboardService {
         totalConsumptionRecords: periodConsumptionCount
       });
 
-      const periodWasteByCode = new Map<string, number[]>();
-      (allPeriodWaste || []).forEach(w => {
-        if (!periodWasteByCode.has(w.material_code)) {
-          periodWasteByCode.set(w.material_code, []);
-        }
-        periodWasteByCode.get(w.material_code)!.push(Number(w.waste_amount || 0));
-      });
-
       // Calculate for each material using aggregated data
       for (const material of filteredMaterials) {
         const materialId = material.id;
@@ -520,7 +565,11 @@ export class InventoryDashboardService {
         const historicalEntriesTotal = historicalEntriesByMaterial.get(materialId) || 0;
         const historicalAdjustments = historicalAdjustmentsByMaterial.get(materialId) || { additions: 0, withdrawals: 0 };
         const historicalConsumptionTotal = historicalConsumptionByMaterial.get(materialId) || 0;
-        const historicalWasteTotal = historicalWasteByCode.get(material.material_code) || 0;
+        const historicalWasteTotal = this.wasteRowsForMaterial(
+          material,
+          historicalWasteMaps.byMaterialId,
+          historicalWasteMaps.byCodeLegacy
+        ).reduce((s: number, w) => s + Number(w.waste_amount || 0), 0);
         
         // Calculate period totals from grouped data
         const periodEntriesTotal = (periodEntriesByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
@@ -537,7 +586,11 @@ export class InventoryDashboardService {
           return sum;
         }, 0);
         const periodConsumptionTotal = (periodConsumptionByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
-        const periodWasteTotal = (periodWasteByCode.get(material.material_code) || []).reduce((sum, qty) => sum + qty, 0);
+        const periodWasteTotal = this.wasteRowsForMaterial(
+          material,
+          periodWasteMaps.byMaterialId,
+          periodWasteMaps.byCodeLegacy
+        ).reduce((sum: number, w) => sum + Number(w.waste_amount || 0), 0);
 
         // Get actual current stock
         const actualCurrentStock = inventoryMap.get(materialId) || 0;
@@ -1056,10 +1109,10 @@ export class InventoryDashboardService {
         .lte('adjustment_date', endDate)
         .order('adjustment_date', { ascending: false }),
 
-      // ALL waste materials at once - No artificial limits
+      // ALL waste in range (material_id + code for correct rollup)
       this.supabase
         .from('waste_materials')
-        .select('material_code, waste_amount, fecha')
+        .select('material_id, material_code, waste_amount, fecha')
         .eq('plant_id', plantId)
         .gte('fecha', startDate)
         .lte('fecha', endDate)
@@ -1094,7 +1147,7 @@ export class InventoryDashboardService {
     const remisionMaterialsByMaterial = this.groupByMaterialId(remisionMaterialsResult.data || []);
     const entriesByMaterial = this.groupByMaterialId(entriesResult.data || []);
     const adjustmentsByMaterial = this.groupByMaterialId(adjustmentsResult.data || []);
-    const wasteMaterialsByCode = this.groupByField(wasteMaterialsResult.data || [], 'material_code');
+    const wasteLookup = this.buildWasteLookupMaps(wasteMaterialsResult.data || []);
 
     // Process each material with pre-grouped data
     const materialFlows: MaterialFlowSummary[] = [];
@@ -1106,7 +1159,7 @@ export class InventoryDashboardService {
       const materialRemisionData = remisionMaterialsByMaterial.get(material.id) || [];
       const materialEntries = entriesByMaterial.get(material.id) || [];
       const materialAdjustments = adjustmentsByMaterial.get(material.id) || [];
-      const materialWaste = wasteMaterialsByCode.get(material.material_code) || [];
+      const materialWaste = this.wasteRowsForMaterial(material, wasteLookup.byMaterialId, wasteLookup.byCodeLegacy);
       const currentStock = inventoryMap.get(material.id) || 0;
 
       console.log(`🔧 Processing material: ${material.material_name}`, {
@@ -1523,18 +1576,27 @@ export class InventoryDashboardService {
       ) || 0;
     }
 
-    // Get waste materials during period
-    const { data: wasteMaterials } = await this.supabase
-      .from('waste_materials')
-      .select('waste_amount')
-      .eq('plant_id', plantId)
-      .eq('material_code', material.material_code) // Use material_code for waste tracking
-      .gte('fecha', startDate)
-      .lte('fecha', endDate);
+    const [{ data: wasteById }, { data: wasteLegacy }] = await Promise.all([
+      this.supabase
+        .from('waste_materials')
+        .select('waste_amount')
+        .eq('plant_id', plantId)
+        .eq('material_id', material.id)
+        .gte('fecha', startDate)
+        .lte('fecha', endDate),
+      this.supabase
+        .from('waste_materials')
+        .select('waste_amount')
+        .eq('plant_id', plantId)
+        .is('material_id', null)
+        .eq('material_code', material.material_code)
+        .gte('fecha', startDate)
+        .lte('fecha', endDate)
+    ]);
 
-    const totalWaste = wasteMaterials?.reduce(
-      (sum, w) => sum + Number(w.waste_amount), 0
-    ) || 0;
+    const totalWaste =
+      (wasteById?.reduce((sum, w) => sum + Number(w.waste_amount), 0) || 0) +
+      (wasteLegacy?.reduce((sum, w) => sum + Number(w.waste_amount), 0) || 0);
 
     // Calculate theoretical final stock
     const theoreticalFinalStock = initialStock 

@@ -8,6 +8,7 @@ import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/
  * Returns ALL remisiones for a plant in a date range:
  *   - Regular remisiones (order_id != null, is_production_record = false)
  *   - Cross-plant production records (is_production_record = true)
+ *   - arkik_waste: material waste lines from cancelled/incomplete Arkik imports (no remision row)
  * Uses service role to resolve plant names across plants.
  */
 export async function GET(request: NextRequest) {
@@ -26,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id') || profile?.plant_id || null;
-    if (!plantId) return NextResponse.json({ regular: [], crossPlant: [] });
+    if (!plantId) return NextResponse.json({ regular: [], crossPlant: [], arkik_waste: [] });
 
     const today = new Date().toISOString().split('T')[0];
     const dateFrom = searchParams.get('date_from') || today;
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
 
     const serviceClient = createServiceClient();
 
-    const [regularResult, crossPlantResult] = await Promise.all([
+    const [regularResult, crossPlantResult, wasteResult] = await Promise.all([
       // Regular billing remisiones
       serviceClient
         .from('remisiones')
@@ -72,6 +73,17 @@ export async function GET(request: NextRequest) {
         .order('fecha', { ascending: false })
         .order('hora_carga', { ascending: false })
         .limit(200),
+
+      serviceClient
+        .from('waste_materials')
+        .select(
+          'id, remision_number, fecha, material_code, material_id, waste_amount, waste_reason, notes, session_id'
+        )
+        .eq('plant_id', plantId)
+        .gte('fecha', dateFrom)
+        .lte('fecha', dateTo)
+        .order('fecha', { ascending: false })
+        .limit(500),
     ]);
 
     // Resolve plant names for cross-plant records
@@ -128,12 +140,26 @@ export async function GET(request: NextRequest) {
       is_resolved: !!r.cross_plant_billing_remision_id,
     }));
 
+    const arkik_waste = (wasteResult.data || []).map((w: any) => ({
+      id: w.id,
+      remision_number: w.remision_number,
+      fecha: w.fecha,
+      material_code: w.material_code,
+      material_id: w.material_id ?? null,
+      waste_amount: w.waste_amount,
+      waste_reason: w.waste_reason,
+      notes: w.notes ?? null,
+      session_id: w.session_id,
+    }));
+
     return NextResponse.json({
       regular,
       crossPlant,
+      arkik_waste,
       summary: {
         total_regular: regular.length,
         total_cross_plant: crossPlant.length,
+        total_arkik_waste_lines: arkik_waste.length,
         total_volume_regular: regular.reduce((s, r) => s + (r.volumen_fabricado || 0), 0),
         total_volume_cross_plant: crossPlant.reduce((s, r) => s + (r.volumen_fabricado || 0), 0),
       },

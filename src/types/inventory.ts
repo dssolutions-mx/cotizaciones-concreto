@@ -47,6 +47,10 @@ export interface MaterialEntry {
   original_unit_price?: number | null; // Original unit_price before PO credit adjustment
   // FIFO consumption tracking
   remaining_quantity_kg?: number | null; // Remaining inventory from this entry layer (for FIFO)
+  // Landed cost (material + fleet per kg) — computed column
+  landed_unit_price?: number | null;
+  // Lot reference
+  lot_id?: string | null;
   // Optional joined data
   material?: {
     id: string;
@@ -129,6 +133,8 @@ export interface MaterialEntryInput {
   // Optional PO capture during creation (usually linked during review)
   po_id?: string;
   po_item_id?: string;
+  /** Explicit link: close this alert when the entry is created (optional). */
+  alert_id?: string;
   received_uom?: 'kg' | 'l' | 'm3';
   received_qty_entered?: number;
   volumetric_weight_kg_per_m3?: number; // if m3 and no PO/agreement/default

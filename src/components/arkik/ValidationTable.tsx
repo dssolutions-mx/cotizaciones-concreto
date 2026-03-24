@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import type { StagingRemision } from '@/types/arkik';
 import { supabase } from '@/lib/supabase/client';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
-import { TrendingUp, DollarSign, MapPin, User, Zap, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { TrendingUp, DollarSign, MapPin, User, Zap, AlertTriangle, CheckCircle, Clock, Check } from 'lucide-react';
 
 // Helper functions for date formatting without timezone conversion
 const formatLocalDate = (date: Date): string => {
@@ -481,7 +481,14 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
                   <td className="p-2">
                     <div className="max-w-[200px]">
                       <div className="font-medium text-xs">
-                        {r.suggested_client_id ? '✓ Auto-detectado' : r.cliente_name}
+                        {r.suggested_client_id ? (
+                          <span className="inline-flex items-center gap-1">
+                            <Check className="h-3 w-3 text-green-600 shrink-0" aria-hidden />
+                            Auto-detectado
+                          </span>
+                        ) : (
+                          r.cliente_name
+                        )}
                       </div>
                       <div className="text-xs text-gray-600 truncate">
                         Original: {r.cliente_name}
@@ -521,7 +528,10 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
                         {r.product_description}
                       </div>
                       {r.recipe_id && (
-                        <div className="text-xs text-green-600">✓ Vinculada</div>
+                        <div className="text-xs text-green-600 inline-flex items-center gap-1">
+                          <Check className="h-3 w-3 shrink-0" aria-hidden />
+                          Vinculada
+                        </div>
                       )}
                     </div>
                   </td>

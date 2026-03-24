@@ -24,6 +24,9 @@
   --color-gray-700: hsl(0, 0%, 45%);
   --color-gray-900: hsl(0, 0%, 25%);
 
+  /** Warm canvas behind main app chrome (cards stay white; client-portal uses its own layout). */
+  --color-app-shell: #f5f3f0;
+
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
 
@@ -97,6 +100,14 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentcolor);
   }
+
+  /**
+   * Warm app canvas (matches production-control). Ensures paint even if a Tailwind
+   * token utility is missing from a chunk; client-portal/auth wrappers use their own opaque bg.
+   */
+  html {
+    background-color: var(--color-app-shell, #f5f3f0);
+  }
 }
 
 @layer utilities {
@@ -108,6 +119,7 @@
   /* Estilos personalizados adicionales */
   body {
     @apply text-gray-900;
+    background-color: var(--color-app-shell, #f5f3f0);
   }
 
   .input-field {

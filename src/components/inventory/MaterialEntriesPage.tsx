@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { Package, Plus, List, Calendar as CalendarIcon, DollarSign } from 'lucide-react'
+import { Plus, List, Calendar as CalendarIcon, DollarSign } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -90,13 +90,13 @@ export default function MaterialEntriesPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6 w-full">
       <InventoryBreadcrumb />
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Entradas de Material</h1>
-          <p className="text-gray-600 text-sm sm:text-base">
+          <h1 className="text-2xl sm:text-3xl font-bold text-stone-900">Entradas de Material</h1>
+          <p className="text-stone-600 text-sm sm:text-base">
             Registro y gestión de recepción de materiales
           </p>
         </div>
@@ -132,20 +132,9 @@ export default function MaterialEntriesPage() {
         </TabsList>
 
         <TabsContent value="new" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Registrar Nueva Entrada de Material
-              </CardTitle>
-              <CardDescription>
-                Complete los datos de la recepción de material
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MaterialEntryForm onSuccess={handleEntrySuccess} />
-            </CardContent>
-          </Card>
+          <Suspense fallback={<div className="py-8 text-center text-stone-500 text-sm">Cargando formulario…</div>}>
+            <MaterialEntryForm onSuccess={handleEntrySuccess} />
+          </Suspense>
         </TabsContent>
 
         <TabsContent value="list" className="mt-6">
