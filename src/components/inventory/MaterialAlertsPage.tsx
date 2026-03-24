@@ -83,6 +83,8 @@ export default function MaterialAlertsPage() {
     scheduled_delivery_date: '',
   })
   const [submitting, setSubmitting] = useState(false)
+  /** Evita mismatch de hidratación en pestañas (SSR vs cliente / caché). */
+  const [filterTabsReady, setFilterTabsReady] = useState(false)
 
   const myActionableStatuses: AlertStatus[] = useMemo(() => {
     const role = profile?.role || ''
@@ -173,6 +175,10 @@ export default function MaterialAlertsPage() {
   useEffect(() => {
     fetchAlerts()
   }, [fetchAlerts])
+
+  useEffect(() => {
+    setFilterTabsReady(true)
+  }, [])
 
   const closePanel = () => {
     setOpenPanel(null)
@@ -428,26 +434,40 @@ export default function MaterialAlertsPage() {
         />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            { key: 'active', label: 'Activas' },
-            { key: 'mine', label: 'Mis acciones' },
-            { key: 'all', label: 'Todas' },
-            { key: 'expired', label: 'Vencidas' },
-          ] as const
-        ).map(({ key, label }) => (
-          <Button
-            key={key}
-            variant={filter === key ? 'solid' : 'outline'}
-            size="sm"
-            className={filter === key ? 'bg-stone-900 text-white hover:bg-stone-800 shadow-none' : ''}
-            onClick={() => setFilter(key)}
-          >
-            {key === 'mine' && <UserCheck className="h-3.5 w-3.5 mr-1.5" />}
-            {label}
-          </Button>
-        ))}
+      <div className="flex flex-wrap gap-2 min-h-9">
+        {!filterTabsReady ? (
+          <>
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="h-9 w-[5.5rem] rounded-md bg-stone-200/60 animate-pulse"
+                aria-hidden
+              />
+            ))}
+          </>
+        ) : (
+          (
+            [
+              { key: 'active', label: 'Activas' },
+              { key: 'mine', label: 'Mis acciones' },
+              { key: 'all', label: 'Todas' },
+              { key: 'expired', label: 'Vencidas' },
+            ] as const
+          ).map(({ key, label }) => (
+            <Button
+              key={key}
+              variant={filter === key ? 'solid' : 'outline'}
+              size="sm"
+              className={filter === key ? 'bg-stone-900 text-white hover:bg-stone-800 shadow-none' : ''}
+              onClick={() => setFilter(key)}
+            >
+              <span className="inline-flex h-3.5 w-3.5 items-center justify-center mr-1.5 shrink-0">
+                {key === 'mine' ? <UserCheck className="h-3.5 w-3.5" aria-hidden /> : null}
+              </span>
+              {label}
+            </Button>
+          ))
+        )}
       </div>
 
       {loading ? (
