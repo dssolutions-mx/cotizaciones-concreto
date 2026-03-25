@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { Button } from '@/components/ui/button';
@@ -45,13 +46,29 @@ function payloadRowsToStaging(rows: Record<string, unknown>[]): StagingRemision[
   }));
 }
 
-export default function ArkikQualityRequestsPage() {
-  const { currentPlant } = usePlantContext();
+function ArkikQualityRequestsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const {
+    currentPlant,
+    availablePlants,
+    switchPlant,
+    isGlobalAdmin,
+    userAccess,
+    isLoading: plantLoading,
+  } = usePlantContext();
   const { profile } = useAuthBridge();
   const [rows, setRows] = useState<QualityRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalCode, setModalCode] = useState<string | null>(null);
   const [modalSourceRows, setModalSourceRows] = useState<StagingRemision[]>([]);
+  const [modalQualityRequestId, setModalQualityRequestId] = useState<string | null>(null);
+  /** Avoid duplicate open (e.g. React Strict Mode) per open+plant pair. */
+  const deepLinkHandledKeyRef = useRef<string | null>(null);
+
+  const openId = searchParams.get('open');
+  const plantParam = searchParams.get('plant');
+  const deepLinkKey = openId && plantParam ? `${openId}:${plantParam}` : null;
 
   const allowed =
     profile?.role === 'QUALITY_TEAM' ||
@@ -80,6 +97,91 @@ export default function ArkikQualityRequestsPage() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (!deepLinkKey) {
+      deepLinkHandledKeyRef.current = null;
+    }
+  }, [deepLinkKey]);
+
+  useEffect(() => {
+    if (!openId || !plantParam || !allowed || plantLoading) return;
+    if (currentPlant?.id === plantParam) return;
+
+    const target = availablePlants.find((p) => p.id === plantParam);
+    if (!target) {
+      toast.error('La planta de esta solicitud no está disponible en tu sesión.');
+      return;
+    }
+
+    if (isGlobalAdmin || userAccess?.accessLevel === 'BUSINESS_UNIT') {
+      if (
+        userAccess?.accessLevel === 'BUSINESS_UNIT' &&
+        target.business_unit_id !== userAccess.businessUnitId
+      ) {
+        toast.error('No tienes acceso a la planta de esta solicitud.');
+        return;
+      }
+      switchPlant(plantParam);
+      return;
+    }
+
+    if (profile?.plant_id && profile.plant_id !== plantParam) {
+      toast.error('Esta solicitud corresponde a otra planta.');
+    }
+  }, [
+    openId,
+    plantParam,
+    allowed,
+    plantLoading,
+    currentPlant?.id,
+    availablePlants,
+    isGlobalAdmin,
+    userAccess,
+    profile?.plant_id,
+    switchPlant,
+  ]);
+
+  useEffect(() => {
+    if (!deepLinkKey || !openId || !plantParam || !allowed || plantLoading) return;
+    if (!currentPlant || currentPlant.id !== plantParam) return;
+    if (deepLinkHandledKeyRef.current === deepLinkKey) return;
+
+    deepLinkHandledKeyRef.current = deepLinkKey;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/arkik/quality-request?id=${encodeURIComponent(openId)}`);
+        const json = await res.json();
+        if (!res.ok) {
+          toast.error((json as { error?: string }).error || 'No se pudo abrir la solicitud');
+          router.replace('/quality/arkik-requests', { scroll: false });
+          return;
+        }
+        const row = (json as { data: QualityRequestRow }).data;
+        if (!row?.primary_code) {
+          toast.error('Solicitud no encontrada');
+          router.replace('/quality/arkik-requests', { scroll: false });
+          return;
+        }
+        if (row.status !== 'open') {
+          toast.message('Esta solicitud ya no está abierta.');
+          router.replace('/quality/arkik-requests', { scroll: false });
+          await load();
+          return;
+        }
+        const pr = row.payload?.rows || [];
+        const staging = Array.isArray(pr) ? payloadRowsToStaging(pr as Record<string, unknown>[]) : [];
+        setModalCode(row.primary_code);
+        setModalSourceRows(staging);
+        setModalQualityRequestId(row.id ?? null);
+        router.replace('/quality/arkik-requests', { scroll: false });
+      } catch {
+        toast.error('Error al abrir el enlace');
+        router.replace('/quality/arkik-requests', { scroll: false });
+      }
+    })();
+  }, [deepLinkKey, openId, plantParam, allowed, plantLoading, currentPlant, router, load]);
+
   const resolveRequest = async (id: string, status: 'resolved' | 'dismissed') => {
     try {
       const res = await fetch('/api/arkik/quality-request', {
@@ -94,6 +196,12 @@ export default function ArkikQualityRequestsPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error');
     }
+  };
+
+  const closeModal = () => {
+    setModalCode(null);
+    setModalSourceRows([]);
+    setModalQualityRequestId(null);
   };
 
   if (!allowed) {
@@ -123,6 +231,10 @@ export default function ArkikQualityRequestsPage() {
           </p>
         </div>
       </div>
+
+      {openId && plantParam && plantLoading && (
+        <p className="text-sm text-gray-500">Preparando enlace…</p>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-12">
@@ -154,10 +266,15 @@ export default function ArkikQualityRequestsPage() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="default" onClick={() => {
-                      setModalCode(r.primary_code);
-                      setModalSourceRows(staging);
-                    }}>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => {
+                        setModalCode(r.primary_code);
+                        setModalSourceRows(staging);
+                        setModalQualityRequestId(r.id ?? null);
+                      }}
+                    >
                       Crear receta
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => r.id && resolveRequest(r.id, 'resolved')}>
@@ -206,17 +323,28 @@ export default function ArkikQualityRequestsPage() {
                 ]
           }
           plantId={currentPlant.id}
+          qualityRequestId={modalQualityRequestId}
           onSuccess={() => {
-            setModalCode(null);
-            setModalSourceRows([]);
+            closeModal();
             load();
           }}
-          onCancel={() => {
-            setModalCode(null);
-            setModalSourceRows([]);
-          }}
+          onCancel={closeModal}
         />
       )}
     </div>
+  );
+}
+
+export default function ArkikQualityRequestsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        </div>
+      }
+    >
+      <ArkikQualityRequestsContent />
+    </Suspense>
   );
 }

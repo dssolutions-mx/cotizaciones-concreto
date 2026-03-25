@@ -38,6 +38,8 @@ interface CreateRecipeFromArkikModalProps {
   arkikCode: string;
   sourceRows: StagingRemision[];
   plantId: string;
+  /** When set, marks the quality-queue row resolved with the new recipe id after successful create. */
+  qualityRequestId?: string | null;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -101,6 +103,7 @@ export function CreateRecipeFromArkikModal({
   arkikCode,
   sourceRows,
   plantId,
+  qualityRequestId,
   onSuccess,
   onCancel,
 }: CreateRecipeFromArkikModalProps) {
@@ -256,7 +259,36 @@ export function CreateRecipeFromArkikModal({
         variantSuffix: parsed.variantSuffix,
         masterId: selectedMasterId && selectedMasterId !== '__new__' ? selectedMasterId : undefined,
       });
-      toast.success(result.updated ? 'Receta actualizada exitosamente' : 'Receta creada exitosamente');
+      let queueResolved = false;
+      if (qualityRequestId) {
+        try {
+          const patchRes = await fetch('/api/arkik/quality-request', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: qualityRequestId,
+              status: 'resolved',
+              resolved_recipe_id: result.id,
+            }),
+          });
+          queueResolved = patchRes.ok;
+          if (!patchRes.ok) {
+            const pj = await patchRes.json().catch(() => ({}));
+            console.warn('[CreateRecipeFromArkikModal] quality request PATCH', patchRes.status, pj);
+          }
+        } catch (patchErr) {
+          console.warn('[CreateRecipeFromArkikModal] quality request PATCH failed', patchErr);
+        }
+      }
+      if (queueResolved) {
+        toast.success(
+          result.updated
+            ? 'Receta actualizada y solicitud Arkik resuelta'
+            : 'Receta creada y solicitud Arkik resuelta'
+        );
+      } else {
+        toast.success(result.updated ? 'Receta actualizada exitosamente' : 'Receta creada exitosamente');
+      }
       onSuccess();
       onCancel();
     } catch (e: any) {

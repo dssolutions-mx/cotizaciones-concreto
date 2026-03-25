@@ -1141,7 +1141,7 @@ function ClientBalanceBreakdown({
 
         {/* Nota de conciliación */}
         <p className="text-xs text-muted-foreground">
-          <strong>Saldo esperado</strong> es el cálculo en pantalla (consumo − pagos ± ajustes). <strong>Saldo registrado</strong> es el valor persistido en BD; deberían coincidir cuando el IVA y el alcance de órdenes coinciden con el motor SQL. Si difieren, use esta comparación para depurar.
+          Saldo esperado: cálculo en pantalla (consumo − pagos ± ajustes). Saldo registrado: valor persistido en BD. Deberían alinearse cuando el IVA y el alcance de órdenes coinciden con el motor SQL; si no, esta comparación ayuda a depurar.
         </p>
       </CardContent>
     </Card>

@@ -45,7 +45,8 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   TrendingDown,
-  ClipboardPlus
+  ClipboardPlus,
+  Upload
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -161,7 +162,7 @@ const rhSubMenuItems = [
   },
 ];
 
-// Control de Producción: solo Inicio + 4 acciones frecuentes; el resto vive en /production-control (dashboard).
+// Control de Producción: solo las 4 acciones principales del dashboard (ACCIONES PRINCIPALES).
 type InventoryNavLink = {
   title: string;
   href: string;
@@ -171,27 +172,21 @@ type InventoryNavLink = {
 };
 
 const productionControlSidebarLinks: InventoryNavLink[] = [
-  { title: 'Inicio', href: '/production-control', IconComponent: Home },
+  { title: 'Registrar entrada', href: '/production-control/entries?tab=new', IconComponent: Inbox },
   {
     title: 'Solicitar material',
     href: '/production-control/material-request',
     IconComponent: ClipboardPlus,
     primary: true,
   },
-  {
-    title: 'Alertas de Material',
-    href: '/production-control/alerts',
-    IconComponent: AlertTriangle,
-    badge: 'pending_alerts',
-  },
-  { title: 'Entradas de Material', href: '/production-control/entries', IconComponent: Inbox },
-  { title: 'Lotes de Material', href: '/production-control/lots', IconComponent: Package },
+  { title: 'Procesar Arkik', href: '/production-control/arkik-upload', IconComponent: Upload },
+  { title: 'Servicio de bombeo', href: '/production-control/pumping-service', IconComponent: Truck },
 ];
 
 function isProductionControlLinkActive(pathname: string | null | undefined, href: string): boolean {
   if (!pathname) return false;
-  if (href === '/production-control') return pathname === '/production-control';
-  return pathname === href || pathname.startsWith(`${href}/`);
+  const pathOnly = href.split('?')[0];
+  return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 }
 
 function ProductionControlSubnav({
@@ -293,11 +288,6 @@ function ProductionControlSubnav({
           </Link>
         );
       })}
-      {variant === 'flyout' && (
-        <p className="px-3 pt-2 pb-1 text-[10px] leading-snug text-stone-400 border-t border-stone-100 mt-1">
-          Remisiones, reportes y más: abra <span className="font-medium text-stone-500">Inicio</span>.
-        </p>
-      )}
     </div>
   );
 }
