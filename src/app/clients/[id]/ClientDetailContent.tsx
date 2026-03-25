@@ -567,38 +567,6 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 function ClientBalanceSummary({ clientId, balances }: { clientId: string; balances: ClientBalance[] }) {
   const generalBalance = balances.find(balance => balance.construction_site === null);
   const siteBalances = balances.filter(balance => balance.construction_site !== null);
-  const [netAdjustments, setNetAdjustments] = useState<number>(0);
-  const [loadingAdjustments, setLoadingAdjustments] = useState<boolean>(false);
-
-  // Cargar ajustes netos (DEBT suma, CREDIT resta) para mostrar que el balance general ya los incluye
-  useEffect(() => {
-    const loadAdjustments = async () => {
-      try {
-        setLoadingAdjustments(true);
-        const { data, error } = await supabase.rpc('get_client_balance_adjustments', { p_client_id: generalBalance?.client_id });
-        if (error) {
-          console.error('Error loading adjustments (summary):', error);
-          setNetAdjustments(0);
-          return;
-        }
-        const list = (data as any[]) || [];
-        // Usar effect_on_client que ya tiene el signo correcto calculado en el servidor
-        const net = list.reduce((sum, a: any) => {
-          const effect = Number(a.effect_on_client) || 0;
-          return sum + effect;
-        }, 0);
-        setNetAdjustments(net);
-      } catch (e) {
-        console.error('Unexpected error loading adjustments (summary):', e);
-        setNetAdjustments(0);
-      } finally {
-        setLoadingAdjustments(false);
-      }
-    };
-    if (generalBalance?.client_id) {
-      loadAdjustments();
-    }
-  }, [generalBalance?.client_id]);
 
   // Format balance helper
   const formatBal = (amount: number | undefined) => {
@@ -622,15 +590,9 @@ function ClientBalanceSummary({ clientId, balances }: { clientId: string; balanc
         {/* General Balance */}
         <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-gray-700 font-medium">Balance Total (incluye ajustes)</span>
+            <span className="text-gray-700 font-medium">Balance total</span>
             <span className={`text-lg font-bold ${generalBalance && generalBalance.current_balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
               {formatBal(generalBalance?.current_balance)}
-            </span>
-          </div>
-          <div className="flex justify-between text-sm text-gray-700">
-            <span>Ajustes netos</span>
-            <span className={`${netAdjustments > 0 ? 'text-red-600' : netAdjustments < 0 ? 'text-green-600' : 'text-gray-700'} font-semibold`}>
-              {loadingAdjustments ? 'Cargando...' : formatBal(netAdjustments)}
             </span>
           </div>
         </div>
@@ -907,7 +869,7 @@ function ClientBalanceBreakdown({
     return payments.reduce((sum, p) => sum + (p.amount || 0), 0);
   }, [payments]);
 
-  // Saldo esperado por aritmética
+  // Saldo esperado (UI): útil para depurar frente al saldo persistido en BD
   const expectedBalance = React.useMemo(() => {
     return consumptionWithVat - totalPayments + netAdjustments;
   }, [consumptionWithVat, totalPayments, netAdjustments]);
@@ -1008,14 +970,18 @@ function ClientBalanceBreakdown({
       acc.consumptionWithVat += s.consumptionWithVat;
       acc.payments += s.payments;
       acc.adjustments += s.adjustments;
-      acc.expected += s.expected;
       return acc;
-    }, { consumptionWithVat: 0, payments: 0, adjustments: 0, expected: 0 });
+    }, { consumptionWithVat: 0, payments: 0, adjustments: 0 });
     // IMPORTANT: Saldo actual en totales debe ser el balance general (no suma de obras)
     // Los ajustes se muestran como neto global (DEBT suma, CREDIT resta)
     const adjustmentsNet = netAdjustments;
-    const expectedWithAdjustments = base.consumptionWithVat - base.payments + adjustmentsNet;
-    return { ...base, adjustments: adjustmentsNet, expected: expectedWithAdjustments, currentBalance: generalBalance } as { consumptionWithVat: number; payments: number; adjustments: number; expected: number; currentBalance: number };
+    const expectedTotal = base.consumptionWithVat - base.payments + adjustmentsNet;
+    return {
+      ...base,
+      adjustments: adjustmentsNet,
+      expected: expectedTotal,
+      currentBalance: generalBalance,
+    } as { consumptionWithVat: number; payments: number; adjustments: number; expected: number; currentBalance: number };
   }, [perSiteBreakdown, generalBalance, netAdjustments]);
 
   const toggleSite = (key: string) => {
@@ -1058,11 +1024,15 @@ function ClientBalanceBreakdown({
               </TableRow>
               <TableRow>
                 <TableCell className="font-semibold">Saldo esperado</TableCell>
-                <TableCell className="text-right font-semibold">{formatCurrency(expectedBalance)}</TableCell>
+                <TableCell className={`text-right font-semibold ${expectedBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {formatCurrency(expectedBalance)}
+                </TableCell>
               </TableRow>
               <TableRow>
-                <TableCell className="text-sm text-muted-foreground">Saldo actual del sistema</TableCell>
-                <TableCell className={`text-right font-medium ${generalBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(generalBalance)}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">Saldo registrado (sistema / BD)</TableCell>
+                <TableCell className={`text-right font-medium ${generalBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {formatCurrency(generalBalance)}
+                </TableCell>
               </TableRow>
             </TableBody>
           </Table>
@@ -1079,7 +1049,7 @@ function ClientBalanceBreakdown({
                   <TableHead className="text-right">Pagos</TableHead>
                   <TableHead className="text-right">Ajustes (solo general)</TableHead>
                   <TableHead className="text-right">Saldo esperado</TableHead>
-                  <TableHead className="text-right">Saldo actual</TableHead>
+                  <TableHead className="text-right">Saldo registrado</TableHead>
                   <TableHead className="text-right">Detalle</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1108,8 +1078,10 @@ function ClientBalanceBreakdown({
                             '—'
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(expectedValue)}</TableCell>
-                        <TableCell className={`text-right ${s.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(s.currentBalance)}</TableCell>
+                        <TableCell className={`text-right font-medium ${expectedValue > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                          {formatCurrency(expectedValue)}
+                        </TableCell>
+                        <TableCell className={`text-right font-medium ${s.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(s.currentBalance)}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => toggleSite(key)} className="h-8 px-2">
                             {isExpanded ? 'Ocultar' : 'Ver'}
@@ -1158,7 +1130,7 @@ function ClientBalanceBreakdown({
                   <TableCell className="text-right font-semibold">{formatCurrency(totals.consumptionWithVat)}</TableCell>
                   <TableCell className="text-right font-semibold text-green-700">− {formatCurrency(totals.payments)}</TableCell>
                   <TableCell className={`text-right font-semibold ${totals.adjustments >= 0 ? 'text-red-700' : 'text-green-700'}`}>{totals.adjustments >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(totals.adjustments))}</TableCell>
-                  <TableCell className="text-right font-semibold">{formatCurrency(totals.expected)}</TableCell>
+                  <TableCell className={`text-right font-semibold ${totals.expected > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(totals.expected)}</TableCell>
                   <TableCell className={`text-right font-semibold ${totals.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(totals.currentBalance)}</TableCell>
                   <TableCell />
                 </TableRow>
@@ -1169,7 +1141,7 @@ function ClientBalanceBreakdown({
 
         {/* Nota de conciliación */}
         <p className="text-xs text-muted-foreground">
-          Si el saldo esperado difiere del saldo actual, verifique órdenes sin remisiones o ajustes recientes.
+          <strong>Saldo esperado</strong> es el cálculo en pantalla (consumo − pagos ± ajustes). <strong>Saldo registrado</strong> es el valor persistido en BD; deberían coincidir cuando el IVA y el alcance de órdenes coinciden con el motor SQL. Si difieren, use esta comparación para depurar.
         </p>
       </CardContent>
     </Card>
