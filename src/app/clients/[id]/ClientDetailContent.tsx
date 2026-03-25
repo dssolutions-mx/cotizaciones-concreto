@@ -43,14 +43,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { subMonths } from 'date-fns';
 // Import types from the new file
 import { Client, ConstructionSite as BaseConstructionSite, ClientPayment, ClientBalance } from '@/types/client';
-import { OrderWithClient } from '@/types/orders';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { OrderWithClient, OrderItem } from '@/types/orders';
+import { formatCurrency, formatDate, cn } from '@/lib/utils';
 import { toast } from "sonner";
 // Import for map components
 import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
-import { Pencil, Trash2, Plus, X, Save, Map, CreditCard, MapPin, ExternalLink } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Save, Map, CreditCard, MapPin, ExternalLink, ChevronDown } from "lucide-react";
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
@@ -1098,9 +1098,18 @@ function ClientBalanceBreakdown({
                                   {s.orders.length === 0 ? (
                                     <div className="p-2 text-sm text-muted-foreground">Sin órdenes entregadas</div>
                                   ) : s.orders.map((o: any) => (
-                                    <div key={o.id} className="flex justify-between p-2 text-sm">
-                                      <span className="truncate" title={o.order_number || o.id}>{o.order_number || o.id}</span>
-                                      <span>{formatCurrency(((o.requires_invoice && (typeof o.invoice_amount === 'number')) ? o.invoice_amount : (o.final_amount || 0)) || 0)}</span>
+                                    <div key={o.id} className="flex justify-between items-center gap-2 p-2 text-sm">
+                                      <span className="flex items-center gap-1.5 min-w-0">
+                                        <span className="truncate" title={o.order_number || o.id}>{o.order_number || o.id}</span>
+                                        <Badge
+                                          variant={o.requires_invoice ? 'success' : 'secondary'}
+                                          className="shrink-0 px-1.5 py-0 text-[10px] font-medium h-5"
+                                          title={o.requires_invoice ? 'Requiere factura (fiscal)' : 'Sin factura (efectivo)'}
+                                        >
+                                          {o.requires_invoice ? 'Fiscal' : 'Efectivo'}
+                                        </Badge>
+                                      </span>
+                                      <span className="shrink-0 tabular-nums">{formatCurrency(((o.requires_invoice && (typeof o.invoice_amount === 'number')) ? o.invoice_amount : (o.final_amount || 0)) || 0)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1865,6 +1874,10 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   // Delete site confirmation dialog
   const [siteToDelete, setSiteToDelete] = useState<ConstructionSite | null>(null);
   const [isDeletingSite, setIsDeletingSite] = useState(false);
+  /** Pedidos Relacionados: expand row → partidas (debug) */
+  const [expandedOrderLineRows, setExpandedOrderLineRows] = useState<Record<string, boolean>>({});
+  const [orderLineItemsByOrderId, setOrderLineItemsByOrderId] = useState<Record<string, OrderItem[]>>({});
+  const [orderLineItemsLoading, setOrderLineItemsLoading] = useState<Record<string, boolean>>({});
 
   // Find the current total balance for passing to PaymentForm - MOVED UP HERE to fix hooks order
   const currentTotalBalance = useMemo(() => {
@@ -1944,6 +1957,28 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   const handlePaymentCancel = () => {
     setIsPaymentDialogOpen(false); // Close the dialog
   };
+
+  const toggleOrderLineItemsRow = useCallback(async (orderId: string) => {
+    const wasOpen = !!expandedOrderLineRows[orderId];
+    const opening = !wasOpen;
+    setExpandedOrderLineRows((prev) => ({ ...prev, [orderId]: opening }));
+
+    if (opening && !orderLineItemsByOrderId[orderId]) {
+      setOrderLineItemsLoading((l) => ({ ...l, [orderId]: true }));
+      const { data, error } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true });
+      setOrderLineItemsLoading((l) => ({ ...l, [orderId]: false }));
+      if (error) {
+        toast.error('No se pudieron cargar las partidas del pedido');
+        console.error(error);
+        return;
+      }
+      setOrderLineItemsByOrderId((c) => ({ ...c, [orderId]: (data as OrderItem[]) || [] }));
+    }
+  }, [expandedOrderLineRows, orderLineItemsByOrderId]);
 
   // Handle opening the order detail modal
   const handleViewOrderDetails = (orderId: string) => {
@@ -2327,6 +2362,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 p-2" aria-label="Partidas" />
                   <TableHead>Número de Pedido</TableHead>
                   <TableHead>Fecha de Entrega</TableHead>
                   <TableHead>Hora</TableHead>
@@ -2337,36 +2373,120 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {clientOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">{order.order_number}</TableCell>
-                    <TableCell>{formatOrderDate(order.delivery_date)}</TableCell>
-                    <TableCell>{order.delivery_time}</TableCell>
-                    <TableCell className="truncate max-w-[150px]" title={order.construction_site || ''}>
-                      {order.construction_site || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <div className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center
-                        ${order.order_status === 'created' ? 'bg-yellow-100 text-yellow-800' : 
-                          order.order_status === 'validated' ? 'bg-green-100 text-green-800' :
-                          order.order_status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
-                          order.order_status === 'completed' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'}`}>
-                        {order.order_status.charAt(0).toUpperCase() + order.order_status.slice(1)}
-                      </div>
-                    </TableCell>
-                    <TableCell>{order.final_amount ? formatCurrency(order.final_amount) : '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        onClick={() => handleViewOrderDetails(order.id)}
-                      >
-                        Ver Detalles
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {clientOrders.map((order) => {
+                  const lineOpen = !!expandedOrderLineRows[order.id];
+                  const lineLoading = !!orderLineItemsLoading[order.id];
+                  const lineItems = orderLineItemsByOrderId[order.id];
+                  return (
+                    <React.Fragment key={order.id}>
+                      <TableRow data-state={lineOpen ? 'open' : undefined}>
+                        <TableCell className="p-2 align-middle w-10">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            aria-expanded={lineOpen}
+                            aria-label={lineOpen ? 'Ocultar partidas' : 'Ver partidas y precios'}
+                            onClick={() => void toggleOrderLineItemsRow(order.id)}
+                          >
+                            <ChevronDown
+                              className={cn('h-4 w-4 text-muted-foreground transition-transform', lineOpen && 'rotate-180')}
+                            />
+                          </Button>
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2 flex-wrap min-w-0">
+                            <span>{order.order_number}</span>
+                            <Badge
+                              variant={order.requires_invoice ? 'success' : 'secondary'}
+                              className="px-1.5 py-0 text-[10px] font-medium h-5"
+                              title={order.requires_invoice ? 'Requiere factura (fiscal)' : 'Sin factura (efectivo)'}
+                            >
+                              {order.requires_invoice ? 'Fiscal' : 'Efectivo'}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>{formatOrderDate(order.delivery_date)}</TableCell>
+                        <TableCell>{order.delivery_time}</TableCell>
+                        <TableCell className="truncate max-w-[150px]" title={order.construction_site || ''}>
+                          {order.construction_site || "-"}
+                        </TableCell>
+                        <TableCell>
+                          <div className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center
+                            ${order.order_status === 'created' ? 'bg-yellow-100 text-yellow-800' : 
+                              order.order_status === 'validated' ? 'bg-green-100 text-green-800' :
+                              order.order_status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
+                              order.order_status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-800'}`}>
+                            {order.order_status.charAt(0).toUpperCase() + order.order_status.slice(1)}
+                          </div>
+                        </TableCell>
+                        <TableCell>{order.final_amount ? formatCurrency(order.final_amount) : '-'}</TableCell>
+                        <TableCell className="text-right">
+                          <Button 
+                            variant="secondary" 
+                            size="sm" 
+                            onClick={() => handleViewOrderDetails(order.id)}
+                          >
+                            Ver Detalles
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {lineOpen && (
+                        <TableRow className="hover:bg-transparent border-0">
+                          <TableCell colSpan={8} className="p-0 border-b">
+                            <div className="bg-muted/40 px-4 py-3 text-sm">
+                              <p className="text-xs font-medium text-muted-foreground mb-2">Partidas del pedido (debug)</p>
+                              {lineLoading ? (
+                                <p className="text-xs text-muted-foreground">Cargando partidas…</p>
+                              ) : !lineItems || lineItems.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">Sin partidas en este pedido.</p>
+                              ) : (
+                                <div className="overflow-x-auto rounded-md border bg-background">
+                                  <Table className="text-xs">
+                                    <TableHeader>
+                                      <TableRow className="hover:bg-transparent">
+                                        <TableHead className="h-8">Producto</TableHead>
+                                        <TableHead className="h-8 text-right">Volumen</TableHead>
+                                        <TableHead className="h-8 text-right">P. unitario</TableHead>
+                                        <TableHead className="h-8 text-right">Subtotal</TableHead>
+                                        <TableHead className="h-8">Notas</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {lineItems.map((item) => (
+                                        <TableRow key={item.id} className="hover:bg-muted/30">
+                                          <TableCell className="py-1.5 font-medium">{item.product_type}</TableCell>
+                                          <TableCell className="py-1.5 text-right tabular-nums">{item.volume}</TableCell>
+                                          <TableCell className="py-1.5 text-right tabular-nums">{formatCurrency(item.unit_price)}</TableCell>
+                                          <TableCell className="py-1.5 text-right tabular-nums">{formatCurrency(item.total_price)}</TableCell>
+                                          <TableCell className="py-1.5 text-muted-foreground text-[11px]">
+                                            {[
+                                              item.has_pump_service && item.pump_volume != null
+                                                ? `Bomba ${item.pump_volume} m³${item.pump_price != null ? ` · ${formatCurrency(item.pump_price)}` : ''}`
+                                                : null,
+                                              item.has_empty_truck_charge && (item.empty_truck_volume != null || item.empty_truck_price != null)
+                                                ? `Vacío ${item.empty_truck_volume ?? '—'} m³${item.empty_truck_price != null ? ` · ${formatCurrency(item.empty_truck_price)}` : ''}`
+                                                : null,
+                                              item.billing_type ? `Fact: ${item.billing_type}` : null,
+                                            ]
+                                              .filter(Boolean)
+                                              .join(' · ') || '—'}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </TableBody>
             </Table>
           ) : (
