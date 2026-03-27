@@ -45,7 +45,10 @@ import {
   ArrowLeftRight,
   AlertTriangle,
   TrendingDown,
-  ClipboardPlus
+  ClipboardPlus,
+  Gauge,
+  CalendarClock,
+  BookOpen
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -330,6 +333,11 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { type: 'group', title: "Instrumentos EMA" },
+  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
+  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
+  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
+  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
 ];
 
 // Quality submenu for QUALITY_TEAM (without dashboard)
@@ -355,6 +363,11 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { type: 'group', title: "Instrumentos EMA" },
+  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
+  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
+  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
+  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
 ];
 
 // Quality submenu for QUALITY_TEAM in specific plants (P002, P003, P004) - limited access
@@ -374,6 +387,11 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { type: 'group', title: "Instrumentos EMA" },
+  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
+  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
+  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
+  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
 ];
 
 // Canonical navigation config: ordered array filtered by role

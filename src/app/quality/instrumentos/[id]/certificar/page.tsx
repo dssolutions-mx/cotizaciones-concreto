@@ -1,0 +1,450 @@
+'use client'
+
+import React, { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowLeft, Award, FileText, Info, Loader2, Upload } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
+import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
+import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
+import { cn } from '@/lib/utils'
+import type { InstrumentoDetalle } from '@/types/ema'
+
+export default function CertificarPage() {
+  const { id } = useParams<{ id: string }>()
+  const router = useRouter()
+
+  const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
+  const [loadingInst, setLoadingInst] = useState(true)
+
+  const [form, setForm] = useState({
+    // Lab info
+    laboratorio_externo: '',
+    acreditacion_laboratorio: '',
+    tecnico_responsable: '',
+    // Certificate identity
+    numero_certificado: '',
+    metodo_calibracion: '',
+    // Dates
+    fecha_emision: '',
+    fecha_vencimiento: '',
+    // Metrology (NMX-EC-17025 §5.4.6)
+    incertidumbre_expandida: '',
+    incertidumbre_unidad: '',
+    factor_cobertura: '2',
+    rango_medicion: '',
+    // Conditions
+    condiciones_temperatura: '',
+    condiciones_humedad: '',
+    condiciones_presion: '',
+    // Document
+    archivo_path: '',
+    observaciones: '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/ema/instrumentos/${id}`)
+      .then(r => r.json())
+      .then(j => { setInstrumento(j.data ?? j); setLoadingInst(false) })
+      .catch(() => setLoadingInst(false))
+  }, [id])
+
+  // Auto-calculate fecha_vencimiento when fecha_emision changes
+  useEffect(() => {
+    if (form.fecha_emision && instrumento) {
+      const period = instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias
+      if (period) {
+        const emision = new Date(form.fecha_emision)
+        emision.setDate(emision.getDate() + period)
+        setForm(f => ({ ...f, fecha_vencimiento: emision.toISOString().split('T')[0] }))
+      }
+    }
+  }, [form.fecha_emision, instrumento])
+
+  // Auto-fill unit from modelo when instrument loads
+  useEffect(() => {
+    if (instrumento?.modelo?.unidad_medicion && !form.incertidumbre_unidad) {
+      setForm(f => ({ ...f, incertidumbre_unidad: instrumento.modelo.unidad_medicion ?? '' }))
+    }
+  }, [instrumento])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      const body = {
+        numero_certificado: form.numero_certificado || null,
+        laboratorio_externo: form.laboratorio_externo,
+        acreditacion_laboratorio: form.acreditacion_laboratorio || null,
+        metodo_calibracion: form.metodo_calibracion || null,
+        fecha_emision: form.fecha_emision,
+        fecha_vencimiento: form.fecha_vencimiento,
+        archivo_path: form.archivo_path,
+        incertidumbre_expandida: form.incertidumbre_expandida ? parseFloat(form.incertidumbre_expandida) : null,
+        incertidumbre_unidad: form.incertidumbre_unidad || null,
+        factor_cobertura: form.factor_cobertura ? parseFloat(form.factor_cobertura) : null,
+        rango_medicion: form.rango_medicion || null,
+        condiciones_ambientales: (form.condiciones_temperatura || form.condiciones_humedad || form.condiciones_presion) ? {
+          temperatura: form.condiciones_temperatura || undefined,
+          humedad: form.condiciones_humedad || undefined,
+          presion: form.condiciones_presion || undefined,
+        } : null,
+        tecnico_responsable: form.tecnico_responsable || null,
+        observaciones: form.observaciones || null,
+      }
+      const res = await fetch(`/api/ema/instrumentos/${id}/certificados`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        throw new Error(j.error ?? 'Error registrando certificado')
+      }
+      router.push(`/quality/instrumentos/${id}`)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const update = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
+
+  if (loadingInst) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="h-4 w-64 bg-stone-200 rounded animate-pulse" />
+        <div className="h-48 rounded-lg bg-stone-100 animate-pulse" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5 max-w-3xl">
+      <EmaBreadcrumb items={[
+        { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
+        { label: 'Registrar certificado' },
+      ]} />
+
+      {/* Back + Title */}
+      <div className="flex items-center gap-3">
+        <Link
+          href={`/quality/instrumentos/${id}`}
+          className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-stone-900 flex items-center gap-2">
+            <Award className="h-5 w-5 text-sky-600" />
+            Registrar certificado de calibración
+          </h1>
+          <p className="text-sm text-stone-500 mt-0.5">
+            {instrumento?.nombre} · {instrumento?.codigo}
+          </p>
+        </div>
+      </div>
+
+      {/* Context card */}
+      {instrumento && (
+        <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap flex-1">
+            <EmaTipoBadge tipo={instrumento.tipo} showLabel />
+            <EmaEstadoBadge estado={instrumento.estado} />
+            {instrumento.marca && (
+              <span className="text-xs text-stone-500">{instrumento.marca} {instrumento.modelo_comercial}</span>
+            )}
+          </div>
+          <div className="text-xs text-stone-500 font-mono">
+            Período: {instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias ?? '—'} días
+            {instrumento.modelo?.unidad_medicion && ` · ${instrumento.modelo.unidad_medicion}`}
+          </div>
+        </div>
+      )}
+
+      {/* EMA info banner */}
+      <div className="rounded-lg border border-sky-200 bg-sky-50/80 p-4 flex items-start gap-3">
+        <Info className="h-4 w-4 text-sky-600 mt-0.5 shrink-0" />
+        <div className="text-xs text-sky-800">
+          <p className="font-medium">Requisito NMX-EC-17025 · Cláusula 6.5</p>
+          <p className="mt-0.5">
+            El certificado debe provenir de un laboratorio acreditado por EMA o un instituto
+            nacional de metrología (CENAM). Registre el número de acreditación del laboratorio
+            y los valores de incertidumbre para completar la cadena de trazabilidad metrológica.
+          </p>
+        </div>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        {/* 1. Lab section */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Laboratorio de calibración</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Laboratorio externo <span className="text-red-500">*</span></Label>
+              <Input
+                required
+                value={form.laboratorio_externo}
+                onChange={e => update('laboratorio_externo', e.target.value)}
+                placeholder="ej. CIDESI, CENAM"
+                className="border-stone-200"
+                list="labs-suggestions"
+              />
+              <datalist id="labs-suggestions">
+                <option value="CIDESI" />
+                <option value="CENAM" />
+                <option value="Centro Nacional de Metrología" />
+                <option value="Laboratorio Nacional de Metrología" />
+                <option value="CIATEC" />
+                <option value="IMP" />
+              </datalist>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">No. de acreditación EMA</Label>
+              <Input
+                value={form.acreditacion_laboratorio}
+                onChange={e => update('acreditacion_laboratorio', e.target.value)}
+                placeholder="ej. CAL-123-456/24"
+                className="border-stone-200 font-mono"
+              />
+              <p className="text-[11px] text-stone-400">Número de acreditación del laboratorio ante EMA</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Técnico responsable</Label>
+              <Input
+                value={form.tecnico_responsable}
+                onChange={e => update('tecnico_responsable', e.target.value)}
+                placeholder="Nombre del técnico que firmó el certificado"
+                className="border-stone-200"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Método de calibración</Label>
+              <Input
+                value={form.metodo_calibracion}
+                onChange={e => update('metodo_calibracion', e.target.value)}
+                placeholder="ej. NMX-CH-7500-1-IMNC-2008"
+                className="border-stone-200 font-mono text-sm"
+                list="metodos-list"
+              />
+              <datalist id="metodos-list">
+                <option value="NMX-CH-7500-1-IMNC-2008" />
+                <option value="NMX-CH-OIML-R76-IMNC" />
+                <option value="OIML R111" />
+                <option value="ISO 3650" />
+                <option value="ASTM E4" />
+                <option value="ASTM E74" />
+              </datalist>
+            </div>
+          </div>
+        </div>
+
+        {/* 2. Certificate ID + dates */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Certificado</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">No. de certificado</Label>
+              <Input
+                value={form.numero_certificado}
+                onChange={e => update('numero_certificado', e.target.value)}
+                placeholder="ej. CC-2026-0001"
+                className="border-stone-200 font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Fecha de emisión <span className="text-red-500">*</span></Label>
+              <Input
+                type="date"
+                required
+                value={form.fecha_emision}
+                onChange={e => update('fecha_emision', e.target.value)}
+                className="border-stone-200"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Fecha de vencimiento <span className="text-red-500">*</span></Label>
+              <Input
+                type="date"
+                required
+                value={form.fecha_vencimiento}
+                onChange={e => update('fecha_vencimiento', e.target.value)}
+                className="border-stone-200"
+              />
+              {form.fecha_emision && form.fecha_vencimiento && (
+                <p className="text-[11px] text-stone-400 font-mono">
+                  {Math.round((new Date(form.fecha_vencimiento).getTime() - new Date(form.fecha_emision).getTime()) / 86_400_000)} días de vigencia
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Measurement uncertainty — the EMA-critical section */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Incertidumbre de medición</h2>
+            <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-medium">NMX-EC-17025</span>
+          </div>
+          <p className="text-xs text-stone-500 -mt-2">
+            Datos del certificado: incertidumbre expandida U, factor de cobertura k, y rango calibrado.
+            Estos valores son requeridos para demostrar trazabilidad metrológica ante EMA.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Incertidumbre U (±)</Label>
+              <Input
+                type="number"
+                step="any"
+                min="0"
+                value={form.incertidumbre_expandida}
+                onChange={e => update('incertidumbre_expandida', e.target.value)}
+                placeholder="ej. 0.15"
+                className="border-stone-200 font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Unidad</Label>
+              <Input
+                value={form.incertidumbre_unidad}
+                onChange={e => update('incertidumbre_unidad', e.target.value)}
+                placeholder="ej. kN"
+                className="border-stone-200 font-mono"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Factor k</Label>
+              <Input
+                type="number"
+                step="any"
+                min="1"
+                value={form.factor_cobertura}
+                onChange={e => update('factor_cobertura', e.target.value)}
+                placeholder="2"
+                className="border-stone-200 font-mono"
+              />
+              <p className="text-[11px] text-stone-400">Típico: k=2 (95%)</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Rango calibrado</Label>
+              <Input
+                value={form.rango_medicion}
+                onChange={e => update('rango_medicion', e.target.value)}
+                placeholder="ej. 0–2000 kN"
+                className="border-stone-200 font-mono text-sm"
+              />
+            </div>
+          </div>
+          {form.incertidumbre_expandida && form.incertidumbre_unidad && (
+            <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 font-mono">
+              U = ±{form.incertidumbre_expandida} {form.incertidumbre_unidad} (k={form.factor_cobertura || '2'}, ~{form.factor_cobertura === '2' || !form.factor_cobertura ? '95' : '—'}% confianza)
+            </div>
+          )}
+        </div>
+
+        {/* 4. Environmental conditions */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Condiciones ambientales</h2>
+          <p className="text-xs text-stone-500 -mt-2">
+            Condiciones del laboratorio durante la calibración, según el certificado.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Temperatura</Label>
+              <Input
+                value={form.condiciones_temperatura}
+                onChange={e => update('condiciones_temperatura', e.target.value)}
+                placeholder="ej. 22 ± 1 °C"
+                className="border-stone-200 font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Humedad relativa</Label>
+              <Input
+                value={form.condiciones_humedad}
+                onChange={e => update('condiciones_humedad', e.target.value)}
+                placeholder="ej. 45 ± 5 %HR"
+                className="border-stone-200 font-mono text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Presión barométrica</Label>
+              <Input
+                value={form.condiciones_presion}
+                onChange={e => update('condiciones_presion', e.target.value)}
+                placeholder="ej. 780 mmHg"
+                className="border-stone-200 font-mono text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 5. Document */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Documento del certificado</h2>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-stone-600">Ruta del archivo PDF <span className="text-red-500">*</span></Label>
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-stone-400 shrink-0" />
+              <Input
+                required
+                value={form.archivo_path}
+                onChange={e => update('archivo_path', e.target.value)}
+                placeholder="calibration-certificates/2026/CC-2026-0001.pdf"
+                className="border-stone-200 font-mono text-sm"
+              />
+            </div>
+            <p className="text-[11px] text-stone-400">
+              Suba el PDF original del certificado al bucket de Supabase Storage e ingrese la ruta aquí.
+              El documento debe incluir: resultados, incertidumbre, declaración de trazabilidad y firma.
+            </p>
+          </div>
+        </div>
+
+        {/* 6. Notes */}
+        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Observaciones</h2>
+          <Textarea
+            rows={3}
+            value={form.observaciones}
+            onChange={e => update('observaciones', e.target.value)}
+            placeholder="Notas adicionales sobre la calibración, desviaciones detectadas, recomendaciones del laboratorio..."
+            className="border-stone-200 resize-none"
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-between pt-2">
+          <Link
+            href={`/quality/instrumentos/${id}`}
+            className="text-sm text-stone-500 hover:text-stone-700 transition-colors"
+          >
+            Cancelar
+          </Link>
+          <Button type="submit" className="bg-sky-700 hover:bg-sky-800 text-white gap-1.5" disabled={submitting}>
+            {submitting ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</>
+            ) : (
+              <><Award className="h-4 w-4" /> Registrar certificado</>
+            )}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}

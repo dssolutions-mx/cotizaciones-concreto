@@ -320,9 +320,8 @@
   }
 }
 
-/* Liquid Glass utilities (Day 1) */
+/* Typography utilities */
 @layer utilities {
-  /* Typography utility classes */
   .text-large-title { font-size: 34px; font-weight: 700; line-height: 41px; letter-spacing: 0.37px; }
   .text-title-1 { font-size: 28px; font-weight: 700; line-height: 34px; letter-spacing: 0.36px; }
   .text-title-2 { font-size: 22px; font-weight: 700; line-height: 28px; letter-spacing: 0.35px; }
@@ -331,7 +330,10 @@
   .text-callout { font-size: 16px; font-weight: 400; line-height: 21px; letter-spacing: -0.32px; }
   .text-footnote { font-size: 13px; font-weight: 400; line-height: 18px; letter-spacing: -0.08px; }
   .text-caption { font-size: 12px; font-weight: 400; line-height: 16px; letter-spacing: 0px; }
+}
 
+/* Liquid Glass components — in @layer components so Tailwind utilities (bg-*, text-*) always win */
+@layer components {
   .glass-base {
     background: rgba(255, 255, 255, 0.72);
     -webkit-backdrop-filter: blur(12px) saturate(150%);

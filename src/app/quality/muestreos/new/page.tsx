@@ -48,6 +48,7 @@ import {
   Upload, Search, Filter, CalendarDays, Plus, Trash2, Copy, Info
 } from 'lucide-react';
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
+import { EquipoUtilizadoPicker, type EquipoUtilizadoPickerHandle, type SelectedInstrumento } from '@/components/quality/muestreos/EquipoUtilizadoPicker';
 import { cn } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -99,6 +100,7 @@ export default function NuevoMuestreoPage() {
   const [isLoadingRemisiones, setIsLoadingRemisiones] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const equipoPickerRef = useRef<EquipoUtilizadoPickerHandle>(null);
   const [isPending, startTransition] = useTransition();
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   
@@ -575,6 +577,30 @@ export default function NuevoMuestreoPage() {
         plannedSamples
       );
       
+      // Save EMA instrument snapshots (fire-and-forget if no instruments selected)
+      const selectedInstrumentos = equipoPickerRef.current?.getSelected() ?? [];
+      if (selectedInstrumentos.length > 0) {
+        try {
+          const snapRes = await fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instrumentos: selectedInstrumentos }),
+          });
+          if (!snapRes.ok) {
+            const snapJson = await snapRes.json();
+            // Block if EMA config requires it (422)
+            if (snapRes.status === 422) {
+              throw new Error(snapJson.error ?? 'Instrumentos vencidos bloqueados por configuración EMA');
+            }
+            // Non-blocking: log but continue
+            console.warn('EMA snapshot warning:', snapJson.error);
+          }
+        } catch (snapErr: any) {
+          if (snapErr.message?.includes('vencidos')) throw snapErr;
+          console.warn('EMA snapshot error (non-blocking):', snapErr.message);
+        }
+      }
+
       // Redirect to the created muestreo page
       router.push(`/quality/muestreos/${muestreoId}`);
     } catch (error) {
@@ -829,7 +855,13 @@ export default function NuevoMuestreoPage() {
                         />
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
-                        
+
+                        {/* EMA — Equipo utilizado */}
+                        <EquipoUtilizadoPicker
+                          ref={equipoPickerRef}
+                          plantId={currentPlant?.id}
+                        />
+
                         {submitError && (
                           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
                             <div className="flex items-center">
@@ -838,7 +870,7 @@ export default function NuevoMuestreoPage() {
                             </div>
                           </div>
                         )}
-                        
+
                         <CardFooter className="flex justify-between px-0 pb-0">
                           <Button 
                             type="button" 
@@ -1337,6 +1369,12 @@ export default function NuevoMuestreoPage() {
                         </div>
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
+
+                        {/* EMA — Equipo utilizado */}
+                        <EquipoUtilizadoPicker
+                          ref={equipoPickerRef}
+                          plantId={currentPlant?.id}
+                        />
 
                         {submitError && (
                           <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
