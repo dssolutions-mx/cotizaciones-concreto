@@ -1042,6 +1042,27 @@ export class DebugArkikValidator {
       has_master: !!recipe.master_recipe_id
     });
 
+    const finalConstructionSiteId = (resolvedConstructionSiteId || row.construction_site_id || undefined) as string | undefined;
+
+    if (!finalConstructionSiteId) {
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.CONSTRUCTION_SITE_NOT_FOUND,
+        field_name: 'obra_name',
+        field_value: row.obra_name ?? bestMatch.pricing.construction_site ?? '',
+        message: `No se encontró la obra en el sistema para esta remisión. Verifica el nombre de la obra en Arkik o da de alta la obra en el catálogo del cliente. Obra (cotización): "${bestMatch.pricing.construction_site || '—'}".`,
+        recoverable: true
+      });
+    }
+
+    const validationStatus: StagingRemision['validation_status'] = errors.some(
+      (e) => e.error_type === ArkikErrorType.CONSTRUCTION_SITE_NOT_FOUND
+    )
+      ? 'error'
+      : errors.length > 0
+        ? 'warning'
+        : 'valid';
+
     const validatedRow: StagingRemision = {
       ...row,
       recipe_id: recipe.id,
@@ -1055,8 +1076,8 @@ export class DebugArkikValidator {
       product_description: (row.product_description || row.recipe_code) as any,
       suggested_client_id: bestMatch.pricing.client_id,
       suggested_site_name: bestMatch.pricing.construction_site,
-      construction_site_id: (resolvedConstructionSiteId || row.construction_site_id || undefined) as any,
-      validation_status: errors.length > 0 ? 'warning' : 'valid',
+      construction_site_id: finalConstructionSiteId as any,
+      validation_status: validationStatus,
       validation_errors: errors
     };
 
@@ -1064,8 +1085,7 @@ export class DebugArkikValidator {
     console.log(`[DebugArkikValidator] 🎯 VALIDATION STATUS DETERMINATION for remision ${row.remision_number}:`);
     console.log(`[DebugArkikValidator]   - Total errors: ${errors.length}`);
     console.log(`[DebugArkikValidator]   - Errors array:`, errors);
-    console.log(`[DebugArkikValidator]   - Final status: ${errors.length > 0 ? 'warning' : 'valid'}`);
-    console.log(`[DebugArkikValidator]   - Status logic: errors.length > 0 ? 'warning' : 'valid'`);
+    console.log(`[DebugArkikValidator]   - Final status: ${validationStatus}`);
 
     console.log('[DebugArkikValidator] === FINAL VALIDATED ROW ===');
     console.log('[DebugArkikValidator] 🎯 master_recipe_id in validated row:', validatedRow.master_recipe_id);
@@ -1277,8 +1297,28 @@ export class DebugArkikValidator {
     console.log('[DebugArkikValidator] === RESOLVING CONSTRUCTION SITE ===');
     console.log('[DebugArkikValidator] Input:', { clientId, siteName: name, quoteDetailId });
     
-    if (!clientId || !name) {
-      console.log('[DebugArkikValidator] ❌ Missing clientId or siteName');
+    if (!clientId) {
+      console.log('[DebugArkikValidator] ❌ Missing clientId');
+      return null;
+    }
+
+    // When pricing came from a quote line, the parent quote carries the canonical obra UUID
+    // (`quotes.construction_site_id`). Resolve that before Excel/cache string matching so we
+    // never "lose" the site when names differ slightly from `construction_sites.name`.
+    if (quoteDetailId) {
+      try {
+        const fromQuote = await this.getConstructionSiteFromQuote(quoteDetailId, clientId);
+        if (fromQuote) {
+          console.log('[DebugArkikValidator] ✅ Resolved obra from quote / quote_detail:', fromQuote.id);
+          return fromQuote.id;
+        }
+      } catch (e) {
+        console.warn('[DebugArkikValidator] Quote resolution failed:', e);
+      }
+    }
+
+    if (!name) {
+      console.log('[DebugArkikValidator] ❌ Missing siteName');
       return null;
     }
 
@@ -1308,23 +1348,7 @@ export class DebugArkikValidator {
       }
     }
 
-    // STEP 2: Fallback - try database lookup with quote context
-    console.log('[DebugArkikValidator] Direct match failed, trying database fallback...');
-    
-    if (quoteDetailId) {
-      console.log('[DebugArkikValidator] Trying to resolve from quote_detail_id:', quoteDetailId);
-      try {
-        const constructionSiteInfo = await this.getConstructionSiteFromQuote(quoteDetailId, clientId);
-        if (constructionSiteInfo) {
-          console.log('[DebugArkikValidator] ✅ Resolved from quote:', constructionSiteInfo.name, 'ID:', constructionSiteInfo.id);
-          return constructionSiteInfo.id;
-        }
-      } catch (error) {
-        console.warn('[DebugArkikValidator] Quote fallback failed:', error);
-      }
-    }
-
-    // STEP 3: Fallback - direct database lookup for the resolved site name
+    // STEP 2: Fallback - direct database lookup for the resolved site name
     console.log('[DebugArkikValidator] Trying direct database lookup for site:', name);
     try {
       const { data: constructionSite, error } = await supabase
@@ -1363,6 +1387,7 @@ export class DebugArkikValidator {
           quotes!inner (
             id,
             construction_site,
+            construction_site_id,
             client_id
           )
         `)
@@ -1374,19 +1399,46 @@ export class DebugArkikValidator {
         return null;
       }
 
-      const quote = quoteDetail.quotes;
+      const quote = quoteDetail.quotes as {
+        id: string;
+        construction_site: string;
+        construction_site_id?: string | null;
+        client_id: string;
+      };
       if (!quote || quote.client_id !== clientId) {
         console.warn('[DebugArkikValidator] Quote client mismatch or missing quote');
         return null;
       }
 
-      // Now get the actual construction site ID from the construction_sites table
+      // Quotes store the canonical obra UUID; prefer it over string matching (names can drift from catalog).
+      if (quote.construction_site_id) {
+        const { data: byId, error: byIdErr } = await supabase
+          .from('construction_sites')
+          .select('id, name, is_active')
+          .eq('id', quote.construction_site_id)
+          .eq('client_id', clientId)
+          .order('is_active', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!byIdErr && byId) {
+          return { id: byId.id, name: byId.name };
+        }
+        console.warn(
+          '[DebugArkikValidator] Quote has construction_site_id but site row not found for client; falling back to name:',
+          quote.construction_site_id
+        );
+      }
+
+      const siteName = (quote.construction_site || '').trim();
+      if (!siteName) return null;
+
       const { data: constructionSite, error: siteError } = await supabase
         .from('construction_sites')
         .select('id, name, is_active')
         .eq('client_id', clientId)
-        .eq('name', quote.construction_site)
-        .order('is_active', { ascending: false }) // Prefer active sites
+        .ilike('name', siteName)
+        .order('is_active', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -1536,8 +1588,30 @@ export class DebugArkikValidator {
     // Apply Results (resolve construction_site_id when possible)
     const resolvedConstructionSiteId = await this.resolveConstructionSiteId(
       bestMatch.pricing.client_id,
-      bestMatch.pricing.construction_site
+      bestMatch.pricing.construction_site,
+      bestMatch.pricing.quote_detail_id
     );
+
+    const finalConstructionSiteId = (resolvedConstructionSiteId || row.construction_site_id || undefined) as string | undefined;
+
+    if (!finalConstructionSiteId) {
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.CONSTRUCTION_SITE_NOT_FOUND,
+        field_name: 'obra_name',
+        field_value: row.obra_name ?? bestMatch.pricing.construction_site ?? '',
+        message: `No se encontró la obra en el sistema para esta remisión. Verifica el nombre de la obra en Arkik o da de alta la obra en el catálogo del cliente. Obra (cotización): "${bestMatch.pricing.construction_site || '—'}".`,
+        recoverable: true
+      });
+    }
+
+    const validationStatus: StagingRemision['validation_status'] = errors.some(
+      (e) => e.error_type === ArkikErrorType.CONSTRUCTION_SITE_NOT_FOUND
+    )
+      ? 'error'
+      : errors.length > 0
+        ? 'warning'
+        : 'valid';
 
     const validatedRow: StagingRemision = {
       ...row,
@@ -1553,18 +1627,27 @@ export class DebugArkikValidator {
       product_description: (row.product_description || row.recipe_code) as any, // Keep original Excel code
       suggested_client_id: bestMatch.pricing.client_id,
       suggested_site_name: bestMatch.pricing.construction_site,
-      construction_site_id: (resolvedConstructionSiteId || row.construction_site_id || undefined) as any,
-      validation_status: errors.length > 0 ? 'warning' : 'valid',
+      construction_site_id: finalConstructionSiteId as any,
+      validation_status: validationStatus,
       validation_errors: errors
     };
 
     return { row: validatedRow, errors };
   }
 
-  private async resolveConstructionSiteId(clientId: string, siteName: string): Promise<string | null> {
+  private async resolveConstructionSiteId(
+    clientId: string,
+    siteName: string,
+    quoteDetailId?: string
+  ): Promise<string | null> {
     try {
+      if (!clientId) return null;
+      if (quoteDetailId) {
+        const fromQuote = await this.getConstructionSiteFromQuote(quoteDetailId, clientId);
+        if (fromQuote) return fromQuote.id;
+      }
       const name = (siteName || '').trim();
-      if (!clientId || !name) return null;
+      if (!name) return null;
       // Exact name match first
       const { data, error } = await supabase
         .from('construction_sites')

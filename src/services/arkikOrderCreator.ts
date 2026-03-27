@@ -35,6 +35,7 @@ async function getConstructionSiteFromQuote(
         quotes!inner (
           id,
           construction_site,
+          construction_site_id,
           client_id
         )
       `)
@@ -46,20 +47,47 @@ async function getConstructionSiteFromQuote(
       return null;
     }
 
-    const quote = quoteDetail.quotes;
+    const quote = quoteDetail.quotes as {
+      id: string;
+      construction_site: string;
+      construction_site_id?: string | null;
+      client_id: string;
+    };
     if (!quote || quote.client_id !== clientId) {
       console.warn('[getConstructionSiteFromQuote] Quote client mismatch or missing quote');
       return null;
     }
 
-    // Now get the actual construction site ID from the construction_sites table
+    if (quote.construction_site_id) {
+      const { data: byId, error: byIdErr } = await supabase
+        .from('construction_sites')
+        .select('id, name, is_active')
+        .eq('id', quote.construction_site_id)
+        .eq('client_id', clientId)
+        .order('is_active', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!byIdErr && byId) {
+        return { id: byId.id, name: byId.name };
+      }
+      console.warn(
+        '[getConstructionSiteFromQuote] Quote construction_site_id not resolved; falling back to name:',
+        quote.construction_site_id
+      );
+    }
+
+    const siteName = (quote.construction_site || '').trim();
+    if (!siteName) return null;
+
     const { data: constructionSite, error: siteError } = await supabase
       .from('construction_sites')
-      .select('id, name')
+      .select('id, name, is_active')
       .eq('client_id', clientId)
-      .eq('name', quote.construction_site)
-      .eq('is_active', true)
-      .single();
+      .ilike('name', siteName)
+      .order('is_active', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (siteError || !constructionSite) {
       console.warn('[getConstructionSiteFromQuote] Construction site not found:', quote.construction_site, 'for client:', clientId);
