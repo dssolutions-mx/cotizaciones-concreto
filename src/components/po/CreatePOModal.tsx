@@ -31,11 +31,20 @@ interface POItem {
 interface CreatePOModalProps {
   open: boolean
   onClose: () => void
-  onSuccess: () => void
+  /** Called with new PO id after successful creation (e.g. to link an alert). */
+  onSuccess: (createdPoId?: string) => void
   defaultPlantId?: string
+  /** Pre-select material on the ítems step (e.g. from a material alert). */
+  defaultMaterialId?: string
 }
 
-export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId }: CreatePOModalProps) {
+export default function CreatePOModal({
+  open,
+  onClose,
+  onSuccess,
+  defaultPlantId,
+  defaultMaterialId,
+}: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
   
@@ -75,6 +84,12 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   useEffect(() => {
     if (defaultPlantId) setPlantId(defaultPlantId)
   }, [defaultPlantId])
+
+  useEffect(() => {
+    if (open && defaultMaterialId) {
+      setItemForm((prev) => ({ ...prev, material_id: defaultMaterialId }))
+    }
+  }, [open, defaultMaterialId])
 
   // Fetch plants when modal opens
   useEffect(() => {
@@ -306,7 +321,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
         toast.success(`PO #${poId.slice(0,8)} creado con ${items.length} ítem(s)`)
       }
 
-      onSuccess()
+      onSuccess(poId)
       onClose()
     } catch (error) {
       console.error('Error creating PO:', error)

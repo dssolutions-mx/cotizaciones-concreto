@@ -16,6 +16,57 @@ function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** Same recipient expansion as material-alert-notification (plant + BU + global EXEC/ADMIN_OPS). */
+async function getPlantRecipients(
+  supabase: ReturnType<typeof createClient>,
+  plantId: string,
+  roles: string[]
+): Promise<string[]> {
+  const emails = new Set<string>();
+
+  const { data: plantUsers } = await supabase
+    .from('user_profiles')
+    .select('email')
+    .eq('plant_id', plantId)
+    .in('role', roles);
+
+  for (const u of plantUsers || []) {
+    if (u.email) emails.add(u.email);
+  }
+
+  const { data: plant } = await supabase
+    .from('plants')
+    .select('business_unit_id')
+    .eq('id', plantId)
+    .single();
+
+  if (plant?.business_unit_id) {
+    const { data: buUsers } = await supabase
+      .from('user_profiles')
+      .select('email')
+      .is('plant_id', null)
+      .eq('business_unit_id', plant.business_unit_id)
+      .in('role', roles);
+
+    for (const u of buUsers || []) {
+      if (u.email) emails.add(u.email);
+    }
+  }
+
+  const { data: globalUsers } = await supabase
+    .from('user_profiles')
+    .select('email')
+    .is('plant_id', null)
+    .is('business_unit_id', null)
+    .in('role', ['EXECUTIVE', 'ADMIN_OPERATIONS']);
+
+  for (const u of globalUsers || []) {
+    if (u.email) emails.add(u.email);
+  }
+
+  return [...emails];
+}
+
 /**
  * Cron edge function — runs every 15 minutes.
  * Checks for alerts that have exceeded the 4-hour confirmation deadline
@@ -75,17 +126,17 @@ serve(async (req) => {
 
       expiredCount++;
 
-      // Notify Jefe de Planta via email
+      // Notify plant + BU + global ops (same as material-alert-notification)
       if (SENDGRID_API_KEY) {
-        const { data: managers } = await supabase
-          .from('user_profiles')
-          .select('email')
-          .eq('plant_id', alert.plant_id)
-          .eq('role', 'PLANT_MANAGER');
-
-        const recipients = (managers || []).map(m => m.email).filter(Boolean);
+        const recipients = await getPlantRecipients(supabase, alert.plant_id, ['PLANT_MANAGER']);
         const material = alert.material as { material_name: string };
         const plant = alert.plant as { name: string; code: string };
+
+        if (recipients.length === 0) {
+          console.warn(
+            `material-alert-expiry-check: no recipients for expired alert ${alert.alert_number} plant ${alert.plant_id}`
+          );
+        }
 
         if (recipients.length > 0) {
           await fetch('https://api.sendgrid.com/v3/mail/send', {

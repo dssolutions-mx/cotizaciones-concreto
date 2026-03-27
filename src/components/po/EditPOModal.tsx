@@ -98,13 +98,12 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
     }
   }
 
-  const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMINISTRATIVE') &&
+  const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS') &&
     poInfo?.status !== 'cancelled' && !items.some(it => Number(it.qty_received || 0) > 0)
 
-  // Check if user can apply credits
-  const canApplyCredit = profile?.role === 'EXECUTIVE' || 
-                         profile?.role === 'ADMIN_OPERATIONS' || 
-                         profile?.role === 'ADMINISTRATIVE'
+  // Check if user can apply credits (aligned with POST /api/po/.../credit)
+  const canApplyCredit =
+    profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
 
   // Load existing items and PO info
   useEffect(() => {

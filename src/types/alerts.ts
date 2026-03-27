@@ -168,6 +168,8 @@ export interface AlertFilters {
   plant_id?: string;
   status?: AlertStatus | AlertStatus[];
   material_id?: string;
+  /** Filter alerts linked to this purchase order */
+  existing_po_id?: string;
   date_from?: string;
   date_to?: string;
 }

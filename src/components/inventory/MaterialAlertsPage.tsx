@@ -30,6 +30,7 @@ import {
   ClipboardPlus,
   ChevronDown,
   ChevronUp,
+  Link2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -38,6 +39,7 @@ import InventoryBreadcrumb from './InventoryBreadcrumb'
 import StatCard from './ui/StatCard'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
 import { cn } from '@/lib/utils'
+import CreatePOModal from '@/components/po/CreatePOModal'
 
 const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string; icon: React.ElementType }> = {
   pending_confirmation: { label: 'Pendiente confirmación', color: 'bg-amber-100 text-amber-800', icon: Clock },
@@ -53,7 +55,7 @@ const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string; icon: R
   cancelled: { label: 'Cancelada', color: 'bg-stone-100 text-stone-500', icon: XCircle },
 }
 
-type PanelMode = 'confirm' | 'validate' | 'schedule' | null
+type PanelMode = 'confirm' | 'validate' | 'schedule' | 'link_po' | null
 
 export default function MaterialAlertsPage() {
   const { currentPlant } = usePlantContext()
@@ -83,13 +85,16 @@ export default function MaterialAlertsPage() {
     scheduled_delivery_date: '',
   })
   const [submitting, setSubmitting] = useState(false)
+  /** Crear OC desde alerta pending_po; al guardar se vincula automáticamente. */
+  const [createPOOpen, setCreatePOOpen] = useState(false)
+  const [alertForCreatePO, setAlertForCreatePO] = useState<MaterialAlert | null>(null)
   /** Evita mismatch de hidratación en pestañas (SSR vs cliente / caché). */
   const [filterTabsReady, setFilterTabsReady] = useState(false)
 
   const myActionableStatuses: AlertStatus[] = useMemo(() => {
     const role = profile?.role || ''
     if (role === 'DOSIFICADOR') return ['pending_confirmation']
-    if (role === 'PLANT_MANAGER') return ['pending_validation', 'confirmed']
+    if (role === 'PLANT_MANAGER') return ['pending_validation', 'confirmed', 'pending_po']
     if (['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE'].includes(role))
       return ['po_linked', 'validated', 'pending_po']
     return []
@@ -279,6 +284,61 @@ export default function MaterialAlertsPage() {
     setOpenPanel({ alertId: alert.id, mode: 'schedule' })
   }
 
+  const startLinkPO = (alert: MaterialAlert) => {
+    setFormData((prev) => ({ ...prev, existing_po_id: '' }))
+    setOpenPanel({ alertId: alert.id, mode: 'link_po' })
+    void fetchPOsForAlert(alert)
+  }
+
+  const handleLinkPO = async (alertId: string) => {
+    if (!formData.existing_po_id) {
+      toast.error('Seleccione una orden de compra')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/alerts/material/${alertId}/link-po`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ po_id: formData.existing_po_id }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        closePanel()
+        toast.success('OC vinculada — puede programar la entrega')
+        void fetchPlantStats()
+        void fetchAlerts()
+      } else {
+        toast.error(json.error || 'No se pudo vincular la OC')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleLinkPOAfterCreate = async (alertId: string, poId: string) => {
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/alerts/material/${alertId}/link-po`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ po_id: poId }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        toast.success('OC creada y vinculada a la alerta')
+        void fetchPlantStats()
+        void fetchAlerts()
+      } else {
+        toast.error(json.error || 'La OC se creó pero no se pudo vincular a la alerta')
+        void fetchPlantStats()
+        void fetchAlerts()
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleConfirm = async (alertId: string) => {
     setSubmitting(true)
     try {
@@ -365,7 +425,14 @@ export default function MaterialAlertsPage() {
 
   const isDosificador = profile?.role === 'DOSIFICADOR'
   const isManager = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
-  const isAdmin = ['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE'].includes(profile?.role || '')
+  /** Vincular OC a alerta (API: PLANT_MANAGER, EXECUTIVE, ADMIN_OPERATIONS) */
+  const canLinkPO = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
+  /** Crear OC (API: EXECUTIVE, ADMIN_OPERATIONS) */
+  const canCreatePOFromAlert = ['EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
+  /** Programar entrega — alineado con POST /schedule */
+  const canScheduleDelivery = ['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE', 'PLANT_MANAGER'].includes(
+    profile?.role || ''
+  )
 
   const getTimeRemaining = (deadline: string | null | undefined) => {
     if (!deadline) return null
@@ -572,17 +639,17 @@ export default function MaterialAlertsPage() {
                         {alert.status === 'pending_confirmation' && (isDosificador || isManager) && (
                           <Button
                             size="sm"
-                            variant={isPanelOpen && openPanel?.mode === 'confirm' ? 'secondary' : 'solid'}
+                            variant={isPanelOpen(alert.id, 'confirm') ? 'secondary' : 'solid'}
                             className={cn(
                               'min-h-10',
-                              !(isPanelOpen && openPanel?.mode === 'confirm') &&
+                              !isPanelOpen(alert.id, 'confirm') &&
                                 'bg-stone-900 text-white hover:bg-stone-800 shadow-none'
                             )}
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'confirm' ? closePanel() : startConfirm(alert)
+                              isPanelOpen(alert.id, 'confirm') ? closePanel() : startConfirm(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'confirm' ? (
+                            {isPanelOpen(alert.id, 'confirm') ? (
                               <>
                                 <ChevronUp className="h-4 w-4 mr-1" />
                                 Cerrar
@@ -601,22 +668,60 @@ export default function MaterialAlertsPage() {
                             variant="outline"
                             className="min-h-10"
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'validate' ? closePanel() : startValidate(alert)
+                              isPanelOpen(alert.id, 'validate') ? closePanel() : startValidate(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'validate' ? 'Cerrar' : 'Validar'}
+                            {isPanelOpen(alert.id, 'validate') ? 'Cerrar' : 'Validar'}
                           </Button>
                         )}
-                        {['po_linked', 'validated'].includes(alert.status) && isAdmin && (
+                        {alert.status === 'pending_po' && canLinkPO && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-10"
+                              onClick={() =>
+                                isPanelOpen(alert.id, 'link_po') ? closePanel() : startLinkPO(alert)
+                              }
+                            >
+                              {isPanelOpen(alert.id, 'link_po') ? (
+                                <>
+                                  <ChevronUp className="h-4 w-4 mr-1" />
+                                  Cerrar
+                                </>
+                              ) : (
+                                <>
+                                  <Link2 className="h-4 w-4 mr-1" />
+                                  Vincular OC
+                                </>
+                              )}
+                            </Button>
+                            {canCreatePOFromAlert && (
+                              <Button
+                                size="sm"
+                                variant="solid"
+                                className="min-h-10 bg-sky-800 text-white hover:bg-sky-900 shadow-none"
+                                onClick={() => {
+                                  setAlertForCreatePO(alert)
+                                  setCreatePOOpen(true)
+                                }}
+                              >
+                                <ShoppingCart className="h-4 w-4 mr-1" />
+                                Crear OC
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {['po_linked', 'validated'].includes(alert.status) && canScheduleDelivery && (
                           <Button
                             size="sm"
                             variant="outline"
                             className="min-h-10"
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'schedule' ? closePanel() : startSchedule(alert)
+                              isPanelOpen(alert.id, 'schedule') ? closePanel() : startSchedule(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'schedule' ? 'Cerrar' : 'Programar entrega'}
+                            {isPanelOpen(alert.id, 'schedule') ? 'Cerrar' : 'Programar entrega'}
                           </Button>
                         )}
                       </div>
@@ -794,6 +899,57 @@ export default function MaterialAlertsPage() {
                       </div>
                     )}
 
+                    {/* Inline: vincular OC (pending_po) */}
+                    {isPanelOpen(alert.id, 'link_po') && (
+                      <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-purple-900">
+                          Vincular orden de compra existente
+                        </p>
+                        <p className="text-sm text-stone-700">
+                          Elija una OC abierta con saldo pendiente para <strong>{mat}</strong> en esta planta.
+                        </p>
+                        {loadingPOs ? (
+                          <p className="text-sm text-stone-500">Cargando OCs…</p>
+                        ) : availablePOs.length > 0 ? (
+                          <Select
+                            value={formData.existing_po_id || 'none'}
+                            onValueChange={(v) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                existing_po_id: v === 'none' ? '' : v,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar OC…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">— Seleccionar —</SelectItem>
+                              {availablePOs.map((po) => (
+                                <SelectItem key={po.id} value={po.id}>
+                                  {po.po_number} — {po.supplier_name} — {po.pending_summary}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                            No hay OCs abiertas con saldo para este material. Use &quot;Crear OC&quot; o verifique el
+                            proveedor.
+                          </p>
+                        )}
+                        <Button
+                          type="button"
+                          variant="solid"
+                          className="min-h-11 bg-sky-800 hover:bg-sky-900 text-white shadow-none"
+                          onClick={() => handleLinkPO(alert.id)}
+                          disabled={submitting || !formData.existing_po_id}
+                        >
+                          {submitting ? 'Vinculando…' : 'Vincular OC'}
+                        </Button>
+                      </div>
+                    )}
+
                     {/* Inline: schedule */}
                     {isPanelOpen(alert.id, 'schedule') && (
                       <div className="mt-4 rounded-lg border border-teal-200 bg-teal-50/40 p-4 space-y-4">
@@ -829,6 +985,26 @@ export default function MaterialAlertsPage() {
           })}
         </div>
       )}
+
+      <CreatePOModal
+        open={createPOOpen}
+        onClose={() => {
+          setCreatePOOpen(false)
+          setAlertForCreatePO(null)
+        }}
+        defaultPlantId={alertForCreatePO?.plant_id}
+        defaultMaterialId={alertForCreatePO?.material_id}
+        onSuccess={(createdPoId) => {
+          if (createdPoId && alertForCreatePO) {
+            const a = alertForCreatePO
+            setAlertForCreatePO(null)
+            void handleLinkPOAfterCreate(a.id, createdPoId)
+          } else {
+            void fetchPlantStats()
+            void fetchAlerts()
+          }
+        }}
+      />
     </div>
   )
 }

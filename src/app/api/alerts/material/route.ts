@@ -83,7 +83,11 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const plantId = searchParams.get('plant_id') || profile.plant_id;
+    const existingPoIdParam = searchParams.get('existing_po_id');
+    const plantFromQuery = searchParams.get('plant_id');
+    /** When filtering by PO, do not constrain by profile plant (cross-plant PO view). */
+    const plantId =
+      plantFromQuery || (existingPoIdParam ? undefined : profile.plant_id) || undefined;
     const statusParam = searchParams.get('status');
     const activeOnly = searchParams.get('active') === 'true';
 
@@ -102,6 +106,7 @@ export async function GET(request: NextRequest) {
       plant_id: plantId || undefined,
       status: statusFilter,
       material_id: searchParams.get('material_id') || undefined,
+      existing_po_id: existingPoIdParam || undefined,
       date_from: searchParams.get('date_from') || undefined,
       date_to: searchParams.get('date_to') || undefined,
     });

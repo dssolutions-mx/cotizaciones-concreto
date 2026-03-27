@@ -122,10 +122,28 @@ serve(async (req) => {
     const material = alert.material as { material_name: string; category: string };
     const plant = alert.plant as { name: string; code: string };
 
-    // Get recipients: dosificador + plant manager
-    const recipients = await getPlantRecipients(supabase, alert.plant_id, [
+    // Get recipients: dosificador + plant manager (+ global EXEC/ADMIN via helper)
+    let recipients = await getPlantRecipients(supabase, alert.plant_id, [
       'DOSIFICADOR', 'PLANT_MANAGER',
     ]);
+
+    // If still nobody at plant/BU for those roles, escalate to BU-level EXEC / ADMIN_OPERATIONS
+    if (recipients.length === 0) {
+      const { data: plantRow } = await supabase
+        .from('plants')
+        .select('business_unit_id')
+        .eq('id', alert.plant_id)
+        .single();
+      if (plantRow?.business_unit_id) {
+        const { data: buEscalation } = await supabase
+          .from('user_profiles')
+          .select('email')
+          .is('plant_id', null)
+          .eq('business_unit_id', plantRow.business_unit_id)
+          .in('role', ['EXECUTIVE', 'ADMIN_OPERATIONS']);
+        recipients = (buEscalation || []).map((u) => u.email).filter(Boolean);
+      }
+    }
 
     if (recipients.length === 0) {
       return new Response(JSON.stringify({ success: false, skipped: true, reason: 'no_recipients' }), {

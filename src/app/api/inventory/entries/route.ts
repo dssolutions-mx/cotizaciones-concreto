@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
       material_id: searchParams.get('material_id') || undefined,
       pricing_status: searchParams.get('pricing_status') || undefined,
       po_id: searchParams.get('po_id') || undefined,
+      plant_id: searchParams.get('plant_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
     };
@@ -108,6 +109,14 @@ export async function GET(request: NextRequest) {
     if (plantFilter && plantFilter.length > 0) {
       query = query.in('plant_id', plantFilter);
       console.log('Applied plant filter:', plantFilter);
+    }
+
+    // Cross-plant roles: optional explicit plant scope from query (workspace / auditor view)
+    if (
+      (profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS') &&
+      queryParams.plant_id
+    ) {
+      query = query.eq('plant_id', queryParams.plant_id);
     }
 
     // Handle date filtering - prefer range when provided, fallback to single date, then to today

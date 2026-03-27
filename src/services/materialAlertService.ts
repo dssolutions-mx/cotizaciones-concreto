@@ -33,6 +33,9 @@ export class MaterialAlertService {
     if (filters.material_id) {
       query = query.eq('material_id', filters.material_id);
     }
+    if (filters.existing_po_id) {
+      query = query.eq('existing_po_id', filters.existing_po_id);
+    }
     if (filters.status) {
       if (Array.isArray(filters.status)) {
         query = query.in('status', filters.status);

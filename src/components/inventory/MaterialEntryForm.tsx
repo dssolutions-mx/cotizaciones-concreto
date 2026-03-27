@@ -244,6 +244,24 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         }
 
         if (!isDosificador) {
+          setFulfillmentAlertsLoading(true)
+          try {
+            const ar = await fetch(
+              `/api/alerts/material?plant_id=${plantId}&material_id=${materialId}&status=delivery_scheduled,po_linked,validated,pending_po`
+            )
+            const json = ar.ok ? await ar.json() : null
+            const all = (json?.data || []) as MaterialAlert[]
+            const linkable = all.filter((a) =>
+              ['delivery_scheduled', 'po_linked', 'validated', 'pending_po'].includes(a.status)
+            )
+            setFulfillmentAlerts(linkable)
+            setSelectedFulfillmentAlertId('')
+          } catch {
+            setFulfillmentAlerts([])
+          } finally {
+            setFulfillmentAlertsLoading(false)
+          }
+
           const params = new URLSearchParams()
           params.set('plant_id', plantId)
           params.set('material_id', materialId)
@@ -579,7 +597,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       }
       
       // Handle fleet PO linkage
-      if (isDosificador && selectedFulfillmentAlertId) {
+      if (selectedFulfillmentAlertId) {
         requestBody.alert_id = selectedFulfillmentAlertId
       }
 
@@ -890,6 +908,78 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               )}
             </div>
           </div>
+
+          {!isDosificador && formData.material_id && (
+            <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 space-y-3">
+              <Label className="text-sm font-semibold text-stone-900">Vincular a alerta (opcional)</Label>
+              <p className="text-xs text-stone-500">
+                Si esta recepción cierra una solicitud coordinada, selecciónela para actualizar el flujo.
+              </p>
+              {fulfillmentAlertsLoading ? (
+                <p className="text-xs text-stone-500">Buscando alertas activas…</p>
+              ) : fulfillmentAlerts.length > 0 ? (
+                <div className="space-y-2">
+                  <label
+                    className={cn(
+                      'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                      selectedFulfillmentAlertId === ''
+                        ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                        : 'border-stone-200 bg-white hover:bg-stone-50/80'
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="admin-fulfillment-alert"
+                      className="mt-1"
+                      checked={selectedFulfillmentAlertId === ''}
+                      onChange={() => setSelectedFulfillmentAlertId('')}
+                    />
+                    <div>
+                      <span className="font-medium text-stone-900">Sin vincular a una alerta</span>
+                      <p className="text-xs text-stone-500 mt-0.5">Recepción general o reabastecimiento.</p>
+                    </div>
+                  </label>
+                  {fulfillmentAlerts.map((a) => (
+                    <label
+                      key={a.id}
+                      className={cn(
+                        'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                        selectedFulfillmentAlertId === a.id
+                          ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                          : 'border-stone-200 bg-white hover:bg-stone-50/80'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="admin-fulfillment-alert"
+                        className="mt-1"
+                        checked={selectedFulfillmentAlertId === a.id}
+                        onChange={() => setSelectedFulfillmentAlertId(a.id)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
+                          <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
+                            {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-stone-800 mt-0.5">
+                          {(a.material as { material_name?: string })?.material_name ?? 'Material'}
+                        </p>
+                        <p className="text-xs text-stone-500 mt-1 tabular-nums">
+                          {a.scheduled_delivery_date
+                            ? `Entrega programada: ${a.scheduled_delivery_date}`
+                            : `Creada ${format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}`}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-stone-500">No hay alertas elegibles para este material en esta planta.</p>
+              )}
+            </div>
+          )}
 
           {isDosificador && formData.material_id && (
             <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 space-y-3">
