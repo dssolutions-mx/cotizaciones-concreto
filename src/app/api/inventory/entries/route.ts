@@ -6,6 +6,7 @@ import {
   MaterialEntryInputSchema,
   UpdateMaterialEntrySchema 
 } from '@/lib/validations/inventory';
+import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -52,9 +53,7 @@ export async function GET(request: NextRequest) {
     
     console.log('User profile:', { id: profile.id, role: profile.role, plant_id: profile.plant_id, business_unit_id: profile.business_unit_id });
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       console.log('User role not allowed:', profile.role);
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -231,8 +230,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
@@ -618,8 +616,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 

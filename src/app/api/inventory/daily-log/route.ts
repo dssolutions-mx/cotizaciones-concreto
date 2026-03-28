@@ -5,6 +5,7 @@ import {
   DailyLogInputSchema,
   CloseDailyLogSchema 
 } from '@/lib/validations/inventory';
+import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,17 +34,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
-    // Validate query parameters
     const validatedQuery = GetDailyLogQuerySchema.parse(queryParams);
 
-    // For users without plant_id (like EXECUTIVE), return empty data
-    if (!profile.plant_id) {
+    let effectivePlantId: string | null = profile.plant_id ?? null;
+    if (isGlobalInventoryRole(profile.role) && validatedQuery.plant_id) {
+      effectivePlantId = validatedQuery.plant_id;
+    }
+
+    if (!effectivePlantId) {
       return NextResponse.json({
         success: true,
         data: {
@@ -56,19 +58,17 @@ export async function GET(request: NextRequest) {
           is_closed: false,
           daily_notes: null,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
+          updated_at: new Date().toISOString(),
+        },
       });
     }
 
-    // If no date provided, use today's date
     const logDate = validatedQuery.date || new Date().toISOString().split('T')[0];
 
-    // Get daily log
     const { data: dailyLog, error: dailyLogError } = await supabase
       .from('daily_inventory_log')
       .select('*')
-      .eq('plant_id', profile.plant_id)
+      .eq('plant_id', effectivePlantId)
       .eq('log_date', logDate)
       .single();
 
@@ -135,13 +135,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
-    // For users without plant_id (like EXECUTIVE), return success but no data
+    // For users without plant_id (like global EXECUTIVE), return success but no data
     if (!profile.plant_id) {
       return NextResponse.json({
         success: true,
@@ -237,8 +235,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 

@@ -90,6 +90,7 @@ export default function CxpPage() {
   const searchParams = useSearchParams()
   const poIdFromUrl = searchParams.get('po_id') || undefined
   const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
+  const payableIdFromUrl = searchParams.get('payable_id') || undefined
   const { availablePlants } = usePlantContext()
 
   const [loading, setLoading] = useState(true)
@@ -250,6 +251,12 @@ export default function CxpPage() {
     fetchPayables()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, plant, supplierFilter, dueFrom, dueTo, invoice, poIdFromUrl, refreshKey])
+
+  useEffect(() => {
+    if (!payableIdFromUrl || payables.length === 0) return
+    const p = payables.find((x) => x.id === payableIdFromUrl)
+    if (p) setSelected(p)
+  }, [payableIdFromUrl, payables])
 
   const fetchPayables = async () => {
     setLoading(true)
@@ -864,7 +871,7 @@ export default function CxpPage() {
                                               )}
                                               {!fleet && it.entry?.po_id && (
                                                 <Link
-                                                  href={`/finanzas/po?po_id=${it.entry.po_id}`}
+                                                  href={`/finanzas/procurement?tab=po&po_id=${it.entry.po_id}`}
                                                   className="inline-flex items-center gap-1 text-xs text-primary bg-green-50 px-2 py-0.5 rounded border border-green-200 hover:underline"
                                                 >
                                                   <ExternalLink className="h-3 w-3" />Ver PO
@@ -872,7 +879,7 @@ export default function CxpPage() {
                                               )}
                                               {fleet && it.entry?.fleet_po_id && (
                                                 <Link
-                                                  href={`/finanzas/po?po_id=${it.entry.fleet_po_id}`}
+                                                  href={`/finanzas/procurement?tab=po&po_id=${it.entry.fleet_po_id}`}
                                                   className="inline-flex items-center gap-1 text-xs text-primary bg-blue-50 px-2 py-0.5 rounded border border-blue-200 hover:underline"
                                                 >
                                                   <ExternalLink className="h-3 w-3" />Ver PO Flota

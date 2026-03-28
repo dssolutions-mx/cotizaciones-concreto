@@ -36,6 +36,7 @@ import { toast } from 'sonner'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
+import { buildProcurementUrl } from '@/lib/procurement/navigation'
 import StatCard from './ui/StatCard'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
 import { cn } from '@/lib/utils'
@@ -449,9 +450,24 @@ export default function MaterialAlertsPage() {
   const isPanelOpen = (alertId: string, mode: PanelMode) =>
     openPanel?.alertId === alertId && openPanel?.mode === mode
 
+  const comprasHref = buildProcurementUrl('/finanzas/procurement', {
+    plantId: currentPlant?.id || undefined,
+    tab: 'inventario',
+  })
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto w-full">
       <InventoryBreadcrumb />
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={comprasHref}
+          className="text-xs font-medium text-sky-800 hover:text-sky-950 hover:underline"
+        >
+          Centro de compras
+        </Link>
+        <span className="text-stone-300">·</span>
+        <span className="text-xs text-stone-500">Coordinación OC y CXP</span>
+      </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>

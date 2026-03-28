@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { canWriteMaterialsCatalog } from '@/lib/auth/materialsCatalogRoles';
 
 export async function DELETE(
   request: NextRequest,
@@ -26,9 +27,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to delete materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'QUALITY_TEAM'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!canWriteMaterialsCatalog(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
@@ -75,9 +74,7 @@ export async function PUT(
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to update materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'QUALITY_TEAM'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!canWriteMaterialsCatalog(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

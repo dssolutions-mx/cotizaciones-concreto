@@ -387,7 +387,14 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Items List */}
           <div>
-            <h3 className="text-lg font-medium mb-4">Ítems de la Orden</h3>
+            <h3 className="text-lg font-medium mb-2">Ítems de la Orden</h3>
+            {canApplyCredit && (
+              <p className="text-xs text-stone-600 mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
+                <span className="font-semibold text-stone-800">Créditos: </span>
+                Aplíquelos después de recepción o cuando el proveedor confirme un ajuste (descuento, nota de crédito).
+                El precio unitario y las entradas vinculadas se actualizan; use <strong className="text-stone-800">Ver historial</strong> en la línea para el detalle.
+              </p>
+            )}
             <div className="space-y-3">
               {items.map((item, idx) => (
                 <div key={item.id || item.tempId} className="border rounded-lg p-4 bg-gray-50">

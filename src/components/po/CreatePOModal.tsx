@@ -28,6 +28,14 @@ interface POItem {
   service_description?: string
 }
 
+export type PrefillFromAlert = {
+  alertId: string
+  materialId: string
+  plantId: string
+  /** Suggested order qty (e.g. kg from physical count) */
+  suggestedQtyKg: number
+}
+
 interface CreatePOModalProps {
   open: boolean
   onClose: () => void
@@ -36,6 +44,8 @@ interface CreatePOModalProps {
   defaultPlantId?: string
   /** Pre-select material on the ítems step (e.g. from a material alert). */
   defaultMaterialId?: string
+  /** Pre-fill first line + auto-link alert after PO creation */
+  prefillFromAlert?: PrefillFromAlert | null
 }
 
 export default function CreatePOModal({
@@ -44,6 +54,7 @@ export default function CreatePOModal({
   onSuccess,
   defaultPlantId,
   defaultMaterialId,
+  prefillFromAlert,
 }: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
@@ -90,6 +101,25 @@ export default function CreatePOModal({
       setItemForm((prev) => ({ ...prev, material_id: defaultMaterialId }))
     }
   }, [open, defaultMaterialId])
+
+  useEffect(() => {
+    if (!open || !prefillFromAlert) return
+    setPlantId(prefillFromAlert.plantId)
+    const qty = Math.max(Number(prefillFromAlert.suggestedQtyKg) || 0, 1)
+    setItems([
+      {
+        tempId: `alert-${prefillFromAlert.alertId.slice(0, 8)}`,
+        is_service: false,
+        material_id: prefillFromAlert.materialId,
+        material_name: '',
+        uom: 'kg',
+        qty_ordered: qty,
+        unit_price: 0,
+        total: 0,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFromAlert])
 
   // Fetch plants when modal opens
   useEffect(() => {
@@ -321,6 +351,24 @@ export default function CreatePOModal({
         toast.success(`PO #${poId.slice(0,8)} creado con ${items.length} ítem(s)`)
       }
 
+      if (prefillFromAlert?.alertId) {
+        try {
+          const linkRes = await fetch(`/api/alerts/material/${prefillFromAlert.alertId}/link-po`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ po_id: poId }),
+          })
+          if (!linkRes.ok) {
+            const j = await linkRes.json().catch(() => ({}))
+            toast.warning(j.error || 'OC creada; no se pudo vincular la alerta automáticamente')
+          } else {
+            toast.success('Alerta vinculada a la nueva OC')
+          }
+        } catch {
+          toast.warning('OC creada; vincule la alerta manualmente si aplica')
+        }
+      }
+
       onSuccess(poId)
       onClose()
     } catch (error) {
@@ -444,6 +492,17 @@ export default function CreatePOModal({
 
           {step === 'items' && (
             <div className="space-y-6">
+              <div className="rounded-md border border-amber-200/90 bg-amber-50/90 px-3 py-3 text-xs text-amber-950 space-y-2">
+                <p className="font-semibold">Precio en OC vs listas de precio</p>
+                <p>
+                  El <strong>precio unitario</strong> que capture aquí es el acuerdo con el proveedor en esta orden.
+                  Las listas de precio del catálogo sirven de referencia al cotizar; <strong>no reemplazan</strong> el precio negociado en la OC.
+                </p>
+                <p>
+                  <strong>Material</strong> consume inventario; <strong>Servicio (flota)</strong> cubre transporte u otros servicios sin material (p. ej. viajes, toneladas). Vea el documento técnico en el repositorio:{' '}
+                  <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">docs/ERP_PROCUREMENT_SYSTEM_DATABASE_OVERVIEW.md</code> (sección PO e <code className="text-[11px]">is_service</code>).
+                </p>
+              </div>
               {/* Items List */}
               <Card>
                 <CardHeader>

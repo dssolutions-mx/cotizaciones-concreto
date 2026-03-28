@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { canWriteMaterialsCatalog } from '@/lib/auth/materialsCatalogRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,9 +83,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to create materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'QUALITY_TEAM'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!canWriteMaterialsCatalog(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 

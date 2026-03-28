@@ -10,16 +10,18 @@ import EntryPricingForm from './EntryPricingForm'
 
 interface EntryPricingReviewListProps {
   onSuccess?: () => void
+  /** Scope pending entries to one plant (procurement workspace). */
+  plantId?: string
 }
 
-export default function EntryPricingReviewList({ onSuccess }: EntryPricingReviewListProps) {
+export default function EntryPricingReviewList({ onSuccess, plantId }: EntryPricingReviewListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedEntry, setSelectedEntry] = useState<MaterialEntry | null>(null)
 
   useEffect(() => {
     fetchPendingEntries()
-  }, [])
+  }, [plantId])
 
   const fetchPendingEntries = async () => {
     setLoading(true)
@@ -30,8 +32,14 @@ export default function EntryPricingReviewList({ onSuccess }: EntryPricingReview
       const fromStr = format(from, 'yyyy-MM-dd')
       const toStr = format(new Date(), 'yyyy-MM-dd')
       
-      const url = `/api/inventory/entries?date_from=${fromStr}&date_to=${toStr}&pricing_status=pending&limit=100`
-      const response = await fetch(url)
+      const params = new URLSearchParams({
+        date_from: fromStr,
+        date_to: toStr,
+        pricing_status: 'pending',
+        limit: '100',
+      })
+      if (plantId) params.set('plant_id', plantId)
+      const response = await fetch(`/api/inventory/entries?${params}`)
       
       if (response.ok) {
         const data = await response.json()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { userMessageForDbError } from '@/lib/procurementApiError';
 
 export async function GET(request: NextRequest) {
   try {
@@ -90,7 +91,11 @@ export async function GET(request: NextRequest) {
 
     if (error) {
       console.error('GET /api/ap/payables query error:', error.message, (error as any).details);
-      return NextResponse.json({ error: 'Failed to fetch payables' }, { status: 500 });
+      const hint = userMessageForDbError(error);
+      return NextResponse.json(
+        { error: hint ?? 'No se pudieron cargar las cuentas por pagar', detail: error.message },
+        { status: 500 }
+      );
     }
 
     const payablesData = data || [];

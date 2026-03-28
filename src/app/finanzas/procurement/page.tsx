@@ -35,10 +35,14 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import PurchaseOrdersPage from '@/app/finanzas/po/page'
 import CxpPage from '@/app/finanzas/cxp/page'
 import SupplierAnalysisPage from '@/app/finanzas/proveedores/analisis/page'
-import CreatePOModal from '@/components/po/CreatePOModal'
+import CreatePOModal, { type PrefillFromAlert } from '@/components/po/CreatePOModal'
+import ActionCenter from '@/components/procurement/ActionCenter'
+import ProcurementFlowNav from '@/components/procurement/ProcurementFlowNav'
+import PricingReviewQueue from '@/components/procurement/PricingReviewQueue'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import ActivityFeed, { type ActivityFeedItem } from '@/components/procurement/ActivityFeed'
@@ -90,6 +94,8 @@ export default function ProcurementWorkspacePage() {
   const [activity, setActivity] = useState<ActivityFeedItem[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
   const [createPOOpen, setCreatePOOpen] = useState(false)
+  const [prefillFromAlert, setPrefillFromAlert] = useState<PrefillFromAlert | null>(null)
+  const [actionQueueKey, setActionQueueKey] = useState(0)
 
   const canCreatePO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
 
@@ -153,6 +159,8 @@ export default function ProcurementWorkspacePage() {
     []
   )
 
+  const reviewPricing = searchParams.get('review') === 'pricing'
+
   return (
     <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -201,6 +209,8 @@ export default function ProcurementWorkspacePage() {
           </Button>
         </div>
       </div>
+
+      <ProcurementFlowNav plantId={workspacePlantId || undefined} />
 
       <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
         <div className="flex items-start gap-3">
@@ -269,49 +279,69 @@ export default function ProcurementWorkspacePage() {
         </TabsList>
 
         <TabsContent value="resumen" className="space-y-4">
-          {dashLoading ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              {[...Array(6)].map((_, i) => (
-                <Skeleton key={i} className="h-24 rounded-lg" />
-              ))}
-            </div>
-          ) : dashboard ? (
-            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              <KpiCard
-                label="Valor OC abiertas"
-                value={mxn.format(dashboard.open_po_value)}
-                icon={ShoppingCart}
-              />
-              <KpiCard
-                label="CXP vencida (30d)"
-                value={mxn.format(dashboard.ap_aging.d1_30)}
-                icon={AlertTriangle}
-                warn
-              />
-              <KpiCard
-                label="Alertas acción"
-                value={String(dashboard.alerts_pending.total)}
-                icon={AlertTriangle}
-              />
-              <KpiCard
-                label="Fulfillment %"
-                value={`${dashboard.fulfillment_rate_pct}%`}
-                icon={TrendingUp}
-              />
-              <KpiCard
-                label="Bajo reorden"
-                value={String(dashboard.materials_below_reorder)}
-                icon={Package}
-              />
-              <KpiCard
-                label="Créditos mes"
-                value={mxn.format(dashboard.credits_month)}
-                icon={DollarSign}
-              />
-            </div>
-          ) : (
-            <p className="text-sm text-stone-500">No se pudo cargar el resumen.</p>
-          )}
+          <ActionCenter
+            key={`${actionQueueKey}-${workspacePlantId || 'all'}`}
+            plantId={workspacePlantId || undefined}
+          />
+
+          {reviewPricing ? (
+            <PricingReviewQueue
+              workspacePlantId={workspacePlantId || undefined}
+              onPricingAction={() => setActionQueueKey((k) => k + 1)}
+            />
+          ) : null}
+
+          <Collapsible className="rounded-lg border border-stone-200 bg-white">
+            <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-stone-700 hover:bg-stone-50 rounded-lg">
+              Métricas del período
+              <span className="text-xs font-normal text-stone-500">(expandir)</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="px-4 pb-4">
+              {dashLoading ? (
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                  {[...Array(6)].map((_, i) => (
+                    <Skeleton key={i} className="h-24 rounded-lg" />
+                  ))}
+                </div>
+              ) : dashboard ? (
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                  <KpiCard
+                    label="Valor OC abiertas"
+                    value={mxn.format(dashboard.open_po_value)}
+                    icon={ShoppingCart}
+                  />
+                  <KpiCard
+                    label="CXP vencida (30d)"
+                    value={mxn.format(dashboard.ap_aging.d1_30)}
+                    icon={AlertTriangle}
+                    warn
+                  />
+                  <KpiCard
+                    label="Alertas acción"
+                    value={String(dashboard.alerts_pending.total)}
+                    icon={AlertTriangle}
+                  />
+                  <KpiCard
+                    label="Fulfillment %"
+                    value={`${dashboard.fulfillment_rate_pct}%`}
+                    icon={TrendingUp}
+                  />
+                  <KpiCard
+                    label="Bajo reorden"
+                    value={String(dashboard.materials_below_reorder)}
+                    icon={Package}
+                  />
+                  <KpiCard
+                    label="Créditos mes"
+                    value={mxn.format(dashboard.credits_month)}
+                    icon={DollarSign}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-stone-500">No se pudo cargar el resumen.</p>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
 
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
             <Card className="lg:col-span-3 rounded-lg border border-stone-200 bg-white">
@@ -353,7 +383,7 @@ export default function ProcurementWorkspacePage() {
                   </ul>
                 )}
                 <Button variant="outline" size="sm" className="w-full border-stone-300 mt-2" asChild>
-                  <Link href="/finanzas/cxp">Ir a CXP</Link>
+                  <Link href="/finanzas/procurement?tab=cxp">Ir a CXP</Link>
                 </Button>
               </CardContent>
             </Card>
@@ -383,7 +413,22 @@ export default function ProcurementWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="inventario">
-          <InventoryAlertPanel workspacePlantId={workspacePlantId} availablePlants={plantList} />
+          <InventoryAlertPanel
+            workspacePlantId={workspacePlantId}
+            availablePlants={plantList}
+            canCreatePO={canCreatePO}
+            onCreatePOFromAlert={(a) => {
+              const qty =
+                Number(a.physical_count_kg || a.triggered_stock_kg || a.reorder_point_kg) || 1000
+              setPrefillFromAlert({
+                alertId: a.id,
+                materialId: a.material_id,
+                plantId: a.plant_id,
+                suggestedQtyKg: Math.max(qty, 1),
+              })
+              setCreatePOOpen(true)
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="po" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
@@ -407,11 +452,17 @@ export default function ProcurementWorkspacePage() {
 
       <CreatePOModal
         open={createPOOpen}
-        onClose={() => setCreatePOOpen(false)}
+        onClose={() => {
+          setCreatePOOpen(false)
+          setPrefillFromAlert(null)
+        }}
         defaultPlantId={workspacePlantId || currentPlant?.id}
+        prefillFromAlert={prefillFromAlert}
         onSuccess={() => {
           void loadDashboard()
           void loadActivity()
+          setActionQueueKey((k) => k + 1)
+          setPrefillFromAlert(null)
         }}
       />
     </div>

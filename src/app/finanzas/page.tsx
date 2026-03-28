@@ -138,7 +138,7 @@ export default async function FinancialHubPage() {
                 </div>
               </div>
             </Link>
-            <Link href="/finanzas/po">
+            <Link href="/finanzas/procurement?tab=po">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Package className="h-6 w-6 text-primary" />
@@ -151,7 +151,7 @@ export default async function FinancialHubPage() {
                 </div>
               </div>
             </Link>
-            <Link href="/finanzas/cxp">
+            <Link href="/finanzas/procurement?tab=cxp">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Truck className="h-6 w-6 text-primary" />

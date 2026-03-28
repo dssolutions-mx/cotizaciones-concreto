@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import CrossPlantInventorySummary from '@/components/procurement/CrossPlantInventorySummary'
 import ProcurementInventoryDetail from '@/components/procurement/ProcurementInventoryDetail'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
+import { productionEntriesUrl } from '@/lib/procurement/navigation'
 
 const STATUS_LABEL: Partial<Record<AlertStatus, string>> = {
   pending_po: 'Requiere OC',
@@ -21,9 +22,13 @@ const STATUS_LABEL: Partial<Record<AlertStatus, string>> = {
 export default function InventoryAlertPanel({
   workspacePlantId,
   availablePlants,
+  canCreatePO = false,
+  onCreatePOFromAlert,
 }: {
   workspacePlantId: string
   availablePlants: Array<{ id: string; name: string; code?: string }>
+  canCreatePO?: boolean
+  onCreatePOFromAlert?: (alert: MaterialAlert) => void
 }) {
   const [alerts, setAlerts] = useState<MaterialAlert[]>([])
   const [loading, setLoading] = useState(true)
@@ -115,9 +120,19 @@ export default function InventoryAlertPanel({
             <CardTitle className="text-sm font-semibold uppercase tracking-wide text-stone-600">
               Alertas y coordinación
             </CardTitle>
-            <Button variant="outline" size="sm" asChild className="border-stone-300">
-              <Link href="/production-control/alerts">Gestionar alertas</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild className="border-stone-300">
+                <Link
+                  href={
+                    workspacePlantId
+                      ? `/production-control/alerts?plant_id=${encodeURIComponent(workspacePlantId)}`
+                      : '/production-control/alerts'
+                  }
+                >
+                  Gestionar alertas
+                </Link>
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -134,6 +149,7 @@ export default function InventoryAlertPanel({
                     <th className="py-2 pr-2">Material</th>
                     <th className="py-2 pr-2">Planta</th>
                     <th className="py-2">Estado</th>
+                    {canCreatePO && onCreatePOFromAlert ? <th className="py-2 text-right">Acción</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -151,6 +167,22 @@ export default function InventoryAlertPanel({
                           {STATUS_LABEL[a.status] ?? a.status}
                         </Badge>
                       </td>
+                      {canCreatePO && onCreatePOFromAlert ? (
+                        <td className="py-2 text-right">
+                          {a.status === 'pending_po' ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="bg-sky-700 hover:bg-sky-800 text-white h-8"
+                              onClick={() => onCreatePOFromAlert(a)}
+                            >
+                              Crear OC
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-stone-400">—</span>
+                          )}
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -186,7 +218,9 @@ export default function InventoryAlertPanel({
             </ul>
           )}
           <Button variant="link" className="mt-2 h-auto p-0 text-sky-800" asChild>
-            <Link href="/production-control/entries">Ver todas las entradas</Link>
+            <Link href={productionEntriesUrl({ plantId: workspacePlantId || undefined })}>
+              Ver todas las entradas
+            </Link>
           </Button>
         </CardContent>
       </Card>

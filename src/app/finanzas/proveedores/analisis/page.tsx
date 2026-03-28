@@ -485,14 +485,14 @@ export default function SupplierAnalysisPage() {
                         <td className="py-2.5 pl-2">
                           <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
                             <Link
-                              href={`/finanzas/po?supplier_id=${s.supplier_id}`}
+                              href={`/finanzas/procurement?tab=po&supplier_id=${s.supplier_id}`}
                               className="text-primary hover:underline inline-flex items-center gap-1 text-xs"
                             >
                               <ExternalLink className="h-3 w-3" />POs
                             </Link>
                             <span className="text-border">·</span>
                             <Link
-                              href={`/finanzas/cxp?supplier_id=${s.supplier_id}`}
+                              href={`/finanzas/procurement?tab=cxp&supplier_id=${s.supplier_id}`}
                               className="text-primary hover:underline text-xs"
                             >
                               CXP
@@ -568,12 +568,12 @@ export default function SupplierAnalysisPage() {
                 </div>
                 <div className="flex flex-wrap gap-2 pt-2">
                   <Button asChild variant="default" size="sm" className="gap-1">
-                    <Link href={`/finanzas/po?supplier_id=${detailSupplier.supplier_id}`}>
+                    <Link href={`/finanzas/procurement?tab=po&supplier_id=${detailSupplier.supplier_id}`}>
                       <ExternalLink className="h-3.5 w-3.5" /> Órdenes de compra
                     </Link>
                   </Button>
                   <Button asChild variant="outline" size="sm">
-                    <Link href={`/finanzas/cxp?supplier_id=${detailSupplier.supplier_id}`}>Cuentas por pagar</Link>
+                    <Link href={`/finanzas/procurement?tab=cxp&supplier_id=${detailSupplier.supplier_id}`}>Cuentas por pagar</Link>
                   </Button>
                 </div>
               </div>

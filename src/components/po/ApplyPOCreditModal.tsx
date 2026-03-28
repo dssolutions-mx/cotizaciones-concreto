@@ -128,10 +128,18 @@ export default function ApplyPOCreditModal({
             <DollarSign className="h-5 w-5" />
             Aplicar Crédito a Item de PO
           </DialogTitle>
-          <DialogDescription>
-            Aplicar un crédito/descuento a este item de orden de compra. El precio unitario será
-            ajustado proporcionalmente y todas las entradas vinculadas serán actualizadas
-            automáticamente.
+          <DialogDescription asChild>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                Aplicar un crédito o descuento a esta línea de OC. El precio unitario se ajusta de forma proporcional y las
+                entradas de inventario vinculadas se actualizan automáticamente.
+              </p>
+              <p>
+                <strong className="text-foreground">Cuándo usarlo:</strong> típicamente después de recepción o cuando el
+                proveedor confirma un ajuste por volumen, calidad o nota de crédito. Si aún no hubo recepción, valide con
+                finanzas antes de aplicar.
+              </p>
+            </div>
           </DialogDescription>
         </DialogHeader>
 

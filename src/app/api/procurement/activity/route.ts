@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     let entriesQ = supabase
       .from('material_entries')
       .select(
-        'id, entry_number, entry_date, quantity_received, plant_id, material:materials!material_id(material_name)'
+        'id, entry_number, entry_date, quantity_received, plant_id, material:materials!material_id (material_name)'
       )
       .order('created_at', { ascending: false })
       .limit(8);
@@ -67,7 +67,9 @@ export async function GET(request: NextRequest) {
         title: `Entrada ${e.entry_number || e.id.slice(0, 8)}`,
         subtitle: `${mat} · ${Number(e.quantity_received || 0).toLocaleString('es-MX')} kg`,
         at: (e.entry_date || '') + 'T12:00:00',
-        href: '/production-control/entries',
+        href: e.plant_id
+          ? `/production-control/entries?plant_id=${encodeURIComponent(e.plant_id)}`
+          : '/production-control/entries',
       });
     }
 
@@ -86,7 +88,7 @@ export async function GET(request: NextRequest) {
         title: `Pago ${Number(p.amount || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}`,
         subtitle: p.payment_date || undefined,
         at: (p.payment_date || new Date().toISOString()) + 'T12:00:00',
-        href: '/finanzas/cxp',
+        href: '/finanzas/procurement?tab=cxp',
       });
     }
 
@@ -117,7 +119,9 @@ export async function GET(request: NextRequest) {
         title: `Alerta ${meta?.alert_number || String(ev.alert_id).slice(0, 8)}`,
         subtitle: String(ev.event_type || '').replace(/_/g, ' '),
         at: ev.created_at || new Date().toISOString(),
-        href: '/production-control/alerts',
+        href: meta?.plant_id
+          ? `/production-control/alerts?plant_id=${encodeURIComponent(meta.plant_id)}`
+          : '/production-control/alerts',
       });
     }
 
@@ -136,7 +140,7 @@ export async function GET(request: NextRequest) {
         title: `OC ${po.po_number || po.id.slice(0, 8)}`,
         subtitle: `${(po.supplier as { name?: string })?.name || 'Proveedor'} · ${po.status}`,
         at: po.created_at || new Date().toISOString(),
-        href: '/finanzas/po',
+        href: `/finanzas/procurement?tab=po&po_id=${encodeURIComponent(po.id)}`,
       });
     }
 

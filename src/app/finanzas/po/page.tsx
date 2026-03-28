@@ -15,12 +15,15 @@ import Link from 'next/link'
 import {
   Package, Truck, ChevronDown, ChevronUp, Edit2, ExternalLink,
   FileText, AlertTriangle, DollarSign, Clock, TrendingDown,
-  ShoppingCart, Download, X, Search, CalendarDays,
+  ShoppingCart, Download, X, Search, CalendarDays, BookOpen, HelpCircle,
 } from 'lucide-react'
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
+import POLifecycleView from '@/components/po/POLifecycleView'
+import { productionEntriesUrl } from '@/lib/procurement/navigation'
 import type { MaterialAlert } from '@/types/alerts'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Abierta',
@@ -166,6 +169,7 @@ export default function PurchaseOrdersPage() {
   const searchParams = useSearchParams()
   const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
   const poIdFromUrl = searchParams.get('po_id') || undefined
+  const filterFromUrl = searchParams.get('filter') || undefined
   const { currentPlant, availablePlants } = usePlantContext()
   const { profile } = useAuthSelectors()
   const canCreateOrEditPO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
@@ -221,7 +225,16 @@ export default function PurchaseOrdersPage() {
       params.set('offset', String(page * pageSize))
 
       const res = await fetch(`/api/po?${params.toString()}`)
-      if (!res.ok) throw new Error('Error al cargar órdenes')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        const msg =
+          typeof body.error === 'string'
+            ? body.error
+            : res.status === 403
+              ? 'No tiene permiso para ver órdenes de compra en este contexto.'
+              : 'Error al cargar órdenes'
+        throw new Error(msg)
+      }
       const data = await res.json()
       let rows = data.purchase_orders || []
       setTotalCount(typeof data.total_count === 'number' ? data.total_count : rows.length)
@@ -370,8 +383,26 @@ export default function PurchaseOrdersPage() {
         return vb - va
       })
     }
+    if (filterFromUrl === 'ready_close') {
+      return sorted.filter((po) => {
+        if (po.status !== 'open' && po.status !== 'partial') return false
+        const s = batchSummaries[po.id]
+        if (!s || s.total_ordered_value < 1e-6) return false
+        return s.total_received_value >= s.total_ordered_value * 0.999
+      })
+    }
+    if (filterFromUrl === 'stale_partial') {
+      const cutoff = Date.now() - 15 * 86400000
+      return sorted.filter((po) => {
+        if (po.status !== 'partial') return false
+        const raw = (po.po_date || po.created_at || '').toString().slice(0, 10)
+        const d0 = new Date(raw + (raw.length <= 10 ? 'T12:00:00' : ''))
+        if (Number.isNaN(d0.getTime())) return false
+        return d0.getTime() < cutoff
+      })
+    }
     return sorted
-  }, [pos, sortBy, batchSummaries])
+  }, [pos, sortBy, batchSummaries, filterFromUrl])
 
   useEffect(() => { if (supplierIdFromUrl) setSupplier(supplierIdFromUrl) }, [supplierIdFromUrl])
   useEffect(() => { setPage(0) }, [plant, supplier, status, paymentTerms, dateFrom, dateTo, poSearch])
@@ -393,6 +424,28 @@ export default function PurchaseOrdersPage() {
         <div>
           <h1 className="text-2xl font-bold">Órdenes de Compra</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestione pedidos a proveedores, materiales y servicios</p>
+          <Collapsible className="group mt-3 max-w-3xl">
+            <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-sky-800 hover:text-sky-950">
+              <HelpCircle className="h-4 w-4" />
+              ¿Qué es esta pantalla?
+              <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 rounded-md border border-stone-200 bg-stone-50/80 px-3 py-3 text-sm text-stone-700 space-y-2">
+              <p>
+                Aquí se emiten y consultan las <strong className="font-medium text-stone-900">órdenes de compra (OC)</strong>.
+                Cada OC amarra precio y cantidades con el proveedor; las <strong className="font-medium text-stone-900">entradas de inventario</strong> registran lo recibido;
+                las facturas pasan a <strong className="font-medium text-stone-900">cuentas por pagar (CXP)</strong> y el pago se registra allí.
+              </p>
+              <p className="flex items-start gap-2 text-xs text-stone-600">
+                <BookOpen className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Referencia técnica (repositorio):{' '}
+                  <code className="rounded bg-stone-200/80 px-1 py-0.5 text-[11px]">docs/ERP_PROCUREMENT_SYSTEM_DATABASE_OVERVIEW.md</code>
+                  — incluye flujo de datos, tablas y créditos en líneas de OC.
+                </span>
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportExcel} disabled={pos.length === 0} className="gap-2">
@@ -562,6 +615,16 @@ export default function PurchaseOrdersPage() {
           </div>
         </CardHeader>
         <CardContent>
+          {filterFromUrl === 'ready_close' && (
+            <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
+              Mostrando OC con recepción completa y estado aún abierto/parcial — listas para cerrar.
+            </p>
+          )}
+          {filterFromUrl === 'stale_partial' && (
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+              Mostrando OC en estado parcial con más de 15 días desde la fecha de OC (revise entregas).
+            </p>
+          )}
           {loading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-lg" />)}
@@ -577,8 +640,10 @@ export default function PurchaseOrdersPage() {
               <Package className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="text-sm text-muted-foreground">
                 {hasActiveFilters
-                  ? 'Sin resultados · Prueba con otros filtros'
-                  : 'Sin órdenes de compra · Crea una nueva orden para comenzar'}
+                  ? 'Sin resultados con estos filtros. Pruebe otra planta, proveedor o rango de fechas.'
+                  : totalCount === 0 && !hasActiveFilters
+                    ? 'No hay órdenes registradas. Si esperaba ver datos, verifique permisos de planta o que su rol incluya compras (p. ej. Ejecutivo, Operaciones admin).'
+                    : 'Sin órdenes de compra en esta página · Cree una nueva orden o avance de página.'}
               </span>
               {hasActiveFilters && (
                 <Button variant="outline" size="sm" onClick={clearFilters}>Limpiar filtros</Button>
@@ -596,7 +661,10 @@ export default function PurchaseOrdersPage() {
                   : null
 
                 return (
-                  <div key={po.id} className="border border-border/60 rounded-xl overflow-hidden transition-all hover:border-border hover:shadow-sm">
+                  <div
+                    key={po.id}
+                    className="border border-border/60 rounded-xl overflow-hidden transition-all hover:border-border hover:shadow-sm"
+                  >
                     <div className="p-4 bg-card">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
@@ -630,7 +698,7 @@ export default function PurchaseOrdersPage() {
                               </span>
                             )}
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-1 text-sm">
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-1 text-sm">
                             <div>
                               <span className="text-xs text-muted-foreground">Proveedor</span>
                               <div className="font-medium truncate">
@@ -654,6 +722,25 @@ export default function PurchaseOrdersPage() {
                               <div className="font-semibold font-mono tabular-nums text-foreground">
                                 {mxn.format(batchSummaries[po.id]?.total_ordered_value ?? 0)}
                               </div>
+                            </div>
+                            <div className="col-span-2 md:col-span-1 min-w-[100px]">
+                              <span className="text-xs text-muted-foreground">Avance recepción</span>
+                              {(() => {
+                                const ord = batchSummaries[po.id]?.total_ordered_value ?? 0
+                                const rec = batchSummaries[po.id]?.total_received_value ?? 0
+                                const pct = ord > 1e-6 ? Math.min(100, Math.round((rec / ord) * 1000) / 10) : 0
+                                return (
+                                  <>
+                                    <div className="font-semibold font-mono tabular-nums text-sm">{pct}%</div>
+                                    <div className="w-full bg-muted/40 rounded-full h-1.5 mt-1">
+                                      <div
+                                        className={`h-1.5 rounded-full ${pct >= 99.9 ? 'bg-green-500' : pct > 0 ? 'bg-amber-400' : 'bg-muted'}`}
+                                        style={{ width: `${Math.min(pct, 100)}%` }}
+                                      />
+                                    </div>
+                                  </>
+                                )
+                              })()}
                             </div>
                             {po.notes && (
                               <div className="md:col-span-1">
@@ -695,6 +782,7 @@ export default function PurchaseOrdersPage() {
                     {/* Expanded Details */}
                     {isExpanded && (
                       <div className="border-t border-border/60 bg-muted/20 p-4">
+                        <POLifecycleView poId={po.id} plantId={po.plant_id} />
                         {linkedAlertsLoading[po.id] && (
                           <p className="text-xs text-muted-foreground mb-3">Cargando alertas vinculadas…</p>
                         )}
@@ -770,14 +858,14 @@ export default function PurchaseOrdersPage() {
                                 </>
                               )}
                               <Link
-                                href={`/production-control/entries?po_id=${po.id}`}
+                                href={productionEntriesUrl({ plantId: po.plant_id, poId: po.id })}
                                 className="flex items-center gap-1 text-primary hover:underline text-sm ml-auto"
                               >
                                 <ExternalLink className="h-4 w-4" />Ver entradas
                               </Link>
                               {relatedPayablesCount[po.id] !== undefined && (
                                 <Link
-                                  href={`/finanzas/cxp?po_id=${po.id}`}
+                                  href={`/finanzas/procurement?tab=cxp&po_id=${po.id}${po.supplier_id ? `&supplier_id=${encodeURIComponent(po.supplier_id)}` : ''}`}
                                   className="flex items-center gap-1 text-primary hover:underline text-sm"
                                 >
                                   <FileText className="h-4 w-4" />

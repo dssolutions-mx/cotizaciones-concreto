@@ -14,6 +14,9 @@ import { cn } from '@/lib/utils'
 import MaterialEntryForm from './MaterialEntryForm'
 import MaterialEntriesList from './MaterialEntriesList'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
+import Link from 'next/link'
+import { buildProcurementUrl } from '@/lib/procurement/navigation'
+import { usePlantContext } from '@/contexts/PlantContext'
 import EntryPricingReviewList from './EntryPricingReviewList'
 import FloatingActionButton from './ui/FloatingActionButton'
 import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
@@ -21,6 +24,7 @@ import EntriesStatistics from './EntriesStatistics'
 
 export default function MaterialEntriesPage() {
   const searchParams = useSearchParams()
+  const { currentPlant } = usePlantContext()
   const poIdFromUrl = searchParams.get('po_id') || undefined
   const [activeTab, setActiveTab] = useState('new')
 
@@ -89,9 +93,24 @@ export default function MaterialEntriesPage() {
     }
   }
 
+  const comprasHref = buildProcurementUrl('/finanzas/procurement', {
+    plantId: currentPlant?.id || undefined,
+    tab: 'resumen',
+  })
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 w-full">
       <InventoryBreadcrumb />
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={comprasHref}
+          className="text-xs font-medium text-sky-800 hover:text-sky-950 hover:underline"
+        >
+          Centro de compras
+        </Link>
+        <span className="text-stone-300">·</span>
+        <span className="text-xs text-stone-500">Volver al espacio de compras / CXP</span>
+      </div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>

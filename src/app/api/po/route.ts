@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POHeaderInputSchema } from '@/lib/validations/po';
+import { userMessageForDbError } from '@/lib/procurementApiError';
 
 export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
@@ -48,7 +49,13 @@ export async function GET(request: NextRequest) {
 
   const { data, error, count } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
-  if (error) return NextResponse.json({ error: 'Failed to fetch POs' }, { status: 500 });
+  if (error) {
+    const hint = userMessageForDbError(error);
+    return NextResponse.json(
+      { error: hint ?? 'No se pudieron cargar las órdenes de compra', detail: error.message },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({
     purchase_orders: data || [],
     total_count: count ?? 0,
@@ -86,7 +93,13 @@ export async function POST(request: NextRequest) {
     .select('*')
     .single();
 
-  if (error) return NextResponse.json({ error: 'Failed to create PO' }, { status: 500 });
+  if (error) {
+    const hint = userMessageForDbError(error);
+    return NextResponse.json(
+      { error: hint ?? 'No se pudo crear la orden de compra', detail: error.message },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ purchase_order: data }, { status: 201 });
 }
 
