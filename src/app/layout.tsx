@@ -48,7 +48,13 @@ import {
   ClipboardPlus,
   Gauge,
   CalendarClock,
-  BookOpen
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Award,
+  ShieldAlert,
+  Lightbulb,
+  Construction
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -305,94 +311,123 @@ function ProductionControlSubnav({
   );
 }
 
-// Define quality submenu items (grouped for better UX)
-type QualityNavItem =
-  | { title: string; href: string; IconComponent: React.ElementType }
-  | { type: 'group'; title: string };
+// Quality sidebar: purpose-driven collapsible sections
+type QualityMenuItem = {
+  title: string;
+  href: string;
+  IconComponent: React.ElementType;
+  comingSoon?: boolean;
+  subGroup?: string;
+  excludeRestrictedPlants?: boolean;
+  onlyRoles?: string[];
+};
 
-const qualitySubMenuItems: QualityNavItem[] = [
-  { title: "Dashboard Calidad", href: "/quality", IconComponent: BarChart },
-  { type: 'group', title: "Análisis" },
-  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
-  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
-  { type: 'group', title: "Operación" },
-  { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
-  { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
-  { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
-  { title: "Reportes", href: "/quality/reportes", IconComponent: Clipboard },
-  { type: 'group', title: "Gestión" },
-  { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
-  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
-  { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
-  { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
-  { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
-  { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
-  { type: 'group', title: "Laboratorio" },
-  { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
-  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
-  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { type: 'group', title: "Instrumentos EMA" },
-  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
-  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
-  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
-  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
+type QualitySection = {
+  id: string;
+  title: string;
+  hubHref: string;
+  IconComponent: React.ElementType;
+  hideForRestrictedPlants?: boolean;
+  items: QualityMenuItem[];
+};
+
+const QUALITY_SECTIONS: QualitySection[] = [
+  {
+    id: 'operaciones',
+    title: 'Operaciones',
+    hubHref: '/quality/operaciones',
+    IconComponent: Clipboard,
+    items: [
+      { title: 'Muestreos', href: '/quality/muestreos', IconComponent: Beaker },
+      { title: 'Ensayos', href: '/quality/ensayos', IconComponent: FlaskConical },
+      { title: 'Control en obra', href: '/quality/site-checks/new', IconComponent: ClipboardCheck },
+      { title: 'Reportes', href: '/quality/reportes', IconComponent: Clipboard, excludeRestrictedPlants: true },
+    ],
+  },
+  {
+    id: 'equipos',
+    title: 'Equipos',
+    hubHref: '/quality/equipos',
+    IconComponent: ShieldCheck,
+    items: [
+      { title: 'Certificados', href: '/quality/estudios/certificados', IconComponent: Award },
+      { title: 'Fichas Técnicas', href: '/quality/estudios/fichas-tecnicas', IconComponent: FileText },
+      { title: 'Hojas de Seguridad', href: '/quality/estudios/hojas-seguridad', IconComponent: ShieldAlert },
+      { title: 'Proveedores', href: '/quality/suppliers', IconComponent: Users },
+      { title: 'Centro EMA', href: '/quality/instrumentos', IconComponent: Gauge },
+      { title: 'Modelos', href: '/quality/modelos', IconComponent: BookOpen },
+      { title: 'Paquetes', href: '/quality/paquetes', IconComponent: Package },
+      { title: 'Programa', href: '/quality/instrumentos/programa', IconComponent: CalendarClock },
+    ],
+  },
+  {
+    id: 'validaciones',
+    title: 'Validaciones',
+    hubHref: '/quality/validaciones',
+    IconComponent: FlaskConical,
+    hideForRestrictedPlants: true,
+    items: [
+      { title: 'Investigación', href: '/quality/validaciones/investigacion', IconComponent: Lightbulb, comingSoon: true, subGroup: 'I+D' },
+      { title: 'Caracterizaciones', href: '/quality/caracterizacion-materiales', IconComponent: FlaskConical, subGroup: 'Nuevos Materiales' },
+      { title: 'Materiales', href: '/quality/materials', IconComponent: Package, subGroup: 'Nuevos Materiales' },
+      { title: 'Curvas de Abrams', href: '/quality/curvas-abrams', IconComponent: TrendingUp, subGroup: 'Evaluar Mezcla' },
+    ],
+  },
+  {
+    id: 'controles',
+    title: 'Controles',
+    hubHref: '/quality/controles',
+    IconComponent: BarChart,
+    items: [
+      { title: 'Mezcla de Referencia', href: '/quality/controles/mezcla-referencia', IconComponent: Beaker, comingSoon: true, subGroup: 'Mezcla Ref.', excludeRestrictedPlants: true },
+      { title: 'Verificación Lab', href: '/quality/controles/lab-checking', IconComponent: ClipboardCheck, comingSoon: true, subGroup: 'Lab Checking', excludeRestrictedPlants: true },
+      { title: 'Dashboard Calidad', href: '/quality/dashboard', IconComponent: BarChart, subGroup: 'Análisis', onlyRoles: ['EXECUTIVE', 'PLANT_MANAGER'] },
+      { title: 'Análisis por Cliente', href: '/quality/clientes', IconComponent: Users, subGroup: 'Análisis' },
+      { title: 'Análisis por Receta', href: '/quality/recetas-analisis', IconComponent: FileBarChart2, subGroup: 'Análisis' },
+    ],
+  },
+  {
+    id: 'recetas',
+    title: 'Recetas',
+    hubHref: '/quality/recetas-hub',
+    IconComponent: FileText,
+    items: [
+      { title: 'Recetas', href: '/quality/recipes', IconComponent: FileText, excludeRestrictedPlants: true },
+      { title: 'Solicitudes Arkik', href: '/quality/arkik-requests', IconComponent: FileUp },
+      { title: 'Maestros', href: '/masters/recipes', IconComponent: Layers, excludeRestrictedPlants: true },
+      { title: 'Agrupación', href: '/masters/grouping', IconComponent: Layers, excludeRestrictedPlants: true },
+      { title: 'Consolidación Precios', href: '/masters/pricing', IconComponent: DollarSign, excludeRestrictedPlants: true },
+      { title: 'Gobernanza', href: '/quality/recipe-governance', IconComponent: GitBranch, excludeRestrictedPlants: true },
+    ],
+  },
 ];
 
-// Quality submenu for QUALITY_TEAM (without dashboard)
-const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
-  { type: 'group', title: "Análisis" },
-  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
-  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
-  { type: 'group', title: "Operación" },
-  { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
-  { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
-  { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
-  { title: "Reportes", href: "/quality/reportes", IconComponent: Clipboard },
-  { type: 'group', title: "Gestión" },
-  { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
-  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
-  { title: "Maestros", href: "/masters/recipes", IconComponent: Layers },
-  { title: "Agrupación", href: "/masters/grouping", IconComponent: Layers },
-  { title: "Consolidación Precios", href: "/masters/pricing", IconComponent: DollarSign },
-  { title: "Gobernanza de Versiones", href: "/quality/recipe-governance", IconComponent: GitBranch },
-  { type: 'group', title: "Laboratorio" },
-  { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
-  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
-  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { type: 'group', title: "Instrumentos EMA" },
-  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
-  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
-  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
-  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
-];
+function getQualitySections(userRole: string | undefined, plantCode: string | undefined): QualitySection[] {
+  const isRestricted = isQualityTeamInRestrictedPlant(userRole, plantCode);
+  return QUALITY_SECTIONS
+    .filter((section) => !(section.hideForRestrictedPlants && isRestricted))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (item.excludeRestrictedPlants && isRestricted) return false;
+        if (item.onlyRoles && userRole && !item.onlyRoles.includes(userRole)) return false;
+        return true;
+      }),
+    }))
+    .filter((section) => section.items.length > 0 || !isRestricted);
+}
 
-// Quality submenu for QUALITY_TEAM in specific plants (P002, P003, P004) - limited access
-const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
-  { type: 'group', title: "Análisis" },
-  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
-  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
-  { type: 'group', title: "Operación" },
-  { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
-  { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
-  { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
-  { type: 'group', title: "Gestión" },
-  { title: "Solicitudes Arkik", href: "/quality/arkik-requests", IconComponent: FileUp },
-  { type: 'group', title: "Laboratorio" },
-  { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
-  { title: "Caracterizaciones", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
-  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
-  { title: "Estudios", href: "/quality/estudios", IconComponent: Layers },
-  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
-  { type: 'group', title: "Instrumentos EMA" },
-  { title: "Centro EMA", href: "/quality/instrumentos", IconComponent: Gauge },
-  { title: "Modelos", href: "/quality/modelos", IconComponent: BookOpen },
-  { title: "Paquetes", href: "/quality/paquetes", IconComponent: Package },
-  { title: "Programa", href: "/quality/instrumentos/programa", IconComponent: CalendarClock },
-];
+function getActiveQualitySectionId(pathname: string | null | undefined, sections: QualitySection[]): string | null {
+  if (!pathname) return null;
+  for (const section of sections) {
+    if (pathname === section.hubHref || pathname.startsWith(section.hubHref + '/')) return section.id;
+    for (const item of section.items) {
+      const itemPath = item.href.split('?')[0];
+      if (pathname === itemPath || pathname.startsWith(itemPath + '/')) return section.id;
+    }
+  }
+  return null;
+}
 
 // Canonical navigation config: ordered array filtered by role
 type NavItemDef = {
@@ -440,19 +475,6 @@ export function isQualityTeamInRestrictedPlant(userRole: string | undefined, pla
   return isRestricted;
 }
 
-// Function to get appropriate quality submenu based on user role and plant
-function getQualitySubMenuItems(userRole: string | undefined, plantCode: string | undefined): QualityNavItem[] {
-  if (userRole === 'QUALITY_TEAM') {
-    // Check if user is in restricted plants (P2, P3, P4)
-    const isRestricted = isQualityTeamInRestrictedPlant(userRole, plantCode);
-    
-    if (isRestricted) {
-      return qualitySubMenuItemsForRestrictedPlants;
-    }
-    return qualitySubMenuItemsForQualityTeam;
-  }
-  return qualitySubMenuItems;
-}
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
@@ -463,6 +485,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [pendingMaterialAlerts, setPendingMaterialAlerts] = useState(0);
+  const [openQualitySections, setOpenQualitySections] = useState<Record<string, boolean>>({});
   const isLandingRoute = pathname?.startsWith('/landing');
   const isAuthRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth') || pathname?.startsWith('/reset-password') || pathname?.startsWith('/update-password');
   const isGobiernoPreciosOrCredito =
@@ -470,7 +493,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     pathname?.startsWith('/finanzas/credito-validacion');
   const isFinanzasRoute =
     pathname?.startsWith('/finanzas') && !isGobiernoPreciosOrCredito;
-  const isQualityRoute = pathname?.startsWith('/quality');
+  const isQualityRoute = pathname?.startsWith('/quality') || pathname?.startsWith('/masters');
   const isAdminRoute = pathname?.startsWith('/admin');
   const isInventoryRoute = pathname?.startsWith('/production-control');
   const isRhRoute = pathname?.startsWith('/rh');
@@ -508,6 +531,19 @@ function Navigation({ children }: { children: React.ReactNode }) {
     if (mobileMenuOpen) setMobileMenuOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  // Auto-expand active quality section based on current pathname
+  useEffect(() => {
+    if (!isQualityRoute) return;
+    const sections = getQualitySections(profile?.role, currentPlant?.code);
+    const activeId = getActiveQualitySectionId(pathname, sections);
+    if (activeId) {
+      setOpenQualitySections((prev) => {
+        if (prev[activeId]) return prev;
+        return { ...prev, [activeId]: true };
+      });
+    }
+  }, [pathname, isQualityRoute, profile?.role, currentPlant?.code]);
 
   // Badge: material alerts pending confirmation (dosificador action)
   useEffect(() => {
@@ -747,33 +783,64 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   )}
 
                   {isQualityMainLink && isQualityRoute && (
-                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                      {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
-                        if (!('href' in subItem)) {
-                          return (
-                            <div
-                              key={`quality-group-${subIndex}`}
-                              className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                    <div className="mt-1 space-y-0.5 ml-3 border-l border-gray-200 pl-2">
+                      {getQualitySections(profile?.role, currentPlant?.code).map((section) => {
+                        const SectionIcon = section.IconComponent;
+                        const isSectionOpen = openQualitySections[section.id] ?? false;
+                        const isHubActive = pathname === section.hubHref;
+                        return (
+                          <div key={`qs-${section.id}`}>
+                            <button
+                              onClick={() => {
+                                setOpenQualitySections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
+                                if (!isSectionOpen) {
+                                  window.location.href = section.hubHref;
+                                }
+                              }}
+                              className={cn(
+                                "flex items-center gap-1.5 w-full py-1.5 px-2 rounded text-[10px] tracking-wider uppercase font-semibold transition-colors",
+                                isHubActive ? "text-gray-900 bg-primary/10" : "text-gray-400 hover:text-gray-600 hover:bg-muted/30"
+                              )}
                             >
-                              {subItem.title}
-                            </div>
-                          );
-                        }
-                        const SubIcon = subItem.IconComponent;
-                            return (
-                              <Link
-                                key={`quality-subnav-${subIndex}`}
-                                href={subItem.href}
-                                className={cn(
-                                  "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
-                                  pathname === subItem.href
-                                    ? "bg-primary/10 text-gray-900 font-medium"
-                                    : "text-gray-600 hover:bg-muted/50"
-                                )}
-                              >
-                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
-                            {subItem.title}
-                          </Link>
+                              <SectionIcon size={12} className="shrink-0" />
+                              <span className="flex-1 text-left">{section.title}</span>
+                              {isSectionOpen ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />}
+                            </button>
+                            {isSectionOpen && (
+                              <div className="ml-3 space-y-0.5 mt-0.5">
+                                {section.items.map((subItem, si) => {
+                                  const SubIcon = subItem.IconComponent;
+                                  const itemPath = subItem.href.split('?')[0];
+                                  const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
+                                  if (subItem.comingSoon) {
+                                    return (
+                                      <span
+                                        key={`qs-item-${section.id}-${si}`}
+                                        className="flex items-center gap-2 py-1.5 px-3 rounded text-footnote w-full text-gray-400 cursor-not-allowed"
+                                      >
+                                        <SubIcon size={14} className="shrink-0" />
+                                        <span className="truncate">{subItem.title}</span>
+                                        <Construction size={10} className="shrink-0 ml-auto" />
+                                      </span>
+                                    );
+                                  }
+                                  return (
+                                    <Link
+                                      key={`qs-item-${section.id}-${si}`}
+                                      href={subItem.href}
+                                      className={cn(
+                                        "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
+                                        isSubActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
+                                      )}
+                                    >
+                                      <SubIcon size={14} className="shrink-0" />
+                                      <span className="truncate">{subItem.title}</span>
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -939,33 +1006,48 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     <Tooltip key={`nav-col-${index}`}>
                       <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
                       <TooltipContent sideOffset={8} side="right" className="p-0">
-                        <div className="min-w-56 bg-white text-gray-700 rounded-md shadow-md p-1">
+                        <div className="min-w-56 max-h-[70vh] overflow-y-auto bg-white text-gray-700 rounded-md shadow-md p-1">
                           <div className="px-3 py-2 text-xs font-semibold text-gray-500">Calidad</div>
-                          {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
-                            if (!('href' in subItem)) {
-                              return (
-                                <div
-                                  key={`q-group-${subIndex}`}
-                                  className="px-3 pt-2 pb-1 text-[10px] tracking-wider uppercase text-gray-400"
-                                >
-                                  {subItem.title}
-                                </div>
-                              );
-                            }
-                            return (
+                          {getQualitySections(profile?.role, currentPlant?.code).map((section) => (
+                            <React.Fragment key={`qf-${section.id}`}>
                               <Link
-                                key={`q-sub-${subIndex}`}
-                                href={subItem.href}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-2 rounded text-sm",
-                                  pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
-                                )}
+                                href={section.hubHref}
+                                className="px-3 pt-2 pb-1 text-[10px] tracking-wider uppercase text-gray-400 font-semibold flex items-center gap-1.5 hover:text-gray-600"
                               >
-                                <subItem.IconComponent size={16} />
-                                {subItem.title}
+                                <section.IconComponent size={10} />
+                                {section.title}
                               </Link>
-                            );
-                          })}
+                              {section.items.map((subItem, si) => {
+                                const itemPath = subItem.href.split('?')[0];
+                                const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
+                                if (subItem.comingSoon) {
+                                  return (
+                                    <span
+                                      key={`qf-item-${section.id}-${si}`}
+                                      className="flex items-center gap-2 px-3 py-1.5 rounded text-sm text-gray-400 cursor-not-allowed"
+                                    >
+                                      <subItem.IconComponent size={14} />
+                                      <span className="truncate">{subItem.title}</span>
+                                      <Construction size={10} className="ml-auto shrink-0" />
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <Link
+                                    key={`qf-item-${section.id}-${si}`}
+                                    href={subItem.href}
+                                    className={cn(
+                                      "flex items-center gap-2 px-3 py-1.5 rounded text-sm",
+                                      isSubActive ? "bg-gray-100" : "hover:bg-gray-50"
+                                    )}
+                                  >
+                                    <subItem.IconComponent size={14} />
+                                    <span className="truncate">{subItem.title}</span>
+                                  </Link>
+                                );
+                              })}
+                            </React.Fragment>
+                          ))}
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -1174,33 +1256,61 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     )}
 
                     {item.href === '/quality' && isQualityRoute && (
-                      <div className="pl-6 mb-2 space-y-1">
-                        {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
-                          if (!('href' in subItem)) {
-                            return (
-                              <div
-                                key={`mobile-quality-group-${subIndex}`}
-                                className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
-                              >
-                                {subItem.title}
-                              </div>
-                            );
-                          }
-                          const SubIcon = subItem.IconComponent;
-                          const isSubItemActive = pathname === subItem.href;
+                      <div className="pl-4 mb-2 space-y-0.5">
+                        {getQualitySections(profile?.role, currentPlant?.code).map((section) => {
+                          const SectionIcon = section.IconComponent;
+                          const isSectionOpen = openQualitySections[section.id] ?? false;
                           return (
-                            <Link
-                              key={`mobile-quality-sub-${subIndex}`}
-                              href={subItem.href}
-                              onClick={() => setMobileMenuOpen(false)}
-                              className={cn(
-                                "flex items-center py-1.5 px-2 rounded-md text-footnote",
-                                isSubItemActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
-                              )}
-                            >
-                              <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
-                              {subItem.title}
-                            </Link>
+                            <div key={`mqs-${section.id}`}>
+                              <button
+                                onClick={() => {
+                                  setOpenQualitySections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
+                                  if (!isSectionOpen) {
+                                    setMobileMenuOpen(false);
+                                    window.location.href = section.hubHref;
+                                  }
+                                }}
+                                className={cn(
+                                  "flex items-center gap-1.5 w-full py-1.5 px-2 rounded text-[10px] tracking-wider uppercase font-semibold",
+                                  pathname === section.hubHref ? "text-gray-900 bg-primary/10" : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                <SectionIcon size={12} className="shrink-0" />
+                                <span className="flex-1 text-left">{section.title}</span>
+                                {isSectionOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                              </button>
+                              {isSectionOpen && section.items.map((subItem, si) => {
+                                const SubIcon = subItem.IconComponent;
+                                const itemPath = subItem.href.split('?')[0];
+                                const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
+                                if (subItem.comingSoon) {
+                                  return (
+                                    <span
+                                      key={`mqs-item-${section.id}-${si}`}
+                                      className="flex items-center gap-2 py-1.5 px-2 ml-3 rounded-md text-footnote text-gray-400 cursor-not-allowed"
+                                    >
+                                      <SubIcon size={14} />
+                                      <span className="truncate">{subItem.title}</span>
+                                      <Construction size={10} className="ml-auto shrink-0" />
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <Link
+                                    key={`mqs-item-${section.id}-${si}`}
+                                    href={subItem.href}
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className={cn(
+                                      "flex items-center gap-2 py-1.5 px-2 ml-3 rounded-md text-footnote",
+                                      isSubActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
+                                    )}
+                                  >
+                                    <SubIcon size={14} />
+                                    <span className="truncate">{subItem.title}</span>
+                                  </Link>
+                                );
+                              })}
+                            </div>
                           );
                         })}
                       </div>
