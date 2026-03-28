@@ -485,7 +485,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [pendingMaterialAlerts, setPendingMaterialAlerts] = useState(0);
-  const [openQualitySections, setOpenQualitySections] = useState<Record<string, boolean>>({});
+
   const isLandingRoute = pathname?.startsWith('/landing');
   const isAuthRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth') || pathname?.startsWith('/reset-password') || pathname?.startsWith('/update-password');
   const isGobiernoPreciosOrCredito =
@@ -532,18 +532,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // Auto-expand active quality section based on current pathname
-  useEffect(() => {
-    if (!isQualityRoute) return;
-    const sections = getQualitySections(profile?.role, currentPlant?.code);
-    const activeId = getActiveQualitySectionId(pathname, sections);
-    if (activeId) {
-      setOpenQualitySections((prev) => {
-        if (prev[activeId]) return prev;
-        return { ...prev, [activeId]: true };
-      });
-    }
-  }, [pathname, isQualityRoute, profile?.role, currentPlant?.code]);
 
   // Badge: material alerts pending confirmation (dosificador action)
   useEffect(() => {
@@ -786,61 +774,19 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     <div className="mt-1 space-y-0.5 ml-3 border-l border-gray-200 pl-2">
                       {getQualitySections(profile?.role, currentPlant?.code).map((section) => {
                         const SectionIcon = section.IconComponent;
-                        const isSectionOpen = openQualitySections[section.id] ?? false;
-                        const isHubActive = pathname === section.hubHref;
+                        const isActive = getActiveQualitySectionId(pathname, getQualitySections(profile?.role, currentPlant?.code)) === section.id;
                         return (
-                          <div key={`qs-${section.id}`}>
-                            <button
-                              onClick={() => {
-                                setOpenQualitySections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
-                                if (!isSectionOpen) {
-                                  window.location.href = section.hubHref;
-                                }
-                              }}
-                              className={cn(
-                                "flex items-center gap-1.5 w-full py-1.5 px-2 rounded text-[10px] tracking-wider uppercase font-semibold transition-colors",
-                                isHubActive ? "text-gray-900 bg-primary/10" : "text-gray-400 hover:text-gray-600 hover:bg-muted/30"
-                              )}
-                            >
-                              <SectionIcon size={12} className="shrink-0" />
-                              <span className="flex-1 text-left">{section.title}</span>
-                              {isSectionOpen ? <ChevronDown size={10} className="shrink-0" /> : <ChevronRight size={10} className="shrink-0" />}
-                            </button>
-                            {isSectionOpen && (
-                              <div className="ml-3 space-y-0.5 mt-0.5">
-                                {section.items.map((subItem, si) => {
-                                  const SubIcon = subItem.IconComponent;
-                                  const itemPath = subItem.href.split('?')[0];
-                                  const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
-                                  if (subItem.comingSoon) {
-                                    return (
-                                      <span
-                                        key={`qs-item-${section.id}-${si}`}
-                                        className="flex items-center gap-2 py-1.5 px-3 rounded text-footnote w-full text-gray-400 cursor-not-allowed"
-                                      >
-                                        <SubIcon size={14} className="shrink-0" />
-                                        <span className="truncate">{subItem.title}</span>
-                                        <Construction size={10} className="shrink-0 ml-auto" />
-                                      </span>
-                                    );
-                                  }
-                                  return (
-                                    <Link
-                                      key={`qs-item-${section.id}-${si}`}
-                                      href={subItem.href}
-                                      className={cn(
-                                        "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-footnote w-full",
-                                        isSubActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
-                                      )}
-                                    >
-                                      <SubIcon size={14} className="shrink-0" />
-                                      <span className="truncate">{subItem.title}</span>
-                                    </Link>
-                                  );
-                                })}
-                              </div>
+                          <Link
+                            key={`qs-${section.id}`}
+                            href={section.hubHref}
+                            className={cn(
+                              "flex items-center gap-2 py-1.5 px-2 rounded transition-colors text-footnote w-full",
+                              isActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
                             )}
-                          </div>
+                          >
+                            <SectionIcon size={14} className="shrink-0" />
+                            <span className="truncate">{section.title}</span>
+                          </Link>
                         );
                       })}
                     </div>
@@ -1006,48 +952,24 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     <Tooltip key={`nav-col-${index}`}>
                       <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
                       <TooltipContent sideOffset={8} side="right" className="p-0">
-                        <div className="min-w-56 max-h-[70vh] overflow-y-auto bg-white text-gray-700 rounded-md shadow-md p-1">
+                        <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
                           <div className="px-3 py-2 text-xs font-semibold text-gray-500">Calidad</div>
-                          {getQualitySections(profile?.role, currentPlant?.code).map((section) => (
-                            <React.Fragment key={`qf-${section.id}`}>
+                          {getQualitySections(profile?.role, currentPlant?.code).map((section) => {
+                            const isActive = getActiveQualitySectionId(pathname, getQualitySections(profile?.role, currentPlant?.code)) === section.id;
+                            return (
                               <Link
+                                key={`qf-${section.id}`}
                                 href={section.hubHref}
-                                className="px-3 pt-2 pb-1 text-[10px] tracking-wider uppercase text-gray-400 font-semibold flex items-center gap-1.5 hover:text-gray-600"
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors",
+                                  isActive ? "bg-sky-50 text-sky-700 font-medium" : "text-gray-700 hover:bg-gray-100"
+                                )}
                               >
-                                <section.IconComponent size={10} />
-                                {section.title}
+                                <section.IconComponent size={14} className="shrink-0" />
+                                <span>{section.title}</span>
                               </Link>
-                              {section.items.map((subItem, si) => {
-                                const itemPath = subItem.href.split('?')[0];
-                                const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
-                                if (subItem.comingSoon) {
-                                  return (
-                                    <span
-                                      key={`qf-item-${section.id}-${si}`}
-                                      className="flex items-center gap-2 px-3 py-1.5 rounded text-sm text-gray-400 cursor-not-allowed"
-                                    >
-                                      <subItem.IconComponent size={14} />
-                                      <span className="truncate">{subItem.title}</span>
-                                      <Construction size={10} className="ml-auto shrink-0" />
-                                    </span>
-                                  );
-                                }
-                                return (
-                                  <Link
-                                    key={`qf-item-${section.id}-${si}`}
-                                    href={subItem.href}
-                                    className={cn(
-                                      "flex items-center gap-2 px-3 py-1.5 rounded text-sm",
-                                      isSubActive ? "bg-gray-100" : "hover:bg-gray-50"
-                                    )}
-                                  >
-                                    <subItem.IconComponent size={14} />
-                                    <span className="truncate">{subItem.title}</span>
-                                  </Link>
-                                );
-                              })}
-                            </React.Fragment>
-                          ))}
+                            );
+                          })}
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -1259,58 +1181,20 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       <div className="pl-4 mb-2 space-y-0.5">
                         {getQualitySections(profile?.role, currentPlant?.code).map((section) => {
                           const SectionIcon = section.IconComponent;
-                          const isSectionOpen = openQualitySections[section.id] ?? false;
+                          const isActive = getActiveQualitySectionId(pathname, getQualitySections(profile?.role, currentPlant?.code)) === section.id;
                           return (
-                            <div key={`mqs-${section.id}`}>
-                              <button
-                                onClick={() => {
-                                  setOpenQualitySections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
-                                  if (!isSectionOpen) {
-                                    setMobileMenuOpen(false);
-                                    window.location.href = section.hubHref;
-                                  }
-                                }}
-                                className={cn(
-                                  "flex items-center gap-1.5 w-full py-1.5 px-2 rounded text-[10px] tracking-wider uppercase font-semibold",
-                                  pathname === section.hubHref ? "text-gray-900 bg-primary/10" : "text-gray-400 hover:text-gray-600"
-                                )}
-                              >
-                                <SectionIcon size={12} className="shrink-0" />
-                                <span className="flex-1 text-left">{section.title}</span>
-                                {isSectionOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-                              </button>
-                              {isSectionOpen && section.items.map((subItem, si) => {
-                                const SubIcon = subItem.IconComponent;
-                                const itemPath = subItem.href.split('?')[0];
-                                const isSubActive = pathname === itemPath || pathname?.startsWith(itemPath + '/');
-                                if (subItem.comingSoon) {
-                                  return (
-                                    <span
-                                      key={`mqs-item-${section.id}-${si}`}
-                                      className="flex items-center gap-2 py-1.5 px-2 ml-3 rounded-md text-footnote text-gray-400 cursor-not-allowed"
-                                    >
-                                      <SubIcon size={14} />
-                                      <span className="truncate">{subItem.title}</span>
-                                      <Construction size={10} className="ml-auto shrink-0" />
-                                    </span>
-                                  );
-                                }
-                                return (
-                                  <Link
-                                    key={`mqs-item-${section.id}-${si}`}
-                                    href={subItem.href}
-                                    onClick={() => setMobileMenuOpen(false)}
-                                    className={cn(
-                                      "flex items-center gap-2 py-1.5 px-2 ml-3 rounded-md text-footnote",
-                                      isSubActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
-                                    )}
-                                  >
-                                    <SubIcon size={14} />
-                                    <span className="truncate">{subItem.title}</span>
-                                  </Link>
-                                );
-                              })}
-                            </div>
+                            <Link
+                              key={`mqs-${section.id}`}
+                              href={section.hubHref}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={cn(
+                                "flex items-center gap-2 py-1.5 px-2 rounded-md text-footnote w-full",
+                                isActive ? "bg-primary/10 text-gray-900 font-medium" : "text-gray-600 hover:bg-muted/50"
+                              )}
+                            >
+                              <SectionIcon size={14} className="shrink-0" />
+                              <span className="truncate">{section.title}</span>
+                            </Link>
                           );
                         })}
                       </div>

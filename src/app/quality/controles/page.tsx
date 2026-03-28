@@ -2,33 +2,28 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { subMonths, format } from 'date-fns'
-import {
-  Beaker,
-  ClipboardCheck,
-  BarChart,
-  Users,
-  FileBarChart2,
-} from 'lucide-react'
+import { Beaker, ClipboardCheck, BarChart, Users, FileBarChart2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import QualityHubLayout from '@/components/quality/QualityHubLayout'
-import type { ActionCard, SummaryItem } from '@/components/quality/QualityHubLayout'
+import type { ActionCard, SummaryItem, UrgencyZone } from '@/components/quality/QualityHubLayout'
+
+type Metrics = {
+  resistenciaPromedio: number
+  porcentajeCumplimiento: number
+  coeficienteVariacion: number
+}
 
 export default function ControlesHub() {
   const { currentPlant } = usePlantContext()
   const { profile, session } = useAuthBridge()
   const [loading, setLoading] = useState(true)
-  const [metrics, setMetrics] = useState<{
-    resistenciaPromedio: number
-    porcentajeCumplimiento: number
-    coeficienteVariacion: number
-  } | null>(null)
+  const [metrics, setMetrics] = useState<Metrics | null>(null)
 
   const fetchData = useCallback(async () => {
     if (!currentPlant?.id || !session?.user) return
     setLoading(true)
     try {
-      // Fetch quality metrics for last 30 days using the existing RPC
       const { fetchMetricasCalidad } = await import('@/services/qualityMetricsService')
       const to = new Date()
       const from = subMonths(to, 1)
@@ -54,38 +49,74 @@ export default function ControlesHub() {
     fetchData()
   }, [fetchData])
 
+  const cumplimiento = metrics?.porcentajeCumplimiento ?? null
+  const cv = metrics?.coeficienteVariacion ?? null
+
+  // Urgency zones — most critical takes precedence
+  let urgencyZone: UrgencyZone | undefined
+  if (!loading && cumplimiento !== null && cumplimiento < 80) {
+    urgencyZone = {
+      message: `Cumplimiento ${cumplimiento.toFixed(1)}% — por debajo del mínimo requerido (80%). Revisar resistencias recientes.`,
+      href: '/quality/dashboard',
+      level: 'critical',
+    }
+  } else if (!loading && cv !== null && cv > 15) {
+    urgencyZone = {
+      message: `CV ${cv.toFixed(1)}% — alta variabilidad detectada. Revisar consistencia del proceso.`,
+      href: '/quality/dashboard',
+      level: 'warning',
+    }
+  }
+
   const summaryItems: SummaryItem[] = [
-    { label: 'Resistencia prom.', value: metrics ? `${metrics.resistenciaPromedio.toFixed(1)} MPa` : '—' },
-    { label: 'Cumplimiento', value: metrics ? `${metrics.porcentajeCumplimiento.toFixed(1)}%` : '—' },
-    { label: 'CV', value: metrics ? `${metrics.coeficienteVariacion.toFixed(1)}%` : '—' },
+    {
+      label: 'Resistencia prom.',
+      value: metrics ? `${metrics.resistenciaPromedio.toFixed(1)} MPa` : '—',
+      status: 'neutral',
+      hint: 'últimos 30 días',
+    },
+    {
+      label: 'Cumplimiento',
+      value: cumplimiento !== null ? `${cumplimiento.toFixed(1)}%` : '—',
+      status: loading
+        ? 'neutral'
+        : cumplimiento === null
+          ? 'neutral'
+          : cumplimiento >= 90
+            ? 'ok'
+            : cumplimiento >= 80
+              ? 'warning'
+              : 'critical',
+      hint: '≥ 90% óptimo',
+    },
+    {
+      label: 'Coef. variación',
+      value: cv !== null ? `${cv.toFixed(1)}%` : '—',
+      status: loading
+        ? 'neutral'
+        : cv === null
+          ? 'neutral'
+          : cv <= 12
+            ? 'ok'
+            : cv <= 15
+              ? 'warning'
+              : 'critical',
+      hint: '≤ 12% óptimo',
+    },
   ]
 
   const isExecutiveOrPM = profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER'
 
   const primaryActions: ActionCard[] = [
-    {
-      title: 'Mezcla de Referencia',
-      description: 'Desarrollo y evaluación de mezcla de referencia mensual',
-      href: '/quality/controles/mezcla-referencia',
-      IconComponent: Beaker,
-      color: 'sky',
-      comingSoon: true,
-    },
-    {
-      title: 'Verificación Lab',
-      description: 'Inspecciones de laboratorio, incidentes y verificaciones',
-      href: '/quality/controles/lab-checking',
-      IconComponent: ClipboardCheck,
-      color: 'emerald',
-      comingSoon: true,
-    },
+    // Analysis tools — active, shown first for quick access
     ...(isExecutiveOrPM
       ? [{
           title: 'Dashboard Calidad',
-          description: 'Métricas avanzadas con filtros y gráficos de resistencia',
+          description: 'Métricas avanzadas con filtros, gráficos y análisis de resistencia',
           href: '/quality/dashboard',
           IconComponent: BarChart,
           color: 'violet' as const,
+          featured: true,
         }]
       : []),
     {
@@ -93,24 +124,42 @@ export default function ControlesHub() {
       description: 'Rendimiento de calidad desglosado por cliente',
       href: '/quality/clientes',
       IconComponent: Users,
-      color: 'amber',
+      color: 'sky',
     },
     {
       title: 'Análisis por Receta',
       description: 'Rendimiento de calidad desglosado por receta',
       href: '/quality/recetas-analisis',
       IconComponent: FileBarChart2,
+      color: 'emerald',
+    },
+    // Coming soon controls
+    {
+      title: 'Mezcla de Referencia',
+      description: 'Desarrollo y evaluación de mezcla de referencia mensual',
+      href: '/quality/controles/mezcla-referencia',
+      IconComponent: Beaker,
+      color: 'amber',
+      comingSoon: true,
+    },
+    {
+      title: 'Verificación Lab',
+      description: 'Inspecciones de laboratorio, incidentes y verificaciones',
+      href: '/quality/controles/lab-checking',
+      IconComponent: ClipboardCheck,
       color: 'rose',
+      comingSoon: true,
     },
   ]
 
   return (
     <QualityHubLayout
-      title="Controles de Calidad"
-      description="Controles internos, mezcla de referencia, verificaciones y análisis"
+      title="Controles"
+      description="Seguimiento de cumplimiento, análisis de resistencia y controles internos de calidad"
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
+      urgencyZone={urgencyZone}
       onRefresh={fetchData}
       refreshing={loading}
     />

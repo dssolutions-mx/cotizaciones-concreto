@@ -1,19 +1,11 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import {
-  Beaker,
-  FlaskConical,
-  ClipboardCheck,
-  Clipboard,
-  Activity,
-  CheckCircle,
-} from 'lucide-react'
+import { Beaker, FlaskConical, ClipboardCheck, Clipboard, Activity, Clock } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import QualityHubLayout from '@/components/quality/QualityHubLayout'
-import type { ActionCard, SummaryItem } from '@/components/quality/QualityHubLayout'
-import { cn } from '@/lib/utils'
+import type { ActionCard, SummaryItem, UrgencyZone } from '@/components/quality/QualityHubLayout'
 
 type HubData = {
   muestreosHoy: number
@@ -25,6 +17,18 @@ type HubData = {
     created_at: string
     remision_id: string | null
   }>
+}
+
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return 'ahora mismo'
+  if (minutes < 60) return `hace ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `hace ${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'ayer'
+  return `hace ${days} días`
 }
 
 export default function OperacionesHub() {
@@ -53,19 +57,46 @@ export default function OperacionesHub() {
     fetchData()
   }, [fetchData])
 
+  const overdueCount = data?.ensayosPendientes ?? 0
+
+  const urgencyZone: UrgencyZone | undefined =
+    !loading && overdueCount > 0
+      ? {
+          message: `${overdueCount} ${overdueCount === 1 ? 'ensayo atrasado' : 'ensayos atrasados'} — programados y sin resultado`,
+          href: '/quality/ensayos',
+          level: 'critical',
+        }
+      : undefined
+
   const summaryItems: SummaryItem[] = [
-    { label: 'Muestreos hoy', value: data?.muestreosHoy ?? '—' },
-    { label: 'Ensayos pendientes', value: data?.ensayosPendientes ?? '—' },
-    { label: 'Ensayos (7 días)', value: data?.ensayosRecientes ?? '—' },
+    {
+      label: 'Muestreos hoy',
+      value: data?.muestreosHoy ?? '—',
+      status: loading ? 'neutral' : (data?.muestreosHoy ?? 0) > 0 ? 'ok' : 'neutral',
+      hint: currentPlant?.name,
+    },
+    {
+      label: 'Ensayos atrasados',
+      value: data?.ensayosPendientes ?? '—',
+      status: loading ? 'neutral' : overdueCount > 0 ? 'critical' : 'ok',
+      hint: 'programados sin resultado',
+    },
+    {
+      label: 'Ensayos (7 días)',
+      value: data?.ensayosRecientes ?? '—',
+      status: 'neutral',
+      hint: 'resultados registrados',
+    },
   ]
 
   const primaryActions: ActionCard[] = [
     {
       title: 'Muestreos',
-      description: 'Registrar nuevos muestreos de concreto',
+      description: 'Registrar y consultar muestreos de concreto en campo',
       href: '/quality/muestreos',
       IconComponent: Beaker,
       color: 'sky',
+      featured: true,
     },
     {
       title: 'Ensayos',
@@ -94,37 +125,43 @@ export default function OperacionesHub() {
 
   return (
     <QualityHubLayout
-      title="Operaciones de Calidad"
-      description="Gestión diaria de muestreos, ensayos y controles de producción"
+      title="Operaciones"
+      description="Registro diario de muestreos, ensayos y verificaciones en campo"
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
+      urgencyZone={urgencyZone}
       onRefresh={fetchData}
       refreshing={loading}
     >
-      {/* Activity feed */}
+      {/* Activity stream */}
       {activities.length > 0 && (
         <section className="border border-stone-200 rounded-lg bg-white overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-stone-200">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-stone-100">
             <Activity className="h-4 w-4 text-stone-500" />
             <h2 className="text-sm font-semibold text-stone-900">Actividad reciente</h2>
           </div>
           <ul className="divide-y divide-stone-100">
             {activities.map((a) => (
               <li key={a.id} className="flex items-center gap-3 px-4 py-3">
-                <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                <div className="h-8 w-8 rounded-full bg-sky-100 flex items-center justify-center shrink-0">
+                  <Beaker className="h-4 w-4 text-sky-700" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-stone-900 truncate">
-                    Muestreo {a.remision_id ? 'operativo' : 'interno'}
+                  <p className="text-sm text-stone-900 font-medium">
+                    {a.remision_id ? 'Muestreo en obra' : 'Muestreo interno'}
                   </p>
-                  <p className="text-xs text-stone-500 font-mono">
-                    {new Date(a.created_at).toLocaleDateString('es-MX', {
+                  <p className="text-xs text-stone-500">
+                    Fecha de muestreo:{' '}
+                    {new Date(a.fecha_muestreo).toLocaleDateString('es-MX', {
                       day: '2-digit',
                       month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
                     })}
                   </p>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-stone-400 shrink-0">
+                  <Clock className="h-3 w-3" />
+                  <span>{relativeTime(a.created_at)}</span>
                 </div>
               </li>
             ))}

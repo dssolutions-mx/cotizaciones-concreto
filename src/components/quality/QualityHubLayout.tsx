@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { ChevronRight, RefreshCw } from 'lucide-react'
+import { ChevronRight, RefreshCw, AlertTriangle, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button'
 export type SummaryItem = {
   label: string
   value: string | number
-  trend?: 'up' | 'down' | 'neutral'
+  status?: 'ok' | 'warning' | 'critical' | 'neutral'
+  hint?: string
 }
 
 export type ActionCard = {
@@ -22,6 +23,8 @@ export type ActionCard = {
   IconComponent: React.ElementType
   color: 'sky' | 'emerald' | 'violet' | 'amber' | 'rose' | 'stone'
   comingSoon?: boolean
+  featured?: boolean
+  badge?: string | number
 }
 
 export type SecondaryLink = {
@@ -29,6 +32,12 @@ export type SecondaryLink = {
   label: string
   IconComponent: React.ElementType
   comingSoon?: boolean
+}
+
+export type UrgencyZone = {
+  message: string
+  href?: string
+  level: 'warning' | 'critical'
 }
 
 // --- Color maps ---
@@ -40,6 +49,8 @@ const colorMap = {
     icon: 'text-sky-800',
     hover: 'group-hover:text-sky-900',
     chevron: 'group-hover:text-sky-700',
+    featuredBorder: 'border-sky-300',
+    featuredBg: 'bg-sky-50',
   },
   emerald: {
     bg: 'bg-emerald-100',
@@ -47,6 +58,8 @@ const colorMap = {
     icon: 'text-emerald-800',
     hover: 'group-hover:text-emerald-900',
     chevron: 'group-hover:text-emerald-700',
+    featuredBorder: 'border-emerald-300',
+    featuredBg: 'bg-emerald-50',
   },
   violet: {
     bg: 'bg-violet-100',
@@ -54,6 +67,8 @@ const colorMap = {
     icon: 'text-violet-800',
     hover: 'group-hover:text-violet-900',
     chevron: 'group-hover:text-violet-700',
+    featuredBorder: 'border-violet-300',
+    featuredBg: 'bg-violet-50',
   },
   amber: {
     bg: 'bg-amber-100',
@@ -61,6 +76,8 @@ const colorMap = {
     icon: 'text-amber-800',
     hover: 'group-hover:text-amber-900',
     chevron: 'group-hover:text-amber-700',
+    featuredBorder: 'border-amber-300',
+    featuredBg: 'bg-amber-50',
   },
   rose: {
     bg: 'bg-rose-100',
@@ -68,6 +85,8 @@ const colorMap = {
     icon: 'text-rose-800',
     hover: 'group-hover:text-rose-900',
     chevron: 'group-hover:text-rose-700',
+    featuredBorder: 'border-rose-300',
+    featuredBg: 'bg-rose-50',
   },
   stone: {
     bg: 'bg-stone-100',
@@ -75,10 +94,130 @@ const colorMap = {
     icon: 'text-stone-600',
     hover: 'group-hover:text-stone-900',
     chevron: 'group-hover:text-stone-700',
+    featuredBorder: 'border-stone-300',
+    featuredBg: 'bg-stone-50',
   },
 }
 
-// --- Component ---
+const summaryStatusMap = {
+  ok: {
+    card: 'bg-emerald-50 border-emerald-200',
+    value: 'text-emerald-800',
+    label: 'text-emerald-600',
+  },
+  warning: {
+    card: 'bg-amber-50 border-amber-200',
+    value: 'text-amber-800',
+    label: 'text-amber-600',
+  },
+  critical: {
+    card: 'bg-red-50 border-red-200',
+    value: 'text-red-800',
+    label: 'text-red-600',
+  },
+  neutral: {
+    card: 'bg-white border-stone-200',
+    value: 'text-stone-900',
+    label: 'text-stone-500',
+  },
+}
+
+// --- Sub-components ---
+
+function ActionCardItem({ action }: { action: ActionCard }) {
+  const colors = colorMap[action.color]
+  const Icon = action.IconComponent
+
+  if (action.comingSoon) {
+    return (
+      <div
+        className={cn(
+          'flex items-center gap-4 rounded-lg border bg-white p-4 opacity-50 cursor-not-allowed',
+          action.featured ? 'min-h-[5.5rem] col-span-full' : 'min-h-[4.5rem]',
+          colors.border
+        )}
+      >
+        <div
+          className={cn(
+            'rounded-lg border flex items-center justify-center shrink-0',
+            action.featured ? 'h-14 w-14' : 'h-12 w-12',
+            colors.bg,
+            colors.border
+          )}
+        >
+          <Icon className={cn(action.featured ? 'h-7 w-7' : 'h-6 w-6', colors.icon)} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-stone-900 flex items-center gap-2 flex-wrap">
+            {action.title}
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+              Pronto
+            </Badge>
+            {action.badge !== undefined && action.badge !== null && (
+              <Badge className="text-[10px] px-1.5 py-0 bg-stone-200 text-stone-600 border-0">
+                {action.badge}
+              </Badge>
+            )}
+          </div>
+          <div className={cn('text-stone-600', action.featured ? 'text-sm mt-0.5' : 'text-xs')}>
+            {action.description}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <Link
+      href={action.href}
+      className={cn(
+        'group flex items-center gap-4 rounded-lg border bg-white p-4 hover:bg-stone-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600',
+        action.featured
+          ? cn('min-h-[5.5rem] col-span-full', colors.featuredBg, colors.featuredBorder)
+          : cn('min-h-[4.5rem]', 'border-stone-200')
+      )}
+    >
+      <div
+        className={cn(
+          'rounded-lg border flex items-center justify-center shrink-0',
+          action.featured ? 'h-14 w-14' : 'h-12 w-12',
+          colors.bg,
+          colors.border
+        )}
+      >
+        <Icon className={cn(action.featured ? 'h-7 w-7' : 'h-6 w-6', colors.icon)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div
+          className={cn(
+            'font-semibold text-stone-900 flex items-center gap-2 flex-wrap',
+            colors.hover,
+            action.featured && 'text-base'
+          )}
+        >
+          {action.title}
+          {action.badge !== undefined && action.badge !== null && (
+            <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 border border-amber-200">
+              {action.badge}
+            </Badge>
+          )}
+        </div>
+        <div className={cn('text-stone-600', action.featured ? 'text-sm mt-0.5' : 'text-xs')}>
+          {action.description}
+        </div>
+      </div>
+      <ChevronRight
+        className={cn(
+          'shrink-0 text-stone-400',
+          colors.chevron,
+          action.featured ? 'h-6 w-6' : 'h-5 w-5'
+        )}
+      />
+    </Link>
+  )
+}
+
+// --- Main Component ---
 
 export default function QualityHubLayout({
   title,
@@ -87,6 +226,7 @@ export default function QualityHubLayout({
   summaryLoading,
   primaryActions,
   secondaryActions,
+  urgencyZone,
   onRefresh,
   refreshing,
   children,
@@ -95,14 +235,45 @@ export default function QualityHubLayout({
   description: string
   summaryItems?: SummaryItem[]
   summaryLoading?: boolean
-  primaryActions: ActionCard[]
+  primaryActions?: ActionCard[]
   secondaryActions?: SecondaryLink[]
+  urgencyZone?: UrgencyZone
   onRefresh?: () => void
   refreshing?: boolean
   children?: React.ReactNode
 }) {
   return (
     <div className="space-y-6">
+      {/* Urgency zone */}
+      {urgencyZone && (
+        <div
+          className={cn(
+            'flex items-center gap-3 rounded-lg border px-4 py-3',
+            urgencyZone.level === 'critical'
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : 'bg-amber-50 border-amber-200 text-amber-800'
+          )}
+        >
+          {urgencyZone.level === 'critical' ? (
+            <AlertCircle className="h-5 w-5 shrink-0" />
+          ) : (
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+          )}
+          <span className="text-sm font-medium flex-1">{urgencyZone.message}</span>
+          {urgencyZone.href && (
+            <Link
+              href={urgencyZone.href}
+              className={cn(
+                'text-sm font-semibold underline underline-offset-2 shrink-0',
+                urgencyZone.level === 'critical' ? 'text-red-700' : 'text-amber-700'
+              )}
+            >
+              Ver →
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -119,91 +290,52 @@ export default function QualityHubLayout({
       {/* Summary strip */}
       {summaryItems && summaryItems.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {summaryItems.map((item) => (
-            <div
-              key={item.label}
-              className="rounded-lg border border-stone-200 bg-white px-4 py-3"
-            >
-              <div className="text-xs text-stone-500 uppercase tracking-wide">{item.label}</div>
-              {summaryLoading ? (
-                <div className="h-7 w-16 bg-stone-100 rounded animate-pulse mt-1" />
-              ) : (
-                <div className="text-2xl font-semibold text-stone-900 mt-0.5 font-mono tabular-nums">
-                  {item.value}
+          {summaryItems.map((item) => {
+            const statusStyles = summaryStatusMap[item.status ?? 'neutral']
+            return (
+              <div
+                key={item.label}
+                className={cn('rounded-lg border px-4 py-3', statusStyles.card)}
+              >
+                <div className={cn('text-xs uppercase tracking-wide', statusStyles.label)}>
+                  {item.label}
                 </div>
-              )}
-            </div>
-          ))}
+                {summaryLoading ? (
+                  <div className="h-7 w-16 bg-stone-100 rounded animate-pulse mt-1" />
+                ) : (
+                  <>
+                    <div
+                      className={cn(
+                        'text-2xl font-semibold mt-0.5 font-mono tabular-nums',
+                        statusStyles.value
+                      )}
+                    >
+                      {item.value}
+                    </div>
+                    {item.hint && (
+                      <div className="text-[11px] text-stone-400 mt-0.5 truncate">{item.hint}</div>
+                    )}
+                  </>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
       {/* Primary action cards */}
-      <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600 mb-3">
-          Acciones principales
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {primaryActions.map((action) => {
-            const colors = colorMap[action.color]
-            const Icon = action.IconComponent
-
-            if (action.comingSoon) {
-              return (
-                <div
-                  key={action.title}
-                  className="flex items-center gap-4 rounded-lg border border-stone-200 bg-white p-4 min-h-[4.5rem] opacity-50 cursor-not-allowed"
-                >
-                  <div
-                    className={cn(
-                      'h-12 w-12 rounded-lg border flex items-center justify-center shrink-0',
-                      colors.bg,
-                      colors.border
-                    )}
-                  >
-                    <Icon className={cn('h-6 w-6', colors.icon)} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-stone-900 flex items-center gap-2">
-                      {action.title}
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                        Pronto
-                      </Badge>
-                    </div>
-                    <div className="text-xs text-stone-600">{action.description}</div>
-                  </div>
-                </div>
-              )
-            }
-
-            return (
-              <Link
-                key={action.title}
-                href={action.href}
-                className="group flex items-center gap-4 rounded-lg border border-stone-200 bg-white p-4 min-h-[4.5rem] hover:bg-stone-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
-              >
-                <div
-                  className={cn(
-                    'h-12 w-12 rounded-lg border flex items-center justify-center shrink-0',
-                    colors.bg,
-                    colors.border
-                  )}
-                >
-                  <Icon className={cn('h-6 w-6', colors.icon)} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className={cn('font-semibold text-stone-900', colors.hover)}>
-                    {action.title}
-                  </div>
-                  <div className="text-xs text-stone-600">{action.description}</div>
-                </div>
-                <ChevronRight
-                  className={cn('h-5 w-5 text-stone-400 shrink-0', colors.chevron)}
-                />
-              </Link>
-            )
-          })}
-        </div>
-      </section>
+      {primaryActions && primaryActions.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600 mb-3">
+            Acciones principales
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {primaryActions.map((action) => (
+              <ActionCardItem key={action.title} action={action} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Secondary tools */}
       {secondaryActions && secondaryActions.length > 0 && (
@@ -239,7 +371,7 @@ export default function QualityHubLayout({
         </section>
       )}
 
-      {/* Custom content (activity feeds, charts, etc.) */}
+      {/* Custom content (activity feeds, area blocks, charts, etc.) */}
       {children}
     </div>
   )

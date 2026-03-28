@@ -11,7 +11,7 @@ import {
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import QualityHubLayout from '@/components/quality/QualityHubLayout'
-import type { ActionCard, SummaryItem, SecondaryLink } from '@/components/quality/QualityHubLayout'
+import type { ActionCard, SummaryItem, SecondaryLink, UrgencyZone } from '@/components/quality/QualityHubLayout'
 
 type RecetasData = {
   recetasActivas: number
@@ -44,29 +44,53 @@ export default function RecetasHub() {
     fetchData()
   }, [fetchData])
 
+  const pendingArkik = data?.solicitudesArkikPendientes ?? 0
+
+  const urgencyZone: UrgencyZone | undefined =
+    !loading && pendingArkik > 0
+      ? {
+          message: `${pendingArkik} ${pendingArkik === 1 ? 'solicitud Arkik pendiente' : 'solicitudes Arkik pendientes'} — esperando revisión y validación`,
+          href: '/quality/arkik-requests',
+          level: 'warning',
+        }
+      : undefined
+
   const summaryItems: SummaryItem[] = [
-    { label: 'Recetas activas', value: data?.recetasActivas ?? '—' },
-    { label: 'Solicitudes Arkik', value: data?.solicitudesArkikPendientes ?? '—' },
+    {
+      label: 'Recetas activas',
+      value: data?.recetasActivas ?? '—',
+      status: 'neutral',
+      hint: currentPlant?.name,
+    },
+    {
+      label: 'Solicitudes Arkik',
+      value: data?.solicitudesArkikPendientes ?? '—',
+      status: loading ? 'neutral' : pendingArkik > 0 ? 'warning' : 'ok',
+      hint: pendingArkik > 0 ? 'en espera de validación' : 'sin pendientes',
+    },
   ]
 
   const primaryActions: ActionCard[] = [
     {
-      title: 'Recetas',
-      description: 'Ver y gestionar recetas de concreto actuales',
-      href: '/quality/recipes',
-      IconComponent: FileText,
-      color: 'sky',
-    },
-    {
       title: 'Solicitudes Arkik',
-      description: 'Importación y validación de recetas desde Arkik',
+      description: 'Importar y validar recetas desde Arkik — revisar pendientes',
       href: '/quality/arkik-requests',
       IconComponent: FileUp,
       color: 'emerald',
+      featured: pendingArkik > 0,
+      badge: pendingArkik > 0 ? pendingArkik : undefined,
+    },
+    {
+      title: 'Recetas',
+      description: 'Ver y gestionar recetas de concreto activas',
+      href: '/quality/recipes',
+      IconComponent: FileText,
+      color: 'sky',
+      featured: pendingArkik === 0,
     },
     {
       title: 'Maestros',
-      description: 'Recetas maestras y configuración base',
+      description: 'Recetas maestras y configuración base de mezclas',
       href: '/masters/recipes',
       IconComponent: Layers,
       color: 'violet',
@@ -82,11 +106,12 @@ export default function RecetasHub() {
   return (
     <QualityHubLayout
       title="Recetas"
-      description="Gestión de recetas, maestros, precios y gobernanza de versiones"
+      description="Gestión del ciclo de vida de recetas: importación, validación, versiones y precios"
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
+      urgencyZone={urgencyZone}
       onRefresh={fetchData}
       refreshing={loading}
     />
