@@ -143,8 +143,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (queryParams.po_id) {
-      console.log('Filtering by po_id:', queryParams.po_id);
-      query = query.eq('po_id', queryParams.po_id);
+      console.log('Filtering by po_id (includes fleet_po_id):', queryParams.po_id);
+      query = query.or(
+        `po_id.eq.${queryParams.po_id},fleet_po_id.eq.${queryParams.po_id}`
+      );
     }
 
     console.log('About to execute query...');

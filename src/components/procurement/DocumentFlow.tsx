@@ -16,13 +16,20 @@ export type LifecycleSummary = {
   alerts: Array<{ id: string; alert_number: string; status: string }>
   lines: Array<{
     item_id: string
+    is_service?: boolean
     material_name: string
     qty_ordered: number
     qty_received: number
+    line_uom?: string | null
     entries: Array<{
       id: string
       entry_number: string | null
+      entry_date?: string | null
+      quantity_received?: number | null
+      received_qty_kg?: number | null
       pricing_status: string | null
+      fleet_qty_entered?: number | null
+      fleet_uom?: string | null
       payables?: Array<{ id: string; invoice_number: string | null; status: string; total: number }>
     }>
   }>

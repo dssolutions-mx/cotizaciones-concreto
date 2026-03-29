@@ -1,9 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+type EntryRow = {
+  id: string;
+  po_item_id: string | null;
+  fleet_po_item_id: string | null;
+  quantity_received: number | null;
+  received_qty_kg: number | null;
+  entry_date: string | null;
+  entry_number: string | null;
+  pricing_status: string | null;
+  supplier_invoice: string | null;
+  fleet_qty_entered: number | null;
+  fleet_uom: string | null;
+};
+
 /**
  * GET /api/po/[id]/lifecycle
  * Procurement lifecycle view: alerts, lines, entries, payables summary.
+ * Material lines link entries via po_item_id; fleet/service lines via fleet_po_id + fleet_po_item_id.
  */
 export async function GET(
   _request: NextRequest,
@@ -46,34 +61,41 @@ export async function GET(
     const { data: items } = await supabase
       .from('purchase_order_items')
       .select(
-        'id, material_id, is_service, qty_ordered, qty_received, unit_price, credit_amount, status, material:materials!material_id (material_name, unit_of_measure)'
+        'id, material_id, is_service, service_description, qty_ordered, qty_received, unit_price, credit_amount, status, uom, material:materials!material_id (material_name, unit_of_measure)'
       )
       .eq('po_id', poId)
       .order('created_at', { ascending: true });
 
     const itemIds = (items || []).map((i) => i.id).filter(Boolean);
-    let entries: {
-      id: string;
-      po_item_id: string | null;
-      quantity_received: number | null;
-      received_qty_kg: number | null;
-      entry_date: string | null;
-      entry_number: string | null;
-      pricing_status: string | null;
-      supplier_invoice: string | null;
-    }[] = [];
+    const entrySelect =
+      'id, po_item_id, fleet_po_id, fleet_po_item_id, quantity_received, received_qty_kg, entry_date, entry_number, pricing_status, supplier_invoice, fleet_qty_entered, fleet_uom';
+
+    const entriesById = new Map<string, EntryRow>();
 
     if (itemIds.length > 0) {
-      const { data: entRows } = await supabase
+      const { data: byPoItem } = await supabase
         .from('material_entries')
-        .select(
-          'id, po_item_id, quantity_received, received_qty_kg, entry_date, entry_number, pricing_status, supplier_invoice'
-        )
+        .select(entrySelect)
         .in('po_item_id', itemIds);
-      entries = entRows || [];
+
+      for (const e of byPoItem || []) {
+        entriesById.set(e.id, e as EntryRow);
+      }
+
+      const { data: byFleet } = await supabase
+        .from('material_entries')
+        .select(entrySelect)
+        .eq('fleet_po_id', poId)
+        .in('fleet_po_item_id', itemIds);
+
+      for (const e of byFleet || []) {
+        entriesById.set(e.id, e as EntryRow);
+      }
     }
 
+    const entries = [...entriesById.values()];
     const entryIds = entries.map((e) => e.id);
+
     let payablesByEntry: Record<string, { id: string; invoice_number: string | null; status: string; total: number }[]> =
       {};
     if (entryIds.length > 0) {
@@ -115,14 +137,22 @@ export async function GET(
     }
 
     const lines = (items || []).map((it) => {
-      const lineEntries = entries.filter((e) => e.po_item_id === it.id);
+      const isService = Boolean(it.is_service);
+      const lineEntries = entries.filter(
+        (e) => e.po_item_id === it.id || e.fleet_po_item_id === it.id
+      );
+      const desc = (it as { service_description?: string | null }).service_description?.trim();
+      const materialName = isService
+        ? desc || 'Servicio'
+        : (it.material as { material_name?: string } | null)?.material_name || '—';
+
       return {
         item_id: it.id,
-        material_name: it.is_service
-          ? 'Servicio'
-          : (it.material as { material_name?: string } | null)?.material_name || '—',
+        is_service: isService,
+        material_name: materialName,
         qty_ordered: Number(it.qty_ordered) || 0,
         qty_received: Number(it.qty_received) || 0,
+        line_uom: (it as { uom?: string | null }).uom || null,
         unit_price: Number(it.unit_price) || 0,
         credit_amount: Number(it.credit_amount) || 0,
         line_status: it.status,
@@ -134,6 +164,8 @@ export async function GET(
           received_qty_kg: e.received_qty_kg,
           pricing_status: e.pricing_status,
           supplier_invoice: e.supplier_invoice,
+          fleet_qty_entered: e.fleet_qty_entered,
+          fleet_uom: e.fleet_uom,
           payables: payablesByEntry[e.id] || [],
         })),
       };

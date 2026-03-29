@@ -4,9 +4,9 @@ import React, { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocumentFlowFromLifecycle, type LifecycleSummary } from '@/components/procurement/DocumentFlow'
+import { productionEntriesUrl } from '@/lib/procurement/navigation'
 
 type LifecycleApiData = LifecycleSummary & { credit_history_total?: number }
-import { productionEntriesUrl } from '@/lib/procurement/navigation'
 
 export default function POLifecycleView({ poId, plantId }: { poId: string; plantId?: string }) {
   const [data, setData] = useState<LifecycleApiData | null>(null)
@@ -45,7 +45,7 @@ export default function POLifecycleView({ poId, plantId }: { poId: string; plant
   return (
     <div className="mb-4 space-y-3">
       <DocumentFlowFromLifecycle data={data} plantId={plantId} />
-      {data.credit_history_total > 0 && (
+      {(data.credit_history_total ?? 0) > 0 && (
         <p className="text-xs text-orange-800 bg-orange-50 border border-orange-200 rounded-md px-2 py-1.5">
           Créditos aplicados en historial (aprox.): {mxn.format(data.credit_history_total)}
         </p>
@@ -56,10 +56,18 @@ export default function POLifecycleView({ poId, plantId }: { poId: string; plant
           <div key={line.item_id} className="rounded-lg border border-stone-200 bg-white p-3 text-sm">
             <div className="font-medium text-stone-900 mb-2">{line.material_name}</div>
             <div className="text-xs text-stone-500 mb-2">
-              Pedido {line.qty_ordered.toLocaleString('es-MX')} · Recibido {line.qty_received.toLocaleString('es-MX')}
+              Pedido {line.qty_ordered.toLocaleString('es-MX')}
+              {line.line_uom ? ` ${line.line_uom}` : ''} · Recibido {line.qty_received.toLocaleString('es-MX')}
+              {line.line_uom ? ` ${line.line_uom}` : ''}
             </div>
             {line.entries.length === 0 ? (
-              <p className="text-xs text-stone-400">Sin entradas registradas para esta línea</p>
+              line.is_service && line.qty_received > 0 ? (
+                <p className="text-xs text-stone-500">
+                  Recepción reflejada solo en la OC (sin filas de entrada en sistema).
+                </p>
+              ) : (
+                <p className="text-xs text-stone-400">Sin entradas registradas para esta línea</p>
+              )
             ) : (
               <ul className="space-y-2">
                 {line.entries.map((e) => (
@@ -74,6 +82,23 @@ export default function POLifecycleView({ poId, plantId }: { poId: string; plant
                       <span className="text-xs text-stone-500 ml-2">
                         Precio: {e.pricing_status === 'pending' ? 'pendiente' : 'revisado'}
                       </span>
+                      {(e.fleet_qty_entered != null && e.fleet_qty_entered !== 0) || e.fleet_uom ? (
+                        <div className="text-[11px] text-stone-500 mt-0.5">
+                          Viaje(s): {e.fleet_qty_entered != null ? e.fleet_qty_entered.toLocaleString('es-MX') : '—'}
+                          {e.fleet_uom ? ` ${e.fleet_uom}` : ''}
+                        </div>
+                      ) : e.received_qty_kg != null && e.received_qty_kg > 0 ? (
+                        <div className="text-[11px] text-stone-500 mt-0.5">
+                          {e.received_qty_kg.toLocaleString('es-MX')} kg recibidos
+                          {e.quantity_received != null && e.quantity_received > 0
+                            ? ` · ${e.quantity_received.toLocaleString('es-MX')} unidades`
+                            : ''}
+                        </div>
+                      ) : e.quantity_received != null && e.quantity_received > 0 ? (
+                        <div className="text-[11px] text-stone-500 mt-0.5">
+                          {e.quantity_received.toLocaleString('es-MX')} unidades recibidas
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {e.payables?.length ? (
