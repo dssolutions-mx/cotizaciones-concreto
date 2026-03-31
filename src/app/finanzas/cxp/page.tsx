@@ -13,8 +13,19 @@ import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
 import {
   DollarSign, AlertTriangle, FileText, Clock, Truck, Package,
-  ExternalLink, Download, X, TrendingUp, LayoutGrid, List,
+  ExternalLink, Download, X, TrendingUp, LayoutGrid, List, Trash2,
 } from 'lucide-react'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import type { Payable, PayableStatus } from '@/types/finance'
 import RecordPaymentModal from '@/components/finanzas/RecordPaymentModal'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -92,6 +103,7 @@ export default function CxpPage() {
   const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
   const payableIdFromUrl = searchParams.get('payable_id') || undefined
   const { availablePlants } = usePlantContext()
+  const { profile } = useAuthSelectors()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -109,8 +121,18 @@ export default function CxpPage() {
   const [sortFlat, setSortFlat] = useState<'due_date' | 'total' | 'supplier' | 'invoice_date'>('due_date')
   const [flatPage, setFlatPage] = useState(0)
   const [flatPageSize, setFlatPageSize] = useState(25)
+  const [payableItemDelete, setPayableItemDelete] = useState<{
+    itemId: string
+    invoiceLabel: string
+  } | null>(null)
+  const [payableItemDeleteLoading, setPayableItemDeleteLoading] = useState(false)
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
+
+  const canDeleteOrphanPayableItems =
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'ADMIN_OPERATIONS' ||
+    profile?.role === 'PLANT_MANAGER'
 
   const hasActiveFilters = plant || supplierFilter || (status !== 'all') || dueFrom || dueTo || invoice || poIdFromUrl
 
@@ -293,6 +315,28 @@ export default function CxpPage() {
     setDueFrom('')
     setDueTo('')
     setInvoice('')
+  }
+
+  const runPayableItemDelete = async () => {
+    if (!payableItemDelete) return
+    setPayableItemDeleteLoading(true)
+    try {
+      const res = await fetch(`/api/ap/payable-items/${payableItemDelete.itemId}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(typeof body.error === 'string' ? body.error : 'No se pudo eliminar la partida')
+        return
+      }
+      toast.success(
+        body.payable_deleted
+          ? 'Partida eliminada. La factura ya no tenía más líneas y se eliminó el registro de CXP.'
+          : 'Partida eliminada. Los totales de la factura se recalcularon.'
+      )
+      setPayableItemDelete(null)
+      setRefreshKey((k) => k + 1)
+    } finally {
+      setPayableItemDeleteLoading(false)
+    }
   }
 
   const exportExcel = async () => {
@@ -860,12 +904,24 @@ export default function CxpPage() {
                                     <div className="space-y-1.5">
                                       {pItems.map((it: any) => {
                                         const fleet = it.cost_category === 'fleet'
+                                        const isOrphanLine = it.entry == null
+                                        const canDeleteThisLine =
+                                          canDeleteOrphanPayableItems &&
+                                          isOrphanLine &&
+                                          p.status === 'open' &&
+                                          (p.amount_paid ?? 0) < 0.005 &&
+                                          (!p.payment_history || p.payment_history.length === 0)
                                         return (
                                           <div key={it.id} className="flex items-center justify-between bg-gray-50 p-2.5 rounded">
                                             <div className="flex items-center gap-3 flex-wrap">
                                               <span className={`text-xs font-medium ${fleet ? 'text-blue-700' : 'text-green-700'}`}>
                                                 {fleet ? 'Flota' : 'Material'}
                                               </span>
+                                              {isOrphanLine && (
+                                                <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-800 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                  Sin entrada
+                                                </span>
+                                              )}
                                               {it.entry?.entry_number && (
                                                 <span className="font-mono text-sm">{it.entry.entry_number}</span>
                                               )}
@@ -902,12 +958,31 @@ export default function CxpPage() {
                                                   P.U.: <b>{mxn.format(Number(it.entry.unit_price))}</b>
                                                 </span>
                                               )}
-                                              <div className="text-right">
-                                                <span className="text-sm font-semibold">{mxn.format(Number(it.amount))}</span>
-                                                {it.entry?.po_item && !fleet && (
-                                                  <div className="text-[10px] text-gray-500 mt-0.5">
-                                                    Avance PO: {Number(it.entry.po_item.qty_received_native ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {Number(it.entry.po_item.qty_ordered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.entry.po_item.uom || ''}
-                                                  </div>
+                                              <div className="text-right flex items-center gap-2 justify-end">
+                                                <div>
+                                                  <span className="text-sm font-semibold">{mxn.format(Number(it.amount))}</span>
+                                                  {it.entry?.po_item && !fleet && (
+                                                    <div className="text-[10px] text-gray-500 mt-0.5">
+                                                      Avance PO: {Number(it.entry.po_item.qty_received_native ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {Number(it.entry.po_item.qty_ordered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.entry.po_item.uom || ''}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                {canDeleteThisLine && (
+                                                  <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                                                    title="Quitar partida huérfana"
+                                                    onClick={() =>
+                                                      setPayableItemDelete({
+                                                        itemId: it.id,
+                                                        invoiceLabel: p.invoice_number || p.id.slice(0, 8),
+                                                      })
+                                                    }
+                                                  >
+                                                    <Trash2 className="h-4 w-4" />
+                                                  </Button>
                                                 )}
                                               </div>
                                             </div>
@@ -1004,6 +1079,37 @@ export default function CxpPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={!!payableItemDelete}
+        onOpenChange={(open) => !open && !payableItemDeleteLoading && setPayableItemDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar partida sin entrada?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Se quitará la línea de la factura <span className="font-mono font-medium text-foreground">{payableItemDelete?.invoiceLabel}</span>.
+                Solo aplica a partidas que no tienen una entrada de inventario vinculada (o la entrada ya no existe), con factura en estado{' '}
+                <strong>Abierto</strong> y sin pagos registrados. Si era la única línea, se eliminará también el registro de CXP.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={payableItemDeleteLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={payableItemDeleteLoading}
+              onClick={(e) => {
+                e.preventDefault()
+                void runPayableItemDelete()
+              }}
+            >
+              {payableItemDeleteLoading ? 'Eliminando…' : 'Eliminar partida'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {selected && (
         <RecordPaymentModal

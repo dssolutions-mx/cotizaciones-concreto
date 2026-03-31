@@ -22,7 +22,7 @@ export type PayableItemCategory = 'material' | 'fleet';
 export interface PayableItem {
   id: string;
   payable_id: string;
-  entry_id: string; // material_entries.id
+  entry_id: string | null; // material_entries.id; null = línea sin recepción vinculada
   amount: number; // net amount (sin IVA)
   cost_category: PayableItemCategory;
   created_at: string;

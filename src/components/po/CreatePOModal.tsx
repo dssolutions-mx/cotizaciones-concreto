@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -91,6 +91,16 @@ export default function CreatePOModal({
   const [plants, setPlants] = useState<Plant[]>([])
   const [loadingPlants, setLoadingPlants] = useState(false)
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const mixedPoToastShownRef = useRef(false)
+  const [fleetLineMix, setFleetLineMix] = useState<{
+    has_fleet_lines: boolean
+    has_material_lines: boolean
+    fleet_only: boolean
+    material_only: boolean
+  } | null>(null)
+  /** Controlled strings so users can type decimals like 0.85 without the field clearing on "0." */
+  const [unitPriceInput, setUnitPriceInput] = useState('')
+  const [qtyInput, setQtyInput] = useState('')
 
   useEffect(() => {
     if (defaultPlantId) setPlantId(defaultPlantId)
@@ -158,19 +168,23 @@ export default function CreatePOModal({
       setItems([])
       setEditingItem(null)
       setIsEditing(false)
+      mixedPoToastShownRef.current = false
+      setFleetLineMix(null)
       resetItemForm()
     }
   }, [open, defaultPlantId])
 
-  // Fetch materials for display names
+  // Fetch materials (with supplier flags when header supplier is chosen — items step)
   useEffect(() => {
     if (plantId) {
-      fetch(`/api/materials?plant_id=${plantId}`)
+      const qs = new URLSearchParams({ plant_id: plantId })
+      if (supplierId) qs.set('supplier_id', supplierId)
+      fetch(`/api/materials?${qs.toString()}`)
         .then(res => res.json())
         .then(data => setMaterials(data.data || []))
         .catch(() => {})
     }
-  }, [plantId])
+  }, [plantId, supplierId])
 
   // Fetch suppliers for material supplier selection (fleet POs)
   useEffect(() => {
@@ -178,13 +192,32 @@ export default function CreatePOModal({
       fetch(`/api/suppliers?plant_id=${plantId}`)
         .then(res => res.json())
         .then(data => {
-          if (data.success && data.data) {
-            setSuppliers(data.data || [])
+          if (data.suppliers) {
+            setSuppliers(data.suppliers || [])
           }
         })
         .catch(() => {})
     }
   }, [plantId])
+
+  // Supplier PO line history hint when adding a service line
+  useEffect(() => {
+    if (!open || !itemForm.is_service || !supplierId || !plantId) {
+      setFleetLineMix(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/suppliers/${supplierId}/po-line-mix?plant_id=${encodeURIComponent(plantId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled || j.error) return
+        if (typeof j.has_fleet_lines === 'boolean') setFleetLineMix(j)
+      })
+      .catch(() => setFleetLineMix(null))
+    return () => {
+      cancelled = true
+    }
+  }, [open, itemForm.is_service, supplierId, plantId])
 
   const resetItemForm = () => {
     setItemForm({
@@ -200,6 +233,22 @@ export default function CreatePOModal({
     })
     setServiceDescription('')
     setMaterialSupplierId('')
+    setUnitPriceInput('')
+    setQtyInput('')
+  }
+
+  const parseQtyFromInput = () => {
+    const t = qtyInput.trim().replace(',', '.')
+    if (t === '') return NaN
+    const n = parseFloat(t)
+    return Number.isNaN(n) ? NaN : n
+  }
+
+  const parsePriceFromInput = () => {
+    const t = unitPriceInput.trim().replace(',', '.')
+    if (t === '') return NaN
+    const n = parseFloat(t)
+    return Number.isNaN(n) ? NaN : n
   }
 
   const handleAddItem = () => {
@@ -211,26 +260,55 @@ export default function CreatePOModal({
       toast.error('Ingrese descripción del servicio')
       return
     }
-    if (itemForm.qty_ordered <= 0) {
+    const qty = parseQtyFromInput()
+    const unitPrice = parsePriceFromInput()
+    if (Number.isNaN(qty) || qty <= 0) {
       toast.error('La cantidad debe ser mayor a 0')
       return
     }
-    if (itemForm.unit_price < 0) {
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
       toast.error('El precio no puede ser negativo')
       return
     }
 
+    if (!itemForm.is_service) {
+      if (items.some((it) => !it.is_service && it.material_id === itemForm.material_id)) {
+        toast.error('Este material ya está en la lista')
+        return
+      }
+    } else {
+      const sd = serviceDescription.trim().toLowerCase()
+      if (items.some((it) => it.is_service && (it.service_description || '').trim().toLowerCase() === sd)) {
+        toast.error('Ya agregó un servicio con la misma descripción')
+        return
+      }
+    }
+
+    if (!mixedPoToastShownRef.current) {
+      const willAddMaterial = !itemForm.is_service
+      const hasService = items.some((i) => i.is_service)
+      const hasMaterial = items.some((i) => !i.is_service)
+      if ((willAddMaterial && hasService) || (!willAddMaterial && hasMaterial)) {
+        toast.info(
+          'Esta OC tendrá materiales y servicios. Si prefiere separarlas, cree dos órdenes distintas.'
+        )
+        mixedPoToastShownRef.current = true
+      }
+    }
+
     const materialName = itemForm.is_service 
-      ? serviceDescription 
+      ? serviceDescription.trim()
       : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
 
     const newItem: POItem = {
       ...itemForm,
       tempId: `temp-${Date.now()}`,
+      qty_ordered: qty,
+      unit_price: unitPrice,
       material_name: materialName,
-      service_description: itemForm.is_service ? serviceDescription : undefined,
+      service_description: itemForm.is_service ? serviceDescription.trim() : undefined,
       material_supplier_id: itemForm.is_service ? materialSupplierId : undefined,
-      total: itemForm.qty_ordered * itemForm.unit_price
+      total: qty * unitPrice
     }
 
     setItems([...items, newItem])
@@ -245,20 +323,61 @@ export default function CreatePOModal({
       toast.error('Seleccione un material')
       return
     }
-    if (itemForm.qty_ordered <= 0) {
+    if (itemForm.is_service && !serviceDescription.trim()) {
+      toast.error('Ingrese descripción del servicio')
+      return
+    }
+    const qty = parseQtyFromInput()
+    const unitPrice = parsePriceFromInput()
+    if (Number.isNaN(qty) || qty <= 0) {
       toast.error('La cantidad debe ser mayor a 0')
       return
     }
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
+      toast.error('El precio no puede ser negativo')
+      return
+    }
+
+    if (!itemForm.is_service) {
+      if (
+        items.some(
+          (it) =>
+            it.tempId !== editingItem.tempId &&
+            !it.is_service &&
+            it.material_id === itemForm.material_id
+        )
+      ) {
+        toast.error('Este material ya está en la lista')
+        return
+      }
+    } else {
+      const sd = serviceDescription.trim().toLowerCase()
+      if (
+        items.some(
+          (it) =>
+            it.tempId !== editingItem.tempId &&
+            it.is_service &&
+            (it.service_description || '').trim().toLowerCase() === sd
+        )
+      ) {
+        toast.error('Ya agregó un servicio con la misma descripción')
+        return
+      }
+    }
 
     const materialName = itemForm.is_service 
-      ? 'Servicio de Flota' 
+      ? serviceDescription.trim()
       : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
 
     const updatedItem: POItem = {
       ...itemForm,
       tempId: editingItem.tempId,
+      qty_ordered: qty,
+      unit_price: unitPrice,
       material_name: materialName,
-      total: itemForm.qty_ordered * itemForm.unit_price
+      service_description: itemForm.is_service ? serviceDescription.trim() : undefined,
+      material_supplier_id: itemForm.is_service ? materialSupplierId : undefined,
+      total: qty * unitPrice
     }
 
     setItems(items.map(it => it.tempId === editingItem.tempId ? updatedItem : it))
@@ -273,6 +392,8 @@ export default function CreatePOModal({
     setItemForm({ ...item })
     setServiceDescription(item.service_description || '')
     setMaterialSupplierId(item.material_supplier_id || '')
+    setUnitPriceInput(item.unit_price === 0 ? '' : String(item.unit_price))
+    setQtyInput(item.qty_ordered === 0 ? '' : String(item.qty_ordered))
     setIsEditing(true)
   }
 
@@ -310,6 +431,7 @@ export default function CreatePOModal({
 
       const { purchase_order } = await resHeader.json()
       const poId = purchase_order.id
+      const poNumber = purchase_order.po_number as string | undefined
 
       // Create items
       const itemPromises = items.map(item => {
@@ -322,7 +444,8 @@ export default function CreatePOModal({
 
         // Add service or material fields
         if (item.is_service) {
-          payload.service_description = item.service_description
+          const sd = (item.service_description ?? '').trim()
+          payload.service_description = sd
           if (item.material_supplier_id) {
             payload.material_supplier_id = item.material_supplier_id
           }
@@ -346,9 +469,13 @@ export default function CreatePOModal({
       const failures = itemResults.filter(r => !r.ok)
       
       if (failures.length > 0) {
-        toast.warning(`PO creado, pero ${failures.length} ítem(s) fallaron`)
+        const firstErr = await failures[0].json().catch(() => ({}))
+        toast.warning(
+          `OC creada, pero ${failures.length} ítem(s) fallaron${firstErr?.error ? `: ${firstErr.error}` : ''}`
+        )
       } else {
-        toast.success(`PO #${poId.slice(0,8)} creado con ${items.length} ítem(s)`)
+        const label = poNumber || `OC ${poId.slice(0, 8)}`
+        toast.success(`${label} creada con ${items.length} ítem(s)`)
       }
 
       if (prefillFromAlert?.alertId) {
@@ -381,6 +508,22 @@ export default function CreatePOModal({
 
   const subtotal = items.reduce((sum, it) => sum + it.total, 0)
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
+  const plantName = plants.find((p) => p.id === plantId)?.name
+  const linePreviewTotal = (() => {
+    const q = parseQtyFromInput()
+    const p = parsePriceFromInput()
+    const qq = Number.isNaN(q) ? 0 : q
+    const pp = Number.isNaN(p) ? 0 : p
+    return qq * pp
+  })()
+  const selectedMaterialRow = materials.find((m) => m.id === itemForm.material_id)
+  const showNoSupplierLinkWarning =
+    Boolean(supplierId) &&
+    !itemForm.is_service &&
+    Boolean(itemForm.material_id) &&
+    selectedMaterialRow &&
+    !selectedMaterialRow.has_supplier_agreement &&
+    !selectedMaterialRow.has_po_history_with_supplier
 
   if (!open) return null
 
@@ -440,6 +583,7 @@ export default function CreatePOModal({
                         value={supplierId} 
                         onChange={setSupplierId}
                         plantId={plantId || undefined}
+                        plantName={plantName}
                       />
                     </div>
                   </div>
@@ -499,8 +643,7 @@ export default function CreatePOModal({
                   Las listas de precio del catálogo sirven de referencia al cotizar; <strong>no reemplazan</strong> el precio negociado en la OC.
                 </p>
                 <p>
-                  <strong>Material</strong> consume inventario; <strong>Servicio (flota)</strong> cubre transporte u otros servicios sin material (p. ej. viajes, toneladas). Vea el documento técnico en el repositorio:{' '}
-                  <code className="rounded bg-amber-100/80 px-1 py-0.5 text-[11px]">docs/ERP_PROCUREMENT_SYSTEM_DATABASE_OVERVIEW.md</code> (sección PO e <code className="text-[11px]">is_service</code>).
+                  <strong>Material</strong> consume inventario al recibir. <strong>Servicio (flota)</strong> cubre transporte u otros servicios sin material (por ejemplo viajes, toneladas).
                 </p>
               </div>
               {/* Items List */}
@@ -510,10 +653,15 @@ export default function CreatePOModal({
                 </CardHeader>
                 <CardContent>
                   {items.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500">
+                    <div className="text-center py-12 text-gray-500 max-w-md mx-auto">
                       <Package className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p>No hay ítems agregados</p>
-                      <p className="text-sm">Agregue materiales o servicios abajo</p>
+                      <p className="font-medium text-gray-700 mb-2">Aún no hay ítems</p>
+                      <ol className="text-sm text-left list-decimal pl-5 space-y-1 text-gray-600">
+                        <li>Seleccione tipo: <strong>Material</strong> o <strong>Servicio</strong> (flota/transporte).</li>
+                        <li>Elija un material del catálogo o escriba la descripción del servicio.</li>
+                        <li>Indique cantidad, unidad de medida y precio unitario acordado.</li>
+                        <li>Use <strong>Agregar ítem</strong> y repita si necesita más líneas.</li>
+                      </ol>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -605,6 +753,8 @@ export default function CreatePOModal({
                               uom: isService ? 'trips' : 'kg' 
                             }))
                             if (!isService) setServiceDescription('')
+                            setUnitPriceInput('')
+                            setQtyInput('')
                           }}
                         >
                           <SelectTrigger className="text-base">
@@ -629,6 +779,16 @@ export default function CreatePOModal({
                               placeholder="Ej: Transporte de cemento, Flete viaje sencillo, etc."
                               className="text-base"
                             />
+                            {fleetLineMix?.fleet_only && (
+                              <p className="mt-2 text-xs text-sky-900 bg-sky-50 border border-sky-100 rounded px-2 py-1.5">
+                                Este proveedor se usa habitualmente para flota en esta planta.
+                              </p>
+                            )}
+                            {fleetLineMix?.material_only && (
+                              <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+                                Este proveedor no tiene historial de servicios de flota con esta planta; confirme que el servicio corresponda.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -658,27 +818,16 @@ export default function CreatePOModal({
                           </Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.qty_ordered || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, qty_ordered: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, qty_ordered: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={qtyInput}
+                              onChange={(e) => setQtyInput(e.target.value)}
                               placeholder="0"
                               className="text-base"
                             />
-                            {itemForm.qty_ordered > 0 && (
+                            {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
                               <p className="mt-1 text-xs text-gray-500">
-                                {itemForm.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {itemForm.uom || 'viajes'}
+                                {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
+                                {itemForm.uom || 'viajes'}
                               </p>
                             )}
                           </div>
@@ -688,28 +837,14 @@ export default function CreatePOModal({
                           <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.unit_price || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, unit_price: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, unit_price: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={unitPriceInput}
+                              onChange={(e) => setUnitPriceInput(e.target.value)}
                               placeholder="0.00"
                               className="text-base"
                             />
-                            {itemForm.unit_price > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
-                                {mxn.format(itemForm.unit_price)}
-                              </p>
+                            {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
+                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
@@ -733,6 +868,7 @@ export default function CreatePOModal({
                               value={materialSupplierId}
                               onChange={setMaterialSupplierId}
                               plantId={plantId || undefined}
+                              plantName={plantName}
                             />
                             <p className="mt-1 text-xs text-gray-500">
                               Seleccione el proveedor de material para el cual este servicio de flota aplica
@@ -749,11 +885,17 @@ export default function CreatePOModal({
                               value={itemForm.material_id || ''}
                               onChange={(v: string) => setItemForm(f => ({ ...f, material_id: v }))}
                               plantId={plantId || undefined}
+                              supplierId={supplierId || undefined}
                             />
                             {supplierId && (
                               <p className="mt-1 text-xs text-gray-500">
-                                Este PO es para {suppliers.find(s => s.id === supplierId)?.name || 'el proveedor seleccionado'}. 
-                                Si el material viene de otro proveedor, considere crear un PO separado.
+                                Esta OC es para {suppliers.find(s => s.id === supplierId)?.name || 'el proveedor seleccionado'}. 
+                                Si el material viene de otro proveedor, considere crear una OC separada.
+                              </p>
+                            )}
+                            {showNoSupplierLinkWarning && (
+                              <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+                                Sin acuerdo de proveedor ni historial de compras previas con este material y proveedor. Verifique que sea correcto.
                               </p>
                             )}
                           </div>
@@ -804,27 +946,16 @@ export default function CreatePOModal({
                           </Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.qty_ordered || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, qty_ordered: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, qty_ordered: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={qtyInput}
+                              onChange={(e) => setQtyInput(e.target.value)}
                               placeholder="0"
                               className="text-base"
                             />
-                            {itemForm.qty_ordered > 0 && (
+                            {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
                               <p className="mt-1 text-xs text-gray-500">
-                                {itemForm.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {itemForm.uom || 'kg'}
+                                {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
+                                {itemForm.uom || 'kg'}
                               </p>
                             )}
                           </div>
@@ -834,28 +965,14 @@ export default function CreatePOModal({
                           <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.unit_price || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, unit_price: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, unit_price: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={unitPriceInput}
+                              onChange={(e) => setUnitPriceInput(e.target.value)}
                               placeholder="0.00"
                               className="text-base"
                             />
-                            {itemForm.unit_price > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
-                                {mxn.format(itemForm.unit_price)}
-                              </p>
+                            {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
+                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
@@ -879,7 +996,7 @@ export default function CreatePOModal({
                         <div className="flex items-baseline justify-between">
                           <div className="text-sm font-medium text-gray-600">Total del Ítem</div>
                           <div className="text-3xl font-semibold text-gray-900 tabular-nums">
-                            {mxn.format((itemForm.qty_ordered || 0) * (itemForm.unit_price || 0))}
+                            {mxn.format(linePreviewTotal)}
                           </div>
                         </div>
                       </div>

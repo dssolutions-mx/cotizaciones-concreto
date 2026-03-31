@@ -73,6 +73,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     insertPayload.material_supplier_id = payload.material_supplier_id;
   }
 
+  const { data: existingRows } = await supabase
+    .from('purchase_order_items')
+    .select('id, material_id, service_description, is_service')
+    .eq('po_id', id);
+
+  if (payload.is_service) {
+    const norm = (payload.service_description ?? '').trim().toLowerCase();
+    const dup = (existingRows || []).some(
+      (e: { is_service?: boolean; service_description?: string | null }) =>
+        Boolean(e.is_service) && (e.service_description ?? '').trim().toLowerCase() === norm
+    );
+    if (dup) {
+      return NextResponse.json(
+        { error: 'Ya existe una línea de servicio con la misma descripción en esta OC' },
+        { status: 409 }
+      );
+    }
+  } else if (payload.material_id) {
+    const dup = (existingRows || []).some(
+      (e: { is_service?: boolean; material_id?: string | null }) =>
+        !e.is_service && e.material_id === payload.material_id
+    );
+    if (dup) {
+      return NextResponse.json(
+        { error: 'Este material ya está en la orden de compra' },
+        { status: 409 }
+      );
+    }
+  }
+
   const { data, error } = await supabase
     .from('purchase_order_items')
     .insert(insertPayload)

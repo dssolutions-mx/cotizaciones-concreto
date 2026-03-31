@@ -15,8 +15,19 @@ import Link from 'next/link'
 import {
   Package, Truck, ChevronDown, ChevronUp, Edit2, ExternalLink,
   FileText, AlertTriangle, DollarSign, Clock, TrendingDown,
-  ShoppingCart, Download, X, Search, CalendarDays, BookOpen, HelpCircle,
+  ShoppingCart, Download, X, Search, CalendarDays, BookOpen, HelpCircle, Trash2,
 } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
 import POLifecycleView from '@/components/po/POLifecycleView'
@@ -195,6 +206,8 @@ export default function PurchaseOrdersPage() {
   const [relatedPayablesCount, setRelatedPayablesCount] = useState<Record<string, number>>({})
   const [linkedAlertsByPo, setLinkedAlertsByPo] = useState<Record<string, MaterialAlert[] | undefined>>({})
   const [linkedAlertsLoading, setLinkedAlertsLoading] = useState<Record<string, boolean>>({})
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [totalCount, setTotalCount] = useState(0)
@@ -344,6 +357,61 @@ export default function PurchaseOrdersPage() {
     setDateFrom('')
     setDateTo('')
     setPoSearch('')
+  }
+
+  const confirmDeletePo = async () => {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    setDeleteLoading(true)
+    try {
+      const res = await fetch(`/api/po/${id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(typeof body.error === 'string' ? body.error : 'No se pudo eliminar la orden de compra')
+        return
+      }
+      toast.success('Orden de compra eliminada')
+      setDeleteTarget(null)
+      setPos((prev) => prev.filter((p) => p.id !== id))
+      setTotalCount((c) => Math.max(0, c - 1))
+      setBatchSummaries((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setAlertCounts((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setPoSummaries((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setRelatedPayablesCount((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setPoItems((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      setLinkedAlertsByPo((prev) => {
+        const n = { ...prev }
+        delete n[id]
+        return n
+      })
+      if (expandedPo === id) setExpandedPo(null)
+      if (selectedPoId === id) {
+        setSelectedPoId(null)
+        setEditOpen(false)
+      }
+    } finally {
+      setDeleteLoading(false)
+    }
   }
 
   const exportExcel = async () => {
@@ -763,17 +831,33 @@ export default function PurchaseOrdersPage() {
                               : <><ChevronDown className="h-4 w-4 mr-1" />Detalle</>}
                           </Button>
                           {canCreateOrEditPO && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 px-2"
-                              onClick={() => {
-                                setSelectedPoId(po.id)
-                                setEditOpen(true)
-                              }}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2"
+                                onClick={() => {
+                                  setSelectedPoId(po.id)
+                                  setEditOpen(true)
+                                }}
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                title="Eliminar solo si no hay entradas ni partidas CXP en las líneas"
+                                onClick={() =>
+                                  setDeleteTarget({
+                                    id: po.id,
+                                    label: po.po_number || po.id.slice(0, 8),
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1002,6 +1086,34 @@ export default function PurchaseOrdersPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleteLoading && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar orden de compra?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Se eliminará la OC <span className="font-mono font-medium text-foreground">{deleteTarget?.label}</span> y sus
+                líneas. Solo es posible si no hay entradas de inventario vinculadas y no hay partidas de cuentas por pagar
+                asociadas a esas líneas. Las alertas que apuntaban a esta OC quedarán sin vínculo.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteLoading}
+              onClick={(e) => {
+                e.preventDefault()
+                void confirmDeletePo()
+              }}
+            >
+              {deleteLoading ? 'Eliminando…' : 'Eliminar definitivamente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <CreatePOModal
         open={createOpen}

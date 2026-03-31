@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
+    const supplierId = searchParams.get('supplier_id');
     const activeParam = searchParams.get('active');
 
     // Build query for materials
@@ -55,7 +56,50 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch materials' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: materials });
+    let augmented = materials || [];
+
+    // Optional: enrich with supplier agreement + PO history flags for PO creation UX
+    if (supplierId && plantId && augmented.length > 0) {
+      const { data: agreements } = await supabase
+        .from('supplier_agreements')
+        .select('material_id')
+        .eq('supplier_id', supplierId)
+        .eq('is_service', false)
+        .is('effective_to', null)
+        .not('material_id', 'is', null);
+
+      const agreementSet = new Set(
+        (agreements || []).map((a: { material_id?: string }) => a.material_id).filter(Boolean) as string[]
+      );
+
+      const { data: pos } = await supabase
+        .from('purchase_orders')
+        .select('id')
+        .eq('supplier_id', supplierId)
+        .eq('plant_id', plantId);
+
+      const poIds = (pos || []).map((p: { id: string }) => p.id);
+      const historySet = new Set<string>();
+      if (poIds.length > 0) {
+        const { data: lines } = await supabase
+          .from('purchase_order_items')
+          .select('material_id')
+          .in('po_id', poIds)
+          .not('material_id', 'is', null);
+        for (const l of lines || []) {
+          const mid = (l as { material_id?: string }).material_id;
+          if (mid) historySet.add(mid);
+        }
+      }
+
+      augmented = augmented.map((m: Record<string, unknown> & { id: string }) => ({
+        ...m,
+        has_supplier_agreement: agreementSet.has(m.id),
+        has_po_history_with_supplier: historySet.has(m.id),
+      }));
+    }
+
+    return NextResponse.json({ success: true, data: augmented });
   } catch (error) {
     console.error('Error in materials API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

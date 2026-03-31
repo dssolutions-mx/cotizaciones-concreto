@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -28,6 +28,9 @@ interface Material {
   unit_of_measure: string
   is_active: boolean
   plant_id?: string
+  /** Set when fetching with supplier_id (PO flow). */
+  has_supplier_agreement?: boolean
+  has_po_history_with_supplier?: boolean
 }
 
 interface MaterialSelectProps {
@@ -36,6 +39,8 @@ interface MaterialSelectProps {
   required?: boolean
   disabled?: boolean
   plantId?: string
+  /** When set, materials are grouped (acuerdo vs otros) and enriched with agreement/history flags. */
+  supplierId?: string
 }
 
 export default function MaterialSelect({
@@ -44,6 +49,7 @@ export default function MaterialSelect({
   required: _required = false,
   disabled = false,
   plantId,
+  supplierId,
 }: MaterialSelectProps) {
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,14 +64,16 @@ export default function MaterialSelect({
       setMaterials([])
       setLoading(false)
     }
-  }, [plantId])
+  }, [plantId, supplierId])
 
   const fetchMaterials = async () => {
     if (!plantId) return
 
     try {
       setLoading(true)
-      const response = await fetch(`/api/materials?plant_id=${plantId}`)
+      const qs = new URLSearchParams({ plant_id: plantId })
+      if (supplierId) qs.set('supplier_id', supplierId)
+      const response = await fetch(`/api/materials?${qs.toString()}`)
       if (response.ok) {
         const data = await response.json()
         const materialsArray = data.data || data.materials || []
@@ -112,6 +120,77 @@ export default function MaterialSelect({
       return acc
     },
     {} as Record<string, Material[]>
+  )
+
+  const { agreementMaterials, otherMaterials } = useMemo(() => {
+    if (!supplierId) {
+      return { agreementMaterials: [] as Material[], otherMaterials: [] as Material[] }
+    }
+    const sortByName = (a: Material, b: Material) =>
+      a.material_name.localeCompare(b.material_name, 'es', { sensitivity: 'base' })
+    const ag = filteredMaterials.filter((m) => m.has_supplier_agreement)
+    const ot = filteredMaterials.filter((m) => !m.has_supplier_agreement)
+    return {
+      agreementMaterials: [...ag].sort(sortByName),
+      otherMaterials: [...ot].sort(sortByName),
+    }
+  }, [filteredMaterials, supplierId])
+
+  const renderMaterialItem = (material: Material) => (
+    <CommandItem
+      key={material.id}
+      value={material.id}
+      onSelect={(currentValue) => {
+        onChange(currentValue === value ? '' : currentValue)
+        setOpen(false)
+        setSearchValue('')
+        setSelectedCategory('all')
+      }}
+      className="cursor-pointer"
+    >
+      <div className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-stone-50">
+        <Check
+          className={cn(
+            'h-4 w-4 shrink-0',
+            value === material.id ? 'opacity-100 text-sky-800' : 'opacity-0'
+          )}
+        />
+        <Package className="h-5 w-5 text-stone-400 shrink-0" />
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            {material.material_code && (
+              <Badge variant="secondary" className="font-mono text-xs bg-stone-100 text-stone-800">
+                <Hash className="h-3 w-3 mr-1" />
+                {material.material_code}
+              </Badge>
+            )}
+            <span className="font-medium text-stone-900 truncate">{material.material_name}</span>
+            {supplierId && material.has_supplier_agreement && (
+              <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-900 border-emerald-200">
+                Acuerdo
+              </Badge>
+            )}
+            {supplierId && !material.has_supplier_agreement && material.has_po_history_with_supplier && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-stone-300">
+                OC previa
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-stone-500 flex-wrap">
+            <Badge variant="outline" className="text-xs border-stone-200">
+              {material.category}
+            </Badge>
+            {material.subcategory && (
+              <Badge variant="outline" className="text-xs border-stone-200">
+                {material.subcategory}
+              </Badge>
+            )}
+            <span className="text-stone-400">•</span>
+            <span className="font-mono text-stone-600">{material.unit_of_measure}</span>
+          </div>
+        </div>
+      </div>
+    </CommandItem>
   )
 
   if (!plantId) {
@@ -209,56 +288,28 @@ export default function MaterialSelect({
               </div>
             </CommandEmpty>
 
-            {Object.entries(groupedMaterials).map(([category, categoryMaterials]) => (
-              <CommandGroup key={category} heading={category.toUpperCase()}>
-                {categoryMaterials.map((material) => (
-                  <CommandItem
-                    key={material.id}
-                    value={material.id}
-                    onSelect={(currentValue) => {
-                      onChange(currentValue === value ? '' : currentValue)
-                      setOpen(false)
-                      setSearchValue('')
-                      setSelectedCategory('all')
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3 w-full p-2 rounded-md hover:bg-stone-50">
-                      <Check
-                        className={cn(
-                          'h-4 w-4 shrink-0',
-                          value === material.id ? 'opacity-100 text-sky-800' : 'opacity-0'
-                        )}
-                      />
-                      <Package className="h-5 w-5 text-stone-400 shrink-0" />
-                      <div className="flex flex-col flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          {material.material_code && (
-                            <Badge variant="secondary" className="font-mono text-xs bg-stone-100 text-stone-800">
-                              <Hash className="h-3 w-3 mr-1" />
-                              {material.material_code}
-                            </Badge>
-                          )}
-                          <span className="font-medium text-stone-900 truncate">{material.material_name}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-stone-500 flex-wrap">
-                          <Badge variant="outline" className="text-xs border-stone-200">
-                            {material.category}
-                          </Badge>
-                          {material.subcategory && (
-                            <Badge variant="outline" className="text-xs border-stone-200">
-                              {material.subcategory}
-                            </Badge>
-                          )}
-                          <span className="text-stone-400">•</span>
-                          <span className="font-mono text-stone-600">{material.unit_of_measure}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
+            {supplierId ? (
+              <>
+                {agreementMaterials.length > 0 && (
+                  <CommandGroup heading="Materiales con acuerdo con este proveedor">
+                    {agreementMaterials.map((m) => renderMaterialItem(m))}
+                  </CommandGroup>
+                )}
+                <CommandGroup
+                  heading={
+                    agreementMaterials.length > 0 ? 'Otros materiales' : 'Materiales'
+                  }
+                >
+                  {otherMaterials.map((m) => renderMaterialItem(m))}
+                </CommandGroup>
+              </>
+            ) : (
+              Object.entries(groupedMaterials).map(([category, categoryMaterials]) => (
+                <CommandGroup key={category} heading={category.toUpperCase()}>
+                  {categoryMaterials.map((material) => renderMaterialItem(material))}
+                </CommandGroup>
+              ))
+            )}
           </CommandList>
 
           <div className="border-t border-stone-200 p-2 bg-stone-50/90">
