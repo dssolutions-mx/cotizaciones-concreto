@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -384,7 +384,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }

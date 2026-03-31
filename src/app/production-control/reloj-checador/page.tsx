@@ -139,7 +139,7 @@ export default function RelojChecadorPage() {
   }
 
   return (
-    <RoleGuard allowedRoles={['DOSIFICADOR', 'EXECUTIVE', 'ADMIN_OPERATIONS']}>
+    <RoleGuard allowedRoles={['DOSIFICADOR', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR']}>
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-6 space-y-8">
         <InventoryBreadcrumb />

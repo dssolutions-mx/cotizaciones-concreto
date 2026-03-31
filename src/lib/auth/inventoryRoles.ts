@@ -8,13 +8,18 @@ export const INVENTORY_STANDARD_ROLES = [
   'PLANT_MANAGER',
   'DOSIFICADOR',
   'ADMIN_OPERATIONS',
+  'CREDIT_VALIDATOR',
 ] as const
 
 export type InventoryStandardRole = (typeof INVENTORY_STANDARD_ROLES)[number]
 
 /** Roles that may scope by query param plant_id (cross-plant read) when profile.plant_id is null */
 export function isGlobalInventoryRole(role: string | undefined): boolean {
-  return role === 'EXECUTIVE' || role === 'ADMIN_OPERATIONS'
+  return (
+    role === 'EXECUTIVE' ||
+    role === 'ADMIN_OPERATIONS' ||
+    role === 'CREDIT_VALIDATOR'
+  )
 }
 
 export function hasInventoryStandardAccess(role: string | undefined): boolean {

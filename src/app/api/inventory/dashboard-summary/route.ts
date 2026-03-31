@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { DashboardMaterialSummary, MaterialHealth } from '@/types/inventoryDashboard';
+import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
 function computeHealth(
   stock: number,
@@ -46,15 +47,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 });
     }
 
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'];
-    if (!allowedRoles.includes(profile.role)) {
+    const canView =
+      hasInventoryStandardAccess(profile.role) || profile.role === 'ADMINISTRATIVE';
+    if (!canView) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
     let plantId = searchParams.get('plant_id') || profile.plant_id;
 
-    if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS' && plantId !== profile.plant_id) {
+    if (!isGlobalInventoryRole(profile.role) && plantId !== profile.plant_id) {
       plantId = profile.plant_id;
     }
 

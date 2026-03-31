@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 403 });
     }
 
-    const allowed = ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'];
+    const allowed = ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowed.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para solicitar material' }, { status: 403 });
     }
@@ -45,7 +45,12 @@ export async function POST(request: NextRequest) {
 
     const { plant_id, material_id, notes, estimated_need_kg } = parsed.data;
 
-    if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS' && plant_id !== profile.plant_id) {
+    if (
+      profile.role !== 'EXECUTIVE' &&
+      profile.role !== 'ADMIN_OPERATIONS' &&
+      profile.role !== 'CREDIT_VALIDATOR' &&
+      plant_id !== profile.plant_id
+    ) {
       return NextResponse.json({ error: 'No puede crear solicitudes para otra planta' }, { status: 403 });
     }
 

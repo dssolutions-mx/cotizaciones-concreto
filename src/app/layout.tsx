@@ -381,7 +381,7 @@ const CANONICAL_NAV_ITEMS: NavItemDef[] = [
   { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
   { href: '/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
-  { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'] },
   { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
   { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
   { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
