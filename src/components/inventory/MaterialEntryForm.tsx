@@ -20,6 +20,8 @@ import {
   X,
   ChevronDown,
   ClipboardList,
+  Calendar,
+  Truck,
 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -31,17 +33,25 @@ import type { MaterialAlert } from '@/types/alerts'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
-import { format } from 'date-fns'
+import { format, isToday, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 
-const FULFILLMENT_LINKABLE_STATUSES = new Set<MaterialAlert['status']>([
-  'confirmed',
-  'pending_validation',
-  'validated',
-  'pending_po',
-  'po_linked',
-  'delivery_scheduled',
-])
+/** Dosificador: solo cerrar solicitudes ya coordinadas con OC (admins preparan la OC antes) */
+const DOSIFICADOR_FULFILLMENT_STATUSES = new Set<MaterialAlert['status']>(['po_linked', 'delivery_scheduled'])
+
+function normalizeAlertLinkedPo(
+  a: MaterialAlert
+): NonNullable<MaterialAlert['linked_po']> | null {
+  const raw = (a as { linked_po?: unknown }).linked_po
+  if (!raw) return null
+  const row = (Array.isArray(raw) ? raw[0] : raw) as NonNullable<MaterialAlert['linked_po']>
+  if (!row?.id) return null
+  const sup = row.supplier as unknown
+  const supplier = (Array.isArray(sup) ? sup[0] : sup) as NonNullable<
+    MaterialAlert['linked_po']
+  >['supplier']
+  return { ...row, supplier: supplier ?? null }
+}
 
 /** PO snapshot for dosificador: no prices (from GET /api/po/[id]/receipt-context). */
 type DosificadorReceiptPo = {
@@ -80,6 +90,21 @@ const ALERT_STATUS_SHORT: Partial<Record<MaterialAlert['status'], string>> = {
   delivery_scheduled: 'Entrega programada',
 }
 
+function sortAlertsForEntry(alerts: MaterialAlert[]): MaterialAlert[] {
+  const today = new Date().toISOString().slice(0, 10)
+  return [...alerts].sort((x, y) => {
+    const xd = x.scheduled_delivery_date?.slice(0, 10)
+    const yd = y.scheduled_delivery_date?.slice(0, 10)
+    const xToday = xd === today ? 0 : 1
+    const yToday = yd === today ? 0 : 1
+    if (xToday !== yToday) return xToday - yToday
+    if (xd && yd) return xd.localeCompare(yd)
+    if (xd && !yd) return -1
+    if (!xd && yd) return 1
+    return new Date(x.created_at).getTime() - new Date(y.created_at).getTime()
+  })
+}
+
 interface MaterialEntryFormProps {
   onSuccess?: () => void
 }
@@ -89,6 +114,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const { currentPlant } = usePlantContext()
   const searchParams = useSearchParams()
   const urlMaterialApplied = useRef(false)
+  const urlAlertLock = useRef(false)
   
   // Check if user is DOSIFICADOR for simplified form
   const isDosificador = profile?.role === 'DOSIFICADOR'
@@ -146,12 +172,37 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   /** supplier_id last applied from linked PO — ref avoids re-fetch loops in useEffect */
   const supplierAutoFromPoRef = useRef<string | null>(null)
   const [dosificadorSupplierOverride, setDosificadorSupplierOverride] = useState(false)
+  const [fleetPoHeader, setFleetPoHeader] = useState<{ po_number: string | null } | null>(null)
+  /** Evita sobrescribir la cantidad al re-render cuando el usuario ya ajustó el valor */
+  const dosificadorQtyPrefillKeyRef = useRef<string>('')
 
   const selectedFulfillmentAlert = useMemo(
     () => fulfillmentAlerts.find((a) => a.id === selectedFulfillmentAlertId),
     [fulfillmentAlerts, selectedFulfillmentAlertId]
   )
   const selectedAlertExistingPoId = selectedFulfillmentAlert?.existing_po_id ?? null
+
+  const dosificadorPoLineForMaterial = useMemo(() => {
+    if (!dosificadorReceiptContext?.items?.length || !formData.material_id) return null
+    return (
+      dosificadorReceiptContext.items.find((i) => i.material_id === formData.material_id) ??
+      dosificadorReceiptContext.items[0] ??
+      null
+    )
+  }, [dosificadorReceiptContext, formData.material_id])
+
+  const dosificadorSummaryMaterialName = useMemo(() => {
+    const fromSel = selectedFulfillmentAlert?.material?.material_name
+    if (fromSel) return fromSel
+    const a = fulfillmentAlerts.find((x) => x.material_id === formData.material_id)
+    return (a?.material as { material_name?: string } | undefined)?.material_name ?? '—'
+  }, [selectedFulfillmentAlert, fulfillmentAlerts, formData.material_id])
+
+  const dosificadorSummarySupplierName = useMemo(() => {
+    if (dosificadorReceiptContext?.po.supplier?.name) return dosificadorReceiptContext.po.supplier.name
+    const lp = selectedFulfillmentAlert ? normalizeAlertLinkedPo(selectedFulfillmentAlert) : null
+    return lp?.supplier?.name ?? (formData.supplier_id ? 'Proveedor seleccionado' : '—')
+  }, [dosificadorReceiptContext, selectedFulfillmentAlert, formData.supplier_id])
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
@@ -204,13 +255,16 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       }
     }
     
+    urlAlertLock.current = false
     setFormData(prev => ({ ...prev, material_id: materialId }))
     setFulfillmentAlerts([])
     setSelectedFulfillmentAlertId('')
     setEntrySuccessInfo(null)
+    setFleetPoHeader(null)
     supplierAutoFromPoRef.current = null
     setDosificadorReceiptContext(null)
     setDosificadorSupplierOverride(false)
+    dosificadorQtyPrefillKeyRef.current = ''
 
     const plantId = currentPlant?.id || profile?.plant_id;
 
@@ -231,7 +285,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             )
             const json = ar.ok ? await ar.json() : null
             const all = (json?.data || []) as MaterialAlert[]
-            const linkable = all.filter((a) => FULFILLMENT_LINKABLE_STATUSES.has(a.status))
+            const linkable = sortAlertsForEntry(
+              all.filter((a) => DOSIFICADOR_FULFILLMENT_STATUSES.has(a.status))
+            )
             setFulfillmentAlerts(linkable)
             if (linkable.length === 1) {
               setSelectedFulfillmentAlertId(linkable[0].id)
@@ -251,8 +307,10 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             )
             const json = ar.ok ? await ar.json() : null
             const all = (json?.data || []) as MaterialAlert[]
-            const linkable = all.filter((a) =>
-              ['delivery_scheduled', 'po_linked', 'validated', 'pending_po'].includes(a.status)
+            const linkable = sortAlertsForEntry(
+              all.filter((a) =>
+                ['delivery_scheduled', 'po_linked', 'validated', 'pending_po'].includes(a.status)
+              )
             )
             setFulfillmentAlerts(linkable)
             setSelectedFulfillmentAlertId('')
@@ -359,6 +417,18 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     }
   }, [isDosificador, selectedFulfillmentAlertId, selectedAlertExistingPoId, formData.material_id])
 
+  /** Sugerir cantidad (kg) desde saldo pendiente en OC cuando la partida es en kg */
+  useEffect(() => {
+    if (!isDosificador || !dosificadorPoLineForMaterial || !selectedFulfillmentAlertId) return
+    const line = dosificadorPoLineForMaterial
+    const key = `${selectedFulfillmentAlertId}:${line.id}`
+    if (dosificadorQtyPrefillKeyRef.current === key) return
+    if (line.uom === 'kg' && line.qty_remaining > 0) {
+      dosificadorQtyPrefillKeyRef.current = key
+      setFormData((prev) => ({ ...prev, quantity_received: line.qty_remaining }))
+    }
+  }, [isDosificador, selectedFulfillmentAlertId, dosificadorPoLineForMaterial])
+
   useEffect(() => {
     const mid = searchParams.get('material_id')
     if (!mid || !currentPlant?.id || urlMaterialApplied.current) return
@@ -366,6 +436,37 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     void handleMaterialChange(mid)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot URL prefill
   }, [searchParams, currentPlant?.id])
+
+  useEffect(() => {
+    const aid = searchParams.get('alert_id')
+    if (!aid || fulfillmentAlertsLoading || urlAlertLock.current) return
+    const match = fulfillmentAlerts.find((a) => a.id === aid)
+    if (match) {
+      setSelectedFulfillmentAlertId(aid)
+      urlAlertLock.current = true
+    }
+  }, [searchParams, fulfillmentAlerts, fulfillmentAlertsLoading])
+
+  useEffect(() => {
+    const fid = selectedFulfillmentAlert?.fleet_po_id
+    if (!isDosificador || !fid) {
+      setFleetPoHeader(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/po/${fid}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.purchase_order) return
+        setFleetPoHeader({ po_number: d.purchase_order.po_number ?? null })
+      })
+      .catch(() => {
+        if (!cancelled) setFleetPoHeader(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isDosificador, selectedFulfillmentAlert?.fleet_po_id])
 
   // Auto-fill form fields when PO item is selected
   useEffect(() => {
@@ -537,6 +638,24 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       return
     }
 
+    if (isDosificador && !String(formData.supplier_invoice || '').trim()) {
+      toast.error('El número de remisión es obligatorio para registrar la recepción')
+      return
+    }
+
+    if (isDosificador) {
+      const exp =
+        dosificadorPoLineForMaterial?.uom === 'kg'
+          ? dosificadorPoLineForMaterial.qty_remaining
+          : null
+      const q = formData.quantity_received
+      if (exp != null && exp > 0 && q > 0 && Math.abs(q - exp) / exp > 0.2) {
+        toast.warning(
+          `La cantidad difiere notablemente del pendiente en OC (${exp.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg). Verifique antes de continuar.`
+        )
+      }
+    }
+
     if (!currentPlant?.id) {
       toast.error('Debe seleccionar una planta para continuar')
       return
@@ -685,6 +804,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         supplierAutoFromPoRef.current = null
         setDosificadorReceiptContext(null)
         setDosificadorSupplierOverride(false)
+        dosificadorQtyPrefillKeyRef.current = ''
 
         onSuccess?.()
       } else {
@@ -746,6 +866,34 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </div>
       )}
 
+      {searchParams.get('alert_id') && selectedFulfillmentAlertId && selectedFulfillmentAlert && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
+          Registrando entrada para solicitud{' '}
+          <span className="font-mono font-semibold">{selectedFulfillmentAlert.alert_number}</span>
+        </div>
+      )}
+
+      {isDosificador && selectedFulfillmentAlert?.needs_fleet && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 flex items-start gap-2">
+          <Truck className="h-4 w-4 shrink-0 mt-0.5 text-amber-800" />
+          <div>
+            <p className="font-medium">Esta solicitud requiere flete independiente del proveedor de material.</p>
+            {selectedFulfillmentAlert.fleet_po_id && fleetPoHeader && (
+              <p className="text-xs text-amber-900 mt-1">
+                OC de flete vinculada:{' '}
+                <span className="font-mono">{fleetPoHeader.po_number || selectedFulfillmentAlert.fleet_po_id.slice(0, 8)}</span>
+              </p>
+            )}
+            {selectedFulfillmentAlert.fleet_po_id && !fleetPoHeader && (
+              <p className="text-xs text-amber-800 mt-1">OC de flete registrada en la solicitud.</p>
+            )}
+            {!selectedFulfillmentAlert.fleet_po_id && (
+              <p className="text-xs text-amber-800 mt-1">El equipo de compras gestionará la OC de transporte.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Material Selection */}
       <Card className="border-stone-200">
         <CardHeader>
@@ -767,6 +915,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!isDosificador ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -882,7 +1031,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 })()
               ) : (
                 <>
-                  <Label htmlFor="quantity_received" className={cn("text-sm sm:text-base", isDosificador && "text-base font-semibold")}>
+                  <Label htmlFor="quantity_received" className="text-sm sm:text-base">
                     Cantidad Recibida (kg) *
                   </Label>
                   <Input
@@ -895,20 +1044,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       ...prev, 
                       quantity_received: parseFloat(e.target.value) || 0 
                     }))}
-                    className={cn(
-                      "h-12",
-                      isDosificador && "h-16 text-2xl font-semibold text-center"
-                    )}
-                    placeholder={isDosificador ? "0.00" : ""}
+                    className="h-12"
                     required
                   />
-                  <p className={cn("text-xs text-stone-500", isDosificador && "text-center")}>
-                    {isDosificador ? "Ingrese la cantidad en kilogramos" : "Cantidad en kilogramos"}
-                  </p>
+                  <p className="text-xs text-stone-500">Cantidad en kilogramos</p>
                 </>
               )}
             </div>
           </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="material_id">Material *</Label>
+              </div>
+              <div className="space-y-1">
+                <MaterialSelect
+                  value={formData.material_id}
+                  onChange={handleMaterialChange}
+                  required
+                  plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  supplierId={formData.supplier_id || undefined}
+                />
+                <p className="text-xs text-stone-500">
+                  Seleccione el material; luego indique la solicitud y la cantidad según la orden de compra.
+                </p>
+              </div>
+            </div>
+          )}
 
           {!isDosificador && formData.material_id && (
             <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 space-y-3">
@@ -1011,41 +1173,253 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       </p>
                     </div>
                   </label>
-                  {fulfillmentAlerts.map((a) => (
-                    <label
-                      key={a.id}
-                      className={cn(
-                        'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
-                        selectedFulfillmentAlertId === a.id
-                          ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
-                          : 'border-stone-200 bg-white hover:bg-stone-50/80'
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="fulfillment-alert"
-                        className="mt-1"
-                        checked={selectedFulfillmentAlertId === a.id}
-                        onChange={() => setSelectedFulfillmentAlertId(a.id)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
-                          <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
-                            {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
-                          </Badge>
+                  {fulfillmentAlerts.map((a) => {
+                    const sched = a.scheduled_delivery_date
+                    const lp = normalizeAlertLinkedPo(a)
+                    const matName = (a.material as { material_name?: string })?.material_name ?? 'Material'
+                    let schedIsToday = false
+                    if (sched) {
+                      try {
+                        const d = parseISO(sched.length > 10 ? sched : `${sched}T12:00:00`)
+                        schedIsToday = isToday(d)
+                      } catch {
+                        schedIsToday = false
+                      }
+                    }
+                    return (
+                      <label
+                        key={a.id}
+                        className={cn(
+                          'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                          selectedFulfillmentAlertId === a.id
+                            ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                            : 'border-stone-200 bg-white hover:bg-stone-50/80',
+                          schedIsToday && 'border-emerald-500/80 bg-emerald-50/40'
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="fulfillment-alert"
+                          className="mt-1"
+                          checked={selectedFulfillmentAlertId === a.id}
+                          onChange={() => setSelectedFulfillmentAlertId(a.id)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
+                            <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
+                              {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
+                            </Badge>
+                          </div>
+                          <p className="text-sm font-semibold text-stone-900 mt-1">{matName}</p>
+                          {a.physical_count_kg != null && a.physical_count_kg > 0 && (
+                            <p className="text-xs text-stone-700 mt-0.5">
+                              Conteo / necesidad reportada:{' '}
+                              <span className="font-mono tabular-nums">
+                                {Number(a.physical_count_kg).toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
+                              </span>
+                            </p>
+                          )}
+                          {lp ? (
+                            <p className="text-xs text-stone-700 mt-1">
+                              OC:{' '}
+                              <span className="font-mono">
+                                {lp.po_number || String(lp.id).slice(0, 8).toUpperCase()}
+                              </span>
+                              {lp.supplier?.name ? (
+                                <>
+                                  {' '}
+                                  · Proveedor: <span className="font-medium">{lp.supplier.name}</span>
+                                </>
+                              ) : null}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-amber-800 mt-1">Sin OC vinculada aún en sistema</p>
+                          )}
+                          {sched ? (
+                            <p className="text-sm text-stone-800 mt-1 flex items-center gap-1.5 flex-wrap">
+                              <Calendar className="h-3.5 w-3.5 text-stone-500 shrink-0" />
+                              <span className="font-medium">
+                                Entrega programada: {format(parseISO(sched.length > 10 ? sched : `${sched}T12:00:00`), 'dd/MM/yyyy')}
+                              </span>
+                              {schedIsToday && (
+                                <Badge className="text-[10px] h-5 bg-emerald-700 text-white">Hoy</Badge>
+                              )}
+                            </p>
+                          ) : null}
+                          <p className="text-xs text-stone-500 mt-1 tabular-nums">
+                            Creada {format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}
+                            {a.validation_notes
+                              ? ` · ${a.validation_notes.slice(0, 96)}${a.validation_notes.length > 96 ? '…' : ''}`
+                              : null}
+                          </p>
                         </div>
-                        <p className="text-xs text-stone-500 mt-1 tabular-nums">
-                          Creada {format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}
-                          {a.validation_notes
-                            ? ` · ${a.validation_notes.slice(0, 96)}${a.validation_notes.length > 96 ? '…' : ''}`
-                            : null}
-                        </p>
-                      </div>
-                    </label>
-                  ))}
+                      </label>
+                    )
+                  })}
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2 text-sm text-stone-700">
+                  <p>No hay solicitudes activas para este material. Esta entrada se registrará sin vincular a una solicitud.</p>
+                  <p className="mt-2">
+                    <Link href="/production-control/alerts" className="text-sky-800 font-medium underline text-sm">
+                      Crear solicitud
+                    </Link>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isDosificador && formData.material_id && (
+            <div className="space-y-4">
+              {dosificadorReceiptLoading && (
+                <p className="text-xs text-stone-500">Cargando datos de la orden de compra…</p>
+              )}
+
+              {dosificadorReceiptContext && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-stone-900">Verificar entrega (orden de compra)</p>
+                      <p className="text-xs text-stone-600 mt-0.5 font-mono">
+                        Ref. OC {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
+                        {dosificadorReceiptContext.po.status}
+                        {dosificadorReceiptContext.po.po_date
+                          ? ` · Fecha OC ${dosificadorReceiptContext.po.po_date}`
+                          : ''}
+                      </p>
+                      {dosificadorReceiptContext.po.supplier && (
+                        <p className="text-sm text-stone-800 mt-2">
+                          <span className="text-stone-500">Proveedor en OC: </span>
+                          <strong>{dosificadorReceiptContext.po.supplier.name}</strong>
+                          {dosificadorReceiptContext.po.supplier.provider_letter
+                            ? ` · Letra ${dosificadorReceiptContext.po.supplier.provider_letter}`
+                            : ''}
+                          {dosificadorReceiptContext.po.supplier.provider_number != null
+                            ? ` · #${dosificadorReceiptContext.po.supplier.provider_number}`
+                            : ''}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {dosificadorReceiptContext.items.length > 0 && (
+                    <div className="overflow-x-auto rounded-md border border-stone-200 bg-white">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-stone-200 bg-stone-50 text-stone-600">
+                            <th className="p-2 font-medium">Material</th>
+                            <th className="p-2 font-medium">UoM</th>
+                            <th className="p-2 font-medium text-right">Pedido</th>
+                            <th className="p-2 font-medium text-right">Recibido</th>
+                            <th className="p-2 font-medium text-right">Pendiente</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dosificadorReceiptContext.items.map((row) => (
+                            <tr key={row.id} className="border-b border-stone-100 last:border-0">
+                              <td className="p-2 text-stone-900 max-w-[200px]">{row.material_name}</td>
+                              <td className="p-2 font-mono text-stone-700">{row.uom}</td>
+                              <td className="p-2 text-right font-mono tabular-nums">
+                                {row.qty_ordered.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-2 text-right font-mono tabular-nums">
+                                {row.qty_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-2 text-right font-mono tabular-nums font-medium text-stone-900">
+                                {row.qty_remaining.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-stone-500 leading-relaxed">
+                    Compare la remisión del proveedor con esta OC antes de registrar la cantidad recibida.
+                  </p>
+                </div>
+              )}
+
+              {!!selectedFulfillmentAlertId &&
+                !selectedAlertExistingPoId &&
+                !dosificadorReceiptLoading && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
+                    <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
+                    Esta solicitud aún no tiene OC vinculada. Indique el proveedor según la entrega física o confirme con
+                    administración.
+                  </div>
+                )}
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="quantity_received_dos" className="text-base font-semibold">
+                    Cantidad recibida (kg) *
+                  </Label>
+                  {dosificadorPoLineForMaterial && dosificadorPoLineForMaterial.uom === 'kg' && (
+                    <Badge variant="outline" className="text-[10px] border-sky-300 bg-white text-sky-950">
+                      Pendiente en OC:{' '}
+                      {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      kg
+                    </Badge>
+                  )}
+                  {dosificadorPoLineForMaterial &&
+                    dosificadorPoLineForMaterial.uom !== 'kg' &&
+                    dosificadorPoLineForMaterial.qty_remaining > 0 && (
+                      <span className="text-xs text-stone-600">
+                        Pendiente en OC:{' '}
+                        {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        {dosificadorPoLineForMaterial.uom} (ajuste manual a kg)
+                      </span>
+                    )}
+                </div>
+                <Input
+                  id="quantity_received_dos"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.quantity_received || ''}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      quantity_received: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="h-16 text-2xl font-semibold text-center"
+                  placeholder="0.00"
+                  required
+                />
+                {(() => {
+                  const exp =
+                    dosificadorPoLineForMaterial?.uom === 'kg'
+                      ? dosificadorPoLineForMaterial.qty_remaining
+                      : null
+                  const q = formData.quantity_received
+                  if (
+                    exp != null &&
+                    exp > 0 &&
+                    q > 0 &&
+                    Math.abs(q - exp) / exp > 0.2
+                  ) {
+                    return (
+                      <p className="text-xs text-amber-800 text-center rounded-md border border-amber-200 bg-amber-50/90 px-2 py-1.5">
+                        La cantidad difiere en más del 20% del pendiente en OC (
+                        {exp.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg). Verifique antes de guardar.
+                      </p>
+                    )
+                  }
+                  return (
+                    <p className="text-xs text-stone-500 text-center">
+                      Ingrese el peso neto recibido en kilogramos según báscula o remisión.
+                    </p>
+                  )
+                })()}
+              </div>
             </div>
           )}
 
@@ -1294,89 +1668,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CardDescription>
           </CardHeader>
         <CardContent className="space-y-4">
-          {isDosificador && dosificadorReceiptLoading && (
-            <p className="text-xs text-stone-500">Cargando datos de la orden de compra…</p>
-          )}
-
-          {isDosificador &&
-            !!selectedFulfillmentAlertId &&
-            !selectedAlertExistingPoId &&
-            !dosificadorReceiptLoading && (
-              <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
-                <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
-                Esta solicitud aún no tiene OC vinculada. Indique el proveedor según la entrega física o confirme con
-                administración.
-              </div>
-            )}
-
-          {isDosificador && dosificadorReceiptContext && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
-              <div className="flex items-start gap-2">
-                <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-stone-900">
-                    Orden de compra ligada a la solicitud
-                  </p>
-                  <p className="text-xs text-stone-600 mt-0.5 font-mono">
-                    Ref. OC {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
-                    {dosificadorReceiptContext.po.status}
-                    {dosificadorReceiptContext.po.po_date
-                      ? ` · Fecha OC ${dosificadorReceiptContext.po.po_date}`
-                      : ''}
-                  </p>
-                  {dosificadorReceiptContext.po.supplier && (
-                    <p className="text-sm text-stone-800 mt-2">
-                      <span className="text-stone-500">Proveedor en OC: </span>
-                      <strong>{dosificadorReceiptContext.po.supplier.name}</strong>
-                      {dosificadorReceiptContext.po.supplier.provider_letter
-                        ? ` · Letra ${dosificadorReceiptContext.po.supplier.provider_letter}`
-                        : ''}
-                      {dosificadorReceiptContext.po.supplier.provider_number != null
-                        ? ` · #${dosificadorReceiptContext.po.supplier.provider_number}`
-                        : ''}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {dosificadorReceiptContext.items.length > 0 && (
-                <div className="overflow-x-auto rounded-md border border-stone-200 bg-white">
-                  <table className="w-full text-xs text-left">
-                    <thead>
-                      <tr className="border-b border-stone-200 bg-stone-50 text-stone-600">
-                        <th className="p-2 font-medium">Material</th>
-                        <th className="p-2 font-medium">UoM</th>
-                        <th className="p-2 font-medium text-right">Pedido</th>
-                        <th className="p-2 font-medium text-right">Recibido</th>
-                        <th className="p-2 font-medium text-right">Pendiente</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dosificadorReceiptContext.items.map((row) => (
-                        <tr key={row.id} className="border-b border-stone-100 last:border-0">
-                          <td className="p-2 text-stone-900 max-w-[200px]">{row.material_name}</td>
-                          <td className="p-2 font-mono text-stone-700">{row.uom}</td>
-                          <td className="p-2 text-right font-mono tabular-nums">
-                            {row.qty_ordered.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="p-2 text-right font-mono tabular-nums">
-                            {row.qty_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="p-2 text-right font-mono tabular-nums font-medium text-stone-900">
-                            {row.qty_remaining.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="text-[10px] text-stone-500 leading-relaxed">
-                Vista operativa: sin precios ni importes. Compare camión / remisión contra esta OC antes de registrar
-                cantidades.
-              </p>
-            </div>
-          )}
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1444,7 +1735,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="supplier_invoice">Número de Remisión</Label>
+              <Label htmlFor="supplier_invoice">
+                Número de remisión{isDosificador ? ' *' : ''}
+              </Label>
               <div className="relative">
                 <FileText className="absolute left-3 top-3 h-4 w-4 text-stone-400" />
                 <Input
@@ -1453,8 +1746,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   onChange={(e) => setFormData(prev => ({ ...prev, supplier_invoice: e.target.value }))}
                   className="pl-10"
                   placeholder="Ej: REM-2024-001"
+                  required={isDosificador}
+                  aria-required={isDosificador}
                 />
               </div>
+              {isDosificador && (
+                <p className="text-xs text-stone-600">Obligatorio para vincular la recepción con el documento del proveedor.</p>
+              )}
             </div>
           </div>
           
@@ -1558,18 +1856,20 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isDosificador && (
-            <div className="space-y-2">
-              <Label>Notas</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                placeholder="Observaciones adicionales sobre la entrada..."
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="notes">{isDosificador ? 'Observaciones de recepción (opcional)' : 'Notas'}</Label>
+            <Textarea
+              id="notes"
+              value={formData.notes || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+              rows={isDosificador ? 2 : 3}
+              placeholder={
+                isDosificador
+                  ? 'Ej. sacos dañados, entrega parcial, material húmedo…'
+                  : 'Observaciones adicionales sobre la entrada...'
+              }
+            />
+          </div>
           
           <div className="space-y-2">
             <Label>Documentos de Evidencia</Label>
@@ -1671,6 +1971,48 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </CardContent>
       </Card>
 
+      {isDosificador &&
+        formData.material_id &&
+        formData.quantity_received > 0 &&
+        String(formData.supplier_invoice || '').trim() && (
+          <Card className="border-stone-200 bg-[#faf9f7]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Resumen antes de guardar</CardTitle>
+              <CardDescription className="text-xs">
+                Revise que coincida con la remisión y la orden de compra.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm space-y-1.5 text-stone-800">
+              <p>
+                <span className="text-stone-500">Material: </span>
+                <span className="font-medium">{dosificadorSummaryMaterialName}</span>
+              </p>
+              <p>
+                <span className="text-stone-500">Cantidad: </span>
+                <span className="font-mono tabular-nums font-semibold">
+                  {formData.quantity_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
+                </span>
+              </p>
+              <p>
+                <span className="text-stone-500">Proveedor (según OC / solicitud): </span>
+                {dosificadorSummarySupplierName}
+              </p>
+              <p>
+                <span className="text-stone-500">Remisión: </span>
+                <span className="font-mono">{formData.supplier_invoice}</span>
+              </p>
+              {selectedFulfillmentAlertId && selectedFulfillmentAlert ? (
+                <p>
+                  <span className="text-stone-500">Solicitud: </span>
+                  <span className="font-mono font-semibold">{selectedFulfillmentAlert.alert_number}</span>
+                </p>
+              ) : (
+                <p className="text-stone-600 text-xs">Sin solicitud vinculada (reabastecimiento u otro).</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
       {/* Submit Button */}
       <div className={cn('flex justify-end space-x-3', isDosificador && 'hidden md:flex')}>
         <Button 
@@ -1706,6 +2048,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             supplierAutoFromPoRef.current = null
             setDosificadorReceiptContext(null)
             setDosificadorSupplierOverride(false)
+            dosificadorQtyPrefillKeyRef.current = ''
           }}
         >
           Limpiar
@@ -1713,7 +2056,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         <Button
           type="submit"
           variant="solid"
-          disabled={loading || uploading || !formData.material_id || formData.quantity_received <= 0}
+          disabled={
+            loading ||
+            uploading ||
+            !formData.material_id ||
+            formData.quantity_received <= 0 ||
+            (isDosificador && !String(formData.supplier_invoice || '').trim())
+          }
           className="min-w-[120px] bg-sky-800 hover:bg-sky-900 text-white shadow-none"
         >
           {loading ? (
@@ -1728,11 +2077,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       </div>
 
       {/* Warning for missing required fields */}
-      {(!formData.material_id || formData.quantity_received <= 0) && (
+      {(!formData.material_id ||
+        formData.quantity_received <= 0 ||
+        (isDosificador && !String(formData.supplier_invoice || '').trim())) && (
         <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <AlertCircle className="h-4 w-4 text-yellow-600" />
           <p className="text-sm text-yellow-700">
-            Complete el material y la cantidad para continuar
+            {!formData.material_id || formData.quantity_received <= 0
+              ? 'Complete el material y la cantidad para continuar'
+              : 'Ingrese el número de remisión para continuar'}
           </p>
         </div>
       )}
@@ -1756,7 +2109,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             size="lg"
             variant="solid"
             className="min-w-[140px] shrink-0 bg-sky-800 hover:bg-sky-900 text-white shadow-none"
-            disabled={loading || uploading || !formData.material_id || formData.quantity_received <= 0}
+            disabled={
+              loading ||
+              uploading ||
+              !formData.material_id ||
+              formData.quantity_received <= 0 ||
+              (isDosificador && !String(formData.supplier_invoice || '').trim())
+            }
           >
             {loading ? 'Guardando…' : 'Guardar'}
           </Button>

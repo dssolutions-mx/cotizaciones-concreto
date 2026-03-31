@@ -36,16 +36,26 @@ export type PrefillFromAlert = {
   suggestedQtyKg: number
 }
 
+/** Second-step fleet PO: transport supplier header; material supplier on service line for pricing context */
+export type PrefillFleetFromAlert = {
+  alertId: string
+  plantId: string
+  /** Proveedor de material (OC principal) — va en línea de servicio como material_supplier_id */
+  materialSupplierId: string
+}
+
 interface CreatePOModalProps {
   open: boolean
   onClose: () => void
-  /** Called with new PO id after successful creation (e.g. to link an alert). */
-  onSuccess: (createdPoId?: string) => void
+  /** Called after successful creation; materialSupplierId when header supplier was chosen (for fleet follow-up). */
+  onSuccess: (createdPoId?: string, meta?: { materialSupplierId?: string }) => void
   defaultPlantId?: string
   /** Pre-select material on the ítems step (e.g. from a material alert). */
   defaultMaterialId?: string
   /** Pre-fill first line + auto-link alert after PO creation */
   prefillFromAlert?: PrefillFromAlert | null
+  /** Pre-fill service line for fleet PO + link to alert as fleet_po_id */
+  prefillFleetFromAlert?: PrefillFleetFromAlert | null
 }
 
 export default function CreatePOModal({
@@ -55,6 +65,7 @@ export default function CreatePOModal({
   defaultPlantId,
   defaultMaterialId,
   prefillFromAlert,
+  prefillFleetFromAlert,
 }: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
@@ -114,7 +125,7 @@ export default function CreatePOModal({
   }, [open, defaultMaterialId])
 
   useEffect(() => {
-    if (!open || !prefillFromAlert) return
+    if (!open || !prefillFromAlert || prefillFleetFromAlert) return
     setPlantId(prefillFromAlert.plantId)
     const qty = Math.max(Number(prefillFromAlert.suggestedQtyKg) || 0, 1)
     setItems([
@@ -130,7 +141,29 @@ export default function CreatePOModal({
       },
     ])
     setStep('header')
-  }, [open, prefillFromAlert])
+  }, [open, prefillFromAlert, prefillFleetFromAlert])
+
+  useEffect(() => {
+    if (!open || !prefillFleetFromAlert) return
+    setPlantId(prefillFleetFromAlert.plantId)
+    setMaterialSupplierId(prefillFleetFromAlert.materialSupplierId)
+    const desc = 'Transporte / flete'
+    setServiceDescription(desc)
+    setItems([
+      {
+        tempId: `fleet-${prefillFleetFromAlert.alertId.slice(0, 8)}`,
+        is_service: true,
+        material_name: desc,
+        service_description: desc,
+        uom: 'trips',
+        qty_ordered: 1,
+        unit_price: 0,
+        total: 0,
+        material_supplier_id: prefillFleetFromAlert.materialSupplierId,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFleetFromAlert])
 
   // Fetch plants when modal opens
   useEffect(() => {
@@ -517,6 +550,27 @@ export default function CreatePOModal({
         toast.success(`${label} creada con ${items.length} ítem(s)`)
       }
 
+      if (prefillFleetFromAlert?.alertId) {
+        try {
+          const linkRes = await fetch(`/api/alerts/material/${prefillFleetFromAlert.alertId}/link-fleet-po`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ po_id: poId }),
+          })
+          if (!linkRes.ok) {
+            const j = await linkRes.json().catch(() => ({}))
+            toast.warning(j.error || 'OC creada; no se pudo vincular la OC de flete a la alerta')
+          } else {
+            toast.success('OC de flete vinculada a la alerta')
+          }
+        } catch {
+          toast.warning('OC creada; vincule la OC de flete a la alerta manualmente si aplica')
+        }
+        onSuccess(poId)
+        onClose()
+        return
+      }
+
       if (prefillFromAlert?.alertId) {
         try {
           const linkRes = await fetch(`/api/alerts/material/${prefillFromAlert.alertId}/link-po`, {
@@ -535,7 +589,7 @@ export default function CreatePOModal({
         }
       }
 
-      onSuccess(poId)
+      onSuccess(poId, { materialSupplierId: supplierId })
       onClose()
     } catch (error) {
       console.error('Error creating PO:', error)

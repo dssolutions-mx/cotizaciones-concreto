@@ -28,6 +28,7 @@ import {
   Info,
   ExternalLink,
   ChevronRight,
+  ArrowDownToLine,
 } from 'lucide-react'
 import {
   Accordion,
@@ -49,6 +50,7 @@ import ActivityFeed, { type ActivityFeedItem } from '@/components/procurement/Ac
 import InventoryAlertPanel from '@/components/procurement/InventoryAlertPanel'
 import CreditNotesPanel from '@/components/procurement/CreditNotesPanel'
 import ReconciliationView from '@/components/procurement/ReconciliationView'
+import ProcurementMaterialEntriesView from '@/components/procurement/ProcurementMaterialEntriesView'
 
 type DashboardData = {
   open_po_count: number
@@ -67,7 +69,7 @@ type DashboardData = {
   period_month: string
 }
 
-const TAB_KEYS = ['resumen', 'inventario', 'po', 'cxp', 'suppliers'] as const
+const TAB_KEYS = ['resumen', 'inventario', 'po', 'entradas', 'cxp', 'suppliers'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 export default function ProcurementWorkspacePage() {
@@ -255,7 +257,7 @@ export default function ProcurementWorkspacePage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
           <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <LayoutDashboard className="h-4 w-4" />
             Resumen
@@ -267,6 +269,10 @@ export default function ProcurementWorkspacePage() {
           <TabsTrigger value="po" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <Package className="h-4 w-4" />
             Órdenes
+          </TabsTrigger>
+          <TabsTrigger value="entradas" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+            <ArrowDownToLine className="h-4 w-4" />
+            Entradas
           </TabsTrigger>
           <TabsTrigger value="cxp" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <CreditCard className="h-4 w-4" />
@@ -434,6 +440,12 @@ export default function ProcurementWorkspacePage() {
         <TabsContent value="po" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
           <div className="p-2 md:p-4">
             <PurchaseOrdersPage />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="entradas" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
+          <div className="p-2 md:p-4">
+            <ProcurementMaterialEntriesView workspacePlantId={workspacePlantId} />
           </div>
         </TabsContent>
 

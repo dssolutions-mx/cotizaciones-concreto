@@ -21,6 +21,7 @@ import EntryPricingReviewList from './EntryPricingReviewList'
 import FloatingActionButton from './ui/FloatingActionButton'
 import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
 import EntriesStatistics from './EntriesStatistics'
+import ScheduledDeliveriesHint from './ScheduledDeliveriesHint'
 
 export default function MaterialEntriesPage() {
   const searchParams = useSearchParams()
@@ -151,7 +152,8 @@ export default function MaterialEntriesPage() {
           )}
         </TabsList>
 
-        <TabsContent value="new" className="mt-6">
+        <TabsContent value="new" className="mt-6 space-y-4">
+          <ScheduledDeliveriesHint plantId={currentPlant?.id} />
           <Suspense fallback={<div className="py-8 text-center text-stone-500 text-sm">Cargando formulario…</div>}>
             <MaterialEntryForm onSuccess={handleEntrySuccess} />
           </Suspense>

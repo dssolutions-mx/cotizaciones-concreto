@@ -9,7 +9,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import CrossPlantInventorySummary from '@/components/procurement/CrossPlantInventorySummary'
 import ProcurementInventoryDetail from '@/components/procurement/ProcurementInventoryDetail'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
-import { productionEntriesUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl, productionNewEntryUrl } from '@/lib/procurement/navigation'
+import { Truck } from 'lucide-react'
 
 const STATUS_LABEL: Partial<Record<AlertStatus, string>> = {
   pending_po: 'Requiere OC',
@@ -149,7 +150,9 @@ export default function InventoryAlertPanel({
                     <th className="py-2 pr-2">Material</th>
                     <th className="py-2 pr-2">Planta</th>
                     <th className="py-2">Estado</th>
-                    {canCreatePO && onCreatePOFromAlert ? <th className="py-2 text-right">Acción</th> : null}
+                    <th className="py-2 pr-2 w-24">Flete</th>
+                    <th className="py-2 text-right">Entrada</th>
+                    {canCreatePO && onCreatePOFromAlert ? <th className="py-2 text-right">OC</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -166,6 +169,39 @@ export default function InventoryAlertPanel({
                         <Badge variant="outline" className="text-[10px] border-stone-300">
                           {STATUS_LABEL[a.status] ?? a.status}
                         </Badge>
+                      </td>
+                      <td className="py-2 pr-2 align-middle">
+                        {a.needs_fleet ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-stone-700" title="Requiere flete independiente">
+                            <Truck className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+                            {!a.fleet_po_id ? (
+                              <Badge variant="outline" className="text-[10px] border-amber-300 bg-amber-50 text-amber-950">
+                                Pendiente
+                              </Badge>
+                            ) : (
+                              <span className="text-stone-500">OK</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-stone-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-right align-middle">
+                        {a.status === 'delivery_scheduled' ? (
+                          <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
+                            <Link
+                              href={productionNewEntryUrl({
+                                plantId: workspacePlantId || a.plant_id,
+                                materialId: a.material_id,
+                                alertId: a.id,
+                              })}
+                            >
+                              Registrar entrada
+                            </Link>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-stone-400">—</span>
+                        )}
                       </td>
                       {canCreatePO && onCreatePOFromAlert ? (
                         <td className="py-2 text-right">
@@ -218,7 +254,7 @@ export default function InventoryAlertPanel({
             </ul>
           )}
           <Button variant="link" className="mt-2 h-auto p-0 text-sky-800" asChild>
-            <Link href={productionEntriesUrl({ plantId: workspacePlantId || undefined })}>
+            <Link href={procurementEntriesUrl({ plantId: workspacePlantId || undefined })}>
               Ver todas las entradas
             </Link>
           </Button>

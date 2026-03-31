@@ -31,7 +31,7 @@ import {
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
 import POLifecycleView from '@/components/po/POLifecycleView'
-import { productionEntriesUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl } from '@/lib/procurement/navigation'
 import type { MaterialAlert } from '@/types/alerts'
 import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -942,7 +942,7 @@ export default function PurchaseOrdersPage() {
                                 </>
                               )}
                               <Link
-                                href={productionEntriesUrl({ plantId: po.plant_id, poId: po.id })}
+                                href={procurementEntriesUrl({ plantId: po.plant_id, poId: po.id })}
                                 className="flex items-center gap-1 text-primary hover:underline text-sm ml-auto"
                               >
                                 <ExternalLink className="h-4 w-4" />Ver entradas

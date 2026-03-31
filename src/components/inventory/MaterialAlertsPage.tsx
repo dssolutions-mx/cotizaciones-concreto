@@ -40,7 +40,7 @@ import { buildProcurementUrl } from '@/lib/procurement/navigation'
 import StatCard from './ui/StatCard'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
 import { cn } from '@/lib/utils'
-import CreatePOModal from '@/components/po/CreatePOModal'
+import CreatePOModal, { type PrefillFleetFromAlert } from '@/components/po/CreatePOModal'
 
 const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string; icon: React.ElementType }> = {
   pending_confirmation: { label: 'Pendiente confirmación', color: 'bg-amber-100 text-amber-800', icon: Clock },
@@ -83,12 +83,16 @@ export default function MaterialAlertsPage() {
     validation_notes: '',
     existing_po_id: '',
     needs_new_po: false,
+    needs_fleet: false,
+    fleet_notes: '',
     scheduled_delivery_date: '',
   })
   const [submitting, setSubmitting] = useState(false)
   /** Crear OC desde alerta pending_po; al guardar se vincula automáticamente. */
   const [createPOOpen, setCreatePOOpen] = useState(false)
   const [alertForCreatePO, setAlertForCreatePO] = useState<MaterialAlert | null>(null)
+  /** Segundo paso: OC de flete cuando la alerta requiere transporte independiente */
+  const [fleetPOContext, setFleetPOContext] = useState<PrefillFleetFromAlert | null>(null)
   /** Evita mismatch de hidratación en pestañas (SSR vs cliente / caché). */
   const [filterTabsReady, setFilterTabsReady] = useState(false)
 
@@ -275,7 +279,14 @@ export default function MaterialAlertsPage() {
   }
 
   const startValidate = (alert: MaterialAlert) => {
-    setFormData((prev) => ({ ...prev, validation_notes: '', existing_po_id: '', needs_new_po: false }))
+    setFormData((prev) => ({
+      ...prev,
+      validation_notes: '',
+      existing_po_id: '',
+      needs_new_po: false,
+      needs_fleet: !!alert.needs_fleet,
+      fleet_notes: alert.fleet_notes || '',
+    }))
     setOpenPanel({ alertId: alert.id, mode: 'validate' })
     fetchPOsForAlert(alert)
   }
@@ -317,29 +328,6 @@ export default function MaterialAlertsPage() {
     }
   }
 
-  const handleLinkPOAfterCreate = async (alertId: string, poId: string) => {
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/alerts/material/${alertId}/link-po`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ po_id: poId }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        toast.success('OC creada y vinculada a la alerta')
-        void fetchPlantStats()
-        void fetchAlerts()
-      } else {
-        toast.error(json.error || 'La OC se creó pero no se pudo vincular a la alerta')
-        void fetchPlantStats()
-        void fetchAlerts()
-      }
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const handleConfirm = async (alertId: string) => {
     setSubmitting(true)
     try {
@@ -375,6 +363,8 @@ export default function MaterialAlertsPage() {
           existing_po_id: formData.existing_po_id || undefined,
           validation_notes: formData.validation_notes || undefined,
           needs_new_po: formData.needs_new_po,
+          needs_fleet: formData.needs_fleet,
+          fleet_notes: formData.fleet_notes || undefined,
         }),
       })
       const json = await res.json()
@@ -633,6 +623,17 @@ export default function MaterialAlertsPage() {
                             </span>
                           )}
                           {alert.scheduled_delivery_date && <span>Entrega: {alert.scheduled_delivery_date}</span>}
+                          {alert.needs_fleet && (
+                            <span className="inline-flex items-center gap-1 text-amber-900">
+                              <Truck className="h-3.5 w-3.5" />
+                              Flete independiente
+                              {!alert.fleet_po_id && (
+                                <Badge variant="outline" className="text-[10px] border-amber-400 bg-amber-100">
+                                  Flete pendiente
+                                </Badge>
+                              )}
+                            </span>
+                          )}
                         </div>
                         {alert.discrepancy_notes && (
                           <p className="text-xs text-stone-500 mt-1">Discrepancia: {alert.discrepancy_notes}</p>
@@ -892,6 +893,39 @@ export default function MaterialAlertsPage() {
                             Requiere nueva orden de compra
                           </label>
                         </div>
+                        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            id={`needs_fleet_${alert.id}`}
+                            checked={formData.needs_fleet}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, needs_fleet: e.target.checked }))
+                            }
+                            className="mt-1"
+                          />
+                          <div className="min-w-0">
+                            <label htmlFor={`needs_fleet_${alert.id}`} className="text-sm font-medium flex items-center gap-1">
+                              <Truck className="h-3.5 w-3.5 shrink-0" />
+                              Requiere flete independiente
+                            </label>
+                            <p className="text-xs text-stone-600 mt-0.5">
+                              Marque si el proveedor de material no incluye transporte y se contratará flete aparte.
+                            </p>
+                          </div>
+                        </div>
+                        {formData.needs_fleet && (
+                          <div>
+                            <label className="text-sm font-medium">Notas de flete (opcional)</label>
+                            <Textarea
+                              className="mt-1"
+                              placeholder="Ej. ruta, contacto de transportes…"
+                              value={formData.fleet_notes}
+                              onChange={(e) =>
+                                setFormData((prev) => ({ ...prev, fleet_notes: e.target.value }))
+                              }
+                            />
+                          </div>
+                        )}
                         <div>
                           <label className="text-sm font-medium">Notas de validación</label>
                           <Textarea
@@ -1010,15 +1044,58 @@ export default function MaterialAlertsPage() {
         }}
         defaultPlantId={alertForCreatePO?.plant_id}
         defaultMaterialId={alertForCreatePO?.material_id}
-        onSuccess={(createdPoId) => {
+        prefillFromAlert={
+          alertForCreatePO
+            ? {
+                alertId: alertForCreatePO.id,
+                materialId: alertForCreatePO.material_id,
+                plantId: alertForCreatePO.plant_id,
+                suggestedQtyKg: Math.max(
+                  Number(alertForCreatePO.physical_count_kg ?? alertForCreatePO.triggered_stock_kg) || 0,
+                  1
+                ),
+              }
+            : null
+        }
+        onSuccess={(createdPoId, meta) => {
           if (createdPoId && alertForCreatePO) {
             const a = alertForCreatePO
+            setCreatePOOpen(false)
             setAlertForCreatePO(null)
-            void handleLinkPOAfterCreate(a.id, createdPoId)
+            void fetchPlantStats()
+            void fetchAlerts()
+            // CreatePOModal ya vinculó la OC a la alerta cuando hay prefillFromAlert
+            if (
+              a.needs_fleet &&
+              !a.fleet_po_id &&
+              meta?.materialSupplierId &&
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Esta alerta requiere flete independiente. ¿Crear orden de compra de servicio de flete ahora?'
+              )
+            ) {
+              setFleetPOContext({
+                alertId: a.id,
+                plantId: a.plant_id,
+                materialSupplierId: meta.materialSupplierId,
+              })
+            }
           } else {
             void fetchPlantStats()
             void fetchAlerts()
           }
+        }}
+      />
+
+      <CreatePOModal
+        open={!!fleetPOContext}
+        onClose={() => setFleetPOContext(null)}
+        defaultPlantId={fleetPOContext?.plantId}
+        prefillFleetFromAlert={fleetPOContext}
+        onSuccess={() => {
+          setFleetPOContext(null)
+          void fetchPlantStats()
+          void fetchAlerts()
         }}
       />
     </div>

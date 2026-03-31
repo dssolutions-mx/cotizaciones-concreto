@@ -77,7 +77,10 @@ export async function GET(request: NextRequest) {
           first_name,
           last_name,
           email
-        )
+        ),
+        po:purchase_orders!po_id ( id, po_number ),
+        fleet_po:purchase_orders!fleet_po_id ( id, po_number ),
+        supplier:suppliers!supplier_id ( id, name, provider_number )
       `);
     
     console.log('Base query created');
@@ -498,7 +501,7 @@ export async function POST(request: NextRequest) {
       .eq('entry_id', entry.id)
       .single();
 
-    // Resolve material alert: explicit alert_id (dosificador) or legacy heuristic
+    // Resolve material alert: only when alert_id is explicitly provided (no auto-close heuristics)
     let resolvedAlertNumber: string | null = null;
     try {
       if (explicitAlertCtx) {
@@ -522,38 +525,6 @@ export async function POST(request: NextRequest) {
           performed_by: profile.id,
           details: { entry_id: entry.id, lot_id: lot?.id, alert_id: explicitAlertCtx.id },
         });
-      } else {
-        const { data: activeAlert } = await supabase
-          .from('material_alerts')
-          .select('id, status, alert_number')
-          .eq('plant_id', targetPlantId)
-          .eq('material_id', validatedData.material_id)
-          .in('status', ['delivery_scheduled', 'po_linked', 'validated'])
-          .limit(1)
-          .single();
-
-        if (activeAlert) {
-          resolvedAlertNumber = activeAlert.alert_number ?? null;
-          await supabase
-            .from('material_alerts')
-            .update({
-              status: 'closed',
-              resolved_entry_id: entry.id,
-              resolved_lot_id: lot?.id || null,
-              resolved_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', activeAlert.id);
-
-          await supabase.from('material_alert_events').insert({
-            alert_id: activeAlert.id,
-            event_type: 'auto_resolved_on_entry',
-            from_status: activeAlert.status,
-            to_status: 'closed',
-            performed_by: profile.id,
-            details: { entry_id: entry.id, lot_id: lot?.id },
-          });
-        }
       }
     } catch (alertErr) {
       // Non-blocking — alert resolution failure should not block entry creation

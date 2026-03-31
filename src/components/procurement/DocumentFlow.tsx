@@ -4,7 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { productionEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
 
 export type LifecycleSummary = {
   po: {
@@ -81,7 +81,7 @@ export function DocumentFlowFromLifecycle({
         <span className={cn('rounded px-2 py-0.5 border font-medium', statusBadge(data.po.status))}>OC {poLabel}</span>
         <ArrowRight className="h-3 w-3 text-stone-400 shrink-0" />
         <Link
-          href={productionEntriesUrl({ plantId, poId: data.po.id })}
+          href={procurementEntriesUrl({ plantId, poId: data.po.id })}
           className={cn(
             'rounded px-2 py-0.5 border',
             entryCount > 0 ? 'bg-white border-stone-200 text-stone-800 hover:bg-stone-50' : 'bg-stone-100 text-stone-500 border-stone-200'

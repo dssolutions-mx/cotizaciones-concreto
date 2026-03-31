@@ -3,13 +3,13 @@
 import React from 'react'
 import Link from 'next/link'
 import { Package, Warehouse, FileText, DollarSign, ArrowRight, LayoutDashboard } from 'lucide-react'
-import { productionEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
 
 /**
  * Static journey strip for procurement workspace (generic flow when no object context).
  */
 export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
-  const entriesHref = productionEntriesUrl({ plantId })
+  const entriesHref = procurementEntriesUrl({ plantId })
   const cxpHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'cxp' })
   const poHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'po' })
   const hubHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'resumen' })

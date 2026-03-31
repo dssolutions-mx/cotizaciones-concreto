@@ -81,6 +81,27 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // --- 1b. Alerts with independent fleet required but no fleet PO linked ---
+    let fleetPendingQuery = supabase
+      .from('material_alerts')
+      .select('id, plant_id')
+      .eq('needs_fleet', true)
+      .is('fleet_po_id', null)
+      .in('status', ['pending_po', 'po_linked', 'validated', 'delivery_scheduled']);
+    if (plantId) fleetPendingQuery = fleetPendingQuery.eq('plant_id', plantId);
+    const { data: fleetPendingAlerts } = await fleetPendingQuery;
+    const fleetPendingCount = fleetPendingAlerts?.length ?? 0;
+    if (fleetPendingCount > 0) {
+      tasks.push({
+        id: 'alerts_fleet_po_pending',
+        severity: 'warning',
+        title: `${fleetPendingCount} alerta${fleetPendingCount === 1 ? '' : 's'} con flete pendiente`,
+        subtitle: 'Crear y vincular OC de servicio de transporte',
+        count: fleetPendingCount,
+        href: '/finanzas/procurement?tab=inventario',
+      });
+    }
+
     // --- 2. Entries pending pricing review ---
     let entryQuery = supabase
       .from('material_entries')

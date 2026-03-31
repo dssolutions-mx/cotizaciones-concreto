@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocumentFlowFromLifecycle, type LifecycleSummary } from '@/components/procurement/DocumentFlow'
-import { productionEntriesUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl } from '@/lib/procurement/navigation'
 
 type LifecycleApiData = LifecycleSummary & { credit_history_total?: number }
 
@@ -74,7 +74,7 @@ export default function POLifecycleView({ poId, plantId }: { poId: string; plant
                   <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2 first:border-0 first:pt-0">
                     <div>
                       <Link
-                        href={productionEntriesUrl({ plantId, poId, entryId: e.id })}
+                        href={procurementEntriesUrl({ plantId, poId, entryId: e.id })}
                         className="font-mono text-sky-800 hover:underline text-xs"
                       >
                         {e.entry_number || e.id.slice(0, 8)}

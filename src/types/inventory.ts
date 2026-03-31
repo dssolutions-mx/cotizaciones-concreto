@@ -64,6 +64,10 @@ export interface MaterialEntry {
     last_name: string;
     email: string;
   };
+  /** Joined for list APIs (procurement / OC context) */
+  po?: { id: string; po_number: string | null } | null;
+  fleet_po?: { id: string; po_number: string | null } | null;
+  supplier?: { id: string; name: string | null; provider_number?: string | null } | null;
 }
 
 export interface MaterialAdjustment {
@@ -122,22 +126,32 @@ export interface DailyInventoryLog {
   updated_at: string;
 }
 
+/** Matches `MaterialEntryInputSchema` in `@/lib/validations/inventory` for POST /api/inventory/entries */
 export interface MaterialEntryInput {
   material_id: string;
   supplier_id?: string;
   quantity_received: number;
   supplier_invoice?: string;
   notes?: string;
-  entry_date?: string; // defaults to today
-  plant_id?: string; // Added for plant-specific filtering
-  // Optional PO capture during creation (usually linked during review)
+  entry_date?: string;
+  plant_id?: string;
   po_id?: string;
   po_item_id?: string;
-  /** Explicit link: close this alert when the entry is created (optional). */
   alert_id?: string;
   received_uom?: 'kg' | 'l' | 'm3';
   received_qty_entered?: number;
-  volumetric_weight_kg_per_m3?: number; // if m3 and no PO/agreement/default
+  volumetric_weight_kg_per_m3?: number;
+  ap_due_date_material?: string;
+  unit_price?: number;
+  total_cost?: number;
+  fleet_supplier_id?: string;
+  fleet_cost?: number;
+  fleet_invoice?: string;
+  ap_due_date_fleet?: string;
+  fleet_po_id?: string;
+  fleet_po_item_id?: string;
+  fleet_qty_entered?: number;
+  fleet_uom?: 'trips' | 'tons' | 'hours' | 'loads' | 'units';
 }
 
 export interface MaterialAdjustmentInput {
