@@ -148,6 +148,11 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
       return;
     }
 
+    if (!formData.supplier_id) {
+      showError('Seleccione el proveedor del material (requerido en catálogo)');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload: any = {
@@ -197,6 +202,11 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {!formData.supplier_id && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              Este material no tiene <strong>proveedor</strong> asignado en el catálogo. Asígnelo aquí para que aparezca en órdenes de compra y recepciones filtradas por proveedor.
+            </div>
+          )}
           {/* Basic Information */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -345,10 +355,10 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
             <h3 className="text-lg font-semibold mb-3">Información del Proveedor</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label>Proveedor</Label>
-                <Select value={formData.supplier_id} onValueChange={(v) => setFormData(prev => ({ ...prev, supplier_id: v }))}>
+                <Label>Proveedor *</Label>
+                <Select value={formData.supplier_id || ''} onValueChange={(v) => setFormData(prev => ({ ...prev, supplier_id: v }))}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Seleccionar proveedor" />
                   </SelectTrigger>
                   <SelectContent>
                     {suppliers.map(s => (

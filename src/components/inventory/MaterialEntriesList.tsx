@@ -23,10 +23,20 @@ import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import Link from 'next/link'
 import { toast } from 'sonner'
 
+function sortEntriesNewestFirst(list: MaterialEntry[]): MaterialEntry[] {
+  return [...list].sort((a, b) => {
+    const ka = `${a.entry_date ?? ''}T${a.entry_time ?? '00:00:00'}`
+    const kb = `${b.entry_date ?? ''}T${b.entry_time ?? '00:00:00'}`
+    return kb.localeCompare(ka)
+  })
+}
+
 interface MaterialEntriesListProps {
   date?: Date
   dateRange?: { from: Date | undefined; to: Date | undefined }
   poId?: string
+  /** From URL when opening a specific entry from procurement — row is merged if outside date range, then scrolled into view */
+  highlightEntryId?: string
   isEditing: boolean
   onEntriesLoaded?: (entries: MaterialEntry[]) => void
   /** Hide prices and cost info for roles without access (e.g. DOSIFICADOR) */
@@ -135,13 +145,21 @@ function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: 
   )
 }
 
-export default function MaterialEntriesList({ date, dateRange, poId, isEditing, onEntriesLoaded, hidePrices }: MaterialEntriesListProps) {
+export default function MaterialEntriesList({
+  date,
+  dateRange,
+  poId,
+  highlightEntryId,
+  isEditing,
+  onEntriesLoaded,
+  hidePrices,
+}: MaterialEntriesListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchEntries()
-  }, [date, dateRange, poId])
+  }, [date, dateRange, poId, highlightEntryId])
 
   const fetchEntries = async () => {
     setLoading(true)
@@ -157,10 +175,32 @@ export default function MaterialEntriesList({ date, dateRange, poId, isEditing, 
       }
       if (poId) params.set('po_id', poId)
       const response = await fetch(`/api/inventory/entries?${params.toString()}`)
-      
+
       if (response.ok) {
         const data = await response.json()
-        const entriesData = data.entries || []
+        let entriesData: MaterialEntry[] = data.entries || []
+
+        if (
+          highlightEntryId &&
+          !entriesData.some((e) => e.id === highlightEntryId)
+        ) {
+          const r2 = await fetch(
+            `/api/inventory/entries?entry_id=${encodeURIComponent(highlightEntryId)}`
+          )
+          if (r2.ok) {
+            const data2 = await r2.json()
+            const extra: MaterialEntry[] = data2.entries || []
+            const merged = [...extra, ...entriesData]
+            const seen = new Set<string>()
+            entriesData = merged.filter((e) => {
+              if (seen.has(e.id)) return false
+              seen.add(e.id)
+              return true
+            })
+            entriesData = sortEntriesNewestFirst(entriesData)
+          }
+        }
+
         setEntries(entriesData)
         onEntriesLoaded?.(entriesData)
       }
@@ -171,6 +211,16 @@ export default function MaterialEntriesList({ date, dateRange, poId, isEditing, 
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (loading || !highlightEntryId) return
+    const id = `entry-card-${highlightEntryId}`
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(id)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 100)
+    return () => window.clearTimeout(t)
+  }, [loading, highlightEntryId, entries])
 
   if (loading) {
     return (
@@ -226,7 +276,15 @@ export default function MaterialEntriesList({ date, dateRange, poId, isEditing, 
 
       {/* Entries List */}
       {entries.map((entry) => (
-        <Card key={entry.id} className="hover:shadow-md transition-shadow">
+        <Card
+          key={entry.id}
+          id={`entry-card-${entry.id}`}
+          className={`hover:shadow-md transition-shadow scroll-mt-24 ${
+            highlightEntryId === entry.id
+              ? 'ring-2 ring-sky-500 ring-offset-2 shadow-md'
+              : ''
+          }`}
+        >
           <CardHeader className="pb-3 p-4 sm:p-6">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="flex items-start gap-3 flex-1 min-w-0">

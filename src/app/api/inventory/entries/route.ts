@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       pricing_status: searchParams.get('pricing_status') || undefined,
       po_id: searchParams.get('po_id') || undefined,
       plant_id: searchParams.get('plant_id') || undefined,
+      entry_id: searchParams.get('entry_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
     };
@@ -116,6 +117,28 @@ export async function GET(request: NextRequest) {
       queryParams.plant_id
     ) {
       query = query.eq('plant_id', queryParams.plant_id);
+    }
+
+    // Single entry by id (ignores date filters — used for deep links from procurement)
+    if (queryParams.entry_id) {
+      query = query.eq('id', queryParams.entry_id);
+      const { data: singleEntry, error: singleErr } = await query.maybeSingle();
+
+      if (singleErr) {
+        console.error('Entry by id error:', singleErr);
+        throw new Error(`Error al obtener entrada de material: ${singleErr.message}`);
+      }
+
+      const rows = singleEntry ? [singleEntry] : [];
+      return NextResponse.json({
+        success: true,
+        entries: rows,
+        pagination: {
+          limit: parseInt(queryParams.limit),
+          offset: parseInt(queryParams.offset),
+          hasMore: false,
+        },
+      });
     }
 
     // Handle date filtering - prefer range when provided, fallback to single date, then to today

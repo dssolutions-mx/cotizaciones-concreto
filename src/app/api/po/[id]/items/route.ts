@@ -101,6 +101,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         { status: 409 }
       );
     }
+    // No validación de materials.supplier_id vs OC: el mismo insumo puede comprarse a distintos proveedores.
   }
 
   const { data, error } = await supabase

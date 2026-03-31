@@ -21,10 +21,30 @@ export default function MaterialsManagementPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [materialToEdit, setMaterialToEdit] = useState<Material | null>(null);
+  const [supplierLabelById, setSupplierLabelById] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadMaterials();
   }, [currentPlant]);
+
+  useEffect(() => {
+    if (!currentPlant?.id) {
+      setSupplierLabelById({});
+      return;
+    }
+    (async () => {
+      try {
+        const list = await recipeService.getSuppliers(currentPlant.id);
+        const map: Record<string, string> = {};
+        list.forEach((s) => {
+          map[s.id] = `${s.provider_number} — ${s.name}`;
+        });
+        setSupplierLabelById(map);
+      } catch {
+        setSupplierLabelById({});
+      }
+    })();
+  }, [currentPlant?.id]);
 
   const loadMaterials = async () => {
     try {
@@ -332,20 +352,34 @@ export default function MaterialsManagementPage() {
               </div>
             </div>
 
-            {/* Supplier Information */}
-            {(selectedMaterial.primary_supplier || selectedMaterial.supplier_code) && (
-              <div className="mt-6">
-                <h3 className="font-semibold text-lg mb-3">Información del Proveedor</h3>
-                <div className="space-y-2">
-                  {selectedMaterial.primary_supplier && (
-                    <p><span className="font-medium">Proveedor Principal:</span> {selectedMaterial.primary_supplier}</p>
-                  )}
-                  {selectedMaterial.supplier_code && (
-                    <p><span className="font-medium">Código del Proveedor:</span> {selectedMaterial.supplier_code}</p>
-                  )}
-                </div>
+            {/* Supplier Information (normalized supplier_id + legacy text) */}
+            <div className="mt-6">
+              <h3 className="font-semibold text-lg mb-3">Información del Proveedor</h3>
+              <div className="space-y-2">
+                {(selectedMaterial as Material & { supplier_id?: string }).supplier_id ? (
+                  <p>
+                    <span className="font-medium">Proveedor (catálogo):</span>{' '}
+                    {supplierLabelById[(selectedMaterial as Material & { supplier_id?: string }).supplier_id!] ||
+                      (selectedMaterial as Material & { supplier_id?: string }).supplier_id}
+                  </p>
+                ) : (
+                  <p className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm">
+                    Sin proveedor asignado en el catálogo. Edite el material y seleccione un proveedor.
+                  </p>
+                )}
+                {(selectedMaterial.primary_supplier || selectedMaterial.supplier_code) && (
+                  <div className="text-sm text-gray-600 border-t pt-2 mt-2">
+                    <p className="font-medium text-gray-700 mb-1">Datos heredados (texto libre)</p>
+                    {selectedMaterial.primary_supplier && (
+                      <p><span className="font-medium">Proveedor principal (legacy):</span> {selectedMaterial.primary_supplier}</p>
+                    )}
+                    {selectedMaterial.supplier_code && (
+                      <p><span className="font-medium">Código proveedor (legacy):</span> {selectedMaterial.supplier_code}</p>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
+            </div>
 
             <div className="mt-6 flex justify-end">
               <button

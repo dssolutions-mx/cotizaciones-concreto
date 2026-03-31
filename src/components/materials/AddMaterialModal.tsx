@@ -195,6 +195,11 @@ export default function AddMaterialModal({ isOpen, onClose, onSuccess, plantId }
       return;
     }
 
+    if (!formData.supplier_id) {
+      showError('Seleccione el proveedor del material (requerido en catálogo)');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload: any = {
@@ -204,7 +209,7 @@ export default function AddMaterialModal({ isOpen, onClose, onSuccess, plantId }
         specific_gravity: formData.specific_gravity ? parseFloat(formData.specific_gravity) : undefined,
         absorption_rate: formData.absorption_rate ? parseFloat(formData.absorption_rate) : undefined,
         fineness_modulus: formData.fineness_modulus ? parseFloat(formData.fineness_modulus) : undefined,
-        supplier_id: formData.supplier_id || undefined,
+        supplier_id: formData.supplier_id,
       };
 
       // Only send aggregate protocol fields for aggregates
@@ -650,13 +655,13 @@ export default function AddMaterialModal({ isOpen, onClose, onSuccess, plantId }
             <h3 className="text-lg font-semibold mb-3">Información del Proveedor</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label>Proveedor</Label>
+                <Label>Proveedor *</Label>
                 <Select
-                  value={formData.supplier_id}
+                  value={formData.supplier_id || ''}
                   onValueChange={(value) => setFormData(prev => ({ ...prev, supplier_id: value }))}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Seleccionar proveedor" />
                   </SelectTrigger>
                   <SelectContent>
                     {suppliers.map(s => (

@@ -784,6 +784,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   onChange={handleMaterialChange}
                   required
                   plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  supplierId={formData.supplier_id || undefined}
                 />
                 <p className="text-xs text-stone-500">
                   {autoFilledFromPO.material

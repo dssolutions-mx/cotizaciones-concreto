@@ -48,6 +48,12 @@ interface Plant {
   name: string;
 }
 
+interface SupplierRow {
+  id: string;
+  name: string;
+  provider_number?: number;
+}
+
 interface Material {
   id: string;
   material_code: string;
@@ -87,6 +93,7 @@ export default function MaterialesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPlant, setSelectedPlant] = useState<string>('all');
   const [activeTab, setActiveTab] = useState('agregados');
+  const [suppliersById, setSuppliersById] = useState<Map<string, SupplierRow>>(new Map());
 
   // Cargar plantas
   useEffect(() => {
@@ -135,6 +142,26 @@ export default function MaterialesPage() {
     if (session && profile) {
       loadMaterials();
     }
+  }, [session, profile]);
+
+  // Proveedores (para mostrar nombre en columna Proveedor)
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('suppliers')
+          .select('id, name, provider_number')
+          .eq('is_active', true)
+          .order('name');
+        if (error) throw error;
+        const map = new Map<string, SupplierRow>();
+        (data || []).forEach((s: SupplierRow) => map.set(s.id, s));
+        setSuppliersById(map);
+      } catch (e) {
+        console.error('Error loading suppliers:', e);
+      }
+    };
+    if (session && profile) loadSuppliers();
   }, [session, profile]);
 
   // Filtrar y organizar materiales por categoría
@@ -206,6 +233,7 @@ export default function MaterialesPage() {
             <TableHead>Absorción</TableHead>
             <TableHead>Unidad</TableHead>
             <TableHead>Planta</TableHead>
+            <TableHead>Proveedor</TableHead>
             <TableHead className="text-center">Estado</TableHead>
             <TableHead className="text-right">Acciones</TableHead>
           </TableRow>
@@ -253,6 +281,22 @@ export default function MaterialesPage() {
                     </div>
                   ) : (
                     <span className="text-gray-400">-</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {material.supplier_id ? (
+                    <span className="text-sm text-gray-800">
+                      {(() => {
+                        const s = suppliersById.get(material.supplier_id!);
+                        return s
+                          ? `${s.provider_number != null ? `#${s.provider_number} · ` : ''}${s.name}`
+                          : material.supplier_id;
+                      })()}
+                    </span>
+                  ) : (
+                    <Badge variant="outline" className="bg-amber-50 text-amber-900 border-amber-200 text-xs">
+                      Sin proveedor
+                    </Badge>
                   )}
                 </TableCell>
                 <TableCell className="text-center">

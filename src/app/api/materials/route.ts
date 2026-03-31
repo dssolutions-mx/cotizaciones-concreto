@@ -58,8 +58,11 @@ export async function GET(request: NextRequest) {
 
     let augmented = materials || [];
 
-    // Optional: enrich with supplier agreement + PO history flags for PO creation UX
-    if (supplierId && plantId && augmented.length > 0) {
+    /**
+     * When supplier_id is passed (OC / compras), return the full plant catalog and add optional flags
+     * for UI suggestions — no rows are excluded by proveedor (same material puede comprarse a varios).
+     */
+    if (supplierId && augmented.length > 0) {
       const { data: agreements } = await supabase
         .from('supplier_agreements')
         .select('material_id')
@@ -72,31 +75,50 @@ export async function GET(request: NextRequest) {
         (agreements || []).map((a: { material_id?: string }) => a.material_id).filter(Boolean) as string[]
       );
 
-      const { data: pos } = await supabase
-        .from('purchase_orders')
-        .select('id')
-        .eq('supplier_id', supplierId)
-        .eq('plant_id', plantId);
+      /** Material IDs that appeared on OC lines for this supplier + plant (suggested compras previas). */
+      let poHistorySet = new Set<string>();
+      /** Material IDs from recepciones (material_entries) for this supplier + plant — same material can be bought from otro proveedor en otras OCs; aquí solo afirmamos “ya recibimos de este proveedor”. */
+      let entryHistorySet = new Set<string>();
+      if (plantId) {
+        const { data: pos } = await supabase
+          .from('purchase_orders')
+          .select('id')
+          .eq('supplier_id', supplierId)
+          .eq('plant_id', plantId);
 
-      const poIds = (pos || []).map((p: { id: string }) => p.id);
-      const historySet = new Set<string>();
-      if (poIds.length > 0) {
-        const { data: lines } = await supabase
-          .from('purchase_order_items')
+        const poIds = (pos || []).map((p: { id: string }) => p.id);
+        if (poIds.length > 0) {
+          const { data: lines } = await supabase
+            .from('purchase_order_items')
+            .select('material_id')
+            .in('po_id', poIds)
+            .not('material_id', 'is', null);
+          for (const l of lines || []) {
+            const mid = (l as { material_id?: string }).material_id;
+            if (mid) poHistorySet.add(mid);
+          }
+        }
+
+        const { data: entryRows } = await supabase
+          .from('material_entries')
           .select('material_id')
-          .in('po_id', poIds)
+          .eq('supplier_id', supplierId)
+          .eq('plant_id', plantId)
           .not('material_id', 'is', null);
-        for (const l of lines || []) {
-          const mid = (l as { material_id?: string }).material_id;
-          if (mid) historySet.add(mid);
+        for (const row of entryRows || []) {
+          const mid = (row as { material_id?: string }).material_id;
+          if (mid) entryHistorySet.add(mid);
         }
       }
 
-      augmented = augmented.map((m: Record<string, unknown> & { id: string }) => ({
-        ...m,
-        has_supplier_agreement: agreementSet.has(m.id),
-        has_po_history_with_supplier: historySet.has(m.id),
-      }));
+      augmented = augmented.map(
+        (m: Record<string, unknown> & { id: string; supplier_id?: string | null }) => ({
+          ...m,
+          has_supplier_agreement: agreementSet.has(m.id),
+          has_po_history_with_supplier: poHistorySet.has(m.id),
+          has_entry_history_with_supplier: entryHistorySet.has(m.id),
+        })
+      );
     }
 
     return NextResponse.json({ success: true, data: augmented });

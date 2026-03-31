@@ -88,6 +88,7 @@ export default function CreatePOModal({
   const [materialSupplierId, setMaterialSupplierId] = useState('')
 
   const [materials, setMaterials] = useState<any[]>([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
   const [plants, setPlants] = useState<Plant[]>([])
   const [loadingPlants, setLoadingPlants] = useState(false)
   const [suppliers, setSuppliers] = useState<any[]>([])
@@ -174,17 +175,51 @@ export default function CreatePOModal({
     }
   }, [open, defaultPlantId])
 
-  // Fetch materials (with supplier flags when header supplier is chosen — items step)
+  // Mirror catalog for empty-state + resolving names (MaterialSelect also loads; avoid stale races with AbortSignal)
   useEffect(() => {
-    if (plantId) {
-      const qs = new URLSearchParams({ plant_id: plantId })
-      if (supplierId) qs.set('supplier_id', supplierId)
-      fetch(`/api/materials?${qs.toString()}`)
-        .then(res => res.json())
-        .then(data => setMaterials(data.data || []))
-        .catch(() => {})
+    if (!plantId) {
+      setMaterials([])
+      setMaterialsLoading(false)
+      return
     }
+    const ac = new AbortController()
+    setMaterialsLoading(true)
+    const qs = new URLSearchParams({ plant_id: plantId })
+    if (supplierId) qs.set('supplier_id', supplierId)
+    fetch(`/api/materials?${qs.toString()}`, { signal: ac.signal })
+      .then((res) => res.json())
+      .then((data) => setMaterials(data.data || []))
+      .catch((e) => {
+        if ((e as Error).name !== 'AbortError') setMaterials([])
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setMaterialsLoading(false)
+      })
+    return () => ac.abort()
   }, [plantId, supplierId])
+
+  /** Backfill material_name on the line form when parent catalog arrives after selection (from MaterialSelect meta). */
+  useEffect(() => {
+    if (itemForm.is_service || !itemForm.material_id || itemForm.material_name) return
+    const m = materials.find((x) => x.id === itemForm.material_id)
+    if (m) setItemForm((f) => ({ ...f, material_name: m.material_name }))
+  }, [materials, itemForm.material_id, itemForm.material_name, itemForm.is_service])
+
+  /** Prefill rows: resolve display name once catalog loads */
+  useEffect(() => {
+    if (!open || !plantId || materials.length === 0) return
+    setItems((prev) => {
+      let changed = false
+      const next = prev.map((it) => {
+        if (it.is_service || !it.material_id || it.material_name) return it
+        const m = materials.find((x) => x.id === it.material_id)
+        if (!m) return it
+        changed = true
+        return { ...it, material_name: m.material_name }
+      })
+      return changed ? next : prev
+    })
+  }, [materials, open, plantId])
 
   // Fetch suppliers for material supplier selection (fleet POs)
   useEffect(() => {
@@ -229,7 +264,7 @@ export default function CreatePOModal({
       qty_ordered: 0,
       unit_price: 0,
       required_by: '',
-      total: 0
+      total: 0,
     })
     setServiceDescription('')
     setMaterialSupplierId('')
@@ -296,9 +331,11 @@ export default function CreatePOModal({
       }
     }
 
-    const materialName = itemForm.is_service 
+    const materialName = itemForm.is_service
       ? serviceDescription.trim()
-      : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
+      : itemForm.material_name?.trim() ||
+        materials.find((m) => m.id === itemForm.material_id)?.material_name ||
+        'Material'
 
     const newItem: POItem = {
       ...itemForm,
@@ -365,9 +402,11 @@ export default function CreatePOModal({
       }
     }
 
-    const materialName = itemForm.is_service 
+    const materialName = itemForm.is_service
       ? serviceDescription.trim()
-      : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
+      : itemForm.material_name?.trim() ||
+        materials.find((m) => m.id === itemForm.material_id)?.material_name ||
+        'Material'
 
     const updatedItem: POItem = {
       ...itemForm,
@@ -516,15 +555,6 @@ export default function CreatePOModal({
     const pp = Number.isNaN(p) ? 0 : p
     return qq * pp
   })()
-  const selectedMaterialRow = materials.find((m) => m.id === itemForm.material_id)
-  const showNoSupplierLinkWarning =
-    Boolean(supplierId) &&
-    !itemForm.is_service &&
-    Boolean(itemForm.material_id) &&
-    selectedMaterialRow &&
-    !selectedMaterialRow.has_supplier_agreement &&
-    !selectedMaterialRow.has_po_history_with_supplier
-
   if (!open) return null
 
   return (
@@ -746,11 +776,12 @@ export default function CreatePOModal({
                           value={itemForm.is_service ? 'service' : 'material'}
                           onValueChange={(v) => {
                             const isService = v === 'service'
-                            setItemForm(f => ({ 
-                              ...f, 
-                              is_service: isService, 
-                              material_id: '', 
-                              uom: isService ? 'trips' : 'kg' 
+                            setItemForm(f => ({
+                              ...f,
+                              is_service: isService,
+                              material_id: '',
+                              material_name: '',
+                              uom: isService ? 'trips' : 'kg',
                             }))
                             if (!isService) setServiceDescription('')
                             setUnitPriceInput('')
@@ -883,19 +914,25 @@ export default function CreatePOModal({
                           <div className="mt-1.5">
                             <MaterialSelect
                               value={itemForm.material_id || ''}
-                              onChange={(v: string) => setItemForm(f => ({ ...f, material_id: v }))}
+                              onChange={(v: string, meta) =>
+                                setItemForm((f) => ({
+                                  ...f,
+                                  material_id: v,
+                                  material_name: meta?.material_name ?? (v ? f.material_name : ''),
+                                }))
+                              }
                               plantId={plantId || undefined}
                               supplierId={supplierId || undefined}
                             />
                             {supplierId && (
                               <p className="mt-1 text-xs text-gray-500">
-                                Esta OC es para {suppliers.find(s => s.id === supplierId)?.name || 'el proveedor seleccionado'}. 
-                                Si el material viene de otro proveedor, considere crear una OC separada.
+                                Catálogo completo de la planta. Arriba aparecen <strong>sugeridos</strong> según OCs previas,
+                                acuerdos o recepciones con este proveedor; puede elegir cualquier material.
                               </p>
                             )}
-                            {showNoSupplierLinkWarning && (
+                            {!materialsLoading && materials.length === 0 && plantId && (
                               <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
-                                Sin acuerdo de proveedor ni historial de compras previas con este material y proveedor. Verifique que sea correcto.
+                                No hay materiales activos en el catálogo de esta planta.
                               </p>
                             )}
                           </div>

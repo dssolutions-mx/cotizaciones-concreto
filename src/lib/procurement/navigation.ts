@@ -23,11 +23,18 @@ export function buildProcurementUrl(path: string, opts: ProcurementLinkOptions =
   return q ? `${base}?${q}` : base
 }
 
-export function productionEntriesUrl(opts: { plantId?: string | null; poId?: string | null; tab?: string } = {}) {
+export function productionEntriesUrl(opts: {
+  plantId?: string | null
+  poId?: string | null
+  tab?: string
+  /** Deep-link to a specific material entry row (scroll + highlight on entries list) */
+  entryId?: string | null
+} = {}) {
   const params = new URLSearchParams()
   if (opts.plantId) params.set('plant_id', opts.plantId)
   if (opts.poId) params.set('po_id', opts.poId)
   if (opts.tab) params.set('tab', opts.tab)
+  if (opts.entryId) params.set('entry_id', opts.entryId)
   const q = params.toString()
   return q ? `/production-control/entries?${q}` : '/production-control/entries'
 }

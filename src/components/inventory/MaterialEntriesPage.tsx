@@ -26,6 +26,7 @@ export default function MaterialEntriesPage() {
   const searchParams = useSearchParams()
   const { currentPlant } = usePlantContext()
   const poIdFromUrl = searchParams.get('po_id') || undefined
+  const entryIdFromUrl = searchParams.get('entry_id') || undefined
   const [activeTab, setActiveTab] = useState('new')
 
   useEffect(() => {
@@ -223,6 +224,7 @@ export default function MaterialEntriesPage() {
               <MaterialEntriesList 
                 dateRange={dateRange}
                 poId={poIdFromUrl}
+                highlightEntryId={entryIdFromUrl}
                 isEditing={true}
                 key={refreshList}
                 onEntriesLoaded={setEntries}

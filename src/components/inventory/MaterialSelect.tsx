@@ -28,18 +28,28 @@ interface Material {
   unit_of_measure: string
   is_active: boolean
   plant_id?: string
+  /** FK en catálogo de materiales — define el proveedor habitual del insumo. */
+  supplier_id?: string | null
   /** Set when fetching with supplier_id (PO flow). */
   has_supplier_agreement?: boolean
+  /** Material apareció en líneas de OC de este proveedor (planta). */
   has_po_history_with_supplier?: boolean
+  /** Recepciones registradas con este proveedor aunque no haya línea de OC (o legacy). */
+  has_entry_history_with_supplier?: boolean
+}
+
+export type MaterialSelectChangeMeta = {
+  material_name?: string
 }
 
 interface MaterialSelectProps {
   value: string
-  onChange: (value: string) => void
+  /** Second argument is set when the user picks a row from the list (avoids race with parent fetching the same catalog). */
+  onChange: (value: string, meta?: MaterialSelectChangeMeta) => void
   required?: boolean
   disabled?: boolean
   plantId?: string
-  /** When set, materials are grouped (acuerdo vs otros) and enriched with agreement/history flags. */
+  /** When set, full catalog is shown; materials are enriched with suggestion flags (OC previa, etc.). */
   supplierId?: string
 }
 
@@ -58,39 +68,44 @@ export default function MaterialSelect({
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
 
   useEffect(() => {
-    if (plantId) {
-      fetchMaterials()
-    } else {
+    if (!plantId) {
       setMaterials([])
       setLoading(false)
+      return
     }
-  }, [plantId, supplierId])
 
-  const fetchMaterials = async () => {
-    if (!plantId) return
+    const ac = new AbortController()
+    setLoading(true)
+    const qs = new URLSearchParams({ plant_id: plantId })
+    if (supplierId) qs.set('supplier_id', supplierId)
 
-    try {
-      setLoading(true)
-      const qs = new URLSearchParams({ plant_id: plantId })
-      if (supplierId) qs.set('supplier_id', supplierId)
-      const response = await fetch(`/api/materials?${qs.toString()}`)
-      if (response.ok) {
-        const data = await response.json()
+    fetch(`/api/materials?${qs.toString()}`, { signal: ac.signal })
+      .then((response) => {
+        if (!response.ok) {
+          setMaterials([])
+          return
+        }
+        return response.json()
+      })
+      .then((data) => {
+        if (!data) return
         const materialsArray = data.data || data.materials || []
         const plantMaterials = materialsArray.filter(
           (m: Material) => m.is_active && m.plant_id === plantId
         )
         setMaterials(plantMaterials)
-      } else {
+      })
+      .catch((error) => {
+        if ((error as Error).name === 'AbortError') return
+        console.error('Error fetching materials:', error)
         setMaterials([])
-      }
-    } catch (error) {
-      console.error('Error fetching materials:', error)
-      setMaterials([])
-    } finally {
-      setLoading(false)
-    }
-  }
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setLoading(false)
+      })
+
+    return () => ac.abort()
+  }, [plantId, supplierId])
 
   const selectedMaterial = materials.find((m) => m.id === value)
 
@@ -122,18 +137,18 @@ export default function MaterialSelect({
     {} as Record<string, Material[]>
   )
 
-  const { agreementMaterials, otherMaterials } = useMemo(() => {
+  const isSuggestedForSupplier = (m: Material) =>
+    !!(m.has_supplier_agreement || m.has_po_history_with_supplier || m.has_entry_history_with_supplier)
+
+  const { suggestedMaterials, restMaterials } = useMemo(() => {
     if (!supplierId) {
-      return { agreementMaterials: [] as Material[], otherMaterials: [] as Material[] }
+      return { suggestedMaterials: [] as Material[], restMaterials: [] as Material[] }
     }
     const sortByName = (a: Material, b: Material) =>
       a.material_name.localeCompare(b.material_name, 'es', { sensitivity: 'base' })
-    const ag = filteredMaterials.filter((m) => m.has_supplier_agreement)
-    const ot = filteredMaterials.filter((m) => !m.has_supplier_agreement)
-    return {
-      agreementMaterials: [...ag].sort(sortByName),
-      otherMaterials: [...ot].sort(sortByName),
-    }
+    const sug = filteredMaterials.filter(isSuggestedForSupplier).sort(sortByName)
+    const rest = filteredMaterials.filter((m) => !isSuggestedForSupplier(m)).sort(sortByName)
+    return { suggestedMaterials: sug, restMaterials: rest }
   }, [filteredMaterials, supplierId])
 
   const renderMaterialItem = (material: Material) => (
@@ -141,7 +156,11 @@ export default function MaterialSelect({
       key={material.id}
       value={material.id}
       onSelect={(currentValue) => {
-        onChange(currentValue === value ? '' : currentValue)
+        const next = currentValue === value ? '' : currentValue
+        onChange(
+          next,
+          next ? { material_name: material.material_name } : undefined
+        )
         setOpen(false)
         setSearchValue('')
         setSelectedCategory('all')
@@ -175,6 +194,14 @@ export default function MaterialSelect({
                 OC previa
               </Badge>
             )}
+            {supplierId &&
+              !material.has_supplier_agreement &&
+              !material.has_po_history_with_supplier &&
+              material.has_entry_history_with_supplier && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-200 text-amber-900">
+                  Recepción previa
+                </Badge>
+              )}
           </div>
           <div className="flex items-center gap-2 text-xs text-stone-500 flex-wrap">
             <Badge variant="outline" className="text-xs border-stone-200">
@@ -290,17 +317,17 @@ export default function MaterialSelect({
 
             {supplierId ? (
               <>
-                {agreementMaterials.length > 0 && (
-                  <CommandGroup heading="Materiales con acuerdo con este proveedor">
-                    {agreementMaterials.map((m) => renderMaterialItem(m))}
+                {suggestedMaterials.length > 0 && (
+                  <CommandGroup heading="Sugeridos (OCs previas o historial con este proveedor)">
+                    {suggestedMaterials.map((m) => renderMaterialItem(m))}
                   </CommandGroup>
                 )}
                 <CommandGroup
                   heading={
-                    agreementMaterials.length > 0 ? 'Otros materiales' : 'Materiales'
+                    suggestedMaterials.length > 0 ? 'Resto del catálogo' : 'Materiales'
                   }
                 >
-                  {otherMaterials.map((m) => renderMaterialItem(m))}
+                  {restMaterials.map((m) => renderMaterialItem(m))}
                 </CommandGroup>
               </>
             ) : (

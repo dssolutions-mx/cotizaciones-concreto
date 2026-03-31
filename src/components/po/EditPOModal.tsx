@@ -702,16 +702,21 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                     <div className="mt-1.5">
                       <MaterialSelect
                         value={itemForm.material_id}
-                        onChange={(id) => {
-                          const selected = id
-                          setItemForm(f => ({ ...f, material_id: id }))
-                        }}
+                        onChange={(id, meta) =>
+                          setItemForm((f) => ({
+                            ...f,
+                            material_id: id,
+                            material_name: meta?.material_name ?? (id ? f.material_name : ''),
+                          }))
+                        }
                         plantId={plantId}
+                        supplierId={poSupplierId || undefined}
                       />
                       {poSupplierId && (
                         <p className="mt-1 text-xs text-gray-500">
-                          Este PO es para {suppliers.find(s => s.id === poSupplierId)?.name || 'el proveedor seleccionado'}. 
-                          Si el material viene de otro proveedor, considere crear un PO separado.
+                          Catálogo completo de la planta. Los <strong>sugeridos</strong> (OCs previas, acuerdos o recepciones con{' '}
+                          {suppliers.find(s => s.id === poSupplierId)?.name || 'este proveedor'}) aparecen arriba; puede elegir
+                          cualquier material.
                         </p>
                       )}
                     </div>
