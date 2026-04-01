@@ -71,7 +71,7 @@ import { BotIdClient } from 'botid/client';
 // Define Finanzas submenu items with component types
 const finanzasSubMenuItems = [
   {
-    title: "Procurement Workspace",
+    title: "Centro de Compras",
     href: "/finanzas/procurement",
     IconComponent: Briefcase,
   },
@@ -113,7 +113,7 @@ const finanzasSubMenuItems = [
 ];
 
 function getFinanzasSubMenuItemsForRole(userRole?: string) {
-  const procurementWorkspaceItem = { title: "Procurement Workspace", href: "/finanzas/procurement", IconComponent: Briefcase };
+  const procurementWorkspaceItem = { title: "Centro de Compras", href: "/finanzas/procurement", IconComponent: Briefcase };
 
   if (userRole === 'ADMIN_OPERATIONS') {
     return [

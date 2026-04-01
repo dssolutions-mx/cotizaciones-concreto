@@ -93,7 +93,15 @@ export class FIFOPricingService {
     }
 
     if (!entries || entries.length === 0) {
-      throw new Error(`No available inventory for material ${materialId} at plant ${plantId} as of ${consumptionDate}`);
+      console.warn(
+        `[FIFO] No cost layers for material ${materialId} plant ${plantId} as of ${consumptionDate} — skipping allocation`
+      );
+      return {
+        totalCost: 0,
+        allocations: [],
+        skipped: true,
+        skipReason: 'NO_ENTRIES',
+      };
     }
 
     // Initialize remaining_quantity_kg for entries that don't have it set
@@ -121,9 +129,15 @@ export class FIFOPricingService {
     }
 
     if (totalAvailable < quantityToConsume) {
-      throw new Error(
-        `Insufficient inventory: requested ${quantityToConsume}kg, available ${totalAvailable.toFixed(3)}kg`
+      console.warn(
+        `[FIFO] Insufficient layers for material ${materialId}: need ${quantityToConsume}kg, available ${totalAvailable.toFixed(3)}kg — skipping`
       );
+      return {
+        totalCost: 0,
+        allocations: [],
+        skipped: true,
+        skipReason: 'INSUFFICIENT_INVENTORY',
+      };
     }
 
     // Pre-fetch material_prices once (fallback when entry has no landed_unit_price or unit_price)
@@ -202,9 +216,15 @@ export class FIFOPricingService {
     }
 
     if (remainingToAllocate > 0.001) {
-      throw new Error(
-        `Failed to fully allocate consumption: ${remainingToAllocate.toFixed(3)}kg remaining`
+      console.warn(
+        `[FIFO] Partial layer math for material ${materialId}: ${remainingToAllocate.toFixed(3)}kg unallocated — skipping`
       );
+      return {
+        totalCost: 0,
+        allocations: [],
+        skipped: true,
+        skipReason: 'ALLOCATION_FAILED',
+      };
     }
 
     // Resolve lot_ids for each allocation record (lots are 1:1 with entries)
@@ -256,6 +276,7 @@ export class FIFOPricingService {
     return {
       totalCost: Number(totalCost.toFixed(2)),
       allocations,
+      skipped: false,
     };
   }
 
@@ -402,6 +423,7 @@ export async function autoAllocateRemisionFIFO(
   success: boolean;
   allocationsCreated: number;
   errors: Array<{ remisionMaterialId: string; materialId: string; error: string }>;
+  skipped: Array<{ remisionMaterialId: string; materialId: string; reason: string }>;
   allocationResults: Array<{ remisionMaterialId: string; materialId: string; totalCost: number }>;
 }> {
   const supabase = await createServerSupabaseClient();
@@ -426,10 +448,23 @@ export async function autoAllocateRemisionFIFO(
     throw new Error(`Error al obtener materiales: ${materialsError.message}`);
   }
 
+  const lines = remisionMaterials || [];
   const allocationResults: Array<{ remisionMaterialId: string; materialId: string; totalCost: number }> = [];
   const errors: Array<{ remisionMaterialId: string; materialId: string; error: string }> = [];
+  const skipped: Array<{ remisionMaterialId: string; materialId: string; reason: string }> = [];
 
-  for (const rm of remisionMaterials || []) {
+  if (lines.length === 0) {
+    await supabase.from('remisiones').update({ fifo_status: 'not_applicable' }).eq('id', remisionId);
+    return {
+      success: true,
+      allocationsCreated: 0,
+      errors: [],
+      skipped: [],
+      allocationResults: [],
+    };
+  }
+
+  for (const rm of lines) {
     try {
       const materialId = rm.material_id;
       const quantityKg = Number(rm.cantidad_real);
@@ -446,20 +481,46 @@ export async function autoAllocateRemisionFIFO(
         },
         userId
       );
+
+      if (result.skipped) {
+        skipped.push({
+          remisionMaterialId: rm.id,
+          materialId,
+          reason: result.skipReason ?? 'skipped',
+        });
+        continue;
+      }
+
       allocationResults.push({ remisionMaterialId: rm.id, materialId, totalCost: result.totalCost });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error desconocido';
       errors.push({
         remisionMaterialId: rm.id,
         materialId: rm.material_id,
-        error: err?.message || 'Error desconocido',
+        error: message,
       });
     }
   }
+
+  const linesAttempted = lines.length;
+  let fifoStatus: 'pending' | 'allocated' | 'partial' | 'error' = 'pending';
+  if (allocationResults.length === linesAttempted && errors.length === 0 && skipped.length === 0) {
+    fifoStatus = 'allocated';
+  } else if (allocationResults.length > 0 && (errors.length > 0 || skipped.length > 0)) {
+    fifoStatus = 'partial';
+  } else if (allocationResults.length === 0 && linesAttempted > 0) {
+    fifoStatus = 'error';
+  } else {
+    fifoStatus = 'allocated';
+  }
+
+  await supabase.from('remisiones').update({ fifo_status: fifoStatus }).eq('id', remisionId);
 
   return {
     success: errors.length === 0,
     allocationsCreated: allocationResults.length,
     errors,
+    skipped,
     allocationResults,
   };
 }

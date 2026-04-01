@@ -265,6 +265,18 @@ export async function PUT(request: NextRequest) {
         throw new Error(`Error al cerrar bitácora diaria: ${closeError.message}`);
       }
 
+      try {
+        const { error: snapErr } = await supabase.rpc('calculate_daily_inventory_snapshot', {
+          p_plant_id: profile.plant_id,
+          p_date: validatedData.log_date,
+        });
+        if (snapErr) {
+          console.warn('[daily-log] calculate_daily_inventory_snapshot:', snapErr.message);
+        }
+      } catch (snapEx) {
+        console.warn('[daily-log] snapshot RPC exception:', snapEx);
+      }
+
       return NextResponse.json({
         success: true,
         data: result,

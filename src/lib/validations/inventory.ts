@@ -60,10 +60,22 @@ export const MaterialEntryInputSchema = BaseMaterialEntryInputSchema.refine(
 
 export const MaterialAdjustmentInputSchema = z.object({
   material_id: z.string().uuid('ID de material debe ser un UUID válido'),
-  adjustment_type: z.enum(['consumption', 'waste', 'correction', 'transfer', 'loss'], {
-    required_error: 'Tipo de ajuste es requerido',
-    invalid_type_error: 'Tipo de ajuste no válido'
-  }),
+  adjustment_type: z.enum(
+    [
+      'consumption',
+      'waste',
+      'correction',
+      'transfer',
+      'loss',
+      'initial_count',
+      'physical_count',
+      'positive_correction',
+    ],
+    {
+      required_error: 'Tipo de ajuste es requerido',
+      invalid_type_error: 'Tipo de ajuste no válido',
+    }
+  ),
   quantity_adjusted: z.number().positive('La cantidad ajustada debe ser positiva'),
   reference_type: z.string().max(50, 'Tipo de referencia no puede exceder 50 caracteres').optional(),
   reference_notes: z.string().min(1, 'Las notas de referencia son requeridas').max(1000, 'Notas de referencia no pueden exceder 1000 caracteres'),

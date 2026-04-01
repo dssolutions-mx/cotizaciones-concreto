@@ -179,6 +179,8 @@ export interface OrderCreationResult {
   materialsProcessed: number;
   orderItemsCreated: number;
   errors: string[];
+  /** Remision IDs created in this batch — used to trigger FIFO costing via /api/inventory/fifo/batch */
+  fifoRemisionIds: string[];
 }
 
 interface OrderCreationData {
@@ -260,7 +262,8 @@ export async function createOrdersFromSuggestions(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   // Track affected clients/sites for batch balance calculation
@@ -310,6 +313,7 @@ export async function createOrdersFromSuggestions(
         result.materialsProcessed += orderResult.materialsProcessed;
         result.orderItemsCreated += orderResult.orderItemsCreated;
         result.errors.push(...orderResult.errors);
+        result.fifoRemisionIds.push(...(orderResult.fifoRemisionIds ?? []));
 
         // Track this order's client/site for balance calculation
         const firstRemision = suggestion.remisiones[0];
@@ -551,7 +555,8 @@ async function createSingleOrder(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   // Get the first remision for order data
@@ -956,6 +961,7 @@ async function createSingleOrder(
           result.errors.push(`Error creando materiales: ${materialsError.message}`);
         } else {
           result.materialsProcessed = allRemisionMaterials.length;
+          result.fifoRemisionIds = createdRemisiones.map((r) => r.id);
           console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
         }
       } else {
@@ -1051,7 +1057,8 @@ async function createSingleOrderWithoutBalanceUpdate(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   try {
@@ -1504,6 +1511,7 @@ async function createSingleOrderWithoutBalanceUpdate(
           result.errors.push(`Error creando materiales: ${materialsError.message}`);
         } else {
           result.materialsProcessed = allRemisionMaterials.length;
+          result.fifoRemisionIds = createdRemisiones.map((r) => r.id);
           console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
         }
       } else {

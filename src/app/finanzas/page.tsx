@@ -66,7 +66,7 @@ export default async function FinancialHubPage() {
                   <Briefcase className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Procurement Workspace</h3>
+                  <h3 className="text-title-3 text-gray-900">Centro de Compras</h3>
                   <p className="text-footnote text-muted-foreground mt-1">
                     Vista unificada de PO, CXP y análisis de proveedores
                   </p>

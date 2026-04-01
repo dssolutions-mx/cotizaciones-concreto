@@ -1485,6 +1485,28 @@ Fin del reporte
         totalRemisionesCreated += creationResult.remisionesCreated;
         totalMaterialsProcessed = creationResult.materialsProcessed;
         totalOrderItemsCreated += creationResult.orderItemsCreated;
+
+        if (creationResult.fifoRemisionIds?.length > 0) {
+          try {
+            const fifoRes = await fetch('/api/inventory/fifo/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ remision_ids: creationResult.fifoRemisionIds }),
+            });
+            const fifoData = await fifoRes.json().catch(() => ({}));
+            if (!fifoRes.ok) {
+              console.warn('[ArkikProcessor] FIFO batch failed:', fifoData);
+            } else {
+              console.log(
+                '[ArkikProcessor] FIFO batch OK for',
+                creationResult.fifoRemisionIds.length,
+                'remisiones'
+              );
+            }
+          } catch (fifoErr) {
+            console.warn('[ArkikProcessor] FIFO batch error:', fifoErr);
+          }
+        }
       }
       
       // Save pending reassignments after remisiones are created
@@ -1518,6 +1540,23 @@ Fin del reporte
         const { createCrossPlantProductionRemisiones } = await import('@/services/arkikOrderCreator');
         const cpResults = await createCrossPlantProductionRemisiones(crossPlantRemisiones, currentPlant.id);
         crossPlantCreated = cpResults.length;
+
+        const cpFifoIds = cpResults.map((r) => r.remisionId).filter(Boolean);
+        if (cpFifoIds.length > 0) {
+          try {
+            const fifoRes = await fetch('/api/inventory/fifo/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ remision_ids: cpFifoIds }),
+            });
+            if (!fifoRes.ok) {
+              const fifoData = await fifoRes.json().catch(() => ({}));
+              console.warn('[ArkikProcessor] Cross-plant FIFO batch failed:', fifoData);
+            }
+          } catch (e) {
+            console.warn('[ArkikProcessor] Cross-plant FIFO batch error:', e);
+          }
+        }
 
         // Resolve cross-plant links via API (service role needed for cross-plant lookups)
         const sessionId = crypto.randomUUID();
