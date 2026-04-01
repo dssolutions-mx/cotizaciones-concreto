@@ -821,11 +821,15 @@ export async function PUT(request: NextRequest) {
       const alreadyReceivedNative = Number(poItem.qty_received ?? poItem.qty_received_native ?? 0);
       const orderedNative = Number(poItem.qty_ordered || 0);
 
-      // Compute previous native from current entry to find delta
+      // Compute previous native from current entry to find delta.
+      // First-time link (entrada sin OC): nothing was counted on a PO line yet — full receipt applies (same idea as fleet OC link).
+      const firstMaterialPoLink = !currentEntry.po_item_id;
       let previousNative = 0;
-      if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
-      else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
-      else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
+      if (!firstMaterialPoLink) {
+        if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
+        else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
+        else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
+      }
 
       const deltaNative = Math.max(newReceivedNative - previousNative, 0);
       if (deltaNative > (orderedNative - alreadyReceivedNative) + 1e-6) {
@@ -851,7 +855,7 @@ export async function PUT(request: NextRequest) {
       updatePayload.__po_delta_native = deltaNative;
       updatePayload.__po_native_uom = nativeUom;
       // For kg/m3 we may track kg too
-      const previousKg = Number(currentEntry.received_qty_kg || 0);
+      const previousKg = firstMaterialPoLink ? 0 : Number(currentEntry.received_qty_kg || 0);
       const deltaKg = Math.max(newReceivedKg - previousKg, 0);
       updatePayload.__po_delta_kg = deltaKg;
     }
@@ -915,7 +919,8 @@ export async function PUT(request: NextRequest) {
         updateData.total_cost !== undefined ||
         updateData.fleet_supplier_id !== undefined ||
         updateData.fleet_cost !== undefined ||
-        updateData.fleet_po_item_id !== undefined) &&
+        updateData.fleet_po_item_id !== undefined ||
+        updateData.po_item_id !== undefined) &&
       (profile.role === 'ADMIN_OPERATIONS' || profile.role === 'EXECUTIVE')
     ) {
       updatePayload.pricing_status = 'reviewed';

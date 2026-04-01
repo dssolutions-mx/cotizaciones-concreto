@@ -7,13 +7,38 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save, AlertTriangle, FileText } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus } from 'lucide-react'
+import CreatePOModal, { type PrefillFromMaterialEntry } from '@/components/po/CreatePOModal'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
   onSuccess?: (warnings?: string[]) => void
   onCancel?: () => void
+  /** Tras crear una OC desde esta pantalla (p. ej. recargar listas en el padre) */
+  onAfterCreatePO?: () => void
+}
+
+function buildPrefillFromMaterialEntry(entry: MaterialEntry): PrefillFromMaterialEntry | null {
+  if (!entry.plant_id || !entry.supplier_id || !entry.material_id) return null
+  const rawUom = entry.received_uom
+  const quantityUom: 'kg' | 'l' | 'm3' = rawUom === 'l' || rawUom === 'm3' ? rawUom : 'kg'
+  let suggestedQty = 1
+  if (quantityUom === 'l' || quantityUom === 'm3') {
+    const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0)
+    suggestedQty = Number.isFinite(n) && n > 0 ? n : 1
+  } else {
+    const n = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+    suggestedQty = Number.isFinite(n) && n > 0 ? n : 1
+  }
+  return {
+    plantId: entry.plant_id,
+    supplierId: entry.supplier_id,
+    materialId: entry.material_id,
+    suggestedQty,
+    quantityUom,
+    notesHint: `Creada desde revisión de precios · entrada ${entry.entry_number || entry.id.slice(0, 8)}`,
+  }
 }
 
 interface Supplier {
@@ -31,7 +56,7 @@ type PoLineItem = {
   is_service: boolean
 }
 
-/** Row from GET /api/po/items/search (fleet / service lines) */
+/** Row from GET /api/po/items/search (fleet / service / material lines) */
 type FleetPoSearchItem = {
   id: string
   uom: string | null
@@ -42,6 +67,7 @@ type FleetPoSearchItem = {
   qty_remaining?: number
   service_description?: string | null
   material_supplier?: { id: string; name?: string | null } | null
+  material?: { id: string; material_name?: string | null } | null
   po?: {
     id: string
     po_number?: string | null
@@ -65,7 +91,7 @@ function uomLabel(u: string | null | undefined) {
   return map[u] || u
 }
 
-export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPricingFormProps) {
+export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO }: EntryPricingFormProps) {
   const [loading, setLoading] = useState(false)
   const [apiWarnings, setApiWarnings] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -81,6 +107,14 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
   const [selectedFleetSearchItemId, setSelectedFleetSearchItemId] = useState('')
   const [fleetQtyEnteredLink, setFleetQtyEnteredLink] = useState(0)
   const [fleetSearchHeaderSupplierId, setFleetSearchHeaderSupplierId] = useState<string | null>(null)
+
+  /** Link material OC when entry was created without po_item_id (pricing review) */
+  const [materialPoSearchItems, setMaterialPoSearchItems] = useState<FleetPoSearchItem[]>([])
+  const [materialPoSearchLoading, setMaterialPoSearchLoading] = useState(false)
+  const [selectedMaterialSearchItemId, setSelectedMaterialSearchItemId] = useState('')
+  const [createPOOpen, setCreatePOOpen] = useState(false)
+  const [poPrefill, setPoPrefill] = useState<PrefillFromMaterialEntry | null>(null)
+  const [materialPoSearchRefreshKey, setMaterialPoSearchRefreshKey] = useState(0)
 
   const [formData, setFormData] = useState({
     unit_price: entry.unit_price?.toString() || '',
@@ -101,6 +135,26 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     [fleetPoSearchItems, selectedFleetSearchItemId]
   )
 
+  const selectedMaterialSearchItem = useMemo(
+    () => materialPoSearchItems.find((it) => it.id === selectedMaterialSearchItemId) || null,
+    [materialPoSearchItems, selectedMaterialSearchItemId]
+  )
+
+  /** OC línea material: guardada o selección en búsqueda (revisión de precios) */
+  const resolvedMaterialLineForCalc: PoLineItem | null = hasMaterialPoLink
+    ? materialPoItem
+    : selectedMaterialSearchItem
+      ? {
+          id: selectedMaterialSearchItem.id,
+          uom: selectedMaterialSearchItem.uom,
+          unit_price: selectedMaterialSearchItem.unit_price,
+          qty_ordered: selectedMaterialSearchItem.qty_ordered,
+          qty_received: selectedMaterialSearchItem.qty_received,
+          qty_received_native: selectedMaterialSearchItem.qty_received_native,
+          is_service: false,
+        }
+      : null
+
   /** Resolved fleet line for agreed total / diff alerts (saved OC link or search selection) */
   const resolvedFleetLineForCalc: PoLineItem | null = hasFleetPoLink
     ? fleetPoItem
@@ -120,13 +174,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     hasFleetPoLink ? Number(entry.fleet_qty_entered ?? 0) : Number(fleetQtyEnteredLink || 0)
 
   const qtyForMaterialCost = useMemo(() => {
-    if (materialPoItem?.uom === 'm3' || materialPoItem?.uom === 'l') {
+    const uom = resolvedMaterialLineForCalc?.uom
+    if (uom === 'm3' || uom === 'l') {
       return Number(entry.received_qty_entered ?? entry.quantity_received ?? 0)
     }
     return Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
-  }, [entry, materialPoItem])
+  }, [entry, resolvedMaterialLineForCalc])
 
-  const agreedMaterialUnit = materialPoItem?.unit_price != null ? Number(materialPoItem.unit_price) : null
+  const agreedMaterialUnit =
+    resolvedMaterialLineForCalc?.unit_price != null ? Number(resolvedMaterialLineForCalc.unit_price) : null
   const agreedFleetTotal =
     resolvedFleetLineForCalc?.unit_price != null && resolvedFleetQty > 0
       ? Number(resolvedFleetLineForCalc.unit_price) * resolvedFleetQty
@@ -218,15 +274,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     }
   }, [entry.fleet_po_id, entry.fleet_po_item_id])
 
-  // Pre-fill material unit price from PO line when empty
+  // Pre-fill material unit price from PO line when empty (guardada o línea elegida en búsqueda)
   useEffect(() => {
-    if (!materialPoItem || materialPoItem.is_service || agreedMaterialUnit == null) return
+    if (!resolvedMaterialLineForCalc || resolvedMaterialLineForCalc.is_service || agreedMaterialUnit == null) return
     if (entry.unit_price != null && entry.unit_price !== undefined) return
     setFormData((prev) => {
       if (prev.unit_price !== '') return prev
       return { ...prev, unit_price: String(agreedMaterialUnit) }
     })
-  }, [materialPoItem, agreedMaterialUnit, entry.unit_price])
+  }, [resolvedMaterialLineForCalc, agreedMaterialUnit, entry.unit_price])
 
   // Pre-fill fleet cost from OC line × qty when empty (saved fleet OC or newly selected search line)
   useEffect(() => {
@@ -297,6 +353,48 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
       cancelled = true
     }
   }, [hasFleetPoLink, entry.supplier_id, entry.plant_id, formData.fleet_supplier_id])
+
+  // Open material PO lines (mismo proveedor de encabezado + material + planta)
+  useEffect(() => {
+    if (hasMaterialPoLink || !entry.supplier_id || !entry.plant_id || !entry.material_id) {
+      setMaterialPoSearchItems([])
+      return
+    }
+    let cancelled = false
+    setMaterialPoSearchLoading(true)
+    ;(async () => {
+      try {
+        const params = new URLSearchParams()
+        params.set('plant_id', entry.plant_id)
+        params.set('supplier_id', entry.supplier_id)
+        params.set('material_id', entry.material_id)
+        params.set('is_service', 'false')
+        params.set('active_po_header', 'true')
+        const res = await fetch(`/api/po/items/search?${params.toString()}`)
+        if (!res.ok) {
+          if (!cancelled) setMaterialPoSearchItems([])
+          return
+        }
+        const data = await res.json()
+        if (!cancelled) setMaterialPoSearchItems(data.items || [])
+      } catch {
+        if (!cancelled) setMaterialPoSearchItems([])
+      } finally {
+        if (!cancelled) setMaterialPoSearchLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hasMaterialPoLink, entry.supplier_id, entry.plant_id, entry.material_id, materialPoSearchRefreshKey])
+
+  // Clear invalid selection when list refreshes
+  useEffect(() => {
+    if (!selectedMaterialSearchItemId || materialPoSearchItems.length === 0) return
+    if (!materialPoSearchItems.some((it) => it.id === selectedMaterialSearchItemId)) {
+      setSelectedMaterialSearchItemId('')
+    }
+  }, [materialPoSearchItems, selectedMaterialSearchItemId])
 
   // Clear invalid selection when list refreshes
   useEffect(() => {
@@ -382,6 +480,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
       !hasFleetPoLink &&
       Boolean(selectedFleetSearchItemId && selectedFleetSearchItem && fleetQtyEnteredLink > 0)
 
+    const linkingMaterialFromSearch =
+      !hasMaterialPoLink && Boolean(selectedMaterialSearchItemId && selectedMaterialSearchItem)
+
     if (selectedFleetSearchItemId && (!selectedFleetSearchItem || fleetQtyEnteredLink <= 0)) {
       toast.error('Indique la cantidad de servicio (flota) mayor a cero para la OC seleccionada')
       return
@@ -433,6 +534,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
         updatePayload.fleet_uom = mapFleetUom(selectedFleetSearchItem.uom)
       }
 
+      if (linkingMaterialFromSearch && selectedMaterialSearchItem) {
+        updatePayload.po_item_id = selectedMaterialSearchItem.id
+      }
+
       const response = await fetch('/api/inventory/entries', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -470,9 +575,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     }
   }
 
-  const materialUom = materialPoItem?.uom || 'kg'
+  const materialUom = resolvedMaterialLineForCalc?.uom || 'kg'
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="space-y-6 bg-white p-6 rounded-lg border">
       {apiWarnings.length > 0 && (
         <Alert className="border-amber-300 bg-amber-50 text-amber-800 [&>svg]:text-amber-600">
@@ -508,6 +614,115 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
           </span>
         </div>
       </div>
+
+      {!hasMaterialPoLink && entry.supplier_id && (
+        <Alert className="border-amber-200 bg-amber-50/90 text-amber-950 [&>svg]:text-amber-700">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Sin orden de compra (material) vinculada</AlertTitle>
+          <AlertDescription className="text-sm">
+            Para conciliar inventario y recepciones contra la OC, seleccione una línea abierta del proveedor. Si la entrada quedó sin OC al
+            capturarla, vincúlela aquí (revisión de precios).
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!hasMaterialPoLink && entry.supplier_id && (
+        <div className="rounded-lg border border-stone-300 bg-stone-50/80 p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-stone-800">
+            <FileText className="h-4 w-4" />
+            Vincular OC de material
+          </div>
+          <p className="text-xs text-stone-700">
+            Busque una línea de material abierta (mismo proveedor de OC, planta y material). Al guardar, la entrada queda ligada a la OC para el
+            avance de recepciones.
+          </p>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-fit"
+              onClick={() => {
+                const p = buildPrefillFromMaterialEntry(entry)
+                if (!p) {
+                  toast.error('Faltan planta, proveedor o material en la entrada para crear la OC')
+                  return
+                }
+                setPoPrefill(p)
+                setCreatePOOpen(true)
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Crear nueva OC de material
+            </Button>
+            <span className="text-xs text-stone-600">
+              Abre el asistente de compras con planta, proveedor y cantidad sugerida; al terminar, elija la línea nueva arriba.
+            </span>
+          </div>
+          {materialPoSearchLoading ? (
+            <p className="text-xs text-stone-600">Cargando líneas de OC…</p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="material_oc_search">OC de material (línea)</Label>
+                <select
+                  id="material_oc_search"
+                  className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                  value={selectedMaterialSearchItemId}
+                  onChange={(e) => setSelectedMaterialSearchItemId(e.target.value)}
+                >
+                  <option value="">Sin vincular aún (solo precios)</option>
+                  {materialPoSearchItems.length === 0 ? (
+                    <option disabled>No hay líneas abiertas para este proveedor y material</option>
+                  ) : (
+                    materialPoSearchItems.map((it) => {
+                      const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                      const rem = Number(it.qty_remaining ?? 0) || 0
+                      return (
+                        <option key={it.id} value={it.id}>
+                          {`OC ${poNum} · Rest. ${rem.toLocaleString('es-MX')} ${uomLabel(it.uom)} · ${formatCurrency(it.unit_price ?? 0)}/${uomLabel(it.uom)}`}
+                        </option>
+                      )
+                    })
+                  )}
+                </select>
+                {materialPoSearchItems.length === 0 && !materialPoSearchLoading && (
+                  <p className="text-xs text-amber-800">
+                    No hay OC con saldo para este proveedor, material y planta. Cree o ajuste la OC en compras, o verifique que el proveedor de la
+                    entrada coincida con el de la OC.
+                  </p>
+                )}
+              </div>
+              {selectedMaterialSearchItem && (
+                <>
+                  <div className="text-sm text-stone-800">
+                    Precio acordado en OC:{' '}
+                    <span className="font-semibold">
+                      {formatCurrency(selectedMaterialSearchItem.unit_price ?? 0)} / {uomLabel(selectedMaterialSearchItem.uom)}
+                    </span>
+                  </div>
+                  {priceDiffersFromPo && agreedMaterialUnit != null && (
+                    <Alert className="border-amber-200 bg-amber-50/90 py-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-700" />
+                      <AlertDescription className="text-xs text-amber-900">
+                        El precio ingresado ({formatCurrency(formData.unit_price)}) no coincide con el acordado en OC (
+                        {formatCurrency(agreedMaterialUnit)} / {uomLabel(selectedMaterialSearchItem.uom)}). El sistema puede forzar el precio de
+                        la OC al guardar salvo permisos ejecutivos.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {!hasMaterialPoLink && !entry.supplier_id && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+          Esta entrada no tiene proveedor de material registrado; no se puede vincular una OC de material hasta corregirlo en Control de producción o en la entrada.
+        </div>
+      )}
 
       {/* Material PO context */}
       {hasMaterialPoLink && (
@@ -928,5 +1143,23 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
         </Button>
       </div>
     </form>
+    <CreatePOModal
+      open={createPOOpen}
+      onClose={() => {
+        setCreatePOOpen(false)
+        setPoPrefill(null)
+      }}
+      defaultPlantId={entry.plant_id}
+      defaultMaterialId={entry.material_id}
+      prefillFromMaterialEntry={poPrefill}
+      onSuccess={() => {
+        setCreatePOOpen(false)
+        setPoPrefill(null)
+        setMaterialPoSearchRefreshKey((k) => k + 1)
+        toast.success('OC creada. Elija la nueva línea en la lista para vincularla a esta entrada.')
+        onAfterCreatePO?.()
+      }}
+    />
+    </>
   )
 }

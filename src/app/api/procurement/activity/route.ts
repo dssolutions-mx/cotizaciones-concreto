@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { procurementEntriesUrl } from '@/lib/procurement/navigation';
 
 export type ActivityItem = {
   id: string;
@@ -67,9 +68,10 @@ export async function GET(request: NextRequest) {
         title: `Entrada ${e.entry_number || e.id.slice(0, 8)}`,
         subtitle: `${mat} · ${Number(e.quantity_received || 0).toLocaleString('es-MX')} kg`,
         at: (e.entry_date || '') + 'T12:00:00',
-        href: e.plant_id
-          ? `/production-control/entries?plant_id=${encodeURIComponent(e.plant_id)}`
-          : '/production-control/entries',
+        href: procurementEntriesUrl({
+          plantId: e.plant_id || undefined,
+          entryId: e.id,
+        }),
       });
     }
 

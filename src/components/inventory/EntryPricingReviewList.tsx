@@ -93,6 +93,7 @@ export default function EntryPricingReviewList({ onSuccess, plantId }: EntryPric
           entry={selectedEntry}
           onSuccess={handlePricingSuccess}
           onCancel={() => setSelectedEntry(null)}
+          onAfterCreatePO={fetchPendingEntries}
         />
       </div>
     )

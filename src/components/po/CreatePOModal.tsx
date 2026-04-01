@@ -44,6 +44,17 @@ export type PrefillFleetFromAlert = {
   materialSupplierId: string
 }
 
+/** Revisión de precios / entrada sin OC: crear OC material con planta, proveedor y cantidad sugerida */
+export type PrefillFromMaterialEntry = {
+  plantId: string
+  supplierId: string
+  materialId: string
+  suggestedQty: number
+  quantityUom: 'kg' | 'l' | 'm3'
+  /** Notas del encabezado (trazabilidad) */
+  notesHint?: string
+}
+
 interface CreatePOModalProps {
   open: boolean
   onClose: () => void
@@ -56,6 +67,8 @@ interface CreatePOModalProps {
   prefillFromAlert?: PrefillFromAlert | null
   /** Pre-fill service line for fleet PO + link to alert as fleet_po_id */
   prefillFleetFromAlert?: PrefillFleetFromAlert | null
+  /** Pre-fill desde revisión de precios (entrada sin línea de OC material) — sin vincular alertas */
+  prefillFromMaterialEntry?: PrefillFromMaterialEntry | null
 }
 
 export default function CreatePOModal({
@@ -66,6 +79,7 @@ export default function CreatePOModal({
   defaultMaterialId,
   prefillFromAlert,
   prefillFleetFromAlert,
+  prefillFromMaterialEntry,
 }: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
@@ -142,6 +156,30 @@ export default function CreatePOModal({
     ])
     setStep('header')
   }, [open, prefillFromAlert, prefillFleetFromAlert])
+
+  useEffect(() => {
+    if (!open || !prefillFromMaterialEntry || prefillFromAlert || prefillFleetFromAlert) return
+    setPlantId(prefillFromMaterialEntry.plantId)
+    setSupplierId(prefillFromMaterialEntry.supplierId)
+    if (prefillFromMaterialEntry.notesHint) {
+      setNotes(prefillFromMaterialEntry.notesHint)
+    }
+    const qty = Math.max(Number(prefillFromMaterialEntry.suggestedQty) || 0, 1)
+    const uom = prefillFromMaterialEntry.quantityUom
+    setItems([
+      {
+        tempId: `pricing-${Date.now()}`,
+        is_service: false,
+        material_id: prefillFromMaterialEntry.materialId,
+        material_name: '',
+        uom,
+        qty_ordered: qty,
+        unit_price: 0,
+        total: 0,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFromMaterialEntry, prefillFromAlert, prefillFleetFromAlert])
 
   useEffect(() => {
     if (!open || !prefillFleetFromAlert) return
@@ -589,6 +627,8 @@ export default function CreatePOModal({
         }
       }
 
+      // prefillFromMaterialEntry: solo trazabilidad en notas; vincular línea a la entrada en revisión de precios (UI)
+
       onSuccess(poId, { materialSupplierId: supplierId })
       onClose()
     } catch (error) {
@@ -612,7 +652,7 @@ export default function CreatePOModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col my-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">

@@ -740,6 +740,7 @@ export default function ProcurementMaterialEntriesView({
                 <EntryPricingForm
                   entry={pricingSheetEntry}
                   onCancel={() => setPricingSheetEntry(null)}
+                  onAfterCreatePO={() => void fetchEntries()}
                   onSuccess={() => {
                     setPricingSheetEntry(null)
                     void fetchEntries()
