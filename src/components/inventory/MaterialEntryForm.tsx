@@ -581,8 +581,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     })()
   }, [formData.supplier_id, isDosificador, currentPlant?.id, profile?.plant_id, formData.material_id])
   
-  // Fetch fleet PO items when fleet supplier changes
-  // CRITICAL: Filter by material_supplier_id matching the material supplier (formData.supplier_id)
+  // Fleet PO líneas: material_supplier = proveedor del material; opcional po_supplier = transportista (encabezado OC)
   useEffect(() => {
     if (isDosificador) return
     const plantId = currentPlant?.id || profile?.plant_id
@@ -593,15 +592,38 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     ;(async () => {
       const params = new URLSearchParams()
       params.set('plant_id', plantId)
-      params.set('material_supplier_id', formData.supplier_id) // Filter by material supplier
+      params.set('material_supplier_id', formData.supplier_id)
       params.set('is_service', 'true')
+      if (formData.fleet_supplier_id) {
+        params.set('po_supplier_id', formData.fleet_supplier_id)
+      }
       const res = await fetch(`/api/po/items/search?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setFleetPoItems(data.items || [])
       }
     })()
-  }, [formData.supplier_id, currentPlant?.id, profile?.plant_id, isDosificador]) // Changed from fleet_supplier_id to supplier_id
+  }, [formData.supplier_id, formData.fleet_supplier_id, currentPlant?.id, profile?.plant_id, isDosificador])
+
+  // Al elegir línea de OC de flota, fijar proveedor de transporte desde el encabezado de la OC
+  useEffect(() => {
+    if (!selectedFleetPoItemId || fleetPoItems.length === 0) return
+    const fleetItem = fleetPoItems.find((it) => it.id === selectedFleetPoItemId)
+    const headerSid = fleetItem?.po?.supplier_id as string | undefined
+    if (!headerSid) return
+    setFormData((prev) =>
+      prev.fleet_supplier_id === headerSid ? prev : { ...prev, fleet_supplier_id: headerSid }
+    )
+  }, [selectedFleetPoItemId, fleetPoItems])
+
+  // Si el listado ya cargó y la línea elegida no está (p. ej. cambió el filtro), limpiar
+  useEffect(() => {
+    if (!selectedFleetPoItemId || fleetPoItems.length === 0) return
+    if (!fleetPoItems.some((it) => it.id === selectedFleetPoItemId)) {
+      setSelectedFleetPoItemId('')
+      setFleetQtyEntered(0)
+    }
+  }, [fleetPoItems, selectedFleetPoItemId])
 
   // Handle file upload
   const handleFileUpload = (files: FileList) => {
@@ -1974,70 +1996,85 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CollapsibleTrigger>
             <CollapsibleContent>
           <div className="pt-2 border-t border-stone-200">
+            <p className="text-xs text-stone-600 mb-3">
+              Vincule la recepción a una OC de transporte abierta. Puede elegir primero la OC (se rellena el transportista)
+              o filtrar por proveedor de flota.
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="fleet_supplier_id">Proveedor de Flota</Label>
+              {formData.supplier_id ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>OC de flota / transporte (línea de servicio)</Label>
+                  <select
+                    className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                    value={selectedFleetPoItemId}
+                    onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
+                  >
+                    <option value="">Sin OC de flota</option>
+                    {fleetPoItems.length === 0 ? (
+                      <option disabled>No hay líneas de servicio abiertas para este material</option>
+                    ) : (
+                      fleetPoItems.map((it) => {
+                        const materialSupplierName = it.material_supplier?.name || 'Proveedor material'
+                        const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                        const carrier = it.po?.supplier?.name || 'Transportista'
+                        return (
+                          <option key={it.id} value={it.id}>
+                            {`OC ${poNum} · ${carrier} · ${it.service_description || 'Servicio'} · p. ${materialSupplierName} · Rest. ${(Number(it.qty_remaining) || 0).toLocaleString('es-MX')} ${it.uom}`}
+                          </option>
+                        )
+                      })
+                    )}
+                  </select>
+                  {fleetPoItems.length === 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      No hay OC de flota con saldo para el proveedor de material seleccionado
+                      {formData.fleet_supplier_id ? ' y el transportista indicado' : ''}. Cree una OC de servicio en
+                      compras o ajuste el filtro de transportista.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+                  Seleccione primero el proveedor de material arriba para listar OC de flota vinculadas a esa compra.
+                </div>
+              )}
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="fleet_supplier_id">Proveedor de flota (transportista)</Label>
                 <SupplierSelect
                   value={formData.fleet_supplier_id || ''}
-                  onChange={(value: string) => setFormData(prev => ({ ...prev, fleet_supplier_id: value }))}
+                  onChange={(value: string) => {
+                    setFormData((prev) => ({ ...prev, fleet_supplier_id: value }))
+                    setSelectedFleetPoItemId('')
+                    setFleetQtyEntered(0)
+                  }}
                   plantId={currentPlant?.id || profile?.plant_id || undefined}
                 />
-                <p className="text-xs text-stone-500">Opcional: Seleccione si se usó servicio de transporte</p>
+                <p className="text-xs text-stone-500">
+                  Opcional como filtro: al elegir transportista se acotan las OC de flota. Si elige una OC arriba, este
+                  campo se completa solo.
+                </p>
               </div>
-              
-              {formData.fleet_supplier_id && (
-                <>
-                  <div className="space-y-2">
-                    <Label>PO de Flota</Label>
-                    <select
-                      className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
-                      value={selectedFleetPoItemId}
-                      onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
-                    >
-                      <option value="">Sin PO de flota</option>
-                      {fleetPoItems.length === 0 && formData.supplier_id ? (
-                        <option disabled>No hay POs de flota disponibles para este proveedor</option>
-                      ) : (
-                        fleetPoItems.map((it) => {
-                          const materialSupplierName = it.material_supplier?.name || 'Proveedor'
-                          return (
-                            <option key={it.id} value={it.id}>
-                              {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.service_description || 'Servicio'} · Para: ${materialSupplierName} · Restante: ${(Number(it.qty_remaining)||0).toLocaleString('es-MX')} ${it.uom}`}
-                            </option>
-                          )
-                        })
-                      )}
-                    </select>
-                    {formData.supplier_id && fleetPoItems.length === 0 && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        No hay POs de flota disponibles para {formData.supplier_id ? 'este proveedor' : 'el proveedor seleccionado'}. Cree un PO de flota primero.
-                      </p>
-                    )}
+
+              {selectedFleetPoItemId && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Cantidad de servicio (flota)</Label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Cantidad"
+                      value={fleetQtyEntered || ''}
+                      onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
+                      className="max-w-xs"
+                    />
+                    <span className="text-sm text-stone-600">
+                      {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom || ''}
+                    </span>
                   </div>
-                  
-                  {selectedFleetPoItemId && (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label>Cantidad de Servicio</Label>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="Cantidad"
-                          value={fleetQtyEntered || ''}
-                          onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
-                          className="max-w-xs"
-                        />
-                        <span className="text-sm text-stone-600">
-                          {fleetPoItems.find(it => it.id === selectedFleetPoItemId)?.uom || ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-stone-500">
-                        Ej: 2 viajes, 5 toneladas, etc.
-                      </p>
-                    </div>
-                  )}
-                </>
+                  <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
+                </div>
               )}
             </div>
           </div>

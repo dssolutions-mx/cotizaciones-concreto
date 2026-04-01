@@ -445,7 +445,11 @@ export default function ProcurementWorkspacePage() {
 
         <TabsContent value="entradas" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
           <div className="p-2 md:p-4">
-            <ProcurementMaterialEntriesView workspacePlantId={workspacePlantId} />
+            <ProcurementMaterialEntriesView
+              workspacePlantId={workspacePlantId}
+              canReviewPricing={canCreatePO}
+              onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
+            />
           </div>
         </TabsContent>
 

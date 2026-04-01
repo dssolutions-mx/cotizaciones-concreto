@@ -7,6 +7,7 @@ import { es } from 'date-fns/locale'
 import { Package, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import EntryPricingForm from './EntryPricingForm'
+import { Badge } from '@/components/ui/badge'
 
 interface EntryPricingReviewListProps {
   onSuccess?: () => void
@@ -144,6 +145,48 @@ export default function EntryPricingReviewList({ onSuccess, plantId }: EntryPric
                     Registrado por: {entry.entered_by_user.first_name} {entry.entered_by_user.last_name}
                   </div>
                 )}
+
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {!entry.po_id && !entry.fleet_po_id ? (
+                    <Badge variant="destructive" className="text-[10px] font-normal">
+                      Sin OC
+                    </Badge>
+                  ) : (
+                    <>
+                      {entry.po_id ? (
+                        entry.po?.po_number ? (
+                          <Badge variant="secondary" className="text-[10px] font-normal">
+                            OC material: {entry.po.po_number}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] font-normal text-amber-800 border-amber-300">
+                            Sin OC material
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] font-normal text-amber-800 border-amber-300">
+                          Sin OC material
+                        </Badge>
+                      )}
+                      {entry.fleet_po_id ? (
+                        entry.fleet_po?.po_number ? (
+                          <Badge variant="secondary" className="text-[10px] font-normal bg-sky-100 text-sky-900">
+                            OC flota: {entry.fleet_po.po_number}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] font-normal">
+                            Flota sin número OC
+                          </Badge>
+                        )
+                      ) : null}
+                    </>
+                  )}
+                  {entry.supplier?.name && (
+                    <Badge variant="outline" className="text-[10px] font-normal">
+                      Prov.: {entry.supplier.name}
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
 

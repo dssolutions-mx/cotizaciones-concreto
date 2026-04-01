@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { Plus, List, Calendar as CalendarIcon, DollarSign } from 'lucide-react'
+import { Plus, List, Calendar as CalendarIcon } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -15,9 +15,8 @@ import MaterialEntryForm from './MaterialEntryForm'
 import MaterialEntriesList from './MaterialEntriesList'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
 import Link from 'next/link'
-import { buildProcurementUrl } from '@/lib/procurement/navigation'
+import { buildProcurementUrl, procurementEntriesUrl } from '@/lib/procurement/navigation'
 import { usePlantContext } from '@/contexts/PlantContext'
-import EntryPricingReviewList from './EntryPricingReviewList'
 import FloatingActionButton from './ui/FloatingActionButton'
 import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from './ui/DateRangePresets'
 import EntriesStatistics from './EntriesStatistics'
@@ -65,10 +64,6 @@ export default function MaterialEntriesPage() {
   const handleEntrySuccess = () => {
     setRefreshList(prev => prev + 1)
     setActiveTab('list')
-  }
-
-  const handlePricingSuccess = () => {
-    setRefreshList(prev => prev + 1)
   }
 
   const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
@@ -132,10 +127,7 @@ export default function MaterialEntriesPage() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className={cn(
-          "grid w-full max-w-md",
-          (userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') ? "grid-cols-3" : "grid-cols-2"
-        )}>
+        <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="new" className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
             Nueva Entrada
@@ -144,13 +136,26 @@ export default function MaterialEntriesPage() {
             <List className="h-4 w-4" />
             Lista de Entradas
           </TabsTrigger>
-          {(userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') && (
-            <TabsTrigger value="review" className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />
-              Revisión
-            </TabsTrigger>
-          )}
         </TabsList>
+
+        {(userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/70 px-4 py-3 text-sm text-sky-950">
+            <p className="font-medium">Revisión de precios de entradas</p>
+            <p className="text-sky-900/90 mt-1">
+              Ese flujo vive en el{' '}
+              <Link
+                href={procurementEntriesUrl({
+                  plantId: currentPlant?.id,
+                  entradasPrecios: true,
+                })}
+                className="font-semibold text-sky-950 underline underline-offset-2 hover:text-sky-800"
+              >
+                Centro de compras → Entradas → Revisión de precios
+              </Link>
+              , no aquí en control de producción.
+            </p>
+          </div>
+        )}
 
         <TabsContent value="new" className="mt-6 space-y-4">
           <ScheduledDeliveriesHint plantId={currentPlant?.id} />
@@ -236,27 +241,6 @@ export default function MaterialEntriesPage() {
           </Card>
         </TabsContent>
 
-        {(userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') && (
-          <TabsContent value="review" className="mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <DollarSign className="h-5 w-5" />
-                  Revisión de Precios
-                </CardTitle>
-                <CardDescription>
-                  Entradas pendientes de revisión de costos
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <EntryPricingReviewList 
-                  onSuccess={handlePricingSuccess}
-                  key={refreshList}
-                />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
       </Tabs>
     </div>
   )

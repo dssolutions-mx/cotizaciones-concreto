@@ -8,6 +8,32 @@ import {
 } from '@/lib/validations/inventory';
 import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
+/** Quantities this entry contributes to a PO line (native UoM + kg for m³). Used on POST create. */
+function nativeKgFromEntryForPoItem(
+  entry: {
+    quantity_received: number;
+    received_qty_entered?: number | null;
+    received_qty_kg?: number | null;
+  },
+  poItem: { uom: string | null; is_service: boolean }
+): { native: number; kg: number } {
+  if (poItem.is_service) {
+    return { native: Number(entry.quantity_received) || 0, kg: 0 };
+  }
+  const uom = poItem.uom;
+  if (uom === 'l') {
+    const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0);
+    return { native: n, kg: 0 };
+  }
+  if (uom === 'm3') {
+    const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0);
+    const kg = Number(entry.received_qty_kg ?? 0);
+    return { native: n, kg: kg };
+  }
+  const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0);
+  return { native: kg, kg: kg };
+}
+
 export async function GET(request: NextRequest) {
   try {
     console.log('GET /api/inventory/entries called');
@@ -494,6 +520,63 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear entrada: ${entryError.message}`);
     }
 
+    // Keep PO line recepciones in sync (PUT path already did this; POST was missing it)
+    try {
+      if (effectivePoItemId && entry) {
+        const { data: poItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .eq('id', effectivePoItemId)
+          .single();
+        if (poItemRow) {
+          const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(entry, poItemRow);
+          if (deltaNative > 0 || deltaKg > 0) {
+            const currentNative =
+              Number(poItemRow.qty_received ?? poItemRow.qty_received_native ?? 0) + deltaNative;
+            const currentKg = Number(poItemRow.qty_received_kg ?? 0) + deltaKg;
+            const orderedNative = Number(poItemRow.qty_ordered || 0);
+            let newStatus = 'partial';
+            if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+            const updateFields: Record<string, unknown> = {
+              qty_received: currentNative,
+              status: newStatus,
+            };
+            if (deltaKg > 0) updateFields.qty_received_kg = currentKg;
+            const { error: updMatErr } = await supabase
+              .from('purchase_order_items')
+              .update(updateFields)
+              .eq('id', effectivePoItemId);
+            if (updMatErr) console.error('POST entry: avance PO material:', updMatErr);
+          }
+        }
+      }
+
+      const fleetItemId = validatedData.fleet_po_item_id;
+      const fleetQty = validatedData.fleet_qty_entered;
+      if (fleetItemId && fleetQty != null && Number(fleetQty) > 0) {
+        const { data: fleetItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_ordered')
+          .eq('id', fleetItemId)
+          .single();
+        if (fleetItemRow) {
+          const delta = Number(fleetQty);
+          const currentNative =
+            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+          const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+          let newStatus = 'partial';
+          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const { error: updFleetErr } = await supabase
+            .from('purchase_order_items')
+            .update({ qty_received: currentNative, status: newStatus })
+            .eq('id', fleetItemId);
+          if (updFleetErr) console.error('POST entry: avance PO flota:', updFleetErr);
+        }
+      }
+    } catch (poProgressErr) {
+      console.error('POST entry: actualización PO (no fatal):', poProgressErr);
+    }
+
     // Get the auto-created lot (trigger creates it on insert)
     const { data: lot } = await supabase
       .from('material_lots')
@@ -773,12 +856,66 @@ export async function PUT(request: NextRequest) {
       updatePayload.__po_delta_kg = deltaKg;
     }
 
+    // Fleet PO: validate new link (pricing review) and compute delta for PO line recepciones
+    let __fleet_po_link_delta_native = 0;
+    if (
+      updateData.fleet_po_item_id &&
+      updateData.fleet_qty_entered != null &&
+      Number(updateData.fleet_qty_entered) > 0 &&
+      !currentEntry.fleet_po_item_id
+    ) {
+      const { data: fleetPoLine, error: fleetLineErr } = await supabase
+        .from('purchase_order_items')
+        .select(
+          'id, is_service, material_supplier_id, qty_received, qty_received_native, qty_ordered, po:purchase_orders!po_id (id, plant_id, status)'
+        )
+        .eq('id', updateData.fleet_po_item_id)
+        .single();
+      if (fleetLineErr || !fleetPoLine) {
+        return NextResponse.json({ success: false, error: 'Línea de OC de flota no encontrada' }, { status: 400 });
+      }
+      if (!fleetPoLine.is_service) {
+        return NextResponse.json(
+          { success: false, error: 'La línea de OC de flota debe ser de tipo servicio' },
+          { status: 400 }
+        );
+      }
+      const fleetPo = fleetPoLine.po as { id: string; plant_id: string; status: string };
+      if (fleetPo.plant_id !== currentEntry.plant_id) {
+        return NextResponse.json({ success: false, error: 'La OC de flota pertenece a otra planta' }, { status: 400 });
+      }
+      if (
+        currentEntry.supplier_id &&
+        fleetPoLine.material_supplier_id &&
+        fleetPoLine.material_supplier_id !== currentEntry.supplier_id
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'El proveedor de material de la entrada no coincide con la OC de flota seleccionada',
+          },
+          { status: 400 }
+        );
+      }
+      const qtyIn = Number(updateData.fleet_qty_entered);
+      const already = Number(fleetPoLine.qty_received ?? fleetPoLine.qty_received_native ?? 0);
+      const ordered = Number(fleetPoLine.qty_ordered || 0);
+      if (qtyIn > ordered - already + 1e-6) {
+        return NextResponse.json(
+          { success: false, error: 'La cantidad de flota excede el saldo disponible en la línea de OC' },
+          { status: 400 }
+        );
+      }
+      __fleet_po_link_delta_native = qtyIn;
+    }
+
     // If pricing fields are being updated, mark as reviewed
     if (
-      (updateData.unit_price !== undefined || 
-       updateData.total_cost !== undefined || 
-       updateData.fleet_supplier_id !== undefined || 
-       updateData.fleet_cost !== undefined) &&
+      (updateData.unit_price !== undefined ||
+        updateData.total_cost !== undefined ||
+        updateData.fleet_supplier_id !== undefined ||
+        updateData.fleet_cost !== undefined ||
+        updateData.fleet_po_item_id !== undefined) &&
       (profile.role === 'ADMIN_OPERATIONS' || profile.role === 'EXECUTIVE')
     ) {
       updatePayload.pricing_status = 'reviewed';
@@ -847,6 +984,32 @@ export async function PUT(request: NextRequest) {
       }
     } catch (poProgressErr) {
       console.error('Error actualizando progreso de PO (no fatal):', poProgressErr);
+    }
+
+    // New fleet PO link on PUT (revisión de precios): increment línea de servicio
+    try {
+      if (__fleet_po_link_delta_native > 0 && result.fleet_po_item_id) {
+        const { data: fleetItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_ordered')
+          .eq('id', result.fleet_po_item_id)
+          .single();
+        if (fleetItemRow) {
+          const delta = __fleet_po_link_delta_native;
+          const currentNative =
+            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+          const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+          let newStatus = 'partial';
+          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const { error: updFleetErr } = await supabase
+            .from('purchase_order_items')
+            .update({ qty_received: currentNative, status: newStatus })
+            .eq('id', result.fleet_po_item_id);
+          if (updFleetErr) console.error('PUT entry: avance PO flota:', updFleetErr);
+        }
+      }
+    } catch (fleetPoProgressErr) {
+      console.error('Error actualizando progreso PO flota (no fatal):', fleetPoProgressErr);
     }
 
     // After updating entry, optionally upsert Accounts Payable records for material and fleet

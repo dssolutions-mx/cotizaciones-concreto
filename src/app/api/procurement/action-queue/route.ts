@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         title: `${pc} entrada${pc === 1 ? '' : 's'} sin revisar precio`,
         subtitle: 'Revise precios y factura de proveedor',
         count: pc,
-        href: '/finanzas/procurement?tab=resumen&review=pricing',
+        href: '/finanzas/procurement?tab=entradas&entradas_view=precios',
       });
     }
 

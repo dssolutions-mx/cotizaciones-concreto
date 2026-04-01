@@ -55,15 +55,25 @@ export function productionNewEntryUrl(opts: {
 
 /**
  * Procurement workspace: recepciones with OC/proveedor/precio focus (not plant operations).
- * Always sets tab=entradas; pass plant_id / po_id / entry_id for filters and highlight.
+ * Sets tab=entradas (or resumen when pricingReview); pass plant_id / po_id / entry_id for filters and highlight.
  */
 export function procurementEntriesUrl(opts: {
   plantId?: string | null
   poId?: string | null
   entryId?: string | null
+  /** Resumen + review=pricing (cola compacta en dashboard) */
+  pricingReview?: boolean
+  /** Entradas → sub-vista Revisión de precios (flujo principal de revisión en compras) */
+  entradasPrecios?: boolean
 } = {}) {
   const params = new URLSearchParams()
-  params.set('tab', 'entradas')
+  if (opts.pricingReview) {
+    params.set('tab', 'resumen')
+    params.set('review', 'pricing')
+  } else {
+    params.set('tab', 'entradas')
+    if (opts.entradasPrecios) params.set('entradas_view', 'precios')
+  }
   if (opts.plantId) params.set('plant_id', opts.plantId)
   if (opts.poId) params.set('po_id', opts.poId)
   if (opts.entryId) params.set('entry_id', opts.entryId)

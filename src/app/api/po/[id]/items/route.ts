@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POItemInputSchema } from '@/lib/validations/po';
+import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,14 +12,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
-  if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // Same inventory / procurement operators that work with entries and recepciones
+  if (!hasInventoryStandardAccess(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
-  // Ensure PO exists and belongs to the same plant for plant managers
+  // Ensure PO exists and belongs to the same plant for non-global roles
   let poQuery = supabase.from('purchase_orders').select('id, plant_id').eq('id', id).single();
   const { data: po } = await poQuery;
   if (!po) return NextResponse.json({ error: 'PO not found' }, { status: 404 });
-  if (profile.role === 'PLANT_MANAGER' && profile.plant_id && po.plant_id !== profile.plant_id) {
+  if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS' && profile.plant_id && po.plant_id !== profile.plant_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
