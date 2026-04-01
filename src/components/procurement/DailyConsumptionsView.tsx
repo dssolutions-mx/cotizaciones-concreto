@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -379,8 +380,27 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
     void load()
   }, [load])
 
+  const periodoHref = useMemo(() => {
+    const d = new Date()
+    const start = new Date(d.getFullYear(), d.getMonth(), 1)
+    const params = new URLSearchParams({
+      date_from: start.toISOString().slice(0, 10),
+      date_to: d.toISOString().slice(0, 10),
+    })
+    if (workspacePlantId) params.set('plant_id', workspacePlantId)
+    return `/finanzas/procurement/consumos-periodo?${params.toString()}`
+  }, [workspacePlantId])
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <Link
+          href={periodoHref}
+          className="inline-flex items-center gap-2 text-sm font-medium text-sky-800 hover:text-sky-950 border border-sky-200 bg-sky-50/80 rounded-lg px-3 py-2 w-fit"
+        >
+          Consumo por período (rango / mes)
+        </Link>
+      </div>
       <div className="flex flex-col sm:flex-row sm:items-end gap-4">
         <div className="space-y-2">
           <Label htmlFor="consumos-date" className="text-stone-700">
