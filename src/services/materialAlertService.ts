@@ -27,6 +27,9 @@ export class MaterialAlertService {
         linked_po:purchase_orders!existing_po_id(
           id,
           po_number,
+          status,
+          po_date,
+          notes,
           supplier:suppliers!supplier_id(id, name, provider_number, provider_letter)
         )
       `)

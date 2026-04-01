@@ -3,36 +3,44 @@ import { z } from 'zod';
 // Common enums
 export const MaterialUomSchema = z.enum(['kg', 'l', 'm3']);
 
+/** Form/JSON clients often send "" for unset optional fields; Zod .uuid() rejects "". */
+function optionalUuidField(message: string) {
+  return z.preprocess(
+    (val) => (val === '' || val === null ? undefined : val),
+    z.string().uuid(message).optional()
+  );
+}
+
 // Base schemas
 const BaseMaterialEntryInputSchema = z.object({
   material_id: z.string().uuid('ID de material debe ser un UUID válido'),
-  supplier_id: z.string().uuid('ID de proveedor debe ser un UUID válido').optional(),
+  supplier_id: optionalUuidField('ID de proveedor debe ser un UUID válido'),
   quantity_received: z.number().positive('La cantidad debe ser positiva'),
   supplier_invoice: z.string().max(100, 'Número de remisión no puede exceder 100 caracteres').optional(),
   ap_due_date_material: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
-  plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
+  plant_id: optionalUuidField('ID de planta debe ser un UUID válido'),
   // Pricing fields (for accounting review)
   unit_price: z.number().nonnegative('El precio unitario debe ser no negativo').optional(),
   total_cost: z.number().nonnegative('El costo total debe ser no negativo').optional(),
-  fleet_supplier_id: z.string().uuid('ID de proveedor de flota debe ser un UUID válido').optional(),
+  fleet_supplier_id: optionalUuidField('ID de proveedor de flota debe ser un UUID válido'),
   fleet_cost: z.number().nonnegative('El costo de flota debe ser no negativo').optional(),
   fleet_invoice: z.string().max(100, 'Número de factura de flota no puede exceder 100 caracteres').optional(),
   ap_due_date_fleet: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   // Optional Purchase Order linkage on create (materials)
-  po_id: z.string().uuid('ID de PO debe ser un UUID válido').optional(),
-  po_item_id: z.string().uuid('ID de ítem de PO debe ser un UUID válido').optional(),
+  po_id: optionalUuidField('ID de PO debe ser un UUID válido'),
+  po_item_id: optionalUuidField('ID de ítem de PO debe ser un UUID válido'),
   received_uom: MaterialUomSchema.optional(),
   received_qty_entered: z.number().positive('Cantidad ingresada debe ser positiva').optional(),
   volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(), // used only when received_uom='m3' and no PO/agreement/default
   // Fleet Purchase Order linkage
-  fleet_po_id: z.string().uuid('ID de PO de flota debe ser un UUID válido').optional(),
-  fleet_po_item_id: z.string().uuid('ID de ítem de PO de flota debe ser un UUID válido').optional(),
+  fleet_po_id: optionalUuidField('ID de PO de flota debe ser un UUID válido'),
+  fleet_po_item_id: optionalUuidField('ID de ítem de PO de flota debe ser un UUID válido'),
   fleet_qty_entered: z.number().positive('Cantidad de servicio debe ser positiva').optional(),
   fleet_uom: z.enum(['trips', 'tons', 'hours', 'loads', 'units']).optional(),
   /** When set, this entry explicitly closes the linked material alert (dosificador flow). */
-  alert_id: z.string().uuid('ID de alerta debe ser un UUID válido').optional(),
+  alert_id: optionalUuidField('ID de alerta debe ser un UUID válido'),
 });
 
 export const MaterialEntryInputSchema = BaseMaterialEntryInputSchema.refine(

@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Calendar,
   Truck,
+  RefreshCw,
 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -36,7 +37,7 @@ import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import { format, isToday, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 
-/** Dosificador: solo cerrar solicitudes ya coordinadas con OC (admins preparan la OC antes) */
+/** Dosificador: vincular recepciones a solicitudes con OC; la OC se surte de forma acumulativa (no “en una sola entrada”). */
 const DOSIFICADOR_FULFILLMENT_STATUSES = new Set<MaterialAlert['status']>(['po_linked', 'delivery_scheduled'])
 
 function normalizeAlertLinkedPo(
@@ -53,9 +54,26 @@ function normalizeAlertLinkedPo(
   return { ...row, supplier: supplier ?? null }
 }
 
+function poRefFromId(id: string | null | undefined): string {
+  if (!id) return ''
+  return String(id).slice(0, 8).toUpperCase()
+}
+
+/** Human-readable OC label: número de OC o ref. corta (sin precios). */
+function linkedPoLabel(
+  lp: NonNullable<MaterialAlert['linked_po']> | null,
+  poId: string | null | undefined
+): string {
+  const n = lp?.po_number?.trim()
+  if (n) return n
+  if (poId) return `OC · ${poRefFromId(poId)}`
+  return 'Orden de compra'
+}
+
 /** PO snapshot for dosificador: no prices (from GET /api/po/[id]/receipt-context). */
 type DosificadorReceiptPo = {
   id: string
+  po_number?: string | null
   display_ref: string
   status: string
   supplier_id: string | null
@@ -169,16 +187,20 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     items: DosificadorReceiptItem[]
   } | null>(null)
   const [dosificadorReceiptLoading, setDosificadorReceiptLoading] = useState(false)
+  /** Increment to retry GET receipt-context after failure */
+  const [dosificadorReceiptRefreshToken, setDosificadorReceiptRefreshToken] = useState(0)
   /** supplier_id last applied from linked PO — ref avoids re-fetch loops in useEffect */
   const supplierAutoFromPoRef = useRef<string | null>(null)
   const [dosificadorSupplierOverride, setDosificadorSupplierOverride] = useState(false)
   const [fleetPoHeader, setFleetPoHeader] = useState<{ po_number: string | null } | null>(null)
-  /** Evita sobrescribir la cantidad al re-render cuando el usuario ya ajustó el valor */
-  const dosificadorQtyPrefillKeyRef = useRef<string>('')
 
   const selectedFulfillmentAlert = useMemo(
     () => fulfillmentAlerts.find((a) => a.id === selectedFulfillmentAlertId),
     [fulfillmentAlerts, selectedFulfillmentAlertId]
+  )
+  const selectedLinkedPo = useMemo(
+    () => (selectedFulfillmentAlert ? normalizeAlertLinkedPo(selectedFulfillmentAlert) : null),
+    [selectedFulfillmentAlert]
   )
   const selectedAlertExistingPoId = selectedFulfillmentAlert?.existing_po_id ?? null
 
@@ -200,9 +222,8 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
 
   const dosificadorSummarySupplierName = useMemo(() => {
     if (dosificadorReceiptContext?.po.supplier?.name) return dosificadorReceiptContext.po.supplier.name
-    const lp = selectedFulfillmentAlert ? normalizeAlertLinkedPo(selectedFulfillmentAlert) : null
-    return lp?.supplier?.name ?? (formData.supplier_id ? 'Proveedor seleccionado' : '—')
-  }, [dosificadorReceiptContext, selectedFulfillmentAlert, formData.supplier_id])
+    return selectedLinkedPo?.supplier?.name ?? (formData.supplier_id ? 'Proveedor seleccionado' : '—')
+  }, [dosificadorReceiptContext, selectedLinkedPo, formData.supplier_id])
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
@@ -264,7 +285,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     supplierAutoFromPoRef.current = null
     setDosificadorReceiptContext(null)
     setDosificadorSupplierOverride(false)
-    dosificadorQtyPrefillKeyRef.current = ''
 
     const plantId = currentPlant?.id || profile?.plant_id;
 
@@ -381,6 +401,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     }
 
     let cancelled = false
+    setDosificadorReceiptContext(null)
     setDosificadorReceiptLoading(true)
     fetch(
       `/api/po/${selectedAlertExistingPoId}/receipt-context?material_id=${encodeURIComponent(formData.material_id)}`
@@ -415,19 +436,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     return () => {
       cancelled = true
     }
-  }, [isDosificador, selectedFulfillmentAlertId, selectedAlertExistingPoId, formData.material_id])
+  }, [
+    isDosificador,
+    selectedFulfillmentAlertId,
+    selectedAlertExistingPoId,
+    formData.material_id,
+    dosificadorReceiptRefreshToken,
+  ])
 
-  /** Sugerir cantidad (kg) desde saldo pendiente en OC cuando la partida es en kg */
+  /** Si falla receipt-context pero la alerta trae linked_po, rellenar supplier_id para el POST */
   useEffect(() => {
-    if (!isDosificador || !dosificadorPoLineForMaterial || !selectedFulfillmentAlertId) return
-    const line = dosificadorPoLineForMaterial
-    const key = `${selectedFulfillmentAlertId}:${line.id}`
-    if (dosificadorQtyPrefillKeyRef.current === key) return
-    if (line.uom === 'kg' && line.qty_remaining > 0) {
-      dosificadorQtyPrefillKeyRef.current = key
-      setFormData((prev) => ({ ...prev, quantity_received: line.qty_remaining }))
-    }
-  }, [isDosificador, selectedFulfillmentAlertId, dosificadorPoLineForMaterial])
+    if (!isDosificador || !selectedFulfillmentAlert || !selectedAlertExistingPoId) return
+    if (dosificadorReceiptLoading) return
+    if (dosificadorReceiptContext) return
+    if (dosificadorSupplierOverride) return
+    const lp = normalizeAlertLinkedPo(selectedFulfillmentAlert)
+    const sid = lp?.supplier?.id
+    if (!sid) return
+    supplierAutoFromPoRef.current = sid
+    setFormData((prev) => (prev.supplier_id === sid ? prev : { ...prev, supplier_id: sid }))
+  }, [
+    isDosificador,
+    selectedFulfillmentAlert,
+    selectedAlertExistingPoId,
+    dosificadorReceiptLoading,
+    dosificadorReceiptContext,
+    dosificadorSupplierOverride,
+  ])
 
   useEffect(() => {
     const mid = searchParams.get('material_id')
@@ -643,19 +678,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       return
     }
 
-    if (isDosificador) {
-      const exp =
-        dosificadorPoLineForMaterial?.uom === 'kg'
-          ? dosificadorPoLineForMaterial.qty_remaining
-          : null
-      const q = formData.quantity_received
-      if (exp != null && exp > 0 && q > 0 && Math.abs(q - exp) / exp > 0.2) {
-        toast.warning(
-          `La cantidad difiere notablemente del pendiente en OC (${exp.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg). Verifique antes de continuar.`
-        )
-      }
-    }
-
     if (!currentPlant?.id) {
       toast.error('Debe seleccionar una planta para continuar')
       return
@@ -804,7 +826,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         supplierAutoFromPoRef.current = null
         setDosificadorReceiptContext(null)
         setDosificadorSupplierOverride(false)
-        dosificadorQtyPrefillKeyRef.current = ''
 
         onSuccess?.()
       } else {
@@ -904,8 +925,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           <CardDescription>
             {isDosificador ? (
               <>
-                {currentPlant.name} <span className="font-mono text-stone-500">({currentPlant.code})</span> — recepción
-                de material. Si recibió lo solicitado, elija la solicitud correspondiente abajo.
+                {currentPlant.name} <span className="font-mono text-stone-500">({currentPlant.code})</span> — registre{' '}
+                <strong>esta</strong> recepción contra la solicitud correcta; la OC muestra material y proveedor y el
+                avance acumulado (varias entradas pueden aplicar).
               </>
             ) : (
               <>
@@ -1066,7 +1088,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   supplierId={formData.supplier_id || undefined}
                 />
                 <p className="text-xs text-stone-500">
-                  Seleccione el material; luego indique la solicitud y la cantidad según la orden de compra.
+                  Seleccione material y la solicitud que corresponde a esta recepción. La cantidad es la de <strong>esta</strong>{' '}
+                  entrega (remisión/báscula); la OC sirve para ver material y proveedor y el avance acumulado, no para
+                  “cerrar” la orden en un solo movimiento.
                 </p>
               </div>
             </div>
@@ -1224,7 +1248,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             <p className="text-xs text-stone-700 mt-1">
                               OC:{' '}
                               <span className="font-mono">
-                                {lp.po_number || String(lp.id).slice(0, 8).toUpperCase()}
+                                {lp.po_number || poRefFromId(lp.id)}
                               </span>
                               {lp.supplier?.name ? (
                                 <>
@@ -1233,11 +1257,21 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                                 </>
                               ) : null}
                             </p>
+                          ) : a.existing_po_id ? (
+                            <p className="text-xs text-stone-700 mt-1">
+                              OC vinculada (ref.{' '}
+                              <span className="font-mono">{poRefFromId(a.existing_po_id)}</span>
+                              ). Proveedor y partidas: al seleccionar esta solicitud o en «Verificar entrega».
+                            </p>
                           ) : (
-                            <p className="text-xs text-amber-800 mt-1">Sin OC vinculada aún en sistema</p>
+                            <p className="text-xs text-amber-800 mt-1">
+                              Sin orden de compra en esta solicitud. Compras debe vincular la OC antes de cerrar con esta
+                              entrada, o use «Sin solicitud previa» si la mercancía no corresponde a una solicitud
+                              coordinada.
+                            </p>
                           )}
                           {sched ? (
-                            <p className="text-sm text-stone-800 mt-1 flex items-center gap-1.5 flex-wrap">
+                            <div className="text-sm text-stone-800 mt-1 flex items-center gap-1.5 flex-wrap">
                               <Calendar className="h-3.5 w-3.5 text-stone-500 shrink-0" />
                               <span className="font-medium">
                                 Entrega programada: {format(parseISO(sched.length > 10 ? sched : `${sched}T12:00:00`), 'dd/MM/yyyy')}
@@ -1245,7 +1279,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                               {schedIsToday && (
                                 <Badge className="text-[10px] h-5 bg-emerald-700 text-white">Hoy</Badge>
                               )}
-                            </p>
+                            </div>
                           ) : null}
                           <p className="text-xs text-stone-500 mt-1 tabular-nums">
                             Creada {format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}
@@ -1273,25 +1307,64 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
 
           {isDosificador && formData.material_id && (
             <div className="space-y-4">
-              {dosificadorReceiptLoading && (
-                <p className="text-xs text-stone-500">Cargando datos de la orden de compra…</p>
-              )}
-
-              {dosificadorReceiptContext && (
+              {selectedAlertExistingPoId && dosificadorReceiptLoading && (
                 <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
                   <div className="flex items-start gap-2">
                     <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-stone-900">Verificar entrega (orden de compra)</p>
-                      <p className="text-xs text-stone-600 mt-0.5 font-mono">
-                        Ref. OC {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="text-sm font-semibold text-stone-900">Orden de compra</p>
+                      <p className="text-base font-mono font-semibold text-stone-900">
+                        {linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                      </p>
+                      {selectedLinkedPo?.supplier?.name && (
+                        <p className="text-sm text-stone-800">
+                          <span className="text-stone-500">Proveedor: </span>
+                          <strong>{selectedLinkedPo.supplier.name}</strong>
+                        </p>
+                      )}
+                      {(selectedLinkedPo?.status || selectedLinkedPo?.po_date) && (
+                        <p className="text-xs text-stone-600">
+                          {selectedLinkedPo?.status ? <>Estado: {selectedLinkedPo.status}</> : null}
+                          {selectedLinkedPo?.status && selectedLinkedPo?.po_date ? ' · ' : null}
+                          {selectedLinkedPo?.po_date
+                            ? `Fecha OC ${selectedLinkedPo.po_date}`
+                            : null}
+                        </p>
+                      )}
+                      {selectedLinkedPo?.notes?.trim() && (
+                        <p className="text-xs text-stone-600 border-t border-sky-200/80 pt-2 mt-1 line-clamp-3">
+                          {selectedLinkedPo.notes.trim().slice(0, 280)}
+                          {selectedLinkedPo.notes.trim().length > 280 ? '…' : ''}
+                        </p>
+                      )}
+                      <p className="text-xs text-stone-500 flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
+                        Cargando material, proveedor y avance en la OC (pedido / recibido / por recibir). Sin precios.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!dosificadorReceiptLoading && dosificadorReceiptContext && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="text-sm font-semibold text-stone-900">Material y proveedor (orden de compra)</p>
+                      <p className="text-base sm:text-lg font-mono font-semibold text-stone-900 tracking-tight">
+                        {dosificadorReceiptContext.po.po_number?.trim() ||
+                          `Ref. ${dosificadorReceiptContext.po.display_ref}`}
+                      </p>
+                      <p className="text-xs text-stone-600">
+                        Ref. sistema {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
                         {dosificadorReceiptContext.po.status}
                         {dosificadorReceiptContext.po.po_date
                           ? ` · Fecha OC ${dosificadorReceiptContext.po.po_date}`
                           : ''}
                       </p>
                       {dosificadorReceiptContext.po.supplier && (
-                        <p className="text-sm text-stone-800 mt-2">
+                        <p className="text-sm text-stone-800">
                           <span className="text-stone-500">Proveedor en OC: </span>
                           <strong>{dosificadorReceiptContext.po.supplier.name}</strong>
                           {dosificadorReceiptContext.po.supplier.provider_letter
@@ -1302,9 +1375,16 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             : ''}
                         </p>
                       )}
+                      {dosificadorReceiptContext.po.notes?.trim() && (
+                        <div className="rounded-md border border-stone-200 bg-white/80 px-3 py-2 text-xs text-stone-700">
+                          <span className="font-medium text-stone-500">Notas en OC: </span>
+                          {dosificadorReceiptContext.po.notes.trim().slice(0, 500)}
+                          {dosificadorReceiptContext.po.notes.trim().length > 500 ? '…' : ''}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {dosificadorReceiptContext.items.length > 0 && (
+                  {dosificadorReceiptContext.items.length > 0 ? (
                     <div className="overflow-x-auto rounded-md border border-stone-200 bg-white">
                       <table className="w-full text-xs text-left">
                         <thead>
@@ -1313,7 +1393,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             <th className="p-2 font-medium">UoM</th>
                             <th className="p-2 font-medium text-right">Pedido</th>
                             <th className="p-2 font-medium text-right">Recibido</th>
-                            <th className="p-2 font-medium text-right">Pendiente</th>
+                            <th className="p-2 font-medium text-right">Por recibir</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1335,12 +1415,71 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                         </tbody>
                       </table>
                     </div>
+                  ) : (
+                    <div className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+                      <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
+                      No hay partida de este material en la OC. Confirme el material o contacte a compras.
+                    </div>
                   )}
                   <p className="text-[10px] text-stone-500 leading-relaxed">
-                    Compare la remisión del proveedor con esta OC antes de registrar la cantidad recibida.
+                    La OC se surte con varias recepciones: la tabla muestra avance acumulado. Verifique material y
+                    proveedor; la cantidad de <strong>esta</strong> recepción la registra abajo y queda vinculada a la
+                    solicitud. Sin precios.
                   </p>
                 </div>
               )}
+
+              {selectedAlertExistingPoId &&
+                !dosificadorReceiptLoading &&
+                !dosificadorReceiptContext && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-5 w-5 text-amber-800 shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-sm font-semibold text-amber-950">
+                          No se pudieron cargar las partidas de la orden de compra
+                        </p>
+                        <p className="text-base font-mono font-medium text-stone-900">
+                          {linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                        </p>
+                        {selectedLinkedPo?.supplier?.name && (
+                          <p className="text-sm text-stone-800">
+                            <span className="text-stone-500">Proveedor: </span>
+                            <strong>{selectedLinkedPo.supplier.name}</strong>
+                          </p>
+                        )}
+                        {(selectedLinkedPo?.status || selectedLinkedPo?.po_date) && (
+                          <p className="text-xs text-stone-700">
+                            {selectedLinkedPo?.status ? <>Estado: {selectedLinkedPo.status}</> : null}
+                            {selectedLinkedPo?.status && selectedLinkedPo?.po_date ? ' · ' : null}
+                            {selectedLinkedPo?.po_date ? `Fecha OC ${selectedLinkedPo.po_date}` : null}
+                          </p>
+                        )}
+                        {selectedLinkedPo?.notes?.trim() && (
+                          <p className="text-xs text-stone-700 border-t border-amber-200/80 pt-2 line-clamp-4">
+                            <span className="font-medium">Notas en OC: </span>
+                            {selectedLinkedPo.notes.trim().slice(0, 400)}
+                            {selectedLinkedPo.notes.trim().length > 400 ? '…' : ''}
+                          </p>
+                        )}
+                        <p className="text-xs text-amber-950/90">
+                          Datos tomados de la solicitud. Reintente para ver material, proveedor y avance acumulado en la
+                          OC.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-amber-300 text-amber-950"
+                          onClick={() => setDosificadorReceiptRefreshToken((n) => n + 1)}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                          Reintentar carga de la OC
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
               {!!selectedFulfillmentAlertId &&
                 !selectedAlertExistingPoId &&
@@ -1355,26 +1494,26 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Label htmlFor="quantity_received_dos" className="text-base font-semibold">
-                    Cantidad recibida (kg) *
+                    Cantidad de esta recepción (kg) *
                   </Label>
                   {dosificadorPoLineForMaterial && dosificadorPoLineForMaterial.uom === 'kg' && (
                     <Badge variant="outline" className="text-[10px] border-sky-300 bg-white text-sky-950">
-                      Pendiente en OC:{' '}
+                      Saldo por recibir en OC:{' '}
                       {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
                         maximumFractionDigits: 2,
                       })}{' '}
-                      kg
+                      kg (referencia)
                     </Badge>
                   )}
                   {dosificadorPoLineForMaterial &&
                     dosificadorPoLineForMaterial.uom !== 'kg' &&
                     dosificadorPoLineForMaterial.qty_remaining > 0 && (
                       <span className="text-xs text-stone-600">
-                        Pendiente en OC:{' '}
+                        Saldo por recibir en OC:{' '}
                         {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
                           maximumFractionDigits: 2,
                         })}{' '}
-                        {dosificadorPoLineForMaterial.uom} (ajuste manual a kg)
+                        {dosificadorPoLineForMaterial.uom} (referencia; convierta a kg)
                       </span>
                     )}
                 </div>
@@ -1394,31 +1533,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   placeholder="0.00"
                   required
                 />
-                {(() => {
-                  const exp =
-                    dosificadorPoLineForMaterial?.uom === 'kg'
-                      ? dosificadorPoLineForMaterial.qty_remaining
-                      : null
-                  const q = formData.quantity_received
-                  if (
-                    exp != null &&
-                    exp > 0 &&
-                    q > 0 &&
-                    Math.abs(q - exp) / exp > 0.2
-                  ) {
-                    return (
-                      <p className="text-xs text-amber-800 text-center rounded-md border border-amber-200 bg-amber-50/90 px-2 py-1.5">
-                        La cantidad difiere en más del 20% del pendiente en OC (
-                        {exp.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg). Verifique antes de guardar.
-                      </p>
-                    )
-                  }
-                  return (
-                    <p className="text-xs text-stone-500 text-center">
-                      Ingrese el peso neto recibido en kilogramos según báscula o remisión.
-                    </p>
-                  )
-                })()}
+                <p className="text-xs text-stone-500 text-center">
+                  Peso neto de <strong>esta</strong> entrega (kg), según báscula o remisión. La entrada se asocia a la
+                  solicitud elegida. Las recepciones suelen ser parciales frente al total de la OC; no comparamos con el
+                  saldo de la orden.
+                </p>
               </div>
             </div>
           )}
@@ -1663,7 +1782,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CardTitle>
             <CardDescription>
               {isDosificador
-                ? 'Valide contra la orden de compra ligada a su solicitud (sin precios). La remisión del proveedor sigue siendo obligatoria para trazabilidad.'
+                ? 'Si la solicitud tiene OC, el proveedor y el material se confirman en la OC (arriba). Aquí: remisión y evidencia de esta recepción. “Corregir” solo si el proveedor físico no coincide.'
                 : 'Datos del proveedor y documentación'}
             </CardDescription>
           </CardHeader>
@@ -1678,13 +1797,112 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                     Desde PO
                   </Badge>
                 )}
-                {isDosificador && dosificadorReceiptContext?.po.supplier_id && !dosificadorSupplierOverride && (
+                {isDosificador && selectedAlertExistingPoId && !dosificadorSupplierOverride && (
                   <Badge variant="secondary" className="text-xs bg-sky-100 text-sky-950 border-sky-200">
                     Según OC
                   </Badge>
                 )}
               </div>
-              {isDosificador && dosificadorReceiptContext && !dosificadorSupplierOverride ? (
+              {!isDosificador ? (
+                <>
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  {autoFilledFromPO.supplier && (
+                    <p className="text-xs text-stone-500">Proveedor seleccionado automáticamente desde el PO</p>
+                  )}
+                </>
+              ) : !selectedFulfillmentAlertId || !selectedAlertExistingPoId ? (
+                <>
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      if (dosificadorReceiptContext) {
+                        supplierAutoFromPoRef.current = null
+                      }
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  <p className="text-xs text-stone-500">
+                    Solo si la solicitud no tiene OC vinculada. Si hay OC, el proveedor se toma de la orden.
+                  </p>
+                </>
+              ) : dosificadorReceiptLoading ? (
+                <p className="text-sm text-stone-600">Cargando proveedor desde la orden de compra…</p>
+              ) : dosificadorSupplierOverride ? (
+                <div className="space-y-2">
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      supplierAutoFromPoRef.current = null
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  <p className="text-xs text-amber-800">
+                    Use solo si la entrega no corresponde al proveedor de la OC; avise a su jefe de planta si hay
+                    discrepancia.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto py-1.5 text-xs"
+                    onClick={() => {
+                      setDosificadorSupplierOverride(false)
+                      const fromReceipt = dosificadorReceiptContext?.po.supplier_id
+                      const fromLinked = selectedFulfillmentAlert
+                        ? normalizeAlertLinkedPo(selectedFulfillmentAlert)?.supplier?.id
+                        : null
+                      const sid = fromReceipt || fromLinked || null
+                      if (sid) {
+                        supplierAutoFromPoRef.current = sid
+                        setFormData((prev) => ({ ...prev, supplier_id: sid }))
+                      }
+                    }}
+                  >
+                    Usar proveedor de la OC
+                  </Button>
+                </div>
+              ) : dosificadorReceiptContext ? (
                 <div className="space-y-2">
                   <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-sm text-stone-900">
                     {dosificadorReceiptContext.po.supplier?.name ||
@@ -1701,36 +1919,22 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   </Button>
                 </div>
               ) : (
-                <SupplierSelect
-                  value={formData.supplier_id || ''}
-                  onChange={(value: string) => {
-                    if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
-                      setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
-                      if (selectedPoItemId) {
-                        const poItem = poItems.find((it) => it.id === selectedPoItemId)
-                        if (poItem && poItem.po?.supplier_id !== value) {
-                          toast.warning(
-                            'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
-                          )
-                        }
-                      }
-                    }
-                    if (isDosificador && dosificadorReceiptContext) {
-                      supplierAutoFromPoRef.current = null
-                    }
-                    setFormData((prev) => ({ ...prev, supplier_id: value }))
-                  }}
-                  plantId={currentPlant?.id || profile?.plant_id || undefined}
-                />
-              )}
-              {autoFilledFromPO.supplier && !isDosificador && (
-                <p className="text-xs text-stone-500">Proveedor seleccionado automáticamente desde el PO</p>
-              )}
-              {isDosificador && dosificadorSupplierOverride && (
-                <p className="text-xs text-amber-800">
-                  Use solo si la entrega no corresponde al proveedor de la OC; avise a su jefe de planta si hay
-                  discrepancia.
-                </p>
+                <div className="space-y-2">
+                  <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-sm text-stone-900">
+                    {(selectedFulfillmentAlert
+                      ? normalizeAlertLinkedPo(selectedFulfillmentAlert)?.supplier?.name?.trim()
+                      : null) || `Proveedor según OC ${poRefFromId(selectedAlertExistingPoId)}`}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-1 px-0 text-xs text-sky-800 hover:text-sky-950"
+                    onClick={() => setDosificadorSupplierOverride(true)}
+                  >
+                    El proveedor físico no coincide — corregir
+                  </Button>
+                </div>
               )}
             </div>
             
@@ -1979,7 +2183,8 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Resumen antes de guardar</CardTitle>
               <CardDescription className="text-xs">
-                Revise que coincida con la remisión y la orden de compra.
+                La cantidad corresponde a esta recepción; la solicitud vincula la entrada al flujo. Compruebe remisión
+                frente a material y proveedor en la OC.
               </CardDescription>
             </CardHeader>
             <CardContent className="text-sm space-y-1.5 text-stone-800">
@@ -1987,28 +2192,37 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 <span className="text-stone-500">Material: </span>
                 <span className="font-medium">{dosificadorSummaryMaterialName}</span>
               </p>
-              <p>
-                <span className="text-stone-500">Cantidad: </span>
-                <span className="font-mono tabular-nums font-semibold">
-                  {formData.quantity_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
-                </span>
-              </p>
-              <p>
-                <span className="text-stone-500">Proveedor (según OC / solicitud): </span>
-                {dosificadorSummarySupplierName}
-              </p>
-              <p>
-                <span className="text-stone-500">Remisión: </span>
-                <span className="font-mono">{formData.supplier_invoice}</span>
-              </p>
               {selectedFulfillmentAlertId && selectedFulfillmentAlert ? (
                 <p>
-                  <span className="text-stone-500">Solicitud: </span>
+                  <span className="text-stone-500">Solicitud (vincula esta entrada): </span>
                   <span className="font-mono font-semibold">{selectedFulfillmentAlert.alert_number}</span>
                 </p>
               ) : (
                 <p className="text-stone-600 text-xs">Sin solicitud vinculada (reabastecimiento u otro).</p>
               )}
+              {selectedAlertExistingPoId && (
+                <p>
+                  <span className="text-stone-500">OC (material y proveedor): </span>
+                  <span className="font-mono font-medium">
+                    {dosificadorReceiptContext?.po.po_number?.trim() ||
+                      linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                  </span>
+                </p>
+              )}
+              <p>
+                <span className="text-stone-500">Proveedor: </span>
+                {dosificadorSummarySupplierName}
+              </p>
+              <p>
+                <span className="text-stone-500">Cantidad de esta recepción: </span>
+                <span className="font-mono tabular-nums font-semibold">
+                  {formData.quantity_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
+                </span>
+              </p>
+              <p>
+                <span className="text-stone-500">Remisión: </span>
+                <span className="font-mono">{formData.supplier_invoice}</span>
+              </p>
             </CardContent>
           </Card>
         )}
@@ -2048,7 +2262,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             supplierAutoFromPoRef.current = null
             setDosificadorReceiptContext(null)
             setDosificadorSupplierOverride(false)
-            dosificadorQtyPrefillKeyRef.current = ''
           }}
         >
           Limpiar

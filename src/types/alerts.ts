@@ -89,6 +89,9 @@ export interface MaterialAlert {
   linked_po?: {
     id: string;
     po_number?: string | null;
+    status?: string | null;
+    po_date?: string | null;
+    notes?: string | null;
     supplier?: {
       id: string;
       name: string;

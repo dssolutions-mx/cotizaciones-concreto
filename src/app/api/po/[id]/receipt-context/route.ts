@@ -39,6 +39,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         id,
         plant_id,
         supplier_id,
+        po_number,
         status,
         notes,
         po_date,
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({
       po: {
         id: po.id,
+        po_number: (po as { po_number?: string | null }).po_number ?? null,
         display_ref: String(po.id).slice(0, 8).toUpperCase(),
         status: po.status,
         plant_id: po.plant_id,

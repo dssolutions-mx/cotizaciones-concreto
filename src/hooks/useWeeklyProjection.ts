@@ -82,7 +82,8 @@ export function useWeeklyProjection(options: Options) {
             .from('remisiones')
             .select('id, fecha, tipo_remision, volumen_fabricado, recipe:recipes(recipe_code), order:orders(client_id)')
             .gte('fecha', format(start, 'yyyy-MM-dd'))
-            .lte('fecha', format(end, 'yyyy-MM-dd'));
+            .lte('fecha', format(end, 'yyyy-MM-dd'))
+            .eq('is_production_record', false);
           if (plantId) query = query.eq('plant_id', plantId);
 
           const res = await query;

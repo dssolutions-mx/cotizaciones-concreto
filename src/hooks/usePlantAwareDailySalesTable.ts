@@ -74,7 +74,8 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
             strength_fc
           )
         `)
-        .eq('fecha', date);
+        .eq('fecha', date)
+        .eq('is_production_record', false);
 
       // Apply plant filtering to remisiones first
       if (plantIds && plantIds.length > 0) {
@@ -172,7 +173,8 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
       let allRemisionesQuery = supabase
         .from('remisiones')
         .select('order_id, fecha, tipo_remision, volumen_fabricado')
-        .in('order_id', orderIds);
+        .in('order_id', orderIds)
+        .eq('is_production_record', false);
       if (plantIds && plantIds.length > 0) {
         allRemisionesQuery = allRemisionesQuery.in('plant_id', plantIds);
       } else if (plantIds && plantIds.length === 0) {

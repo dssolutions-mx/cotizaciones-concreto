@@ -882,6 +882,7 @@ export default function VentasDashboard() {
             .eq('plant_id', plant.id)  // Filter by specific plant (like production page)
             .gte('fecha', from)
             .lte('fecha', to)
+            .eq('is_production_record', false)
             .order('fecha', { ascending: false });
 
           if (remError) throw remError;
