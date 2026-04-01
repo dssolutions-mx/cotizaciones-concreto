@@ -1,6 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
+/** Map thrown errors to HTTP status + safe client message (full detail stays in logs). */
+function clientErrorFromCaughtError(error: unknown): { status: number; message: string } {
+  const raw = error instanceof Error ? error.message : String(error);
+  const lower = raw.toLowerCase();
+
+  if (
+    lower.includes('row-level security') ||
+    lower.includes('violates row-level security') ||
+    lower.includes('42501') ||
+    (lower.includes('permission denied') && lower.includes('policy'))
+  ) {
+    return {
+      status: 403,
+      message: 'No tiene permiso para guardar documentos en esta remisión.',
+    };
+  }
+
+  if (raw.startsWith('Error al guardar información del documento:')) {
+    const tail = raw.slice('Error al guardar información del documento:'.length).trim();
+    const tailLower = tail.toLowerCase();
+    if (tailLower.includes('row-level') || tailLower.includes('rls') || tailLower.includes('42501')) {
+      return {
+        status: 403,
+        message: 'No tiene permiso para guardar documentos en esta remisión.',
+      };
+    }
+    return {
+      status: 400,
+      message: 'No se pudo registrar el documento. Verifique permisos o intente de nuevo.',
+    };
+  }
+
+  if (raw.startsWith('Error al subir documento:')) {
+    const tail = raw.slice('Error al subir documento:'.length).trim().toLowerCase();
+    if (tail.includes('already exists') || tail.includes('duplicate')) {
+      return {
+        status: 409,
+        message: 'Ya existe un archivo con el mismo nombre en el servidor.',
+      };
+    }
+    return {
+      status: 502,
+      message: 'Error al almacenar el archivo. Intente de nuevo o use otro formato.',
+    };
+  }
+
+  return { status: 500, message: 'Error interno del servidor' };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -159,11 +208,8 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Error in remision documents POST:', error);
-    
-    return NextResponse.json(
-      { success: false, error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    const { status, message } = clientErrorFromCaughtError(error);
+    return NextResponse.json({ success: false, error: message }, { status });
   }
 }
 
@@ -244,11 +290,8 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Error in remision documents GET:', error);
-    
-    return NextResponse.json(
-      { success: false, error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    const { status, message } = clientErrorFromCaughtError(error);
+    return NextResponse.json({ success: false, error: message }, { status });
   }
 }
 
@@ -309,10 +352,7 @@ export async function DELETE(request: NextRequest) {
 
   } catch (error) {
     console.error('Error in remision documents DELETE:', error);
-    
-    return NextResponse.json(
-      { success: false, error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    const { status, message } = clientErrorFromCaughtError(error);
+    return NextResponse.json({ success: false, error: message }, { status });
   }
 }

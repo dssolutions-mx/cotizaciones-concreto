@@ -18,10 +18,11 @@ import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
-import { FileText } from 'lucide-react';
+import { FileText, RefreshCw } from 'lucide-react';
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { RemisionDocument, RemisionPendingFile } from '@/types/remisiones';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -75,6 +76,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   // Evidence state
   const [pendingFiles, setPendingFiles] = useState<RemisionPendingFile[]>([]);
   const [existingDocuments, setExistingDocuments] = useState<RemisionDocument[]>([]);
+  const [evidenceRetryRemisionId, setEvidenceRetryRemisionId] = useState<string | null>(null);
   const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600);
 
   // Log para depuración cuando el componente se monte
@@ -235,25 +237,38 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const uploadDocuments = async (remisionId: string) => {
-    if (pendingFiles.length === 0) return;
+  type EvidenceUploadBatchResult = {
+    allSucceeded: boolean;
+    attempted: number;
+    successCount: number;
+    failCount: number;
+    errors: string[];
+  };
 
-    for (let i = 0; i < pendingFiles.length; i++) {
-      const pendingFile = pendingFiles[i];
-      
+  const uploadDocuments = async (remisionId: string): Promise<EvidenceUploadBatchResult> => {
+    const initial = [...pendingFiles];
+    const attempted = initial.filter((f) => f.status !== 'uploaded').length;
+    if (attempted === 0) {
+      return { allSucceeded: true, attempted: 0, successCount: 0, failCount: 0, errors: [] };
+    }
+
+    const next: RemisionPendingFile[] = initial.map((f) => ({ ...f }));
+    let batchOk = 0;
+    let batchFail = 0;
+
+    for (let i = 0; i < next.length; i++) {
+      if (next[i].status === 'uploaded') continue;
+
+      setPendingFiles((prev) =>
+        prev.map((file, index) => (index === i ? { ...file, status: 'uploading' } : file))
+      );
+
       try {
-        // Update status to uploading
-        setPendingFiles(prev => 
-          prev.map((file, index) => 
-            index === i ? { ...file, status: 'uploading' } : file
-          )
-        );
-
         const formData = new FormData();
         formData.append('remision_id', remisionId);
         formData.append('document_type', 'delivery_evidence');
         formData.append('document_category', 'pumping_remision');
-        formData.append('file', pendingFile.file);
+        formData.append('file', next[i].file);
 
         const response = await fetch('/api/remisiones/documents', {
           method: 'POST',
@@ -261,27 +276,88 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         });
 
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Error al subir documento');
+          let message = 'Error al subir documento';
+          try {
+            const errorData = await response.json();
+            message = (errorData.error as string) || message;
+          } catch {
+            /* ignore */
+          }
+          next[i] = { ...next[i], status: 'error', error: message };
+          batchFail++;
+          setPendingFiles((prev) =>
+            prev.map((file, index) => (index === i ? { ...next[i] } : file))
+          );
+          continue;
         }
 
         const result = await response.json();
-        
-        // Update status to uploaded
-        setPendingFiles(prev => 
-          prev.map((file, index) => 
-            index === i ? { ...file, status: 'uploaded', documentId: result.data.id } : file
-          )
+        next[i] = {
+          ...next[i],
+          status: 'uploaded',
+          documentId: result.data.id,
+        };
+        batchOk++;
+        setPendingFiles((prev) =>
+          prev.map((file, index) => (index === i ? { ...next[i] } : file))
         );
-
       } catch (error) {
         console.error('Error uploading document:', error);
-        setPendingFiles(prev => 
-          prev.map((file, index) => 
-            index === i ? { ...file, status: 'error', error: error instanceof Error ? error.message : 'Error desconocido' } : file
-          )
+        const message = error instanceof Error ? error.message : 'Error de conexión';
+        next[i] = { ...next[i], status: 'error', error: message };
+        batchFail++;
+        setPendingFiles((prev) =>
+          prev.map((file, index) => (index === i ? { ...next[i] } : file))
         );
       }
+    }
+
+    const errors: string[] = [];
+    for (let i = 0; i < initial.length; i++) {
+      if (initial[i].status === 'uploaded') continue;
+      if (next[i].status === 'error' && next[i].error) errors.push(next[i].error);
+    }
+
+    return {
+      allSucceeded: batchFail === 0,
+      attempted,
+      successCount: batchOk,
+      failCount: batchFail,
+      errors,
+    };
+  };
+
+  const handleRetryEvidenceUpload = async () => {
+    if (!evidenceRetryRemisionId) return;
+    try {
+      setLoading(true);
+      const r = await uploadDocuments(evidenceRetryRemisionId);
+      if (r.attempted > 0 && r.failCount > 0) {
+        showError(r.errors[0] ?? `No se pudieron subir ${r.failCount} archivo(s).`);
+        return;
+      }
+      showSuccess(
+        r.successCount > 0
+          ? `${r.successCount} archivo(s) de evidencia guardado(s) correctamente.`
+          : 'Evidencia actualizada correctamente.'
+      );
+      setEvidenceRetryRemisionId(null);
+      setFormData({
+        remisionNumber: '',
+        fecha: new Date().toISOString().split('T')[0],
+        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5),
+        volumen: '',
+        conductor: '',
+        unidad: '',
+        recipeId: '',
+      });
+      setManualMaterials([]);
+      setPendingFiles([]);
+      setExistingDocuments([]);
+      setTipoRemision('BOMBEO');
+      onSuccess();
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -390,13 +466,29 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         }
       }
 
-      // 3. Upload evidence documents if any (only for BOMBEO type)
-      if (tipoRemision === 'BOMBEO' && pendingFiles.length > 0) {
-        await uploadDocuments(newRemisionId);
+      let evidenceUpload: EvidenceUploadBatchResult | null = null;
+      if (tipoRemision === 'BOMBEO') {
+        evidenceUpload = await uploadDocuments(newRemisionId);
+        if (evidenceUpload.attempted > 0 && evidenceUpload.failCount > 0) {
+          setEvidenceRetryRemisionId(newRemisionId);
+          showError(
+            evidenceUpload.errors[0] ??
+              `No se pudieron subir ${evidenceUpload.failCount} archivo(s). La remisión ya fue registrada. Use «Reintentar evidencia» o corrija los archivos.`
+          );
+          return;
+        }
       }
-      
-      showSuccess('Remisión registrada correctamente');
-      
+
+      setEvidenceRetryRemisionId(null);
+
+      if (tipoRemision === 'BOMBEO' && evidenceUpload && evidenceUpload.successCount > 0) {
+        showSuccess(
+          `Remisión registrada correctamente. ${evidenceUpload.successCount} archivo(s) de evidencia guardado(s).`
+        );
+      } else {
+        showSuccess('Remisión registrada correctamente.');
+      }
+
       // Resetear formulario (Restored)
       setFormData({
         remisionNumber: '',
@@ -411,7 +503,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       setPendingFiles([]); // Reset pending files
       setExistingDocuments([]); // Reset existing documents
       setTipoRemision('BOMBEO'); // Reset type to default
-      
+
       onSuccess(); // Callback to refresh list or navigate
     } catch (error: any) {
       console.error('Error al guardar remisión manual:', error);
@@ -746,6 +838,28 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
                 ))}
               </div>
             )}
+
+            {evidenceRetryRemisionId && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertTitle>No se guardó toda la evidencia</AlertTitle>
+                <AlertDescription className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <span>
+                    La remisión ya está registrada. Corrija los archivos con error y pulse reintentar.
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={handleRetryEvidenceUpload}
+                    disabled={loading}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Reintentar evidencia
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
           </CardContent>
         </Card>
       )}
@@ -754,9 +868,14 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       <div className="flex justify-end pt-4 border-t mt-4">
         <button
           type="submit"
-          disabled={loading || loadingRecipes}
+          disabled={loading || loadingRecipes || !!evidenceRetryRemisionId}
           className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ border: '0' }}
+          title={
+            evidenceRetryRemisionId
+              ? 'Resuelva la evidencia pendiente antes de registrar otra remisión'
+              : undefined
+          }
         >
           {loading ? 'Guardando...' : 'Guardar Remisión'}
         </button>
