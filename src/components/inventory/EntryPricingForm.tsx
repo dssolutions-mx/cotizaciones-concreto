@@ -8,7 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
 import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus } from 'lucide-react'
-import CreatePOModal, { type PrefillFromMaterialEntry } from '@/components/po/CreatePOModal'
+import CreatePOModal, {
+  type PrefillFromMaterialEntry,
+  type PrefillFleetFromMaterialEntry,
+} from '@/components/po/CreatePOModal'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
@@ -44,6 +47,18 @@ function buildPrefillFromMaterialEntry(
     suggestedQty,
     quantityUom,
     notesHint: `Creada desde revisión de precios · entrada ${entry.entry_number || entry.id.slice(0, 8)}`,
+  }
+}
+
+function buildPrefillFleetFromMaterialEntry(
+  entry: MaterialEntry,
+  materialSupplierId: string | null | undefined
+): PrefillFleetFromMaterialEntry | null {
+  if (!entry.plant_id || !materialSupplierId) return null
+  return {
+    plantId: entry.plant_id,
+    materialSupplierId,
+    notesHint: `OC flota/flete desde revisión de precios · entrada ${entry.entry_number || entry.id.slice(0, 8)}`,
   }
 }
 
@@ -120,7 +135,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [selectedMaterialSearchItemId, setSelectedMaterialSearchItemId] = useState('')
   const [createPOOpen, setCreatePOOpen] = useState(false)
   const [poPrefill, setPoPrefill] = useState<PrefillFromMaterialEntry | null>(null)
+  const [fleetPoPrefillFromEntry, setFleetPoPrefillFromEntry] = useState<PrefillFleetFromMaterialEntry | null>(null)
   const [materialPoSearchRefreshKey, setMaterialPoSearchRefreshKey] = useState(0)
+  const [fleetPoSearchRefreshKey, setFleetPoSearchRefreshKey] = useState(0)
 
   /** Entradas sin proveedor en planta: el admin lo elige aquí para desbloquear búsqueda de OC */
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
@@ -366,7 +383,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return () => {
       cancelled = true
     }
-  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, formData.fleet_supplier_id])
+  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, formData.fleet_supplier_id, fleetPoSearchRefreshKey])
 
   // Open material PO lines (mismo proveedor de encabezado + material + planta)
   useEffect(() => {
@@ -699,6 +716,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                   toast.error('Faltan planta, proveedor o material en la entrada para crear la OC')
                   return
                 }
+                setFleetPoPrefillFromEntry(null)
                 setPoPrefill(p)
                 setCreatePOOpen(true)
               }}
@@ -899,6 +917,31 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             Busque una línea de servicio abierta para este proveedor de material. Si elige una OC, se rellenan el
             transportista y el costo según la OC.
           </p>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="w-fit"
+              onClick={() => {
+                const p = buildPrefillFleetFromMaterialEntry(entry, effectiveSupplierId)
+                if (!p) {
+                  toast.error('Faltan planta o proveedor de material para crear la OC de flota')
+                  return
+                }
+                setPoPrefill(null)
+                setFleetPoPrefillFromEntry(p)
+                setCreatePOOpen(true)
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Crear nueva OC de flota / transporte
+            </Button>
+            <span className="text-xs text-sky-900/90">
+              Asistente de compras: encabezado = transportista; la línea de servicio lleva el proveedor de material para
+              conciliar contra esta entrada. Luego elija la línea nueva arriba.
+            </span>
+          </div>
           {fleetPoSearchLoading ? (
             <p className="text-xs text-sky-700">Cargando líneas de OC de flota…</p>
           ) : (
@@ -1186,15 +1229,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       onClose={() => {
         setCreatePOOpen(false)
         setPoPrefill(null)
+        setFleetPoPrefillFromEntry(null)
       }}
       defaultPlantId={entry.plant_id}
       defaultMaterialId={entry.material_id}
-      prefillFromMaterialEntry={poPrefill}
+      prefillFromMaterialEntry={fleetPoPrefillFromEntry ? null : poPrefill}
+      prefillFleetFromMaterialEntry={fleetPoPrefillFromEntry}
       onSuccess={() => {
+        const wasFleet = Boolean(fleetPoPrefillFromEntry)
         setCreatePOOpen(false)
         setPoPrefill(null)
-        setMaterialPoSearchRefreshKey((k) => k + 1)
-        toast.success('OC creada. Elija la nueva línea en la lista para vincularla a esta entrada.')
+        setFleetPoPrefillFromEntry(null)
+        if (wasFleet) {
+          setFleetPoSearchRefreshKey((k) => k + 1)
+          toast.success('OC de flota creada. Elija la nueva línea en la lista para vincularla a esta entrada.')
+        } else {
+          setMaterialPoSearchRefreshKey((k) => k + 1)
+          toast.success('OC creada. Elija la nueva línea en la lista para vincularla a esta entrada.')
+        }
         onAfterCreatePO?.()
       }}
     />

@@ -44,6 +44,13 @@ export type PrefillFleetFromAlert = {
   materialSupplierId: string
 }
 
+/** Revisión de precios: crear OC de servicio (flota/flete) sin alerta — trazabilidad en notas */
+export type PrefillFleetFromMaterialEntry = {
+  plantId: string
+  materialSupplierId: string
+  notesHint?: string
+}
+
 /** Revisión de precios / entrada sin OC: crear OC material con planta, proveedor y cantidad sugerida */
 export type PrefillFromMaterialEntry = {
   plantId: string
@@ -69,6 +76,8 @@ interface CreatePOModalProps {
   prefillFleetFromAlert?: PrefillFleetFromAlert | null
   /** Pre-fill desde revisión de precios (entrada sin línea de OC material) — sin vincular alertas */
   prefillFromMaterialEntry?: PrefillFromMaterialEntry | null
+  /** Pre-fill OC de flota desde revisión de precios (misma lógica que alerta, sin link a alerta) */
+  prefillFleetFromMaterialEntry?: PrefillFleetFromMaterialEntry | null
 }
 
 export default function CreatePOModal({
@@ -80,6 +89,7 @@ export default function CreatePOModal({
   prefillFromAlert,
   prefillFleetFromAlert,
   prefillFromMaterialEntry,
+  prefillFleetFromMaterialEntry,
 }: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
@@ -139,7 +149,7 @@ export default function CreatePOModal({
   }, [open, defaultMaterialId])
 
   useEffect(() => {
-    if (!open || !prefillFromAlert || prefillFleetFromAlert) return
+    if (!open || !prefillFromAlert || prefillFleetFromAlert || prefillFleetFromMaterialEntry) return
     setPlantId(prefillFromAlert.plantId)
     const qty = Math.max(Number(prefillFromAlert.suggestedQtyKg) || 0, 1)
     setItems([
@@ -155,10 +165,11 @@ export default function CreatePOModal({
       },
     ])
     setStep('header')
-  }, [open, prefillFromAlert, prefillFleetFromAlert])
+  }, [open, prefillFromAlert, prefillFleetFromAlert, prefillFleetFromMaterialEntry])
 
   useEffect(() => {
-    if (!open || !prefillFromMaterialEntry || prefillFromAlert || prefillFleetFromAlert) return
+    if (!open || !prefillFromMaterialEntry || prefillFromAlert || prefillFleetFromAlert || prefillFleetFromMaterialEntry)
+      return
     setPlantId(prefillFromMaterialEntry.plantId)
     setSupplierId(prefillFromMaterialEntry.supplierId)
     if (prefillFromMaterialEntry.notesHint) {
@@ -179,7 +190,7 @@ export default function CreatePOModal({
       },
     ])
     setStep('header')
-  }, [open, prefillFromMaterialEntry, prefillFromAlert, prefillFleetFromAlert])
+  }, [open, prefillFromMaterialEntry, prefillFromAlert, prefillFleetFromAlert, prefillFleetFromMaterialEntry])
 
   useEffect(() => {
     if (!open || !prefillFleetFromAlert) return
@@ -202,6 +213,31 @@ export default function CreatePOModal({
     ])
     setStep('header')
   }, [open, prefillFleetFromAlert])
+
+  useEffect(() => {
+    if (!open || !prefillFleetFromMaterialEntry || prefillFleetFromAlert) return
+    setPlantId(prefillFleetFromMaterialEntry.plantId)
+    setMaterialSupplierId(prefillFleetFromMaterialEntry.materialSupplierId)
+    if (prefillFleetFromMaterialEntry.notesHint) {
+      setNotes(prefillFleetFromMaterialEntry.notesHint)
+    }
+    const desc = 'Transporte / flete'
+    setServiceDescription(desc)
+    setItems([
+      {
+        tempId: `fleet-pricing-${Date.now()}`,
+        is_service: true,
+        material_name: desc,
+        service_description: desc,
+        uom: 'trips',
+        qty_ordered: 1,
+        unit_price: 0,
+        total: 0,
+        material_supplier_id: prefillFleetFromMaterialEntry.materialSupplierId,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFleetFromMaterialEntry, prefillFleetFromAlert])
 
   // Fetch plants when modal opens
   useEffect(() => {
