@@ -68,6 +68,8 @@ export interface MaterialEntry {
   po?: { id: string; po_number: string | null } | null;
   fleet_po?: { id: string; po_number: string | null } | null;
   supplier?: { id: string; name: string | null; provider_number?: string | null } | null;
+  /** Optional: populated when GET /api/inventory/entries?include=document_counts */
+  document_count?: number;
 }
 
 export interface MaterialAdjustment {

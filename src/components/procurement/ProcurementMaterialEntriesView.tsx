@@ -19,7 +19,18 @@ import {
 } from '@/components/ui/table'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { AlertCircle, Calendar as CalendarIcon, ClipboardList, DollarSign, ExternalLink, Factory, List, Package } from 'lucide-react'
+import {
+  AlertCircle,
+  Calendar as CalendarIcon,
+  ClipboardList,
+  DollarSign,
+  ExternalLink,
+  Factory,
+  List,
+  Package,
+  Paperclip,
+  Search,
+} from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, procurementEntriesUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
@@ -29,6 +40,8 @@ import { toast } from 'sonner'
 import EntryPricingReviewList from '@/components/inventory/EntryPricingReviewList'
 import EntryPricingForm from '@/components/inventory/EntryPricingForm'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
+import { usePlantContext } from '@/contexts/PlantContext'
 
 function sortEntriesNewestFirst(list: MaterialEntry[]): MaterialEntry[] {
   return [...list].sort((a, b) => {
@@ -69,12 +82,29 @@ export default function ProcurementMaterialEntriesView({
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [pricingSheetEntry, setPricingSheetEntry] = useState<MaterialEntry | null>(null)
+  const [inspectionEntry, setInspectionEntry] = useState<MaterialEntry | null>(null)
   const autoPreciosAppliedRef = useRef(false)
+  const inspectionAutoOpenedForEntryRef = useRef<string | null>(null)
+  const { availablePlants } = usePlantContext()
 
   const pendingPricingInPeriod = useMemo(
     () => entries.filter((e) => e.pricing_status !== 'reviewed').length,
     [entries]
   )
+
+  const plantLabel = useMemo(() => {
+    if (!effectivePlantId) return 'Todas las plantas (según permisos)'
+    return availablePlants.find((p) => p.id === effectivePlantId)?.name || 'Planta'
+  }, [effectivePlantId, availablePlants])
+
+  const dateRangeLabel = useMemo(() => {
+    if (dateRange?.from && dateRange?.to) {
+      return `${format(dateRange.from, 'dd MMM', { locale: es })} – ${format(dateRange.to, 'dd MMM yyyy', { locale: es })}`
+    }
+    return '—'
+  }, [dateRange])
+
+  const hasLinkFilters = Boolean(poIdFromUrl || entryIdFromUrl || plantIdFromUrl)
 
   const replaceQuery = useCallback(
     (next: {
@@ -127,6 +157,7 @@ export default function ProcurementMaterialEntriesView({
       if (effectivePlantId) params.set('plant_id', effectivePlantId)
       params.set('limit', '100')
       params.set('offset', '0')
+      params.set('include', 'document_counts')
 
       const res = await fetch(`/api/inventory/entries?${params.toString()}`)
       if (!res.ok) {
@@ -141,7 +172,7 @@ export default function ProcurementMaterialEntriesView({
         !list.some((e) => e.id === entryIdFromUrl)
       ) {
         const r2 = await fetch(
-          `/api/inventory/entries?entry_id=${encodeURIComponent(entryIdFromUrl)}`
+          `/api/inventory/entries?entry_id=${encodeURIComponent(entryIdFromUrl)}&include=document_counts`
         )
         if (r2.ok) {
           const data2 = await r2.json()
@@ -199,6 +230,28 @@ export default function ProcurementMaterialEntriesView({
     return () => window.clearTimeout(t)
   }, [loading, entryIdFromUrl, entries])
 
+  useEffect(() => {
+    if (!entryIdFromUrl) inspectionAutoOpenedForEntryRef.current = null
+  }, [entryIdFromUrl])
+
+  /** Deep link: abrir inspección al entrar con entry_id en la URL. */
+  useEffect(() => {
+    if (loading || !entryIdFromUrl) return
+    if (inspectionAutoOpenedForEntryRef.current === entryIdFromUrl) return
+    const row = entries.find((x) => x.id === entryIdFromUrl)
+    if (row) {
+      setInspectionEntry(row)
+      inspectionAutoOpenedForEntryRef.current = entryIdFromUrl
+    }
+  }, [loading, entryIdFromUrl, entries])
+
+  /** Mantener la ficha de inspección alineada con la tabla tras recargar. */
+  useEffect(() => {
+    if (!inspectionEntry) return
+    const updated = entries.find((x) => x.id === inspectionEntry.id)
+    if (updated) setInspectionEntry(updated)
+  }, [entries, inspectionEntry?.id])
+
   const handlePresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
     setSelectedPreset(preset)
     setDateRange(range)
@@ -254,6 +307,64 @@ export default function ProcurementMaterialEntriesView({
         </div>
       </div>
 
+      <div className="sticky top-0 z-10 rounded-lg border border-stone-200 bg-[#faf9f7]/95 backdrop-blur-sm px-3 py-2.5 shadow-sm space-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs sm:text-sm text-stone-700">
+          <span>
+            <span className="font-semibold text-stone-800">Planta:</span>{' '}
+            <span className="font-mono text-stone-700">{plantLabel}</span>
+          </span>
+          <span className="text-stone-300 hidden sm:inline" aria-hidden>
+            |
+          </span>
+          <span>
+            <span className="font-semibold text-stone-800">Vista:</span>{' '}
+            {canReviewPricing && entradasView === 'precios' ? (
+              <span>Cola de precios (últimos 30 días)</span>
+            ) : (
+              <span>Historial por fechas · {dateRangeLabel}</span>
+            )}
+          </span>
+          {canReviewPricing && (
+            <>
+              <span className="text-stone-300 hidden sm:inline" aria-hidden>
+                |
+              </span>
+              <Badge variant="secondary" className="font-normal text-[11px]">
+                {entradasView === 'precios' ? 'Precios pendientes' : 'Listado por rango'}
+              </Badge>
+            </>
+          )}
+        </div>
+        {hasLinkFilters && (
+          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-stone-200/90">
+            {plantIdFromUrl && (
+              <Badge variant="outline" className="text-[11px] font-normal">
+                Planta por URL
+              </Badge>
+            )}
+            {poIdFromUrl && (
+              <Badge variant="secondary" className="font-mono text-[11px]">
+                OC filtrada
+              </Badge>
+            )}
+            {entryIdFromUrl && (
+              <Badge variant="outline" className="border-sky-300 text-sky-900 text-[11px]">
+                Entrada resaltada
+              </Badge>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs ml-auto"
+              onClick={() => replaceQuery({ po_id: null, entry_id: null, plant_id: null })}
+            >
+              Quitar filtros de enlace
+            </Button>
+          </div>
+        )}
+      </div>
+
       {canReviewPricing && pendingPricingInPeriod > 0 && (
         <Alert className="border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50/80 text-amber-950 shadow-sm">
           <AlertCircle className="h-5 w-5 text-amber-700" />
@@ -288,41 +399,17 @@ export default function ProcurementMaterialEntriesView({
         </Alert>
       )}
 
-      {entradasView === 'list' && (poIdFromUrl || entryIdFromUrl) && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {poIdFromUrl && (
-            <Badge variant="secondary" className="font-mono">
-              OC filtrada
-            </Badge>
-          )}
-          {entryIdFromUrl && (
-            <Badge variant="outline" className="border-sky-300 text-sky-900">
-              Entrada resaltada
-            </Badge>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => replaceQuery({ po_id: null, entry_id: null })}
-          >
-            Quitar filtros de enlace
-          </Button>
-        </div>
-      )}
-
       {canReviewPricing && (
         <Tabs value={entradasView} onValueChange={(v) => setEntradasView(v as 'list' | 'precios')}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <TabsList className="grid w-full sm:w-auto sm:min-w-[380px] max-w-full grid-cols-2 h-auto bg-stone-200/60 p-1 rounded-lg">
               <TabsTrigger value="precios" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                 <DollarSign className="h-4 w-4" />
-                Revisión de precios
+                Cola de precios
               </TabsTrigger>
               <TabsTrigger value="list" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                 <List className="h-4 w-4" />
-                Todas las recepciones
+                Historial por fechas
               </TabsTrigger>
             </TabsList>
             {entradasView === 'list' && pendingPricingInPeriod > 0 && (
@@ -439,6 +526,7 @@ export default function ProcurementMaterialEntriesView({
                   <TableHead className="text-right">Total mat.</TableHead>
                   <TableHead className="whitespace-nowrap">Estado precio</TableHead>
                   <TableHead className="whitespace-nowrap">Remisión</TableHead>
+                  <TableHead className="whitespace-nowrap">Evidencia</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -453,6 +541,8 @@ export default function ProcurementMaterialEntriesView({
                     '—'
                   const highlight = entryIdFromUrl === e.id
                   const pricingPending = e.pricing_status !== 'reviewed'
+                  const docCount = e.document_count ?? 0
+                  const evidenceWarn = pricingPending && docCount === 0
                   return (
                     <TableRow
                       key={e.id}
@@ -500,8 +590,36 @@ export default function ProcurementMaterialEntriesView({
                         )}
                       </TableCell>
                       <TableCell className="text-xs font-mono">{e.supplier_invoice || '—'}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5 min-w-[72px]">
+                          <div className="flex items-center gap-1">
+                            <Paperclip className="h-3.5 w-3.5 text-stone-500 shrink-0" aria-hidden />
+                            <span
+                              className={cn(
+                                'font-mono text-xs tabular-nums',
+                                evidenceWarn && 'text-amber-800 font-semibold'
+                              )}
+                            >
+                              {docCount}
+                            </span>
+                          </div>
+                          {evidenceWarn && (
+                            <span className="text-[10px] text-amber-700 leading-tight">Sin archivos</span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-col gap-1.5 items-end min-w-[140px]">
+                        <div className="flex flex-col gap-1.5 items-end min-w-[160px]">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-full sm:w-auto border-stone-300"
+                            onClick={() => setInspectionEntry(e)}
+                          >
+                            <Search className="h-3.5 w-3.5 mr-1" />
+                            Inspeccionar
+                          </Button>
                           {pricingPending && (
                             <Button
                               type="button"
@@ -629,6 +747,7 @@ export default function ProcurementMaterialEntriesView({
                   <TableHead className="text-right">Total mat.</TableHead>
                   <TableHead className="whitespace-nowrap">Estado precio</TableHead>
                   <TableHead className="whitespace-nowrap">Remisión</TableHead>
+                  <TableHead className="whitespace-nowrap">Evidencia</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -642,6 +761,9 @@ export default function ProcurementMaterialEntriesView({
                     (e.supplier?.provider_number ? `#${e.supplier.provider_number}` : null) ||
                     '—'
                   const highlight = entryIdFromUrl === e.id
+                  const pricingPending = e.pricing_status !== 'reviewed'
+                  const docCount = e.document_count ?? 0
+                  const evidenceWarn = pricingPending && docCount === 0
                   return (
                     <TableRow
                       key={e.id}
@@ -684,8 +806,36 @@ export default function ProcurementMaterialEntriesView({
                         )}
                       </TableCell>
                       <TableCell className="text-xs font-mono">{e.supplier_invoice || '—'}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5 min-w-[72px]">
+                          <div className="flex items-center gap-1">
+                            <Paperclip className="h-3.5 w-3.5 text-stone-500 shrink-0" aria-hidden />
+                            <span
+                              className={cn(
+                                'font-mono text-xs tabular-nums',
+                                evidenceWarn && 'text-amber-800 font-semibold'
+                              )}
+                            >
+                              {docCount}
+                            </span>
+                          </div>
+                          {evidenceWarn && (
+                            <span className="text-[10px] text-amber-700 leading-tight">Sin archivos</span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex flex-col gap-1 items-end">
+                        <div className="flex flex-col gap-1 items-end min-w-[140px]">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-full sm:w-auto border-stone-300"
+                            onClick={() => setInspectionEntry(e)}
+                          >
+                            <Search className="h-3.5 w-3.5 mr-1" />
+                            Inspeccionar
+                          </Button>
                           {poLinkId && (
                             <Button variant="link" size="sm" className="h-auto p-0 text-sky-800" asChild>
                               <Link
@@ -752,6 +902,85 @@ export default function ProcurementMaterialEntriesView({
           </SheetContent>
         </Sheet>
       )}
+
+      <Sheet open={!!inspectionEntry} onOpenChange={(open) => !open && setInspectionEntry(null)}>
+        <SheetContent side="right" className="w-full sm:max-w-xl md:max-w-2xl overflow-y-auto">
+          <SheetHeader className="text-left pr-8">
+            <SheetTitle>Inspección de recepción</SheetTitle>
+            <SheetDescription>
+              Revise remisión, cantidades y evidencia adjunta antes de cerrar precios o pagos.
+            </SheetDescription>
+          </SheetHeader>
+          {inspectionEntry && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-lg border border-stone-200 bg-stone-50/90 p-4 space-y-2 text-sm">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span className="text-stone-600">Entrada</span>
+                  <span className="font-mono font-semibold text-stone-900">
+                    {inspectionEntry.entry_number || inspectionEntry.id.slice(0, 8)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span className="text-stone-600">Material</span>
+                  <span className="font-medium text-right">
+                    {inspectionEntry.material?.material_name || inspectionEntry.material_id}
+                  </span>
+                </div>
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span className="text-stone-600">Remisión / factura</span>
+                  <span className="font-mono text-xs">{inspectionEntry.supplier_invoice || '—'}</span>
+                </div>
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span className="text-stone-600">Estado precio</span>
+                  {inspectionEntry.pricing_status === 'reviewed' ? (
+                    <Badge className="bg-emerald-100 text-emerald-900 border-emerald-200">Revisado</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-900">
+                      Pendiente
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              <EntryEvidencePanel
+                key={inspectionEntry.id}
+                entryId={inspectionEntry.id}
+                pricingStatus={inspectionEntry.pricing_status}
+                warnWhenPendingAndEmpty
+              />
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                {canReviewPricing && inspectionEntry.pricing_status !== 'reviewed' && (
+                  <Button
+                    type="button"
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                    onClick={() => {
+                      const e = inspectionEntry
+                      setInspectionEntry(null)
+                      setPricingSheetEntry(e)
+                    }}
+                  >
+                    <DollarSign className="h-4 w-4 mr-2" />
+                    Revisar precio
+                  </Button>
+                )}
+                <Button variant="outline" className="border-stone-300" asChild>
+                  <Link
+                    href={productionEntriesUrl({
+                      plantId: inspectionEntry.plant_id,
+                      poId: inspectionEntry.po_id || inspectionEntry.fleet_po_id || undefined,
+                      entryId: inspectionEntry.id,
+                    })}
+                  >
+                    <Factory className="h-4 w-4 mr-2" />
+                    Ficha en planta
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

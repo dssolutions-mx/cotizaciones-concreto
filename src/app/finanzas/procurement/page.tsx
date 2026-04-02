@@ -259,7 +259,8 @@ export default function ProcurementWorkspacePage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
+        <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
+        <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
           <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <LayoutDashboard className="h-4 w-4" />
             Resumen
@@ -289,6 +290,7 @@ export default function ProcurementWorkspacePage() {
             Proveedores
           </TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="resumen" className="space-y-4">
           <ActionCenter

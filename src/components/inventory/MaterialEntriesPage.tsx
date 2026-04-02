@@ -228,9 +228,10 @@ export default function MaterialEntriesPage() {
             </CardHeader>
             <CardContent>
               <EntriesStatistics entries={entries} dateRange={dateRange} hideCost={userRole === 'DOSIFICADOR'} />
-              <MaterialEntriesList 
+              <MaterialEntriesList
                 dateRange={dateRange}
                 poId={poIdFromUrl}
+                plantId={currentPlant?.id}
                 highlightEntryId={entryIdFromUrl}
                 isEditing={true}
                 key={refreshList}

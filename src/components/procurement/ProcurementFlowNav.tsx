@@ -56,7 +56,8 @@ export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
         </Link>
       </nav>
       <p className="text-xs text-stone-500 mt-2 px-1">
-        Use las pestañas de abajo o estos accesos. CXP y pagos comparten la vista &quot;Por pagar&quot;.
+        Use las pestañas de abajo o estos accesos. CXP y pagos comparten la vista &quot;Por pagar&quot;. En Entradas use
+        Inspeccionar para ver evidencia (remisión, fotos) sin ir a planta.
       </p>
     </div>
   )

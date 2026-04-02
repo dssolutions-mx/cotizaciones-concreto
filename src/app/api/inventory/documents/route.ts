@@ -76,10 +76,20 @@ export async function POST(request: NextRequest) {
     if (type === 'entry') {
       const { data: entry } = await supabase
         .from('material_entries')
-        .select('plant_id')
+        .select('plant_id, pricing_status')
         .eq('id', referenceId)
         .single();
-      
+
+      if (entry?.pricing_status === 'reviewed') {
+        return NextResponse.json(
+          {
+            error:
+              'Esta entrada ya fue revisada por administración; no se pueden agregar documentos.',
+          },
+          { status: 403 }
+        );
+      }
+
       if (entry) {
         hasAccess = isGlobalInventoryRole(profile.role) ||
                    profile.plant_id === entry.plant_id ||
@@ -324,15 +334,34 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
     }
 
-    // Get document to check ownership and get file path
     const { data: document, error: documentError } = await supabase
       .from('inventory_documents')
       .select('*')
       .eq('id', documentId)
-      .eq('uploaded_by', user.id)
       .single();
 
     if (documentError || !document) {
+      return NextResponse.json({ error: 'Documento no encontrado o sin permisos' }, { status: 404 });
+    }
+
+    if (document.entry_id) {
+      const { data: matEntry } = await supabase
+        .from('material_entries')
+        .select('pricing_status')
+        .eq('id', document.entry_id)
+        .single();
+      if (matEntry?.pricing_status === 'reviewed') {
+        return NextResponse.json(
+          {
+            error:
+              'Esta entrada ya fue revisada por administración; no se pueden eliminar documentos.',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    if (document.uploaded_by !== user.id) {
       return NextResponse.json({ error: 'Documento no encontrado o sin permisos' }, { status: 404 });
     }
 

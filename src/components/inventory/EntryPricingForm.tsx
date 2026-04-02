@@ -10,6 +10,7 @@ import { MaterialEntry } from '@/types/inventory'
 import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus } from 'lucide-react'
 import CreatePOModal, { type PrefillFromMaterialEntry } from '@/components/po/CreatePOModal'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -613,6 +614,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             {entry.material?.unit_of_measure || 'kg'}
           </span>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-stone-700">Revise la evidencia antes de validar precios</p>
+        <EntryEvidencePanel
+          entryId={entry.id}
+          pricingStatus={entry.pricing_status}
+          warnWhenPendingAndEmpty
+        />
       </div>
 
       {!hasMaterialPoLink && entry.supplier_id && (
