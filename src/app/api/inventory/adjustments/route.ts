@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
     const adjustmentDate = validatedData.adjustment_date || new Date().toISOString().split('T')[0];
     const dateStr = adjustmentDate.replace(/-/g, '');
     
-    // Get current sequence number
+    // Get current sequence number (per plant; DB unique is on plant_id + adjustment_number)
     const { data: lastAdjustment } = await supabase
       .from('material_adjustments')
       .select('adjustment_number')
@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
       .ilike('adjustment_number', `ADJ-${dateStr}-%`)
       .order('adjustment_number', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const sequence = lastAdjustment ? parseInt(lastAdjustment.adjustment_number.split('-').pop() || '0') + 1 : 1;
     const adjustmentNumber = `ADJ-${dateStr}-${sequence.toString().padStart(3, '0')}`;

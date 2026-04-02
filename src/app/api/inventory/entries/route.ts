@@ -353,7 +353,7 @@ export async function POST(request: NextRequest) {
     const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
     const dateStr = entryDate.replace(/-/g, '');
     
-    // Get current sequence number
+    // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
     const { data: lastEntry } = await supabase
       .from('material_entries')
       .select('entry_number')
@@ -361,7 +361,7 @@ export async function POST(request: NextRequest) {
       .ilike('entry_number', `ENT-${dateStr}-%`)
       .order('entry_number', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
     const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;

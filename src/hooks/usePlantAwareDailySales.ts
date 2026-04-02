@@ -263,7 +263,12 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
 
         const fullSubtotal = Number(order.final_amount || 0);
         const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-        const vatMultiplier = fullSubtotal > 0 ? fullTotalWithVAT / fullSubtotal : (order.requires_invoice ? 1.16 : 1);
+        const vatMultiplier =
+          fullSubtotal > 0
+            ? fullTotalWithVAT / fullSubtotal
+            : order.requires_invoice && Number(order.final_amount) > 0
+              ? Number(order.invoice_amount || order.final_amount) / Number(order.final_amount)
+              : 1;
 
         totalSubtotal += subtotal;
         totalWithVAT += subtotal * vatMultiplier;
