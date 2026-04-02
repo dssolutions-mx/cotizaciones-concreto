@@ -11,6 +11,7 @@ import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus } from 'lucide-r
 import CreatePOModal, { type PrefillFromMaterialEntry } from '@/components/po/CreatePOModal'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
+import SupplierSelect from '@/components/inventory/SupplierSelect'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -20,8 +21,12 @@ interface EntryPricingFormProps {
   onAfterCreatePO?: () => void
 }
 
-function buildPrefillFromMaterialEntry(entry: MaterialEntry): PrefillFromMaterialEntry | null {
-  if (!entry.plant_id || !entry.supplier_id || !entry.material_id) return null
+function buildPrefillFromMaterialEntry(
+  entry: MaterialEntry,
+  supplierIdOverride?: string | null
+): PrefillFromMaterialEntry | null {
+  const supplierId = supplierIdOverride ?? entry.supplier_id
+  if (!entry.plant_id || !supplierId || !entry.material_id) return null
   const rawUom = entry.received_uom
   const quantityUom: 'kg' | 'l' | 'm3' = rawUom === 'l' || rawUom === 'm3' ? rawUom : 'kg'
   let suggestedQty = 1
@@ -34,7 +39,7 @@ function buildPrefillFromMaterialEntry(entry: MaterialEntry): PrefillFromMateria
   }
   return {
     plantId: entry.plant_id,
-    supplierId: entry.supplier_id,
+    supplierId,
     materialId: entry.material_id,
     suggestedQty,
     quantityUom,
@@ -117,6 +122,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [poPrefill, setPoPrefill] = useState<PrefillFromMaterialEntry | null>(null)
   const [materialPoSearchRefreshKey, setMaterialPoSearchRefreshKey] = useState(0)
 
+  /** Entradas sin proveedor en planta: el admin lo elige aquí para desbloquear búsqueda de OC */
+  const [selectedSupplierId, setSelectedSupplierId] = useState('')
+
   const [formData, setFormData] = useState({
     unit_price: entry.unit_price?.toString() || '',
     total_cost: entry.total_cost?.toString() || '',
@@ -130,6 +138,11 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   const hasMaterialPoLink = Boolean(entry.po_id && entry.po_item_id)
   const hasFleetPoLink = Boolean(entry.fleet_po_id && entry.fleet_po_item_id)
+
+  const effectiveSupplierId = useMemo(
+    () => entry.supplier_id || selectedSupplierId || '',
+    [entry.supplier_id, selectedSupplierId]
+  )
 
   const selectedFleetSearchItem = useMemo(
     () => fleetPoSearchItems.find((it) => it.id === selectedFleetSearchItemId) || null,
@@ -322,7 +335,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   // Load open fleet PO lines for this material supplier + plant (optional transport filter)
   useEffect(() => {
-    if (hasFleetPoLink || !entry.supplier_id || !entry.plant_id) {
+    if (hasFleetPoLink || !effectiveSupplierId || !entry.plant_id) {
       setFleetPoSearchItems([])
       return
     }
@@ -332,7 +345,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       try {
         const params = new URLSearchParams()
         params.set('plant_id', entry.plant_id)
-        params.set('material_supplier_id', entry.supplier_id)
+        params.set('material_supplier_id', effectiveSupplierId)
         params.set('is_service', 'true')
         if (formData.fleet_supplier_id) {
           params.set('po_supplier_id', formData.fleet_supplier_id)
@@ -353,11 +366,11 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return () => {
       cancelled = true
     }
-  }, [hasFleetPoLink, entry.supplier_id, entry.plant_id, formData.fleet_supplier_id])
+  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, formData.fleet_supplier_id])
 
   // Open material PO lines (mismo proveedor de encabezado + material + planta)
   useEffect(() => {
-    if (hasMaterialPoLink || !entry.supplier_id || !entry.plant_id || !entry.material_id) {
+    if (hasMaterialPoLink || !effectiveSupplierId || !entry.plant_id || !entry.material_id) {
       setMaterialPoSearchItems([])
       return
     }
@@ -367,7 +380,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       try {
         const params = new URLSearchParams()
         params.set('plant_id', entry.plant_id)
-        params.set('supplier_id', entry.supplier_id)
+        params.set('supplier_id', effectiveSupplierId)
         params.set('material_id', entry.material_id)
         params.set('is_service', 'false')
         params.set('active_po_header', 'true')
@@ -387,7 +400,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return () => {
       cancelled = true
     }
-  }, [hasMaterialPoLink, entry.supplier_id, entry.plant_id, entry.material_id, materialPoSearchRefreshKey])
+  }, [hasMaterialPoLink, effectiveSupplierId, entry.plant_id, entry.material_id, materialPoSearchRefreshKey])
 
   // Clear invalid selection when list refreshes
   useEffect(() => {
@@ -520,6 +533,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         id: entry.id,
         unit_price: parseFloat(formData.unit_price),
         total_cost: parseFloat(formData.total_cost),
+        ...(!entry.supplier_id && effectiveSupplierId && { supplier_id: effectiveSupplierId }),
         ...(effectiveFleetSupplierId && { fleet_supplier_id: effectiveFleetSupplierId }),
         ...(formData.fleet_cost && { fleet_cost: parseFloat(formData.fleet_cost) }),
         ...(formData.supplier_invoice && { supplier_invoice: formData.supplier_invoice }),
@@ -616,6 +630,33 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         </div>
       </div>
 
+      {!entry.supplier_id && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50/90 p-4 space-y-3">
+          <Alert className="border-amber-400 bg-white/80 text-amber-950 [&>svg]:text-amber-700">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Proveedor de material</AlertTitle>
+            <AlertDescription className="text-sm">
+              Esta entrada no tiene proveedor asignado. Elija el proveedor de la planta para poder buscar y vincular órdenes de compra de material y
+              flota. El valor se guardará al confirmar precios.
+            </AlertDescription>
+          </Alert>
+          <div className="space-y-2">
+            <Label>Proveedor *</Label>
+            <SupplierSelect
+              value={selectedSupplierId}
+              onChange={setSelectedSupplierId}
+              plantId={entry.plant_id || undefined}
+              required
+            />
+            {!effectiveSupplierId && (
+              <p className="text-xs text-amber-900">
+                Sin proveedor no se pueden listar OC de material ni de flota para esta entrada.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <p className="text-xs font-medium text-stone-700">Revise la evidencia antes de validar precios</p>
         <EntryEvidencePanel
@@ -625,7 +666,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         />
       </div>
 
-      {!hasMaterialPoLink && entry.supplier_id && (
+      {!hasMaterialPoLink && effectiveSupplierId && (
         <Alert className="border-amber-200 bg-amber-50/90 text-amber-950 [&>svg]:text-amber-700">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Sin orden de compra (material) vinculada</AlertTitle>
@@ -636,7 +677,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         </Alert>
       )}
 
-      {!hasMaterialPoLink && entry.supplier_id && (
+      {!hasMaterialPoLink && effectiveSupplierId && (
         <div className="rounded-lg border border-stone-300 bg-stone-50/80 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-stone-800">
             <FileText className="h-4 w-4" />
@@ -653,7 +694,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               size="sm"
               className="w-fit"
               onClick={() => {
-                const p = buildPrefillFromMaterialEntry(entry)
+                const p = buildPrefillFromMaterialEntry(entry, effectiveSupplierId)
                 if (!p) {
                   toast.error('Faltan planta, proveedor o material en la entrada para crear la OC')
                   return
@@ -725,12 +766,6 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               )}
             </>
           )}
-        </div>
-      )}
-
-      {!hasMaterialPoLink && !entry.supplier_id && (
-        <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
-          Esta entrada no tiene proveedor de material registrado; no se puede vincular una OC de material hasta corregirlo en Control de producción o en la entrada.
         </div>
       )}
 
@@ -854,7 +889,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       </div>
 
       {/* Vincular OC de flota en revisión (entrada sin fleet_po al crear) */}
-      {!hasFleetPoLink && entry.supplier_id && (
+      {!hasFleetPoLink && effectiveSupplierId && (
         <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-sky-900">
             <Truck className="h-4 w-4" />
@@ -975,13 +1010,6 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               )}
             </>
           )}
-        </div>
-      )}
-
-      {!hasFleetPoLink && !entry.supplier_id && (
-        <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
-          Esta entrada no tiene proveedor de material registrado; no se puede buscar una OC de flota vinculada. Use costo
-          de flota manual o corrija la entrada en Control de producción.
         </div>
       )}
 
