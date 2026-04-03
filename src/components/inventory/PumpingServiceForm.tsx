@@ -37,6 +37,8 @@ import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { format } from 'date-fns';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
+import { recalculateOrderAmount } from '@/services/orderService';
 
 // Plant interface for the form
 interface Plant {
@@ -80,6 +82,8 @@ interface OrderWithRemisiones {
     id: string;
     product_type: string;
     volume: number;
+    unit_price?: number | null;
+    pump_price?: number | null;
     has_pump_service: boolean;
     concrete_volume_delivered: number;
     pump_volume_delivered: number;
@@ -229,6 +233,8 @@ export default function PumpingServiceForm() {
               id,
               product_type,
               volume,
+              unit_price,
+              pump_price,
               has_pump_service,
               concrete_volume_delivered,
               pump_volume_delivered
@@ -536,22 +542,28 @@ export default function PumpingServiceForm() {
 
       const volumen = parseFloat(formData.volumen) || 0;
 
+      const unitPrice = await fetchApprovedPumpUnitPrice(
+        supabase,
+        selectedOrder.client_id,
+        selectedOrder.construction_site
+      );
+
       // 1. Check if there's already a pumping service item in the order, if not, create one
       let pumpServiceItem = selectedOrder.order_items.find(item =>
         item.product_type === 'SERVICIO DE BOMBEO'
       );
 
       if (!pumpServiceItem) {
-        // Create a new pumping service item for this order
+        const totalPrice = unitPrice * volumen;
         const orderItemPayload = {
           order_id: selectedOrder.id,
           product_type: 'SERVICIO DE BOMBEO',
           volume: volumen,
-          unit_price: 0, // No price for pumping service
-          total_price: 0, // No total price for pumping service
+          unit_price: unitPrice,
+          total_price: totalPrice,
           has_pump_service: true,
-          pump_price: 0, // No pump price
-          pump_volume: volumen, // Set pump volume to the pumping service volume
+          pump_price: unitPrice,
+          pump_volume: volumen,
         };
 
         const { data: newItem, error: orderItemError } = await supabase
@@ -562,6 +574,23 @@ export default function PumpingServiceForm() {
 
         if (orderItemError) throw orderItemError;
         pumpServiceItem = newItem;
+      } else {
+        const priceMissing =
+          pumpServiceItem.pump_price == null ||
+          Number(pumpServiceItem.pump_price) === 0;
+        if (priceMissing && unitPrice > 0) {
+          const vol = pumpServiceItem.volume ?? volumen;
+          const { error: updatePriceError } = await supabase
+            .from('order_items')
+            .update({
+              unit_price: unitPrice,
+              pump_price: unitPrice,
+              total_price: unitPrice * vol,
+            })
+            .eq('id', pumpServiceItem.id);
+
+          if (updatePriceError) throw updatePriceError;
+        }
       }
 
       // 2. Prepare the payload for the pumping service remision
@@ -592,6 +621,12 @@ export default function PumpingServiceForm() {
         .single();
 
       if (remisionError) throw remisionError;
+
+      try {
+        await recalculateOrderAmount(selectedOrder.id);
+      } catch (recalcErr) {
+        console.error('recalculateOrderAmount after bombeo remisión:', recalcErr);
+      }
 
       const newRemisionId = remisionData.id;
       const uploadResult = await uploadDocuments(newRemisionId);
