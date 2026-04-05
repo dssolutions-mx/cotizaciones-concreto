@@ -23,18 +23,20 @@ export default function RecetasHub() {
   const { session } = useAuthBridge()
   const [data, setData] = useState<RecetasData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     if (!currentPlant?.id || !session?.user) return
     setLoading(true)
+    setError(null)
     try {
       const res = await fetch(`/api/quality/hub-summary?plant_id=${currentPlant.id}`)
       const json = await res.json()
       if (json.success) {
         setData(json.data.recetas)
       }
-    } catch {
-      // silent
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar datos de recetas')
     } finally {
       setLoading(false)
     }
@@ -107,11 +109,13 @@ export default function RecetasHub() {
     <QualityHubLayout
       title="Recetas"
       description="Gestión del ciclo de vida de recetas: importación, validación, versiones y precios"
+      breadcrumb={{ hubName: 'Recetas', hubHref: '/quality/recetas-hub' }}
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
       urgencyZone={urgencyZone}
+      error={error}
       onRefresh={fetchData}
       refreshing={loading}
     />

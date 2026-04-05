@@ -36,18 +36,20 @@ export default function OperacionesHub() {
   const { session } = useAuthBridge()
   const [data, setData] = useState<HubData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     if (!currentPlant?.id || !session?.user) return
     setLoading(true)
+    setError(null)
     try {
       const res = await fetch(`/api/quality/hub-summary?plant_id=${currentPlant.id}`)
       const json = await res.json()
       if (json.success) {
         setData(json.data.operaciones)
       }
-    } catch {
-      // silent
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar datos de operaciones')
     } finally {
       setLoading(false)
     }
@@ -127,10 +129,12 @@ export default function OperacionesHub() {
     <QualityHubLayout
       title="Operaciones"
       description="Registro diario de muestreos, ensayos y verificaciones en campo"
+      breadcrumb={{ hubName: 'Operaciones', hubHref: '/quality/operaciones' }}
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
       urgencyZone={urgencyZone}
+      error={error}
       onRefresh={fetchData}
       refreshing={loading}
     >

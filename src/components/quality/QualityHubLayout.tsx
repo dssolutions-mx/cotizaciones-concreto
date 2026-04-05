@@ -6,6 +6,7 @@ import { ChevronRight, RefreshCw, AlertTriangle, AlertCircle } from 'lucide-reac
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 
 // --- Types ---
 
@@ -227,6 +228,8 @@ export default function QualityHubLayout({
   primaryActions,
   secondaryActions,
   urgencyZone,
+  error,
+  breadcrumb,
   onRefresh,
   refreshing,
   children,
@@ -238,12 +241,41 @@ export default function QualityHubLayout({
   primaryActions?: ActionCard[]
   secondaryActions?: SecondaryLink[]
   urgencyZone?: UrgencyZone
+  error?: string | null
+  breadcrumb?: { hubName: string; hubHref: string; items?: { label: string; href?: string }[] }
   onRefresh?: () => void
   refreshing?: boolean
   children?: React.ReactNode
 }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Breadcrumb */}
+      {breadcrumb && (
+        <QualityBreadcrumb
+          hubName={breadcrumb.hubName}
+          hubHref={breadcrumb.hubHref}
+          items={breadcrumb.items}
+        />
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50/80 p-4 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-700 shrink-0" />
+          <p className="text-sm text-red-900 flex-1">{error}</p>
+          {onRefresh && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto border-red-300 text-red-700 hover:bg-red-100"
+              onClick={onRefresh}
+            >
+              Reintentar
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Urgency zone */}
       {urgencyZone && (
         <div
@@ -277,8 +309,8 @@ export default function QualityHubLayout({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-stone-900">{title}</h1>
-          <p className="text-sm text-stone-600 mt-1">{description}</p>
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">{title}</h1>
+          <p className="text-sm text-stone-500 mt-0.5">{description}</p>
         </div>
         {onRefresh && (
           <Button variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing}>
@@ -320,6 +352,19 @@ export default function QualityHubLayout({
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Summary skeleton (when no items provided yet but loading) */}
+      {summaryLoading && (!summaryItems || summaryItems.length === 0) && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-lg border border-stone-200 bg-white px-4 py-3">
+              <div className="h-3 w-16 bg-stone-100 rounded animate-pulse" />
+              <div className="h-7 w-20 bg-stone-100 rounded animate-pulse mt-2" />
+              <div className="h-2.5 w-24 bg-stone-100 rounded animate-pulse mt-1.5" />
+            </div>
+          ))}
         </div>
       )}
 

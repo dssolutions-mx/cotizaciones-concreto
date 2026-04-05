@@ -19,10 +19,12 @@ export default function ControlesHub() {
   const { profile, session } = useAuthBridge()
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     if (!currentPlant?.id || !session?.user) return
     setLoading(true)
+    setError(null)
     try {
       const { fetchMetricasCalidad } = await import('@/services/qualityMetricsService')
       const to = new Date()
@@ -38,8 +40,8 @@ export default function ControlesHub() {
         porcentajeCumplimiento: result.porcentajeResistenciaGarantia,
         coeficienteVariacion: result.coeficienteVariacion,
       })
-    } catch {
-      // silent
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cargar métricas de control')
     } finally {
       setLoading(false)
     }
@@ -156,10 +158,12 @@ export default function ControlesHub() {
     <QualityHubLayout
       title="Controles"
       description="Seguimiento de cumplimiento, análisis de resistencia y controles internos de calidad"
+      breadcrumb={{ hubName: 'Controles', hubHref: '/quality/controles' }}
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
       urgencyZone={urgencyZone}
+      error={error}
       onRefresh={fetchData}
       refreshing={loading}
     />

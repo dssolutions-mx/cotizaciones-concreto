@@ -51,8 +51,6 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
-  Award,
-  ShieldAlert,
   Lightbulb,
   Construction
 } from 'lucide-react';
@@ -347,17 +345,13 @@ const QUALITY_SECTIONS: QualitySection[] = [
   {
     id: 'equipos',
     title: 'Equipos',
-    hubHref: '/quality/equipos',
+    hubHref: '/quality/instrumentos',
     IconComponent: ShieldCheck,
     items: [
-      { title: 'Certificados', href: '/quality/estudios/certificados', IconComponent: Award },
-      { title: 'Fichas Técnicas', href: '/quality/estudios/fichas-tecnicas', IconComponent: FileText },
-      { title: 'Hojas de Seguridad', href: '/quality/estudios/hojas-seguridad', IconComponent: ShieldAlert },
-      { title: 'Proveedores', href: '/quality/suppliers', IconComponent: Users },
-      { title: 'Centro EMA', href: '/quality/instrumentos', IconComponent: Gauge },
+      { title: 'Catálogo', href: '/quality/instrumentos/catalogo', IconComponent: Gauge },
+      { title: 'Programa', href: '/quality/instrumentos/programa', IconComponent: CalendarClock },
       { title: 'Modelos', href: '/quality/modelos', IconComponent: BookOpen },
       { title: 'Paquetes', href: '/quality/paquetes', IconComponent: Package },
-      { title: 'Programa', href: '/quality/instrumentos/programa', IconComponent: CalendarClock },
     ],
   },
   {
