@@ -86,7 +86,12 @@ export const POItemUpdateSchema = z.object({
   id: z.string().uuid('ID de item debe ser un UUID válido'),
   qty_ordered: z.number().positive('Cantidad debe ser positiva').optional(),
   unit_price: z.number().nonnegative('Precio debe ser no negativo').optional(),
-  required_by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // DB column is nullable date; client sends null to clear
+  required_by: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
   status: PurchaseOrderItemStatusSchema.optional(),
   volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(),
 });

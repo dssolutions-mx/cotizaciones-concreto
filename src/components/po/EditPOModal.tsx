@@ -350,7 +350,10 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         })
 
         if (!res.ok) {
-          throw new Error('Failed to update item')
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(
+            typeof errorData.error === 'string' ? errorData.error : 'Failed to update item'
+          )
         }
       }
 
@@ -359,7 +362,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
       onClose()
     } catch (err) {
       console.error('Error saving items:', err)
-      toast.error('Error al guardar cambios')
+      toast.error(err instanceof Error ? err.message : 'Error al guardar cambios')
     } finally {
       setLoading(false)
     }
