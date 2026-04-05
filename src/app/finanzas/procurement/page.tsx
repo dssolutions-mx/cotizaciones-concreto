@@ -455,14 +455,12 @@ export default function ProcurementWorkspacePage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="entradas" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          <div className="p-2 md:p-4">
-            <ProcurementMaterialEntriesView
-              workspacePlantId={workspacePlantId}
-              canReviewPricing={canCreatePO}
-              onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
-            />
-          </div>
+        <TabsContent value="entradas">
+          <ProcurementMaterialEntriesView
+            workspacePlantId={workspacePlantId}
+            canReviewPricing={canCreatePO}
+            onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
+          />
         </TabsContent>
 
         <TabsContent value="cxp" className="rounded-lg border border-stone-200 bg-white overflow-hidden">

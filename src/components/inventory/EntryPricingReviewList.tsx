@@ -1,71 +1,31 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { MaterialEntry } from '@/types/inventory'
-import { format, parse } from 'date-fns'
-import { es } from 'date-fns/locale'
-import { Package, AlertCircle } from 'lucide-react'
-import { toast } from 'sonner'
-import EntryPricingForm from './EntryPricingForm'
-import { Badge } from '@/components/ui/badge'
+import { format } from 'date-fns'
+import { Check } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface EntryPricingReviewListProps {
-  onSuccess?: () => void
-  /** Scope pending entries to one plant (procurement workspace). */
-  plantId?: string
+  entries: MaterialEntry[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  loading?: boolean
 }
 
-export default function EntryPricingReviewList({ onSuccess, plantId }: EntryPricingReviewListProps) {
-  const [entries, setEntries] = useState<MaterialEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [selectedEntry, setSelectedEntry] = useState<MaterialEntry | null>(null)
-
-  useEffect(() => {
-    fetchPendingEntries()
-  }, [plantId])
-
-  const fetchPendingEntries = async () => {
-    setLoading(true)
-    try {
-      // Fetch entries from last 30 days with pending pricing status
-      const from = new Date()
-      from.setDate(from.getDate() - 30)
-      const fromStr = format(from, 'yyyy-MM-dd')
-      const toStr = format(new Date(), 'yyyy-MM-dd')
-      
-      const params = new URLSearchParams({
-        date_from: fromStr,
-        date_to: toStr,
-        pricing_status: 'pending',
-        limit: '100',
-      })
-      if (plantId) params.set('plant_id', plantId)
-      const response = await fetch(`/api/inventory/entries?${params}`)
-      
-      if (response.ok) {
-        const data = await response.json()
-        setEntries(data.entries || [])
-      }
-    } catch (error) {
-      console.error('Error fetching pending entries:', error)
-      toast.error('Error al cargar entradas pendientes')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handlePricingSuccess = (warnings?: string[]) => {
-    setSelectedEntry(null)
-    fetchPendingEntries()
-    onSuccess?.()
-  }
-
+export default function EntryPricingReviewList({
+  entries,
+  selectedId,
+  onSelect,
+  loading = false,
+}: EntryPricingReviewListProps) {
   if (loading) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="animate-pulse">
-            <div className="h-32 bg-gray-200 rounded-lg"></div>
+      <div className="space-y-0">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="animate-pulse border-b border-stone-100 px-3 py-3">
+            <div className="h-3 bg-stone-200 rounded w-1/3 mb-2" />
+            <div className="h-4 bg-stone-200 rounded w-2/3" />
           </div>
         ))}
       </div>
@@ -74,134 +34,81 @@ export default function EntryPricingReviewList({ onSuccess, plantId }: EntryPric
 
   if (entries.length === 0) {
     return (
-      <div className="text-center py-12">
-        <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
-          No hay entradas pendientes
-        </h3>
-        <p className="text-gray-500">
-          Todas las entradas han sido revisadas
-        </p>
-      </div>
-    )
-  }
-
-  if (selectedEntry) {
-    return (
-      <div>
-        <EntryPricingForm
-          entry={selectedEntry}
-          onSuccess={handlePricingSuccess}
-          onCancel={() => setSelectedEntry(null)}
-          onAfterCreatePO={fetchPendingEntries}
-        />
+      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+        <div className="rounded-full bg-emerald-100 p-3 mb-3">
+          <Check className="h-6 w-6 text-emerald-600" />
+        </div>
+        <h3 className="text-sm font-semibold text-stone-800 mb-1">Cola despejada</h3>
+        <p className="text-xs text-stone-500">Todas las entradas han sido revisadas</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 p-3 rounded-lg">
-        <AlertCircle className="h-4 w-4" />
-        <span>{entries.length} entrada{entries.length !== 1 ? 's' : ''} pendiente{entries.length !== 1 ? 's' : ''} de revisión</span>
+    <div className="flex flex-col">
+      {/* Sticky queue header */}
+      <div className="sticky top-0 z-10 px-3 py-2 border-b border-stone-200 bg-stone-50/95 backdrop-blur-sm">
+        <span className="text-xs font-medium text-stone-600">
+          {entries.length} pendiente{entries.length !== 1 ? 's' : ''} · últimos 30 días
+        </span>
       </div>
 
-      {entries.map((entry) => (
-        <div 
-          key={entry.id}
-          className="border rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
-          onClick={() => setSelectedEntry(entry)}
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="font-mono text-sm font-medium text-gray-900">
-                  {entry.entry_number}
-                </span>
-                <span className="text-xs text-gray-500">
-                  {format(parse(entry.entry_date, 'yyyy-MM-dd', new Date()), "dd MMM yyyy", { locale: es })}
-                </span>
-              </div>
-              
-              <div className="space-y-1">
-                {entry.material && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-700">
-                      {entry.material.material_name}
-                    </span>
-                    <span className="text-xs text-gray-500">
-                      ({entry.material.category})
-                    </span>
-                  </div>
-                )}
-                
-                <div className="text-sm text-gray-600">
-                  Cantidad: <span className="font-medium">
-                    {entry.quantity_received.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {entry.material?.unit_of_measure || 'kg'}
-                  </span>
-                </div>
+      {/* Queue rows */}
+      {entries.map((entry) => {
+        const isSelected = selectedId === entry.id
+        const hasNoPo = !entry.po_id && !entry.fleet_po_id
+        const hasNoEvidence = (entry.document_count ?? 0) === 0
+        let timeLabel = ''
+        try {
+          const dt = new Date(`${entry.entry_date}T${entry.entry_time || '12:00:00'}`)
+          timeLabel = format(dt, 'HH:mm')
+        } catch {
+          timeLabel = ''
+        }
+        const qty = entry.quantity_received
+        const uom = entry.material?.unit_of_measure || 'kg'
 
-                {entry.entered_by_user && (
-                  <div className="text-xs text-gray-500">
-                    Registrado por: {entry.entered_by_user.first_name} {entry.entered_by_user.last_name}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {!entry.po_id && !entry.fleet_po_id ? (
-                    <Badge variant="destructive" className="text-[10px] font-normal">
-                      Sin OC
-                    </Badge>
-                  ) : (
-                    <>
-                      {entry.po_id ? (
-                        entry.po?.po_number ? (
-                          <Badge variant="secondary" className="text-[10px] font-normal">
-                            OC material: {entry.po.po_number}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] font-normal text-amber-800 border-amber-300">
-                            Sin OC material
-                          </Badge>
-                        )
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] font-normal text-amber-800 border-amber-300">
-                          Sin OC material
-                        </Badge>
-                      )}
-                      {entry.fleet_po_id ? (
-                        entry.fleet_po?.po_number ? (
-                          <Badge variant="secondary" className="text-[10px] font-normal bg-sky-100 text-sky-900">
-                            OC flota: {entry.fleet_po.po_number}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[10px] font-normal">
-                            Flota sin número OC
-                          </Badge>
-                        )
-                      ) : null}
-                    </>
+        return (
+          <button
+            key={entry.id}
+            type="button"
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 border-b border-stone-100',
+              'text-left transition-colors',
+              isSelected
+                ? 'bg-sky-50 border-l-[3px] border-l-sky-600'
+                : 'hover:bg-stone-50 border-l-[3px] border-l-transparent'
+            )}
+            onClick={() => onSelect(entry.id)}
+          >
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-mono font-medium text-stone-800">
+                  {entry.entry_number || entry.id.slice(0, 8)}
+                </span>
+                <span className="text-stone-400">{timeLabel}</span>
+                <div className="flex items-center gap-1 ml-auto">
+                  {hasNoPo && (
+                    <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" title="Sin OC" />
                   )}
-                  {entry.supplier?.name && (
-                    <Badge variant="outline" className="text-[10px] font-normal">
-                      Prov.: {entry.supplier.name}
-                    </Badge>
+                  {hasNoEvidence && (
+                    <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Sin evidencia" />
                   )}
                 </div>
               </div>
-            </div>
-
-            <div className="text-right">
-              <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                Pendiente
+              <div className="flex items-baseline justify-between gap-2 mt-0.5">
+                <span className="text-sm text-stone-700 truncate">
+                  {entry.material?.material_name || 'Material'}
+                </span>
+                <span className="text-xs tabular-nums text-stone-500 shrink-0">
+                  {qty.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
+                  <span className="text-[10px] text-stone-400 ml-0.5">{uom}</span>
+                </span>
               </div>
             </div>
-          </div>
-        </div>
-      ))}
+          </button>
+        )
+      })}
     </div>
   )
 }
-
-
-
