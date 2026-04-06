@@ -66,7 +66,7 @@ export default async function FinancialHubPage() {
                   <Briefcase className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Procurement Workspace</h3>
+                  <h3 className="text-title-3 text-gray-900">Centro de Compras</h3>
                   <p className="text-footnote text-muted-foreground mt-1">
                     Vista unificada de PO, CXP y análisis de proveedores
                   </p>
@@ -138,7 +138,7 @@ export default async function FinancialHubPage() {
                 </div>
               </div>
             </Link>
-            <Link href="/finanzas/po">
+            <Link href="/finanzas/procurement?tab=po">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Package className="h-6 w-6 text-primary" />
@@ -151,7 +151,7 @@ export default async function FinancialHubPage() {
                 </div>
               </div>
             </Link>
-            <Link href="/finanzas/cxp">
+            <Link href="/finanzas/procurement?tab=cxp">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Truck className="h-6 w-6 text-primary" />

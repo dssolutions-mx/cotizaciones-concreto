@@ -23,7 +23,15 @@ export class MaterialAlertService {
       .select(`
         *,
         material:materials!material_id(id, material_name, category, unit_of_measure),
-        plant:plants!plant_id(id, name, code)
+        plant:plants!plant_id(id, name, code),
+        linked_po:purchase_orders!existing_po_id(
+          id,
+          po_number,
+          status,
+          po_date,
+          notes,
+          supplier:suppliers!supplier_id(id, name, provider_number, provider_letter)
+        )
       `)
       .order('created_at', { ascending: false });
 
@@ -32,6 +40,9 @@ export class MaterialAlertService {
     }
     if (filters.material_id) {
       query = query.eq('material_id', filters.material_id);
+    }
+    if (filters.existing_po_id) {
+      query = query.eq('existing_po_id', filters.existing_po_id);
     }
     if (filters.status) {
       if (Array.isArray(filters.status)) {
@@ -378,12 +389,117 @@ export class MaterialAlertService {
         validated_at: new Date().toISOString(),
         existing_po_id: input.existing_po_id || null,
         validation_notes: input.validation_notes || null,
+        needs_fleet: !!input.needs_fleet,
+        fleet_notes: input.fleet_notes?.trim() || null,
       },
       {
         existing_po_id: input.existing_po_id,
         needs_new_po: input.needs_new_po,
+        needs_fleet: input.needs_fleet,
+        fleet_notes: input.fleet_notes,
       }
     );
+  }
+
+  /**
+   * Link a fleet / transport PO to an alert (separate from material PO).
+   */
+  async linkFleetPO(alertId: string, fleetPoId: string, userId: string): Promise<MaterialAlert> {
+    const supabase = await createServerSupabaseClient();
+
+    const { data: alertRow, error: alertErr } = await supabase
+      .from('material_alerts')
+      .select('id, plant_id, status, existing_po_id, needs_fleet')
+      .eq('id', alertId)
+      .single();
+
+    if (alertErr || !alertRow) {
+      throw new Error('Alerta no encontrada');
+    }
+
+    const allowedStatuses = ['pending_po', 'po_linked', 'validated', 'delivery_scheduled'];
+    if (!allowedStatuses.includes(alertRow.status as string)) {
+      throw new Error('No se puede vincular OC de flete en el estado actual de la alerta');
+    }
+
+    if (!alertRow.needs_fleet) {
+      throw new Error('Esta alerta no está marcada como que requiere flete independiente');
+    }
+
+    const { data: fleetPo, error: poErr } = await supabase
+      .from('purchase_orders')
+      .select('id, plant_id, status')
+      .eq('id', fleetPoId)
+      .single();
+
+    if (poErr || !fleetPo) {
+      throw new Error('La orden de compra no existe');
+    }
+    if (fleetPo.plant_id !== alertRow.plant_id) {
+      throw new Error('La OC no pertenece a la planta de esta alerta');
+    }
+    const hdr = String(fleetPo.status || '').toLowerCase();
+    if (hdr !== 'open' && hdr !== 'partial') {
+      throw new Error('Solo se pueden vincular órdenes abiertas o parciales');
+    }
+
+    const { data: svcLines } = await supabase
+      .from('purchase_order_items')
+      .select('id, is_service, material_supplier_id')
+      .eq('po_id', fleetPoId)
+      .eq('is_service', true);
+
+    if (!svcLines?.length) {
+      throw new Error('La OC de flete debe tener al menos una línea de servicio');
+    }
+
+    if (alertRow.existing_po_id) {
+      const { data: matPo } = await supabase
+        .from('purchase_orders')
+        .select('supplier_id')
+        .eq('id', alertRow.existing_po_id)
+        .single();
+      const matSupplier = matPo?.supplier_id as string | undefined;
+      if (matSupplier) {
+        const hasMatchingLine = (svcLines || []).some(
+          (l) => !l.material_supplier_id || l.material_supplier_id === matSupplier
+        );
+        if (!hasMatchingLine) {
+          throw new Error(
+            'Las líneas de servicio deben vincular al proveedor de material de la OC principal (proveedor de material en la línea de flete)'
+          );
+        }
+      }
+    }
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('material_alerts')
+      .update({
+        fleet_po_id: fleetPoId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', alertId)
+      .select(
+        `
+        *,
+        material:materials!material_id(id, material_name, category, unit_of_measure),
+        plant:plants!plant_id(id, name, code)
+      `
+      )
+      .single();
+
+    if (updateErr) {
+      throw new Error(updateErr.message || 'No se pudo vincular la OC de flete');
+    }
+
+    await supabase.from('material_alert_events').insert({
+      alert_id: alertId,
+      event_type: 'fleet_po_linked',
+      performed_by: userId,
+      details: { fleet_po_id: fleetPoId },
+    });
+
+    return updated as MaterialAlert;
   }
 
   /**

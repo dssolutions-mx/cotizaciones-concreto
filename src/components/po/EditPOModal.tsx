@@ -98,13 +98,12 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
     }
   }
 
-  const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMINISTRATIVE') &&
+  const canCancelPO = (profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS') &&
     poInfo?.status !== 'cancelled' && !items.some(it => Number(it.qty_received || 0) > 0)
 
-  // Check if user can apply credits
-  const canApplyCredit = profile?.role === 'EXECUTIVE' || 
-                         profile?.role === 'ADMIN_OPERATIONS' || 
-                         profile?.role === 'ADMINISTRATIVE'
+  // Check if user can apply credits (aligned with POST /api/po/.../credit)
+  const canApplyCredit =
+    profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
 
   // Load existing items and PO info
   useEffect(() => {
@@ -351,7 +350,10 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         })
 
         if (!res.ok) {
-          throw new Error('Failed to update item')
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(
+            typeof errorData.error === 'string' ? errorData.error : 'Failed to update item'
+          )
         }
       }
 
@@ -360,7 +362,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
       onClose()
     } catch (err) {
       console.error('Error saving items:', err)
-      toast.error('Error al guardar cambios')
+      toast.error(err instanceof Error ? err.message : 'Error al guardar cambios')
     } finally {
       setLoading(false)
     }
@@ -388,7 +390,14 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Items List */}
           <div>
-            <h3 className="text-lg font-medium mb-4">Ítems de la Orden</h3>
+            <h3 className="text-lg font-medium mb-2">Ítems de la Orden</h3>
+            {canApplyCredit && (
+              <p className="text-xs text-stone-600 mb-4 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
+                <span className="font-semibold text-stone-800">Créditos: </span>
+                Aplíquelos después de recepción o cuando el proveedor confirme un ajuste (descuento, nota de crédito).
+                El precio unitario y las entradas vinculadas se actualizan; use <strong className="text-stone-800">Ver historial</strong> en la línea para el detalle.
+              </p>
+            )}
             <div className="space-y-3">
               {items.map((item, idx) => (
                 <div key={item.id || item.tempId} className="border rounded-lg p-4 bg-gray-50">
@@ -696,16 +705,21 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                     <div className="mt-1.5">
                       <MaterialSelect
                         value={itemForm.material_id}
-                        onChange={(id) => {
-                          const selected = id
-                          setItemForm(f => ({ ...f, material_id: id }))
-                        }}
+                        onChange={(id, meta) =>
+                          setItemForm((f) => ({
+                            ...f,
+                            material_id: id,
+                            material_name: meta?.material_name ?? (id ? f.material_name : ''),
+                          }))
+                        }
                         plantId={plantId}
+                        supplierId={poSupplierId || undefined}
                       />
                       {poSupplierId && (
                         <p className="mt-1 text-xs text-gray-500">
-                          Este PO es para {suppliers.find(s => s.id === poSupplierId)?.name || 'el proveedor seleccionado'}. 
-                          Si el material viene de otro proveedor, considere crear un PO separado.
+                          Catálogo completo de la planta. Los <strong>sugeridos</strong> (OCs previas, acuerdos o recepciones con{' '}
+                          {suppliers.find(s => s.id === poSupplierId)?.name || 'este proveedor'}) aparecen arriba; puede elegir
+                          cualquier material.
                         </p>
                       )}
                     </div>

@@ -42,12 +42,15 @@ interface SupplierSelectProps {
   required?: boolean
   disabled?: boolean
   plantId?: string
+  /** Human-readable plant name for footer (avoid showing raw UUID). */
+  plantName?: string
 }
 
 export default function SupplierSelect({ 
   value, 
   onChange, 
-  required = false, 
+  required = false,
+  plantName,
   disabled = false,
   plantId
 }: SupplierSelectProps) {
@@ -230,8 +233,8 @@ export default function SupplierSelect({
               <span>
                 {filteredSuppliers.length} de {suppliers.length} proveedores
               </span>
-              <span>
-                Planta: {plantId}
+              <span className="truncate max-w-[55%] text-right" title={plantName || plantId}>
+                Planta: {plantName || plantId || '—'}
               </span>
             </div>
           </div>

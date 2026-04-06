@@ -111,7 +111,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
               )
             `)
             .gte('fecha', formattedStart)
-            .lte('fecha', formattedEnd);
+            .lte('fecha', formattedEnd)
+            .eq('is_production_record', false);
 
           // Apply plant filtering based on accessible plant IDs
           if (plantIds && plantIds.length > 0) {
@@ -387,7 +388,8 @@ export const useHistoricalSalesData = (currentPlant: any) => {
             )
           `)
           .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
+          .lte('fecha', formattedEndDate)
+          .eq('is_production_record', false);
 
         // Apply plant filtering based on accessible plant IDs
         if (plantIds && plantIds.length > 0) {

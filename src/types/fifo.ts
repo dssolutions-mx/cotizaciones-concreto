@@ -32,6 +32,9 @@ export interface FIFOAllocationResult {
     cost: number; // quantity * unitPrice
     remainingAfter: number; // remaining quantity in this layer after consumption
   }>;
+  /** When true, no allocations were written (e.g. no cost layers); inventory trigger is unaffected */
+  skipped?: boolean;
+  skipReason?: 'NO_ENTRIES' | 'INSUFFICIENT_INVENTORY' | 'ALLOCATION_FAILED';
 }
 
 export interface FIFOAllocationRequest {

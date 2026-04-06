@@ -369,6 +369,19 @@ Fin del reporte
       return;
     }
 
+    const missingSiteWithoutError = result.validated.filter(
+      (r) =>
+        !r.is_excluded_from_import &&
+        !r.construction_site_id &&
+        r.validation_status !== 'error'
+    );
+    if (missingSiteWithoutError.length > 0) {
+      toast.error(
+        `No se puede continuar: ${missingSiteWithoutError.length} remisión(es) sin obra válida en sistema (${missingSiteWithoutError.map((r) => r.remision_number).join(', ')}). Corrige la obra o da de alta la obra del cliente antes de continuar.`
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       if (!duplicatesResolved) {
@@ -765,12 +778,17 @@ Fin del reporte
       // Count cross-plant production remisiones (excluded from readyForOrderCreation intentionally)
       const crossPlantProductionCount = remisionesToProcess.filter(r => r.is_production_record === true).length;
 
+      const excl = remisionesToProcess.filter((r) => r.is_excluded_from_import);
       console.log('[ArkikProcessor] Filtered remisiones for order creation:', {
         total: remisionesToProcess.length,
         ready: readyForOrderCreation.length,
         crossPlantProduction: crossPlantProductionCount,
         filtered_out: remisionesToProcess.length - readyForOrderCreation.length,
-        excluded_by_status_processing: remisionesToProcess.filter(r => r.is_excluded_from_import).length
+        excluded_duplicate_skip: excl.filter((r) => r.duplicate_strategy === 'skip').length,
+        excluded_materials_only: excl.filter((r) => r.duplicate_strategy === 'materials_only').length,
+        excluded_status_processing: excl.filter(
+          (r) => r.duplicate_strategy !== 'skip' && r.duplicate_strategy !== 'materials_only'
+        ).length,
       });
 
       // Track filtered out remisiones for reporting
@@ -783,36 +801,76 @@ Fin del reporte
       });
 
       if (readyForOrderCreation.length === 0 && crossPlantProductionCount === 0) {
-        const reasons = [];
-        const excludedByStatus = filteredOut.filter(r => r.is_excluded_from_import).length;
-        const missingConstructionSite = filteredOut.filter(r => !r.is_excluded_from_import && !r.construction_site_id).length;
-        const missingClient = filteredOut.filter(r => !r.is_excluded_from_import && !r.client_id).length;
-        const missingRecipe = filteredOut.filter(r => !r.is_excluded_from_import && !r.recipe_id).length;
-        const missingPrice = filteredOut.filter(r => !r.is_excluded_from_import && (!r.unit_price || (r.unit_price <= 0 && !r.quote_detail_id))).length;
-        const hasErrors = filteredOut.filter(r => !r.is_excluded_from_import && r.validation_status === 'error').length;
+        const reasons: string[] = [];
+        const excludedRows = remisionesToProcess.filter(r => r.is_excluded_from_import);
+        const excludedDuplicateSkip = excludedRows.filter(r => r.duplicate_strategy === 'skip').length;
+        const excludedMaterialsOnly = excludedRows.filter(r => r.duplicate_strategy === 'materials_only').length;
+        const excludedStatusProcessing = excludedRows.filter(
+          r => r.duplicate_strategy !== 'skip' && r.duplicate_strategy !== 'materials_only'
+        ).length;
 
-        if (excludedByStatus > 0) reasons.push(`${excludedByStatus} excluidas por procesamiento de estado`);
-        if (missingConstructionSite > 0) reasons.push(`${missingConstructionSite} sin obra válida`);
+        const missingConstructionSite = remisionesToProcess.filter(
+          r => !r.is_excluded_from_import && !r.construction_site_id
+        ).length;
+        const missingClient = remisionesToProcess.filter(r => !r.is_excluded_from_import && !r.client_id).length;
+        const missingRecipe = remisionesToProcess.filter(r => !r.is_excluded_from_import && !r.recipe_id).length;
+        const missingPrice = remisionesToProcess.filter(
+          r =>
+            !r.is_excluded_from_import &&
+            (r.unit_price == null || (r.unit_price <= 0 && !r.quote_detail_id))
+        ).length;
+        const hasErrors = remisionesToProcess.filter(
+          r => !r.is_excluded_from_import && r.validation_status === 'error'
+        ).length;
+
+        if (excludedDuplicateSkip > 0) {
+          reasons.push(
+            `${excludedDuplicateSkip} omitidas por duplicados (estrategia “omitir”) — no generan orden nueva`
+          );
+        }
+        if (excludedMaterialsOnly > 0) {
+          reasons.push(
+            `${excludedMaterialsOnly} solo actualizan materiales en remisiones ya existentes — no generan orden nueva`
+          );
+        }
+        if (excludedStatusProcessing > 0) {
+          reasons.push(
+            `${excludedStatusProcessing} excluidas por procesamiento de estatus (desperdicio / reasignación de materiales)`
+          );
+        }
+        if (missingConstructionSite > 0) reasons.push(`${missingConstructionSite} sin obra válida (falta obra en sistema)`);
         if (missingClient > 0) reasons.push(`${missingClient} sin cliente válido`);
         if (missingRecipe > 0) reasons.push(`${missingRecipe} sin receta válida`);
         if (missingPrice > 0) reasons.push(`${missingPrice} sin precio válido`);
         if (hasErrors > 0) reasons.push(`${hasErrors} con errores de validación`);
 
+        const intro =
+          excludedDuplicateSkip + excludedMaterialsOnly + excludedStatusProcessing === remisionesToProcess.length
+            ? 'Ninguna remisión quedó disponible para crear órdenes nuevas: todas están excluidas por duplicados, solo materiales o por decisiones de estatus.'
+            : 'No hay remisiones que cumplan todos los requisitos para crear órdenes nuevas (tras excluir duplicados / materiales / estatus).';
+
         const errorMessage = [
-          'No hay remisiones válidas para crear órdenes.',
+          intro,
           '',
-          'Motivos:',
-          ...reasons.map(r => `• ${r}`),
+          'Detalle:',
+          ...reasons.map((r) => `• ${r}`),
           '',
-          'Para resolver estos problemas:',
+          'Qué hacer:',
           '',
-          missingRecipe > 0 ? `• ${missingRecipe} recetas faltantes: Contacta al equipo de calidad` : '',
-          missingPrice > 0 ? `• ${missingPrice} precios faltantes: Contacta al equipo de contabilidad` : '',
-          missingClient > 0 ? `• ${missingClient} clientes faltantes: Contacta al equipo comercial` : '',
-          missingConstructionSite > 0 ? `• ${missingConstructionSite} obras faltantes: Contacta al equipo comercial` : '',
+          missingRecipe > 0 ? `• ${missingRecipe} recetas faltantes: equipo de calidad` : '',
+          missingPrice > 0 ? `• ${missingPrice} precios faltantes: contabilidad / cotización` : '',
+          missingClient > 0 ? `• ${missingClient} clientes faltantes: equipo comercial` : '',
+          missingConstructionSite > 0 ? `• ${missingConstructionSite} obras faltantes: equipo comercial` : '',
+          hasErrors > 0 ? `• ${hasErrors} con error de validación: revisa la tabla de validación` : '',
           '',
-          'Una vez resueltos, vuelve a procesar el archivo.'
-        ].filter(Boolean).join('\n');
+          excludedDuplicateSkip + excludedMaterialsOnly > 0
+            ? 'Nota: las filas “omitir duplicado” o “solo materiales” no deberían crear orden nueva; es el comportamiento esperado.'
+            : '',
+          '',
+          'Si faltan datos de obra/cliente/receta, corrígelos y vuelve a procesar el archivo.',
+        ]
+          .filter(Boolean)
+          .join('\n');
 
         alert(errorMessage);
         return;
@@ -1427,6 +1485,28 @@ Fin del reporte
         totalRemisionesCreated += creationResult.remisionesCreated;
         totalMaterialsProcessed = creationResult.materialsProcessed;
         totalOrderItemsCreated += creationResult.orderItemsCreated;
+
+        if (creationResult.fifoRemisionIds?.length > 0) {
+          try {
+            const fifoRes = await fetch('/api/inventory/fifo/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ remision_ids: creationResult.fifoRemisionIds }),
+            });
+            const fifoData = await fifoRes.json().catch(() => ({}));
+            if (!fifoRes.ok) {
+              console.warn('[ArkikProcessor] FIFO batch failed:', fifoData);
+            } else {
+              console.log(
+                '[ArkikProcessor] FIFO batch OK for',
+                creationResult.fifoRemisionIds.length,
+                'remisiones'
+              );
+            }
+          } catch (fifoErr) {
+            console.warn('[ArkikProcessor] FIFO batch error:', fifoErr);
+          }
+        }
       }
       
       // Save pending reassignments after remisiones are created
@@ -1460,6 +1540,23 @@ Fin del reporte
         const { createCrossPlantProductionRemisiones } = await import('@/services/arkikOrderCreator');
         const cpResults = await createCrossPlantProductionRemisiones(crossPlantRemisiones, currentPlant.id);
         crossPlantCreated = cpResults.length;
+
+        const cpFifoIds = cpResults.map((r) => r.remisionId).filter(Boolean);
+        if (cpFifoIds.length > 0) {
+          try {
+            const fifoRes = await fetch('/api/inventory/fifo/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ remision_ids: cpFifoIds }),
+            });
+            if (!fifoRes.ok) {
+              const fifoData = await fifoRes.json().catch(() => ({}));
+              console.warn('[ArkikProcessor] Cross-plant FIFO batch failed:', fifoData);
+            }
+          } catch (e) {
+            console.warn('[ArkikProcessor] Cross-plant FIFO batch error:', e);
+          }
+        }
 
         // Resolve cross-plant links via API (service role needed for cross-plant lookups)
         const sessionId = crypto.randomUUID();

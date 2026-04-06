@@ -12,11 +12,28 @@ const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY');
 const FRONTEND_URL = Deno.env.get('FRONTEND_URL') || 'https://dcconcretos-hub.com';
 const FROM_EMAIL = Deno.env.get('NOTIFICATION_FROM_EMAIL') || 'juan.aguirre@dssolutions-mx.com';
 
+/** Minimal RFC 5322–style check; avoids SendGrid / blank-address issues. */
+function normalizeRecipientEmail(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed.length < 5) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function addEmail(set: Set<string>, raw: string | null | undefined) {
+  const e = normalizeRecipientEmail(raw);
+  if (e) set.add(e);
+}
+
 /**
- * Resolve emails for quality + plant manager for a plant (same idea as daily quality reports,
- * without hardcoding extra recipients).
+ * Same recipient rules as daily quality reports — see getQualityTeamByPlant in
+ * supabase/functions/daily-quality-schedule-report/index.ts (and send-actual-notification-enhanced).
+ * Plant QUALITY_TEAM + BU QUALITY_TEAM (plant_id null, same business_unit_id) + fixed CC list.
  */
-async function getRecipientsForPlant(supabase: ReturnType<typeof createClient>, plantId: string): Promise<string[]> {
+async function getQualityTeamByPlant(supabase: ReturnType<typeof createClient>, plantId: string): Promise<string[]> {
+  const emails = new Set<string>();
+
   const { data: plantData, error: plantError } = await supabase
     .from('plants')
     .select('business_unit_id')
@@ -25,37 +42,46 @@ async function getRecipientsForPlant(supabase: ReturnType<typeof createClient>, 
 
   if (plantError) {
     console.error('arkik-quality-request-notification: plant fetch', plantError);
+    return [];
   }
 
-  const businessUnitId = plantData?.business_unit_id;
-  const emails = new Set<string>();
+  const businessUnitId = plantData?.business_unit_id as string | undefined;
 
-  const { data: plantQuality, error: qErr } = await supabase
+  const { data: plantAssignedUsers, error: plantErr } = await supabase
     .from('user_profiles')
     .select('email')
     .eq('plant_id', plantId)
-    .in('role', ['QUALITY_TEAM', 'PLANT_MANAGER'])
+    .in('role', ['QUALITY_TEAM'])
     .eq('is_active', true);
 
-  if (qErr) console.error('arkik-quality-request-notification: plant profiles', qErr);
-  (plantQuality || []).forEach((u: { email: string }) => {
-    if (u.email) emails.add(u.email);
-  });
+  if (plantErr) {
+    console.error('arkik-quality-request-notification: plant quality team', plantErr);
+  }
+  for (const u of plantAssignedUsers || []) {
+    addEmail(emails, (u as { email: string | null }).email);
+  }
 
   if (businessUnitId) {
-    const { data: buQuality, error: buErr } = await supabase
+    const { data: buAssignedUsers, error: buErr } = await supabase
       .from('user_profiles')
       .select('email')
       .eq('business_unit_id', businessUnitId)
       .is('plant_id', null)
-      .eq('role', 'QUALITY_TEAM')
+      .in('role', ['QUALITY_TEAM'])
       .eq('is_active', true);
 
-    if (buErr) console.error('arkik-quality-request-notification: BU profiles', buErr);
-    (buQuality || []).forEach((u: { email: string }) => {
-      if (u.email) emails.add(u.email);
-    });
+    if (buErr) {
+      console.error('arkik-quality-request-notification: BU quality team', buErr);
+    } else {
+      for (const u of buAssignedUsers || []) {
+        addEmail(emails, (u as { email: string | null }).email);
+      }
+    }
   }
+
+  // Always include (same as daily-quality-schedule-report / send-actual-notification-enhanced)
+  addEmail(emails, 'juan.aguirre@dssolutions-mx.com');
+  addEmail(emails, 'alejandrodiaz@dcconcretos.com.mx');
 
   return Array.from(emails);
 }
@@ -115,7 +141,7 @@ serve(async (req) => {
 
     const { data: plant } = await supabase.from('plants').select('name, code').eq('id', row.plant_id).single();
 
-    const recipients = await getRecipientsForPlant(supabase, row.plant_id);
+    const recipients = await getQualityTeamByPlant(supabase, row.plant_id);
     if (recipients.length === 0) {
       console.warn('arkik-quality-request-notification: no recipients for plant', row.plant_id);
       return new Response(JSON.stringify({ success: true, skipped: true, reason: 'no_recipients' }), {
@@ -128,7 +154,13 @@ serve(async (req) => {
     const allRemisiones = Array.isArray(payload.remision_numbers) ? (payload.remision_numbers as string[]) : [];
     const remisionNumbers = allRemisiones.slice(0, 15);
     const fileLabel = typeof payload.file_label === 'string' ? payload.file_label : '';
-    const queueUrl = `${FRONTEND_URL.replace(/\/$/, '')}/quality/arkik-requests`;
+    const baseUrl = FRONTEND_URL.replace(/\/$/, '');
+    const queueUrl = `${baseUrl}/quality/arkik-requests`;
+    const deepParams = new URLSearchParams({
+      open: String(row.id),
+      plant: String(row.plant_id),
+    });
+    const openModalUrl = `${baseUrl}/quality/arkik-requests?${deepParams.toString()}`;
 
     const remisionLine =
       remisionNumbers.length > 0
@@ -149,9 +181,19 @@ serve(async (req) => {
     ${fileLabel ? `<li><strong>Archivo:</strong> ${escapeHtml(fileLabel)}</li>` : ''}
   </ul>
   ${remisionLine}
-  <p style="margin:16px 0 8px;"><a href="${queueUrl}" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;">Abrir solicitudes Arkik</a></p>
+  <p style="margin:16px 0 8px;"><a href="${escapeHtml(openModalUrl)}" style="display:inline-block;background:#16a34a;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Abrir y crear receta (mismo flujo que Arkik)</a></p>
+  <p style="margin:0 0 8px;font-size:13px;color:#4b5563;">Te lleva al hub, selecciona la planta si aplica, y abre el modal para revisar datos y crear la receta en un solo paso.</p>
+  <p style="margin:12px 0 8px;"><a href="${escapeHtml(queueUrl)}" style="color:#2563eb;text-decoration:underline;">Ver todas las solicitudes abiertas</a></p>
   <p style="font-size:12px;color:#6b7280;margin-top:24px;">Mensaje automático — DC Concretos</p>
 </body></html>`;
+
+    const subject = `[Arkik] Receta / código pendiente — ${plant?.code || 'planta'} — ${truncate(row.primary_code, 40)}`;
+    const mailBody = {
+      from: { email: FROM_EMAIL, name: 'DC Concretos — Calidad' },
+      subject,
+      content: [{ type: 'text/html', value: html }],
+      personalizations: recipients.map((email) => ({ to: [{ email }] })),
+    };
 
     const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
@@ -159,12 +201,7 @@ serve(async (req) => {
         Authorization: `Bearer ${SENDGRID_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        personalizations: [{ to: recipients.map((email) => ({ email })) }],
-        from: { email: FROM_EMAIL, name: 'DC Concretos — Calidad' },
-        subject: `[Arkik] Receta / código pendiente — ${plant?.code || 'planta'} — ${truncate(row.primary_code, 40)}`,
-        content: [{ type: 'text/html', value: html }],
-      }),
+      body: JSON.stringify(mailBody),
     });
 
     if (!res.ok) {

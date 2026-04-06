@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
     const adjustmentDate = validatedData.adjustment_date || new Date().toISOString().split('T')[0];
     const dateStr = adjustmentDate.replace(/-/g, '');
     
-    // Get current sequence number
+    // Get current sequence number (per plant; DB unique is on plant_id + adjustment_number)
     const { data: lastAdjustment } = await supabase
       .from('material_adjustments')
       .select('adjustment_number')
@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
       .ilike('adjustment_number', `ADJ-${dateStr}-%`)
       .order('adjustment_number', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const sequence = lastAdjustment ? parseInt(lastAdjustment.adjustment_number.split('-').pop() || '0') + 1 : 1;
     const adjustmentNumber = `ADJ-${dateStr}-${sequence.toString().padStart(3, '0')}`;
@@ -251,8 +251,18 @@ export async function POST(request: NextRequest) {
       .eq('material_id', validatedData.material_id)
       .single();
 
+    const POSITIVE_ADJUSTMENT_TYPES = [
+      'initial_count',
+      'physical_count',
+      'positive_correction',
+    ] as const;
     const inventoryBefore = currentInventory?.current_stock || 0;
-    const inventoryAfter = inventoryBefore - validatedData.quantity_adjusted;
+    const isPositiveAdjustment = POSITIVE_ADJUSTMENT_TYPES.includes(
+      validatedData.adjustment_type as (typeof POSITIVE_ADJUSTMENT_TYPES)[number]
+    );
+    const inventoryAfter = isPositiveAdjustment
+      ? inventoryBefore + validatedData.quantity_adjusted
+      : inventoryBefore - validatedData.quantity_adjusted;
 
     // Create adjustment
     const { data: result, error: adjustmentError } = await supabase
@@ -384,7 +394,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POHeaderInputSchema } from '@/lib/validations/po';
+import { userMessageForDbError } from '@/lib/procurementApiError';
 
 export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
@@ -17,23 +18,50 @@ export async function GET(request: NextRequest) {
   const plant_id = searchParams.get('plant_id') || undefined;
   const supplier_id = searchParams.get('supplier_id') || undefined;
   const status = searchParams.get('status') || undefined;
+  const date_from = searchParams.get('date_from') || undefined;
+  const date_to = searchParams.get('date_to') || undefined;
+  const po_number = searchParams.get('po_number') || undefined;
+  const payment_terms_days = searchParams.get('payment_terms_days') || undefined;
 
-  let query = supabase.from('purchase_orders').select('*, supplier:suppliers!supplier_id (id, name), plant:plants!plant_id (id, name, code)').order('created_at', { ascending: false });
+  const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10), 200);
+  const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0);
+
+  let query = supabase
+    .from('purchase_orders')
+    .select('*, supplier:suppliers!supplier_id (id, name), plant:plants!plant_id (id, name, code)', { count: 'exact' });
   if (plant_id) query = query.eq('plant_id', plant_id);
   if (supplier_id) query = query.eq('supplier_id', supplier_id);
+  if (payment_terms_days) query = query.eq('payment_terms_days', parseInt(payment_terms_days));
   if (status && status !== 'all') {
-    // DB uses 'closed' for completed POs; map 'fulfilled' filter to both
+    // DB uses 'closed' for completed POs; 'fulfilled' and 'closed' are both "completed"
     if (status === 'fulfilled') {
       query = query.in('status', ['fulfilled', 'closed']);
+    } else if (status === 'active') {
+      query = query.in('status', ['open', 'partial']);
     } else {
       query = query.eq('status', status);
     }
   }
+  if (date_from) query = query.gte('po_date', date_from);
+  if (date_to) query = query.lte('po_date', date_to);
+  if (po_number) query = query.ilike('po_number', `%${po_number}%`);
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('plant_id', profile.plant_id);
 
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ error: 'Failed to fetch POs' }, { status: 500 });
-  return NextResponse.json({ purchase_orders: data || [] });
+  const { data, error, count } = await query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+
+  if (error) {
+    const hint = userMessageForDbError(error);
+    return NextResponse.json(
+      { error: hint ?? 'No se pudieron cargar las órdenes de compra', detail: error.message },
+      { status: 500 }
+    );
+  }
+  return NextResponse.json({
+    purchase_orders: data || [],
+    total_count: count ?? 0,
+    limit,
+    offset,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -65,7 +93,13 @@ export async function POST(request: NextRequest) {
     .select('*')
     .single();
 
-  if (error) return NextResponse.json({ error: 'Failed to create PO' }, { status: 500 });
+  if (error) {
+    const hint = userMessageForDbError(error);
+    return NextResponse.json(
+      { error: hint ?? 'No se pudo crear la orden de compra', detail: error.message },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ purchase_order: data }, { status: 201 });
 }
 

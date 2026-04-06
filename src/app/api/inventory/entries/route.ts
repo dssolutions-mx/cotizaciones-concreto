@@ -6,6 +6,80 @@ import {
   MaterialEntryInputSchema,
   UpdateMaterialEntrySchema 
 } from '@/lib/validations/inventory';
+import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
+
+/** Merge document_count per entry from inventory_documents (type entry). */
+async function attachEntryDocumentCounts(
+  supabase: { from: (table: string) => any },
+  entries: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  if (!entries.length) return entries;
+  const ids = entries.map((e) => e.id as string).filter(Boolean);
+  if (!ids.length) return entries;
+  const { data: rows, error } = await supabase
+    .from('inventory_documents')
+    .select('entry_id')
+    .eq('document_type', 'entry')
+    .in('entry_id', ids);
+  if (error) {
+    console.error('attachEntryDocumentCounts:', error);
+    return entries.map((e) => ({ ...e, document_count: 0 }));
+  }
+  const counts = new Map<string, number>();
+  for (const r of rows || []) {
+    const id = r.entry_id as string | undefined;
+    if (!id) continue;
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  return entries.map((e) => ({
+    ...e,
+    document_count: counts.get(e.id as string) ?? 0,
+  }));
+}
+
+async function profileCanAccessMaterialEntryPlant(
+  supabase: { from: (table: string) => any },
+  profile: { role: string; plant_id?: string | null; business_unit_id?: string | null },
+  entryPlantId: string
+): Promise<boolean> {
+  if (isGlobalInventoryRole(profile.role)) return true;
+  if (profile.plant_id && profile.plant_id === entryPlantId) return true;
+  if (profile.business_unit_id) {
+    const { data: pl } = await supabase
+      .from('plants')
+      .select('business_unit_id')
+      .eq('id', entryPlantId)
+      .single();
+    return pl?.business_unit_id === profile.business_unit_id;
+  }
+  return false;
+}
+
+/** Quantities this entry contributes to a PO line (native UoM + kg for m³). Used on POST create. */
+function nativeKgFromEntryForPoItem(
+  entry: {
+    quantity_received: number;
+    received_qty_entered?: number | null;
+    received_qty_kg?: number | null;
+  },
+  poItem: { uom: string | null; is_service: boolean }
+): { native: number; kg: number } {
+  if (poItem.is_service) {
+    return { native: Number(entry.quantity_received) || 0, kg: 0 };
+  }
+  const uom = poItem.uom;
+  if (uom === 'l') {
+    const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0);
+    return { native: n, kg: 0 };
+  }
+  if (uom === 'm3') {
+    const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0);
+    const kg = Number(entry.received_qty_kg ?? 0);
+    return { native: n, kg: kg };
+  }
+  const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0);
+  return { native: kg, kg: kg };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,8 +96,11 @@ export async function GET(request: NextRequest) {
       material_id: searchParams.get('material_id') || undefined,
       pricing_status: searchParams.get('pricing_status') || undefined,
       po_id: searchParams.get('po_id') || undefined,
+      plant_id: searchParams.get('plant_id') || undefined,
+      entry_id: searchParams.get('entry_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
+      include: searchParams.get('include') || undefined,
     };
     
     console.log('Query params:', queryParams);
@@ -51,9 +128,7 @@ export async function GET(request: NextRequest) {
     
     console.log('User profile:', { id: profile.id, role: profile.role, plant_id: profile.plant_id, business_unit_id: profile.business_unit_id });
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       console.log('User role not allowed:', profile.role);
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -76,7 +151,10 @@ export async function GET(request: NextRequest) {
           first_name,
           last_name,
           email
-        )
+        ),
+        po:purchase_orders!po_id ( id, po_number ),
+        fleet_po:purchase_orders!fleet_po_id ( id, po_number ),
+        supplier:suppliers!supplier_id ( id, name, provider_number )
       `);
     
     console.log('Base query created');
@@ -110,6 +188,52 @@ export async function GET(request: NextRequest) {
       console.log('Applied plant filter:', plantFilter);
     }
 
+    // Workspace plant from query (PlantContext): narrow to one plant when the user may access it
+    if (queryParams.plant_id) {
+      const isGlobalInventoryRole =
+        profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
+      const inAllowedPlantList =
+        !!plantFilter &&
+        plantFilter.length > 0 &&
+        plantFilter.includes(queryParams.plant_id);
+      const matchesProfilePlant = profile.plant_id === queryParams.plant_id;
+
+      if (!isGlobalInventoryRole && !inAllowedPlantList && !matchesProfilePlant) {
+        return NextResponse.json(
+          { error: 'Sin acceso a la planta indicada' },
+          { status: 403 }
+        );
+      }
+
+      query = query.eq('plant_id', queryParams.plant_id);
+      console.log('Applied workspace plant_id scope:', queryParams.plant_id);
+    }
+
+    // Single entry by id (ignores date filters — used for deep links from procurement)
+    if (queryParams.entry_id) {
+      query = query.eq('id', queryParams.entry_id);
+      const { data: singleEntry, error: singleErr } = await query.maybeSingle();
+
+      if (singleErr) {
+        console.error('Entry by id error:', singleErr);
+        throw new Error(`Error al obtener entrada de material: ${singleErr.message}`);
+      }
+
+      let rows: Record<string, unknown>[] = singleEntry ? [singleEntry as Record<string, unknown>] : [];
+      if (queryParams.include === 'document_counts' && rows.length > 0) {
+        rows = await attachEntryDocumentCounts(supabase, rows);
+      }
+      return NextResponse.json({
+        success: true,
+        entries: rows,
+        pagination: {
+          limit: parseInt(queryParams.limit),
+          offset: parseInt(queryParams.offset),
+          hasMore: false,
+        },
+      });
+    }
+
     // Handle date filtering - prefer range when provided, fallback to single date, then to today
     if (queryParams.date_from && queryParams.date_to) {
       console.log('Filtering by date range:', queryParams.date_from, 'to', queryParams.date_to);
@@ -135,8 +259,10 @@ export async function GET(request: NextRequest) {
     }
 
     if (queryParams.po_id) {
-      console.log('Filtering by po_id:', queryParams.po_id);
-      query = query.eq('po_id', queryParams.po_id);
+      console.log('Filtering by po_id (includes fleet_po_id):', queryParams.po_id);
+      query = query.or(
+        `po_id.eq.${queryParams.po_id},fleet_po_id.eq.${queryParams.po_id}`
+      );
     }
 
     console.log('About to execute query...');
@@ -154,16 +280,21 @@ export async function GET(request: NextRequest) {
       throw new Error(`Error al obtener entradas de material: ${entriesError.message}`);
     }
 
+    let list = (entries || []) as Record<string, unknown>[];
+    if (queryParams.include === 'document_counts' && list.length > 0) {
+      list = await attachEntryDocumentCounts(supabase, list);
+    }
+
     const response = {
       success: true,
-      entries: entries || [], // Return as 'entries' to match frontend expectation
+      entries: list,
       pagination: {
         limit: parseInt(queryParams.limit),
         offset: parseInt(queryParams.offset),
-        hasMore: (entries || []).length === parseInt(queryParams.limit),
+        hasMore: list.length === parseInt(queryParams.limit),
       },
     };
-    
+
     console.log('Returning response:', response);
     return NextResponse.json(response);
 
@@ -222,8 +353,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
@@ -292,7 +422,7 @@ export async function POST(request: NextRequest) {
     const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
     const dateStr = entryDate.replace(/-/g, '');
     
-    // Get current sequence number
+    // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
     const { data: lastEntry } = await supabase
       .from('material_entries')
       .select('entry_number')
@@ -300,7 +430,7 @@ export async function POST(request: NextRequest) {
       .ilike('entry_number', `ENT-${dateStr}-%`)
       .order('entry_number', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
     const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;
@@ -459,6 +589,63 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear entrada: ${entryError.message}`);
     }
 
+    // Keep PO line recepciones in sync (PUT path already did this; POST was missing it)
+    try {
+      if (effectivePoItemId && entry) {
+        const { data: poItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .eq('id', effectivePoItemId)
+          .single();
+        if (poItemRow) {
+          const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(entry, poItemRow);
+          if (deltaNative > 0 || deltaKg > 0) {
+            const currentNative =
+              Number(poItemRow.qty_received ?? poItemRow.qty_received_native ?? 0) + deltaNative;
+            const currentKg = Number(poItemRow.qty_received_kg ?? 0) + deltaKg;
+            const orderedNative = Number(poItemRow.qty_ordered || 0);
+            let newStatus = 'partial';
+            if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+            const updateFields: Record<string, unknown> = {
+              qty_received: currentNative,
+              status: newStatus,
+            };
+            if (deltaKg > 0) updateFields.qty_received_kg = currentKg;
+            const { error: updMatErr } = await supabase
+              .from('purchase_order_items')
+              .update(updateFields)
+              .eq('id', effectivePoItemId);
+            if (updMatErr) console.error('POST entry: avance PO material:', updMatErr);
+          }
+        }
+      }
+
+      const fleetItemId = validatedData.fleet_po_item_id;
+      const fleetQty = validatedData.fleet_qty_entered;
+      if (fleetItemId && fleetQty != null && Number(fleetQty) > 0) {
+        const { data: fleetItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_ordered')
+          .eq('id', fleetItemId)
+          .single();
+        if (fleetItemRow) {
+          const delta = Number(fleetQty);
+          const currentNative =
+            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+          const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+          let newStatus = 'partial';
+          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const { error: updFleetErr } = await supabase
+            .from('purchase_order_items')
+            .update({ qty_received: currentNative, status: newStatus })
+            .eq('id', fleetItemId);
+          if (updFleetErr) console.error('POST entry: avance PO flota:', updFleetErr);
+        }
+      }
+    } catch (poProgressErr) {
+      console.error('POST entry: actualización PO (no fatal):', poProgressErr);
+    }
+
     // Get the auto-created lot (trigger creates it on insert)
     const { data: lot } = await supabase
       .from('material_lots')
@@ -466,7 +653,7 @@ export async function POST(request: NextRequest) {
       .eq('entry_id', entry.id)
       .single();
 
-    // Resolve material alert: explicit alert_id (dosificador) or legacy heuristic
+    // Resolve material alert: only when alert_id is explicitly provided (no auto-close heuristics)
     let resolvedAlertNumber: string | null = null;
     try {
       if (explicitAlertCtx) {
@@ -490,38 +677,6 @@ export async function POST(request: NextRequest) {
           performed_by: profile.id,
           details: { entry_id: entry.id, lot_id: lot?.id, alert_id: explicitAlertCtx.id },
         });
-      } else {
-        const { data: activeAlert } = await supabase
-          .from('material_alerts')
-          .select('id, status, alert_number')
-          .eq('plant_id', targetPlantId)
-          .eq('material_id', validatedData.material_id)
-          .in('status', ['delivery_scheduled', 'po_linked', 'validated'])
-          .limit(1)
-          .single();
-
-        if (activeAlert) {
-          resolvedAlertNumber = activeAlert.alert_number ?? null;
-          await supabase
-            .from('material_alerts')
-            .update({
-              status: 'closed',
-              resolved_entry_id: entry.id,
-              resolved_lot_id: lot?.id || null,
-              resolved_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', activeAlert.id);
-
-          await supabase.from('material_alert_events').insert({
-            alert_id: activeAlert.id,
-            event_type: 'auto_resolved_on_entry',
-            from_status: activeAlert.status,
-            to_status: 'closed',
-            performed_by: profile.id,
-            details: { entry_id: entry.id, lot_id: lot?.id },
-          });
-        }
       }
     } catch (alertErr) {
       // Non-blocking — alert resolution failure should not block entry creation
@@ -609,8 +764,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
@@ -628,6 +782,17 @@ export async function PUT(request: NextRequest) {
       .single();
     if (loadErr || !currentEntry) {
       return NextResponse.json({ success: false, error: 'Entrada no encontrada' }, { status: 404 });
+    }
+
+    if (currentEntry.pricing_status === 'reviewed') {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Esta entrada ya fue revisada por administración y no puede modificarse.',
+        },
+        { status: 403 }
+      );
     }
 
     // Prepare update payload
@@ -736,11 +901,15 @@ export async function PUT(request: NextRequest) {
       const alreadyReceivedNative = Number(poItem.qty_received ?? poItem.qty_received_native ?? 0);
       const orderedNative = Number(poItem.qty_ordered || 0);
 
-      // Compute previous native from current entry to find delta
+      // Compute previous native from current entry to find delta.
+      // First-time link (entrada sin OC): nothing was counted on a PO line yet — full receipt applies (same idea as fleet OC link).
+      const firstMaterialPoLink = !currentEntry.po_item_id;
       let previousNative = 0;
-      if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
-      else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
-      else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
+      if (!firstMaterialPoLink) {
+        if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
+        else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
+        else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
+      }
 
       const deltaNative = Math.max(newReceivedNative - previousNative, 0);
       if (deltaNative > (orderedNative - alreadyReceivedNative) + 1e-6) {
@@ -766,17 +935,72 @@ export async function PUT(request: NextRequest) {
       updatePayload.__po_delta_native = deltaNative;
       updatePayload.__po_native_uom = nativeUom;
       // For kg/m3 we may track kg too
-      const previousKg = Number(currentEntry.received_qty_kg || 0);
+      const previousKg = firstMaterialPoLink ? 0 : Number(currentEntry.received_qty_kg || 0);
       const deltaKg = Math.max(newReceivedKg - previousKg, 0);
       updatePayload.__po_delta_kg = deltaKg;
     }
 
+    // Fleet PO: validate new link (pricing review) and compute delta for PO line recepciones
+    let __fleet_po_link_delta_native = 0;
+    if (
+      updateData.fleet_po_item_id &&
+      updateData.fleet_qty_entered != null &&
+      Number(updateData.fleet_qty_entered) > 0 &&
+      !currentEntry.fleet_po_item_id
+    ) {
+      const { data: fleetPoLine, error: fleetLineErr } = await supabase
+        .from('purchase_order_items')
+        .select(
+          'id, is_service, material_supplier_id, qty_received, qty_received_native, qty_ordered, po:purchase_orders!po_id (id, plant_id, status)'
+        )
+        .eq('id', updateData.fleet_po_item_id)
+        .single();
+      if (fleetLineErr || !fleetPoLine) {
+        return NextResponse.json({ success: false, error: 'Línea de OC de flota no encontrada' }, { status: 400 });
+      }
+      if (!fleetPoLine.is_service) {
+        return NextResponse.json(
+          { success: false, error: 'La línea de OC de flota debe ser de tipo servicio' },
+          { status: 400 }
+        );
+      }
+      const fleetPo = fleetPoLine.po as { id: string; plant_id: string; status: string };
+      if (fleetPo.plant_id !== currentEntry.plant_id) {
+        return NextResponse.json({ success: false, error: 'La OC de flota pertenece a otra planta' }, { status: 400 });
+      }
+      if (
+        currentEntry.supplier_id &&
+        fleetPoLine.material_supplier_id &&
+        fleetPoLine.material_supplier_id !== currentEntry.supplier_id
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'El proveedor de material de la entrada no coincide con la OC de flota seleccionada',
+          },
+          { status: 400 }
+        );
+      }
+      const qtyIn = Number(updateData.fleet_qty_entered);
+      const already = Number(fleetPoLine.qty_received ?? fleetPoLine.qty_received_native ?? 0);
+      const ordered = Number(fleetPoLine.qty_ordered || 0);
+      if (qtyIn > ordered - already + 1e-6) {
+        return NextResponse.json(
+          { success: false, error: 'La cantidad de flota excede el saldo disponible en la línea de OC' },
+          { status: 400 }
+        );
+      }
+      __fleet_po_link_delta_native = qtyIn;
+    }
+
     // If pricing fields are being updated, mark as reviewed
     if (
-      (updateData.unit_price !== undefined || 
-       updateData.total_cost !== undefined || 
-       updateData.fleet_supplier_id !== undefined || 
-       updateData.fleet_cost !== undefined) &&
+      (updateData.unit_price !== undefined ||
+        updateData.total_cost !== undefined ||
+        updateData.fleet_supplier_id !== undefined ||
+        updateData.fleet_cost !== undefined ||
+        updateData.fleet_po_item_id !== undefined ||
+        updateData.po_item_id !== undefined) &&
       (profile.role === 'ADMIN_OPERATIONS' || profile.role === 'EXECUTIVE')
     ) {
       updatePayload.pricing_status = 'reviewed';
@@ -845,6 +1069,32 @@ export async function PUT(request: NextRequest) {
       }
     } catch (poProgressErr) {
       console.error('Error actualizando progreso de PO (no fatal):', poProgressErr);
+    }
+
+    // New fleet PO link on PUT (revisión de precios): increment línea de servicio
+    try {
+      if (__fleet_po_link_delta_native > 0 && result.fleet_po_item_id) {
+        const { data: fleetItemRow } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received, qty_received_native, qty_ordered')
+          .eq('id', result.fleet_po_item_id)
+          .single();
+        if (fleetItemRow) {
+          const delta = __fleet_po_link_delta_native;
+          const currentNative =
+            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+          const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+          let newStatus = 'partial';
+          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const { error: updFleetErr } = await supabase
+            .from('purchase_order_items')
+            .update({ qty_received: currentNative, status: newStatus })
+            .eq('id', result.fleet_po_item_id);
+          if (updFleetErr) console.error('PUT entry: avance PO flota:', updFleetErr);
+        }
+      }
+    } catch (fleetPoProgressErr) {
+      console.error('Error actualizando progreso PO flota (no fatal):', fleetPoProgressErr);
     }
 
     // After updating entry, optionally upsert Accounts Payable records for material and fleet
@@ -1017,6 +1267,237 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(
       { success: false, error: 'Error interno del servidor' },
+      { status: 500 }
+    );
+  }
+}
+
+type MaterialEntryRow = Record<string, unknown> & {
+  id: string;
+  plant_id: string;
+  po_item_id?: string | null;
+  fleet_po_item_id?: string | null;
+  fleet_qty_entered?: number | null;
+  pricing_status?: string | null;
+};
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { searchParams } = new URL(request.url);
+    const idRaw = searchParams.get('id');
+    const idParsed = z.string().uuid('ID inválido').safeParse(idRaw);
+    if (!idParsed.success) {
+      return NextResponse.json({ success: false, error: 'ID de entrada inválido' }, { status: 400 });
+    }
+    const id = idParsed.data;
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
+    }
+
+    if (!hasInventoryStandardAccess(profile.role)) {
+      return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
+    }
+
+    const { data: row, error: loadErr } = await supabase
+      .from('material_entries')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (loadErr || !row) {
+      return NextResponse.json({ success: false, error: 'Entrada no encontrada' }, { status: 404 });
+    }
+
+    const entry = row as MaterialEntryRow;
+
+    if (!(await profileCanAccessMaterialEntryPlant(supabase, profile, entry.plant_id))) {
+      return NextResponse.json({ success: false, error: 'Sin acceso a esta entrada' }, { status: 403 });
+    }
+
+    if (entry.pricing_status === 'reviewed') {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Esta entrada ya fue revisada por administración y no puede eliminarse.',
+        },
+        { status: 403 }
+      );
+    }
+
+    const { count: allocCount, error: allocErr } = await supabase
+      .from('material_consumption_allocations')
+      .select('id', { count: 'exact', head: true })
+      .eq('entry_id', id);
+
+    if (allocErr) {
+      console.error('DELETE entry: allocations count', allocErr);
+    } else if ((allocCount ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'No se puede eliminar: el material de esta entrada ya fue consumido en remisiones (costeo FIFO).',
+        },
+        { status: 409 }
+      );
+    }
+
+    const { data: alertRows } = await supabase
+      .from('material_alerts')
+      .select('id')
+      .eq('resolved_entry_id', id)
+      .limit(1);
+
+    if (alertRows && alertRows.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'No se puede eliminar: esta entrada cerró una alerta de material. Ajuste la alerta antes de borrar.',
+        },
+        { status: 409 }
+      );
+    }
+
+    let materialPoPatch: {
+      id: string;
+      qty_received: number;
+      status: string;
+      qty_received_kg?: number;
+    } | null = null;
+
+    if (entry.po_item_id) {
+      const { data: poItemRow } = await supabase
+        .from('purchase_order_items')
+        .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+        .eq('id', entry.po_item_id)
+        .single();
+      if (poItemRow) {
+        const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(
+          entry as unknown as Parameters<typeof nativeKgFromEntryForPoItem>[0],
+          poItemRow
+        );
+        if (deltaNative > 0 || deltaKg > 0) {
+          const currentNative = Number(poItemRow.qty_received ?? poItemRow.qty_received_native ?? 0);
+          const currentKg = Number(poItemRow.qty_received_kg ?? 0);
+          const newNative = Math.max(0, currentNative - deltaNative);
+          const newKg = Math.max(0, currentKg - deltaKg);
+          const orderedNative = Number(poItemRow.qty_ordered || 0);
+          let newStatus = 'open';
+          if (newNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          else if (newNative > 1e-6) newStatus = 'partial';
+          materialPoPatch = {
+            id: entry.po_item_id,
+            qty_received: newNative,
+            status: newStatus,
+          };
+          if (deltaKg > 0) materialPoPatch.qty_received_kg = newKg;
+        }
+      }
+    }
+
+    let fleetPoPatch: { id: string; qty_received: number; status: string } | null = null;
+    if (entry.fleet_po_item_id && entry.fleet_qty_entered != null && Number(entry.fleet_qty_entered) > 0) {
+      const { data: fleetItemRow } = await supabase
+        .from('purchase_order_items')
+        .select('qty_received, qty_received_native, qty_ordered')
+        .eq('id', entry.fleet_po_item_id)
+        .single();
+      if (fleetItemRow) {
+        const delta = Number(entry.fleet_qty_entered);
+        const currentNative = Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0);
+        const newNative = Math.max(0, currentNative - delta);
+        const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+        let newStatus = 'open';
+        if (newNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+        else if (newNative > 1e-6) newStatus = 'partial';
+        fleetPoPatch = { id: entry.fleet_po_item_id, qty_received: newNative, status: newStatus };
+      }
+    }
+
+    const { error: piErr } = await supabase.from('payable_items').delete().eq('entry_id', id);
+    if (piErr) console.error('DELETE entry: payable_items', piErr);
+
+    const { data: docs } = await supabase.from('inventory_documents').select('file_path').eq('entry_id', id);
+    if (docs?.length) {
+      const paths = docs.map((d: { file_path: string }) => d.file_path).filter(Boolean);
+      if (paths.length > 0) {
+        const { error: stErr } = await supabase.storage.from('inventory-documents').remove(paths);
+        if (stErr) console.warn('DELETE entry: storage remove', stErr);
+      }
+      const { error: docDelErr } = await supabase.from('inventory_documents').delete().eq('entry_id', id);
+      if (docDelErr) console.error('DELETE entry: inventory_documents', docDelErr);
+    }
+
+    const { error: delErr } = await supabase.from('material_entries').delete().eq('id', id);
+
+    if (delErr) {
+      if (delErr.code === '23503' || delErr.message?.includes('foreign key')) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'No se puede eliminar: existen registros vinculados (consumos, lotes, etc.).',
+          },
+          { status: 409 }
+        );
+      }
+      throw new Error(delErr.message);
+    }
+
+    const poWarnings: string[] = [];
+
+    if (materialPoPatch) {
+      const { id: lineId, ...rest } = materialPoPatch;
+      const { error: updMatErr } = await supabase.from('purchase_order_items').update(rest).eq('id', lineId);
+      if (updMatErr) {
+        console.error('DELETE entry: revert PO material', updMatErr);
+        poWarnings.push('La entrada se eliminó pero no se pudo revertir el avance de la OC de material.');
+      }
+    }
+
+    if (fleetPoPatch) {
+      const { id: lineId, ...rest } = fleetPoPatch;
+      const { error: updFleetErr } = await supabase.from('purchase_order_items').update(rest).eq('id', lineId);
+      if (updFleetErr) {
+        console.error('DELETE entry: revert PO flota', updFleetErr);
+        poWarnings.push('La entrada se eliminó pero no se pudo revertir el avance de la OC de flota.');
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      success: true,
+      message: 'Entrada eliminada. El inventario se actualizó automáticamente.',
+    };
+    if (poWarnings.length > 0) {
+      body.warnings = poWarnings;
+    }
+
+    return NextResponse.json(body);
+  } catch (error) {
+    console.error('Error in entries DELETE:', error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Error interno del servidor',
+      },
       { status: 500 }
     );
   }

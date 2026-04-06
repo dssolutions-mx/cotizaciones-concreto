@@ -22,9 +22,11 @@ import StatCard from './ui/StatCard'
 import FloatingActionButton from './ui/FloatingActionButton'
 import Link from 'next/link'
 import { DailyEntriesChart, DailyAdjustmentsChart } from './charts/DailyLogCharts'
+import { usePlantContext } from '@/contexts/PlantContext'
 
 export default function DailyInventoryLogPage() {
   const { profile } = useAuthSelectors()
+  const { currentPlant } = usePlantContext()
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [dailyLog, setDailyLog] = useState<DailyInventoryLog | null>(null)
   const [loading, setLoading] = useState(true)
@@ -386,8 +388,9 @@ export default function DailyInventoryLogPage() {
             
             <TabsContent value="entries" className="mt-6 space-y-6">
               <DailyEntriesChart entries={entries} date={selectedDate} hideCost={profile?.role === 'DOSIFICADOR'} />
-              <MaterialEntriesList 
-                date={selectedDate} 
+              <MaterialEntriesList
+                date={selectedDate}
+                plantId={currentPlant?.id}
                 isEditing={!dailyLog?.is_closed && canEdit}
                 key={refreshKey}
                 onEntriesLoaded={setEntries}

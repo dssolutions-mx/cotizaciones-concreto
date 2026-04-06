@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,14 +28,69 @@ interface POItem {
   service_description?: string
 }
 
+export type PrefillFromAlert = {
+  alertId: string
+  materialId: string
+  plantId: string
+  /** Suggested order qty (e.g. kg from physical count) */
+  suggestedQtyKg: number
+}
+
+/** Second-step fleet PO: transport supplier header; material supplier on service line for pricing context */
+export type PrefillFleetFromAlert = {
+  alertId: string
+  plantId: string
+  /** Proveedor de material (OC principal) — va en línea de servicio como material_supplier_id */
+  materialSupplierId: string
+}
+
+/** Revisión de precios: crear OC de servicio (flota/flete) sin alerta — trazabilidad en notas */
+export type PrefillFleetFromMaterialEntry = {
+  plantId: string
+  materialSupplierId: string
+  notesHint?: string
+}
+
+/** Revisión de precios / entrada sin OC: crear OC material con planta, proveedor y cantidad sugerida */
+export type PrefillFromMaterialEntry = {
+  plantId: string
+  supplierId: string
+  materialId: string
+  suggestedQty: number
+  quantityUom: 'kg' | 'l' | 'm3'
+  /** Notas del encabezado (trazabilidad) */
+  notesHint?: string
+}
+
 interface CreatePOModalProps {
   open: boolean
   onClose: () => void
-  onSuccess: () => void
+  /** Called after successful creation; materialSupplierId when header supplier was chosen (for fleet follow-up). */
+  onSuccess: (createdPoId?: string, meta?: { materialSupplierId?: string }) => void
   defaultPlantId?: string
+  /** Pre-select material on the ítems step (e.g. from a material alert). */
+  defaultMaterialId?: string
+  /** Pre-fill first line + auto-link alert after PO creation */
+  prefillFromAlert?: PrefillFromAlert | null
+  /** Pre-fill service line for fleet PO + link to alert as fleet_po_id */
+  prefillFleetFromAlert?: PrefillFleetFromAlert | null
+  /** Pre-fill desde revisión de precios (entrada sin línea de OC material) — sin vincular alertas */
+  prefillFromMaterialEntry?: PrefillFromMaterialEntry | null
+  /** Pre-fill OC de flota desde revisión de precios (misma lógica que alerta, sin link a alerta) */
+  prefillFleetFromMaterialEntry?: PrefillFleetFromMaterialEntry | null
 }
 
-export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId }: CreatePOModalProps) {
+export default function CreatePOModal({
+  open,
+  onClose,
+  onSuccess,
+  defaultPlantId,
+  defaultMaterialId,
+  prefillFromAlert,
+  prefillFleetFromAlert,
+  prefillFromMaterialEntry,
+  prefillFleetFromMaterialEntry,
+}: CreatePOModalProps) {
   const [step, setStep] = useState<'header' | 'items'>('header')
   const [loading, setLoading] = useState(false)
   
@@ -68,13 +123,121 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
   const [materialSupplierId, setMaterialSupplierId] = useState('')
 
   const [materials, setMaterials] = useState<any[]>([])
+  const [materialsLoading, setMaterialsLoading] = useState(false)
   const [plants, setPlants] = useState<Plant[]>([])
   const [loadingPlants, setLoadingPlants] = useState(false)
   const [suppliers, setSuppliers] = useState<any[]>([])
+  const mixedPoToastShownRef = useRef(false)
+  const [fleetLineMix, setFleetLineMix] = useState<{
+    has_fleet_lines: boolean
+    has_material_lines: boolean
+    fleet_only: boolean
+    material_only: boolean
+  } | null>(null)
+  /** Controlled strings so users can type decimals like 0.85 without the field clearing on "0." */
+  const [unitPriceInput, setUnitPriceInput] = useState('')
+  const [qtyInput, setQtyInput] = useState('')
 
   useEffect(() => {
     if (defaultPlantId) setPlantId(defaultPlantId)
   }, [defaultPlantId])
+
+  useEffect(() => {
+    if (open && defaultMaterialId) {
+      setItemForm((prev) => ({ ...prev, material_id: defaultMaterialId }))
+    }
+  }, [open, defaultMaterialId])
+
+  useEffect(() => {
+    if (!open || !prefillFromAlert || prefillFleetFromAlert || prefillFleetFromMaterialEntry) return
+    setPlantId(prefillFromAlert.plantId)
+    const qty = Math.max(Number(prefillFromAlert.suggestedQtyKg) || 0, 1)
+    setItems([
+      {
+        tempId: `alert-${prefillFromAlert.alertId.slice(0, 8)}`,
+        is_service: false,
+        material_id: prefillFromAlert.materialId,
+        material_name: '',
+        uom: 'kg',
+        qty_ordered: qty,
+        unit_price: 0,
+        total: 0,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFromAlert, prefillFleetFromAlert, prefillFleetFromMaterialEntry])
+
+  useEffect(() => {
+    if (!open || !prefillFromMaterialEntry || prefillFromAlert || prefillFleetFromAlert || prefillFleetFromMaterialEntry)
+      return
+    setPlantId(prefillFromMaterialEntry.plantId)
+    setSupplierId(prefillFromMaterialEntry.supplierId)
+    if (prefillFromMaterialEntry.notesHint) {
+      setNotes(prefillFromMaterialEntry.notesHint)
+    }
+    const qty = Math.max(Number(prefillFromMaterialEntry.suggestedQty) || 0, 1)
+    const uom = prefillFromMaterialEntry.quantityUom
+    setItems([
+      {
+        tempId: `pricing-${Date.now()}`,
+        is_service: false,
+        material_id: prefillFromMaterialEntry.materialId,
+        material_name: '',
+        uom,
+        qty_ordered: qty,
+        unit_price: 0,
+        total: 0,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFromMaterialEntry, prefillFromAlert, prefillFleetFromAlert, prefillFleetFromMaterialEntry])
+
+  useEffect(() => {
+    if (!open || !prefillFleetFromAlert) return
+    setPlantId(prefillFleetFromAlert.plantId)
+    setMaterialSupplierId(prefillFleetFromAlert.materialSupplierId)
+    const desc = 'Transporte / flete'
+    setServiceDescription(desc)
+    setItems([
+      {
+        tempId: `fleet-${prefillFleetFromAlert.alertId.slice(0, 8)}`,
+        is_service: true,
+        material_name: desc,
+        service_description: desc,
+        uom: 'trips',
+        qty_ordered: 1,
+        unit_price: 0,
+        total: 0,
+        material_supplier_id: prefillFleetFromAlert.materialSupplierId,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFleetFromAlert])
+
+  useEffect(() => {
+    if (!open || !prefillFleetFromMaterialEntry || prefillFleetFromAlert) return
+    setPlantId(prefillFleetFromMaterialEntry.plantId)
+    setMaterialSupplierId(prefillFleetFromMaterialEntry.materialSupplierId)
+    if (prefillFleetFromMaterialEntry.notesHint) {
+      setNotes(prefillFleetFromMaterialEntry.notesHint)
+    }
+    const desc = 'Transporte / flete'
+    setServiceDescription(desc)
+    setItems([
+      {
+        tempId: `fleet-pricing-${Date.now()}`,
+        is_service: true,
+        material_name: desc,
+        service_description: desc,
+        uom: 'trips',
+        qty_ordered: 1,
+        unit_price: 0,
+        total: 0,
+        material_supplier_id: prefillFleetFromMaterialEntry.materialSupplierId,
+      },
+    ])
+    setStep('header')
+  }, [open, prefillFleetFromMaterialEntry, prefillFleetFromAlert])
 
   // Fetch plants when modal opens
   useEffect(() => {
@@ -113,19 +276,57 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       setItems([])
       setEditingItem(null)
       setIsEditing(false)
+      mixedPoToastShownRef.current = false
+      setFleetLineMix(null)
       resetItemForm()
     }
   }, [open, defaultPlantId])
 
-  // Fetch materials for display names
+  // Mirror catalog for empty-state + resolving names (MaterialSelect also loads; avoid stale races with AbortSignal)
   useEffect(() => {
-    if (plantId) {
-      fetch(`/api/materials?plant_id=${plantId}`)
-        .then(res => res.json())
-        .then(data => setMaterials(data.data || []))
-        .catch(() => {})
+    if (!plantId) {
+      setMaterials([])
+      setMaterialsLoading(false)
+      return
     }
-  }, [plantId])
+    const ac = new AbortController()
+    setMaterialsLoading(true)
+    const qs = new URLSearchParams({ plant_id: plantId })
+    if (supplierId) qs.set('supplier_id', supplierId)
+    fetch(`/api/materials?${qs.toString()}`, { signal: ac.signal })
+      .then((res) => res.json())
+      .then((data) => setMaterials(data.data || []))
+      .catch((e) => {
+        if ((e as Error).name !== 'AbortError') setMaterials([])
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setMaterialsLoading(false)
+      })
+    return () => ac.abort()
+  }, [plantId, supplierId])
+
+  /** Backfill material_name on the line form when parent catalog arrives after selection (from MaterialSelect meta). */
+  useEffect(() => {
+    if (itemForm.is_service || !itemForm.material_id || itemForm.material_name) return
+    const m = materials.find((x) => x.id === itemForm.material_id)
+    if (m) setItemForm((f) => ({ ...f, material_name: m.material_name }))
+  }, [materials, itemForm.material_id, itemForm.material_name, itemForm.is_service])
+
+  /** Prefill rows: resolve display name once catalog loads */
+  useEffect(() => {
+    if (!open || !plantId || materials.length === 0) return
+    setItems((prev) => {
+      let changed = false
+      const next = prev.map((it) => {
+        if (it.is_service || !it.material_id || it.material_name) return it
+        const m = materials.find((x) => x.id === it.material_id)
+        if (!m) return it
+        changed = true
+        return { ...it, material_name: m.material_name }
+      })
+      return changed ? next : prev
+    })
+  }, [materials, open, plantId])
 
   // Fetch suppliers for material supplier selection (fleet POs)
   useEffect(() => {
@@ -133,13 +334,32 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       fetch(`/api/suppliers?plant_id=${plantId}`)
         .then(res => res.json())
         .then(data => {
-          if (data.success && data.data) {
-            setSuppliers(data.data || [])
+          if (data.suppliers) {
+            setSuppliers(data.suppliers || [])
           }
         })
         .catch(() => {})
     }
   }, [plantId])
+
+  // Supplier PO line history hint when adding a service line
+  useEffect(() => {
+    if (!open || !itemForm.is_service || !supplierId || !plantId) {
+      setFleetLineMix(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/suppliers/${supplierId}/po-line-mix?plant_id=${encodeURIComponent(plantId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled || j.error) return
+        if (typeof j.has_fleet_lines === 'boolean') setFleetLineMix(j)
+      })
+      .catch(() => setFleetLineMix(null))
+    return () => {
+      cancelled = true
+    }
+  }, [open, itemForm.is_service, supplierId, plantId])
 
   const resetItemForm = () => {
     setItemForm({
@@ -151,10 +371,26 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       qty_ordered: 0,
       unit_price: 0,
       required_by: '',
-      total: 0
+      total: 0,
     })
     setServiceDescription('')
     setMaterialSupplierId('')
+    setUnitPriceInput('')
+    setQtyInput('')
+  }
+
+  const parseQtyFromInput = () => {
+    const t = qtyInput.trim().replace(',', '.')
+    if (t === '') return NaN
+    const n = parseFloat(t)
+    return Number.isNaN(n) ? NaN : n
+  }
+
+  const parsePriceFromInput = () => {
+    const t = unitPriceInput.trim().replace(',', '.')
+    if (t === '') return NaN
+    const n = parseFloat(t)
+    return Number.isNaN(n) ? NaN : n
   }
 
   const handleAddItem = () => {
@@ -166,26 +402,57 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       toast.error('Ingrese descripción del servicio')
       return
     }
-    if (itemForm.qty_ordered <= 0) {
+    const qty = parseQtyFromInput()
+    const unitPrice = parsePriceFromInput()
+    if (Number.isNaN(qty) || qty <= 0) {
       toast.error('La cantidad debe ser mayor a 0')
       return
     }
-    if (itemForm.unit_price < 0) {
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
       toast.error('El precio no puede ser negativo')
       return
     }
 
-    const materialName = itemForm.is_service 
-      ? serviceDescription 
-      : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
+    if (!itemForm.is_service) {
+      if (items.some((it) => !it.is_service && it.material_id === itemForm.material_id)) {
+        toast.error('Este material ya está en la lista')
+        return
+      }
+    } else {
+      const sd = serviceDescription.trim().toLowerCase()
+      if (items.some((it) => it.is_service && (it.service_description || '').trim().toLowerCase() === sd)) {
+        toast.error('Ya agregó un servicio con la misma descripción')
+        return
+      }
+    }
+
+    if (!mixedPoToastShownRef.current) {
+      const willAddMaterial = !itemForm.is_service
+      const hasService = items.some((i) => i.is_service)
+      const hasMaterial = items.some((i) => !i.is_service)
+      if ((willAddMaterial && hasService) || (!willAddMaterial && hasMaterial)) {
+        toast.info(
+          'Esta OC tendrá materiales y servicios. Si prefiere separarlas, cree dos órdenes distintas.'
+        )
+        mixedPoToastShownRef.current = true
+      }
+    }
+
+    const materialName = itemForm.is_service
+      ? serviceDescription.trim()
+      : itemForm.material_name?.trim() ||
+        materials.find((m) => m.id === itemForm.material_id)?.material_name ||
+        'Material'
 
     const newItem: POItem = {
       ...itemForm,
       tempId: `temp-${Date.now()}`,
+      qty_ordered: qty,
+      unit_price: unitPrice,
       material_name: materialName,
-      service_description: itemForm.is_service ? serviceDescription : undefined,
+      service_description: itemForm.is_service ? serviceDescription.trim() : undefined,
       material_supplier_id: itemForm.is_service ? materialSupplierId : undefined,
-      total: itemForm.qty_ordered * itemForm.unit_price
+      total: qty * unitPrice
     }
 
     setItems([...items, newItem])
@@ -200,20 +467,63 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       toast.error('Seleccione un material')
       return
     }
-    if (itemForm.qty_ordered <= 0) {
+    if (itemForm.is_service && !serviceDescription.trim()) {
+      toast.error('Ingrese descripción del servicio')
+      return
+    }
+    const qty = parseQtyFromInput()
+    const unitPrice = parsePriceFromInput()
+    if (Number.isNaN(qty) || qty <= 0) {
       toast.error('La cantidad debe ser mayor a 0')
       return
     }
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
+      toast.error('El precio no puede ser negativo')
+      return
+    }
 
-    const materialName = itemForm.is_service 
-      ? 'Servicio de Flota' 
-      : materials.find(m => m.id === itemForm.material_id)?.material_name || 'Material'
+    if (!itemForm.is_service) {
+      if (
+        items.some(
+          (it) =>
+            it.tempId !== editingItem.tempId &&
+            !it.is_service &&
+            it.material_id === itemForm.material_id
+        )
+      ) {
+        toast.error('Este material ya está en la lista')
+        return
+      }
+    } else {
+      const sd = serviceDescription.trim().toLowerCase()
+      if (
+        items.some(
+          (it) =>
+            it.tempId !== editingItem.tempId &&
+            it.is_service &&
+            (it.service_description || '').trim().toLowerCase() === sd
+        )
+      ) {
+        toast.error('Ya agregó un servicio con la misma descripción')
+        return
+      }
+    }
+
+    const materialName = itemForm.is_service
+      ? serviceDescription.trim()
+      : itemForm.material_name?.trim() ||
+        materials.find((m) => m.id === itemForm.material_id)?.material_name ||
+        'Material'
 
     const updatedItem: POItem = {
       ...itemForm,
       tempId: editingItem.tempId,
+      qty_ordered: qty,
+      unit_price: unitPrice,
       material_name: materialName,
-      total: itemForm.qty_ordered * itemForm.unit_price
+      service_description: itemForm.is_service ? serviceDescription.trim() : undefined,
+      material_supplier_id: itemForm.is_service ? materialSupplierId : undefined,
+      total: qty * unitPrice
     }
 
     setItems(items.map(it => it.tempId === editingItem.tempId ? updatedItem : it))
@@ -228,6 +538,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
     setItemForm({ ...item })
     setServiceDescription(item.service_description || '')
     setMaterialSupplierId(item.material_supplier_id || '')
+    setUnitPriceInput(item.unit_price === 0 ? '' : String(item.unit_price))
+    setQtyInput(item.qty_ordered === 0 ? '' : String(item.qty_ordered))
     setIsEditing(true)
   }
 
@@ -265,6 +577,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
 
       const { purchase_order } = await resHeader.json()
       const poId = purchase_order.id
+      const poNumber = purchase_order.po_number as string | undefined
 
       // Create items
       const itemPromises = items.map(item => {
@@ -277,7 +590,8 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
 
         // Add service or material fields
         if (item.is_service) {
-          payload.service_description = item.service_description
+          const sd = (item.service_description ?? '').trim()
+          payload.service_description = sd
           if (item.material_supplier_id) {
             payload.material_supplier_id = item.material_supplier_id
           }
@@ -301,12 +615,57 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
       const failures = itemResults.filter(r => !r.ok)
       
       if (failures.length > 0) {
-        toast.warning(`PO creado, pero ${failures.length} ítem(s) fallaron`)
+        const firstErr = await failures[0].json().catch(() => ({}))
+        toast.warning(
+          `OC creada, pero ${failures.length} ítem(s) fallaron${firstErr?.error ? `: ${firstErr.error}` : ''}`
+        )
       } else {
-        toast.success(`PO #${poId.slice(0,8)} creado con ${items.length} ítem(s)`)
+        const label = poNumber || `OC ${poId.slice(0, 8)}`
+        toast.success(`${label} creada con ${items.length} ítem(s)`)
       }
 
-      onSuccess()
+      if (prefillFleetFromAlert?.alertId) {
+        try {
+          const linkRes = await fetch(`/api/alerts/material/${prefillFleetFromAlert.alertId}/link-fleet-po`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ po_id: poId }),
+          })
+          if (!linkRes.ok) {
+            const j = await linkRes.json().catch(() => ({}))
+            toast.warning(j.error || 'OC creada; no se pudo vincular la OC de flete a la alerta')
+          } else {
+            toast.success('OC de flete vinculada a la alerta')
+          }
+        } catch {
+          toast.warning('OC creada; vincule la OC de flete a la alerta manualmente si aplica')
+        }
+        onSuccess(poId)
+        onClose()
+        return
+      }
+
+      if (prefillFromAlert?.alertId) {
+        try {
+          const linkRes = await fetch(`/api/alerts/material/${prefillFromAlert.alertId}/link-po`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ po_id: poId }),
+          })
+          if (!linkRes.ok) {
+            const j = await linkRes.json().catch(() => ({}))
+            toast.warning(j.error || 'OC creada; no se pudo vincular la alerta automáticamente')
+          } else {
+            toast.success('Alerta vinculada a la nueva OC')
+          }
+        } catch {
+          toast.warning('OC creada; vincule la alerta manualmente si aplica')
+        }
+      }
+
+      // prefillFromMaterialEntry: solo trazabilidad en notas; vincular línea a la entrada en revisión de precios (UI)
+
+      onSuccess(poId, { materialSupplierId: supplierId })
       onClose()
     } catch (error) {
       console.error('Error creating PO:', error)
@@ -318,11 +677,18 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
 
   const subtotal = items.reduce((sum, it) => sum + it.total, 0)
   const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
-
+  const plantName = plants.find((p) => p.id === plantId)?.name
+  const linePreviewTotal = (() => {
+    const q = parseQtyFromInput()
+    const p = parsePriceFromInput()
+    const qq = Number.isNaN(q) ? 0 : q
+    const pp = Number.isNaN(p) ? 0 : p
+    return qq * pp
+  })()
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col my-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
@@ -377,6 +743,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                         value={supplierId} 
                         onChange={setSupplierId}
                         plantId={plantId || undefined}
+                        plantName={plantName}
                       />
                     </div>
                   </div>
@@ -429,6 +796,16 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
 
           {step === 'items' && (
             <div className="space-y-6">
+              <div className="rounded-md border border-amber-200/90 bg-amber-50/90 px-3 py-3 text-xs text-amber-950 space-y-2">
+                <p className="font-semibold">Precio en OC vs listas de precio</p>
+                <p>
+                  El <strong>precio unitario</strong> que capture aquí es el acuerdo con el proveedor en esta orden.
+                  Las listas de precio del catálogo sirven de referencia al cotizar; <strong>no reemplazan</strong> el precio negociado en la OC.
+                </p>
+                <p>
+                  <strong>Material</strong> consume inventario al recibir. <strong>Servicio (flota)</strong> cubre transporte u otros servicios sin material (por ejemplo viajes, toneladas).
+                </p>
+              </div>
               {/* Items List */}
               <Card>
                 <CardHeader>
@@ -436,10 +813,15 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                 </CardHeader>
                 <CardContent>
                   {items.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500">
+                    <div className="text-center py-12 text-gray-500 max-w-md mx-auto">
                       <Package className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p>No hay ítems agregados</p>
-                      <p className="text-sm">Agregue materiales o servicios abajo</p>
+                      <p className="font-medium text-gray-700 mb-2">Aún no hay ítems</p>
+                      <ol className="text-sm text-left list-decimal pl-5 space-y-1 text-gray-600">
+                        <li>Seleccione tipo: <strong>Material</strong> o <strong>Servicio</strong> (flota/transporte).</li>
+                        <li>Elija un material del catálogo o escriba la descripción del servicio.</li>
+                        <li>Indique cantidad, unidad de medida y precio unitario acordado.</li>
+                        <li>Use <strong>Agregar ítem</strong> y repita si necesita más líneas.</li>
+                      </ol>
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -524,13 +906,16 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           value={itemForm.is_service ? 'service' : 'material'}
                           onValueChange={(v) => {
                             const isService = v === 'service'
-                            setItemForm(f => ({ 
-                              ...f, 
-                              is_service: isService, 
-                              material_id: '', 
-                              uom: isService ? 'trips' : 'kg' 
+                            setItemForm(f => ({
+                              ...f,
+                              is_service: isService,
+                              material_id: '',
+                              material_name: '',
+                              uom: isService ? 'trips' : 'kg',
                             }))
                             if (!isService) setServiceDescription('')
+                            setUnitPriceInput('')
+                            setQtyInput('')
                           }}
                         >
                           <SelectTrigger className="text-base">
@@ -555,6 +940,16 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                               placeholder="Ej: Transporte de cemento, Flete viaje sencillo, etc."
                               className="text-base"
                             />
+                            {fleetLineMix?.fleet_only && (
+                              <p className="mt-2 text-xs text-sky-900 bg-sky-50 border border-sky-100 rounded px-2 py-1.5">
+                                Este proveedor se usa habitualmente para flota en esta planta.
+                              </p>
+                            )}
+                            {fleetLineMix?.material_only && (
+                              <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+                                Este proveedor no tiene historial de servicios de flota con esta planta; confirme que el servicio corresponda.
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div>
@@ -584,27 +979,16 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           </Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.qty_ordered || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, qty_ordered: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, qty_ordered: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={qtyInput}
+                              onChange={(e) => setQtyInput(e.target.value)}
                               placeholder="0"
                               className="text-base"
                             />
-                            {itemForm.qty_ordered > 0 && (
+                            {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
                               <p className="mt-1 text-xs text-gray-500">
-                                {itemForm.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {itemForm.uom || 'viajes'}
+                                {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
+                                {itemForm.uom || 'viajes'}
                               </p>
                             )}
                           </div>
@@ -614,28 +998,14 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.unit_price || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, unit_price: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, unit_price: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={unitPriceInput}
+                              onChange={(e) => setUnitPriceInput(e.target.value)}
                               placeholder="0.00"
                               className="text-base"
                             />
-                            {itemForm.unit_price > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
-                                {mxn.format(itemForm.unit_price)}
-                              </p>
+                            {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
+                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
@@ -659,6 +1029,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                               value={materialSupplierId}
                               onChange={setMaterialSupplierId}
                               plantId={plantId || undefined}
+                              plantName={plantName}
                             />
                             <p className="mt-1 text-xs text-gray-500">
                               Seleccione el proveedor de material para el cual este servicio de flota aplica
@@ -673,13 +1044,25 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           <div className="mt-1.5">
                             <MaterialSelect
                               value={itemForm.material_id || ''}
-                              onChange={(v: string) => setItemForm(f => ({ ...f, material_id: v }))}
+                              onChange={(v: string, meta) =>
+                                setItemForm((f) => ({
+                                  ...f,
+                                  material_id: v,
+                                  material_name: meta?.material_name ?? (v ? f.material_name : ''),
+                                }))
+                              }
                               plantId={plantId || undefined}
+                              supplierId={supplierId || undefined}
                             />
                             {supplierId && (
                               <p className="mt-1 text-xs text-gray-500">
-                                Este PO es para {suppliers.find(s => s.id === supplierId)?.name || 'el proveedor seleccionado'}. 
-                                Si el material viene de otro proveedor, considere crear un PO separado.
+                                Catálogo completo de la planta. Arriba aparecen <strong>sugeridos</strong> según OCs previas,
+                                acuerdos o recepciones con este proveedor; puede elegir cualquier material.
+                              </p>
+                            )}
+                            {!materialsLoading && materials.length === 0 && plantId && (
+                              <p className="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+                                No hay materiales activos en el catálogo de esta planta.
                               </p>
                             )}
                           </div>
@@ -730,27 +1113,16 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           </Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.qty_ordered || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, qty_ordered: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, qty_ordered: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={qtyInput}
+                              onChange={(e) => setQtyInput(e.target.value)}
                               placeholder="0"
                               className="text-base"
                             />
-                            {itemForm.qty_ordered > 0 && (
+                            {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
                               <p className="mt-1 text-xs text-gray-500">
-                                {itemForm.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {itemForm.uom || 'kg'}
+                                {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
+                                {itemForm.uom || 'kg'}
                               </p>
                             )}
                           </div>
@@ -760,28 +1132,14 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                           <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
-                              type="number"
-                              step="any"
-                              min="0"
-                              value={itemForm.unit_price || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                if (val === '') {
-                                  setItemForm(f => ({ ...f, unit_price: 0 }))
-                                  return
-                                }
-                                const num = parseFloat(val)
-                                if (!isNaN(num) && num >= 0) {
-                                  setItemForm(f => ({ ...f, unit_price: num }))
-                                }
-                              }}
+                              inputMode="decimal"
+                              value={unitPriceInput}
+                              onChange={(e) => setUnitPriceInput(e.target.value)}
                               placeholder="0.00"
                               className="text-base"
                             />
-                            {itemForm.unit_price > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
-                                {mxn.format(itemForm.unit_price)}
-                              </p>
+                            {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
+                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
@@ -805,7 +1163,7 @@ export default function CreatePOModal({ open, onClose, onSuccess, defaultPlantId
                         <div className="flex items-baseline justify-between">
                           <div className="text-sm font-medium text-gray-600">Total del Ítem</div>
                           <div className="text-3xl font-semibold text-gray-900 tabular-nums">
-                            {mxn.format((itemForm.qty_ordered || 0) * (itemForm.unit_price || 0))}
+                            {mxn.format(linePreviewTotal)}
                           </div>
                         </div>
                       </div>

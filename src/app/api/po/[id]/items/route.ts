@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POItemInputSchema } from '@/lib/validations/po';
+import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,14 +12,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
-  if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // Same inventory / procurement operators that work with entries and recepciones
+  if (!hasInventoryStandardAccess(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
-  // Ensure PO exists and belongs to the same plant for plant managers
+  // Ensure PO exists and belongs to the same plant for non-global roles
   let poQuery = supabase.from('purchase_orders').select('id, plant_id').eq('id', id).single();
   const { data: po } = await poQuery;
   if (!po) return NextResponse.json({ error: 'PO not found' }, { status: 404 });
-  if (profile.role === 'PLANT_MANAGER' && profile.plant_id && po.plant_id !== profile.plant_id) {
+  if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS' && profile.plant_id && po.plant_id !== profile.plant_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -71,6 +74,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Add material_supplier_id for fleet/service items
   if (payload.is_service && payload.material_supplier_id) {
     insertPayload.material_supplier_id = payload.material_supplier_id;
+  }
+
+  const { data: existingRows } = await supabase
+    .from('purchase_order_items')
+    .select('id, material_id, service_description, is_service')
+    .eq('po_id', id);
+
+  if (payload.is_service) {
+    const norm = (payload.service_description ?? '').trim().toLowerCase();
+    const dup = (existingRows || []).some(
+      (e: { is_service?: boolean; service_description?: string | null }) =>
+        Boolean(e.is_service) && (e.service_description ?? '').trim().toLowerCase() === norm
+    );
+    if (dup) {
+      return NextResponse.json(
+        { error: 'Ya existe una línea de servicio con la misma descripción en esta OC' },
+        { status: 409 }
+      );
+    }
+  } else if (payload.material_id) {
+    const dup = (existingRows || []).some(
+      (e: { is_service?: boolean; material_id?: string | null }) =>
+        !e.is_service && e.material_id === payload.material_id
+    );
+    if (dup) {
+      return NextResponse.json(
+        { error: 'Este material ya está en la orden de compra' },
+        { status: 409 }
+      );
+    }
+    // No validación de materials.supplier_id vs OC: el mismo insumo puede comprarse a distintos proveedores.
   }
 
   const { data, error } = await supabase

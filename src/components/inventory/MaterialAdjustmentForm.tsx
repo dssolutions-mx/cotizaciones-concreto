@@ -28,10 +28,29 @@ import { PendingFile } from '@/types/inventory'
 import MaterialSelect from './MaterialSelect'
 import SimpleFileUpload from './SimpleFileUpload'
 import { format } from 'date-fns'
+import { cn } from '@/lib/utils'
+
+const POSITIVE_ADJUSTMENT_TYPES = [
+  'initial_count',
+  'physical_count',
+  'positive_correction',
+] as const
+
+function isPositiveAdjustmentType(t: string): boolean {
+  return (POSITIVE_ADJUSTMENT_TYPES as readonly string[]).includes(t)
+}
 
 interface MaterialAdjustmentFormData {
   material_id: string
-  adjustment_type: 'consumption' | 'waste' | 'correction' | 'transfer' | 'loss'
+  adjustment_type:
+    | 'consumption'
+    | 'waste'
+    | 'correction'
+    | 'transfer'
+    | 'loss'
+    | 'initial_count'
+    | 'physical_count'
+    | 'positive_correction'
   quantity_adjusted: number
   reference_type?: string
   reference_notes: string
@@ -45,6 +64,27 @@ interface MaterialAdjustmentFormProps {
 }
 
 const adjustmentTypes = [
+  {
+    value: 'initial_count',
+    label: 'Conteo físico inicial',
+    description: 'Arranque de inventario tras conteo físico (suma al existente)',
+    color: 'green' as const,
+    icon: Plus,
+  },
+  {
+    value: 'physical_count',
+    label: 'Conteo físico',
+    description: 'Ajuste positivo por conteo físico',
+    color: 'green' as const,
+    icon: Plus,
+  },
+  {
+    value: 'positive_correction',
+    label: 'Corrección positiva',
+    description: 'Corrección que aumenta inventario',
+    color: 'green' as const,
+    icon: Plus,
+  },
   {
     value: 'consumption',
     label: 'Consumo',
@@ -112,8 +152,13 @@ export default function MaterialAdjustmentForm({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
 
-  // Allow signed quantity_adjusted: positive adds stock, negative reduces stock
-  const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_adjusted : null
+  // API: quantity_adjusted is always ≥ 0; positive types add, others subtract (matches POST /api/inventory/adjustments)
+  const inventoryAfter =
+    currentInventory !== null
+      ? isPositiveAdjustmentType(formData.adjustment_type)
+        ? currentInventory + formData.quantity_adjusted
+        : currentInventory - formData.quantity_adjusted
+      : null
 
   const selectedAdjustmentType = adjustmentTypes.find(
     type => type.value === formData.adjustment_type
@@ -323,15 +368,14 @@ export default function MaterialAdjustmentForm({
   }
 
   const getQuantitySign = () => {
-    // Show dynamic sign based on the entered quantity
-    return formData.quantity_adjusted >= 0 ? '+' : '-'
+    return isPositiveAdjustmentType(formData.adjustment_type) ? '+' : '-'
   }
 
   const getQuantityColor = () => {
-    // Color reflects whether the adjustment adds or removes stock
-    if (formData.quantity_adjusted > 0) return 'text-green-600'
-    if (formData.quantity_adjusted < 0) return 'text-red-600'
-    return 'text-gray-600'
+    if (formData.quantity_adjusted <= 0) return 'text-gray-600'
+    return isPositiveAdjustmentType(formData.adjustment_type)
+      ? 'text-green-600'
+      : 'text-red-600'
   }
 
   // Show warning if no plant is selected

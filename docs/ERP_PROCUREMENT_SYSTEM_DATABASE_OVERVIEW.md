@@ -2,7 +2,7 @@
 
 **Audience:** Database administrators, data analysts, and anyone working with the procurement/inventory database without prior knowledge of the application codebase.
 
-**Last updated:** February 2026
+**Last updated:** March 2026
 
 ---
 
@@ -299,3 +299,42 @@ WHERE mca.remision_material_id = 'remision-material-uuid';
 | **Cost layer** | A `material_entries` row representing one receipt with a unit cost |
 | **3-way match** | Comparison of PO, receipt, and invoice amounts |
 | **Credit** | Post-receipt price reduction applied to a PO item |
+
+---
+
+## 10. Procurement operator guide
+
+This section is for **staff using the app** (not only DB analysts). It matches the roles enforced in Next.js API routes and Row Level Security on `purchase_orders` / `purchase_order_items`.
+
+### 10.1 End-to-end flow
+
+```mermaid
+flowchart LR
+  PO[Orden de compra]
+  ME[Entrada de material]
+  AP[Factura / CXP]
+  PAY[Pago]
+
+  PO --> ME
+  ME --> AP
+  AP --> PAY
+```
+
+**Fleet / servicios:** some lines use `is_service = true` (no `material_id`); costs may follow a parallel path into payables. Material lines link `material_entries` to `purchase_order_items` for FIFO cost.
+
+### 10.2 Who can do what (summary)
+
+| Action | Typical roles |
+|--------|----------------|
+| Ver listado de OC y detalle | `EXECUTIVE`, `ADMIN_OPERATIONS`, `PLANT_MANAGER` (solo su planta) |
+| Crear / editar cabecera e ítems de OC | `EXECUTIVE`, `ADMIN_OPERATIONS` |
+| Aplicar crédito a una línea de OC | `EXECUTIVE`, `ADMIN_OPERATIONS` |
+| Ver CXP y registrar pagos (según pantalla) | `EXECUTIVE`, `ADMIN_OPERATIONS`, `PLANT_MANAGER`; registrar pago suele restringirse a roles centrales |
+
+RLS en Postgres debe permitir las mismas lecturas/escrituras que la API cuando se usa el cliente con JWT del usuario. Las tablas `payables` / `payments` pueden depender solo de la capa de aplicación según el despliegue; revise políticas actuales en su proyecto.
+
+### 10.3 Related documentation
+
+- Este documento (secciones 1–9): modelo de datos y consultas analíticas.
+- Pantalla **Finanzas → Centro de compras**: flujo resumido OC → entrada → CXP → pago.
+- **[PROCUREMENT_ROUTE_MATRIX.md](./PROCUREMENT_ROUTE_MATRIX.md)** — matriz de rutas API × roles, dos dashboards de inventario (`/api/inventory/dashboard` vs `dashboard-summary`), checklist de auditoría por entrada, y notas RLS.

@@ -66,6 +66,7 @@ export async function POST(
       remisionId,
       allocationsCreated: result.allocationsCreated,
       errors: result.errors.length > 0 ? result.errors : undefined,
+      skipped: result.skipped.length > 0 ? result.skipped : undefined,
       allocationResults: result.allocationResults,
     });
   } catch (error: any) {

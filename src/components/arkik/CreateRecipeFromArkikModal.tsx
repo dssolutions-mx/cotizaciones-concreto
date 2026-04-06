@@ -24,9 +24,12 @@ import { parseArkikCodeToSpecs } from '@/lib/utils/arkikCodeParser';
 import {
   deriveMaterialsFromArkikRow,
   createRecipeFromArkikData,
+  inferUnit,
+  type DeriveMaterialWithName,
 } from '@/lib/services/arkikRecipeCreationService';
+import MaterialSelect from '@/components/inventory/MaterialSelect';
 import { toast } from 'sonner';
-import { Loader2, Info, Search } from 'lucide-react';
+import { Loader2, Info, Search, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { MasterRecipeSearchModal } from '@/components/quality/recipes/MasterRecipeSearchModal';
 import type { MasterRecipeWithVariants } from '@/components/quality/recipes/MasterRecipeSearchModal';
@@ -38,6 +41,8 @@ interface CreateRecipeFromArkikModalProps {
   arkikCode: string;
   sourceRows: StagingRemision[];
   plantId: string;
+  /** When set, marks the quality-queue row resolved with the new recipe id after successful create. */
+  qualityRequestId?: string | null;
   onSuccess: () => void;
   onCancel: () => void;
 }
@@ -101,6 +106,7 @@ export function CreateRecipeFromArkikModal({
   arkikCode,
   sourceRows,
   plantId,
+  qualityRequestId,
   onSuccess,
   onCancel,
 }: CreateRecipeFromArkikModalProps) {
@@ -118,10 +124,14 @@ export function CreateRecipeFromArkikModal({
   const [editableSpec, setEditableSpec] = useState<ReturnType<typeof specToEditable> | null>(null);
 
   const [deriveResult, setDeriveResult] = useState<{
-    materials: { material_id: string; quantity: number; unit: string; material_name?: string; material_code: string }[];
+    materials: DeriveMaterialWithName[];
     unmapped: string[];
   } | null>(null);
   const [deriveError, setDeriveError] = useState<string | null>(null);
+  /** User-editable list (Arkik-derived + manually added plant materials). */
+  const [editableMaterials, setEditableMaterials] = useState<DeriveMaterialWithName[]>([]);
+  const [addMaterialId, setAddMaterialId] = useState('');
+  const [addQtyText, setAddQtyText] = useState('');
 
   type MasterOption = {
     id: string;
@@ -139,19 +149,32 @@ export function CreateRecipeFromArkikModal({
   const [searchModalOpen, setSearchModalOpen] = useState(false);
 
   useEffect(() => {
-    if (!isOpen || !sourceRow || !plantId) {
+    if (!isOpen || !plantId) {
       setDeriveResult(null);
       setDeriveError(null);
       setExistingMasters([]);
       setSelectedMasterId(null);
       setExternallySelectedMaster(null);
       setSearchModalOpen(false);
+      setEditableMaterials([]);
+      setAddMaterialId('');
+      setAddQtyText('');
+      return;
+    }
+    if (!sourceRow) {
+      setDeriveResult({ materials: [], unmapped: [] });
+      setDeriveError(null);
       return;
     }
     deriveMaterialsFromArkikRow(sourceRow, plantId)
       .then((r) => setDeriveResult({ materials: r.materials, unmapped: r.unmapped }))
       .catch((e) => setDeriveError(e.message));
   }, [isOpen, sourceRow, plantId]);
+
+  useEffect(() => {
+    if (!deriveResult) return;
+    setEditableMaterials(deriveResult.materials.map((m) => ({ ...m })));
+  }, [deriveResult]);
 
   useEffect(() => {
     if (!isOpen || !parsed || !plantId) {
@@ -237,12 +260,60 @@ export function CreateRecipeFromArkikModal({
     parsed &&
     editableSpec &&
     deriveResult &&
-    deriveResult.materials.length > 0 &&
+    editableMaterials.length > 0 &&
     !deriveError &&
     !isSubmitting;
 
+  const handleAddPlantMaterial = async () => {
+    if (!addMaterialId) {
+      toast.error('Selecciona un material del catálogo de la planta');
+      return;
+    }
+    const qty = parseFloat(addQtyText.replace(',', '.'));
+    if (!Number.isFinite(qty) || qty <= 0) {
+      toast.error('Ingresa una cantidad por m³ mayor a 0');
+      return;
+    }
+    const { data: m, error } = await supabase
+      .from('materials')
+      .select('id, material_code, material_name, category, unit_of_measure')
+      .eq('id', addMaterialId)
+      .eq('plant_id', plantId)
+      .maybeSingle();
+    if (error || !m) {
+      toast.error('No se pudo cargar el material');
+      return;
+    }
+    const unit = inferUnit(m.category, m.unit_of_measure ?? undefined);
+    const rounded = Math.round(qty * 100) / 100;
+    setEditableMaterials((prev) => {
+      const idx = prev.findIndex((x) => x.material_id === m.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = {
+          ...next[idx],
+          quantity: Math.round((next[idx].quantity + rounded) * 100) / 100,
+        };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          material_id: m.id,
+          material_code: m.material_code,
+          material_name: m.material_name,
+          category: m.category,
+          quantity: rounded,
+          unit,
+        },
+      ];
+    });
+    setAddMaterialId('');
+    setAddQtyText('');
+  };
+
   const handleConfirm = async () => {
-    if (!parsed || !editableSpec || !deriveResult || deriveResult.materials.length === 0) return;
+    if (!parsed || !editableSpec || !deriveResult || editableMaterials.length === 0) return;
     setIsSubmitting(true);
     setError(null);
     try {
@@ -251,12 +322,41 @@ export function CreateRecipeFromArkikModal({
         arkikCode,
         plantId,
         specification,
-        materials: deriveResult.materials,
+        materials: editableMaterials,
         masterCode: parsed.masterCode,
         variantSuffix: parsed.variantSuffix,
         masterId: selectedMasterId && selectedMasterId !== '__new__' ? selectedMasterId : undefined,
       });
-      toast.success(result.updated ? 'Receta actualizada exitosamente' : 'Receta creada exitosamente');
+      let queueResolved = false;
+      if (qualityRequestId) {
+        try {
+          const patchRes = await fetch('/api/arkik/quality-request', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: qualityRequestId,
+              status: 'resolved',
+              resolved_recipe_id: result.id,
+            }),
+          });
+          queueResolved = patchRes.ok;
+          if (!patchRes.ok) {
+            const pj = await patchRes.json().catch(() => ({}));
+            console.warn('[CreateRecipeFromArkikModal] quality request PATCH', patchRes.status, pj);
+          }
+        } catch (patchErr) {
+          console.warn('[CreateRecipeFromArkikModal] quality request PATCH failed', patchErr);
+        }
+      }
+      if (queueResolved) {
+        toast.success(
+          result.updated
+            ? 'Receta actualizada y solicitud Arkik resuelta'
+            : 'Receta creada y solicitud Arkik resuelta'
+        );
+      } else {
+        toast.success(result.updated ? 'Receta actualizada exitosamente' : 'Receta creada exitosamente');
+      }
       onSuccess();
       onCancel();
     } catch (e: any) {
@@ -466,35 +566,130 @@ export function CreateRecipeFromArkikModal({
               <section>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                   Materiales por m³
-                  {sourceRow?.volumen_fabricado && (
+                  {sourceRow?.volumen_fabricado ? (
                     <span className="normal-case font-normal ml-1">(teórico ÷ {sourceRow.volumen_fabricado} m³)</span>
+                  ) : (
+                    <span className="normal-case font-normal ml-1 text-amber-700">
+                      (sin remisión: agrega materiales del catálogo de la planta)
+                    </span>
                   )}
                 </h3>
                 {!deriveResult ? (
                   <p className="text-sm text-muted-foreground py-3">Cargando materiales…</p>
-                ) : deriveResult.materials.length > 0 ? (
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/50 border-b">
-                          <th className="text-left py-2.5 px-3 font-medium">Material</th>
-                          <th className="text-right py-2.5 px-3 font-medium w-28">Cantidad</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {deriveResult.materials.map((m) => (
-                          <tr key={m.material_id} className="border-b last:border-0">
-                            <td className="py-2 px-3">{m.material_name || m.material_id.slice(0, 8) + '…'}</td>
-                            <td className="py-2 px-3 text-right font-mono">{m.quantity} {m.unit}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
                 ) : (
-                  <p className="text-sm text-amber-600 py-2">
-                    No hay materiales. Deben existir en la planta con material_code = código Arkik.
-                  </p>
+                  <div className="space-y-4">
+                    <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                      <Label className="text-sm font-medium">Agregar material de esta planta</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Si faltan en el Arkik o no mapearon por código, elígelos aquí (catálogo activo de la planta).
+                      </p>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <MaterialSelect
+                            value={addMaterialId}
+                            onChange={(id) => setAddMaterialId(id)}
+                            plantId={plantId}
+                          />
+                        </div>
+                        <div className="flex gap-2 items-end sm:w-auto w-full">
+                          <div className="space-y-1.5 sm:w-28 w-full">
+                            <Label className="text-xs text-muted-foreground">Cant. / m³</Label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="ej. 350"
+                              value={addQtyText}
+                              onChange={(e) => setAddQtyText(e.target.value)}
+                              className="font-mono"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="shrink-0 gap-1.5"
+                            onClick={handleAddPlantMaterial}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Añadir
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    {editableMaterials.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-muted/50 border-b">
+                              <th className="text-left py-2.5 px-3 font-medium">Material</th>
+                              <th className="text-right py-2.5 px-3 font-medium w-36">Cantidad / m³</th>
+                              <th className="w-10 py-2.5 px-2" aria-label="Quitar" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {editableMaterials.map((m) => (
+                              <tr key={m.material_id} className="border-b last:border-0">
+                                <td className="py-2 px-3 align-middle">
+                                  <div className="font-medium">{m.material_name || '—'}</div>
+                                  {m.material_code && (
+                                    <div className="text-xs text-muted-foreground font-mono">{m.material_code}</div>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 align-middle">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      className="h-8 w-24 text-right font-mono text-sm"
+                                      value={String(m.quantity)}
+                                      onChange={(e) => {
+                                        const v = parseFloat(e.target.value.replace(',', '.'));
+                                        setEditableMaterials((prev) =>
+                                          prev.map((row) =>
+                                            row.material_id === m.material_id
+                                              ? {
+                                                  ...row,
+                                                  quantity: Number.isFinite(v)
+                                                    ? Math.round(v * 100) / 100
+                                                    : row.quantity,
+                                                }
+                                              : row
+                                          )
+                                        );
+                                      }}
+                                    />
+                                    <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                                      {m.unit}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2 align-middle text-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                    onClick={() =>
+                                      setEditableMaterials((prev) =>
+                                        prev.filter((row) => row.material_id !== m.material_id)
+                                      )
+                                    }
+                                    aria-label="Quitar material"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-amber-600 py-2">
+                        No hay materiales en la lista. Agrégalos desde el catálogo de la planta arriba, o revisa que el
+                        Arkik tenga teórico y códigos que existan como material_code en la planta.
+                      </p>
+                    )}
+                  </div>
                 )}
               </section>
             </>

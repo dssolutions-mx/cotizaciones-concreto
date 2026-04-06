@@ -99,7 +99,8 @@ export async function deriveMaterialsFromArkikRow(
   return { materials: result, unmapped };
 }
 
-function inferUnit(category?: string, unitOfMeasure?: string): string {
+/** Exposed for UI (e.g. CreateRecipeFromArkikModal) when adding plant materials manually. */
+export function inferUnit(category?: string, unitOfMeasure?: string): string {
   const cat = (category || '').toLowerCase();
   const uom = (unitOfMeasure || '').toLowerCase();
   if (cat === 'agua' || uom === 'l' || uom === 'l/m³') return 'L/m³';

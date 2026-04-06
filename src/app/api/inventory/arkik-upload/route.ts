@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
 export async function POST(request: NextRequest) {
   try {
@@ -52,10 +53,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
-      return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 401 });
+    if (!hasInventoryStandardAccess(profile.role)) {
+      return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
     // Process Arkik file upload (placeholder for integration)

@@ -29,14 +29,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Search, Calendar, Truck, User, Package, MapPin, Check, Info, FileText, Upload } from 'lucide-react';
+import { Search, Calendar, Truck, User, Package, MapPin, Check, Info, FileText, Upload, RefreshCw } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { RemisionPendingFile, RemisionDocument } from '@/types/remisiones';
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { format } from 'date-fns';
-import { toast } from 'sonner';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
+import { recalculateOrderAmount } from '@/services/orderService';
 
 // Plant interface for the form
 interface Plant {
@@ -80,6 +82,8 @@ interface OrderWithRemisiones {
     id: string;
     product_type: string;
     volume: number;
+    unit_price?: number | null;
+    pump_price?: number | null;
     has_pump_service: boolean;
     concrete_volume_delivered: number;
     pump_volume_delivered: number;
@@ -115,6 +119,8 @@ export default function PumpingServiceForm() {
   const [uploading, setUploading] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<RemisionPendingFile[]>([]);
   const [existingDocuments, setExistingDocuments] = useState<RemisionDocument[]>([]);
+  /** When evidence upload fails after remision insert, retry uploads against this id (no duplicate remision). */
+  const [evidenceRetryRemisionId, setEvidenceRetryRemisionId] = useState<string | null>(null);
   
   // Signed URL management (Supabase best practice)
   const { getSignedUrl, isLoading: urlLoading, getCachedUrl } = useSignedUrls('remision-documents', 3600);
@@ -227,6 +233,8 @@ export default function PumpingServiceForm() {
               id,
               product_type,
               volume,
+              unit_price,
+              pump_price,
               has_pump_service,
               concrete_volume_delivered,
               pump_volume_delivered
@@ -283,6 +291,9 @@ export default function PumpingServiceForm() {
   };
 
   const handleBackToRemisions = () => {
+    setEvidenceRetryRemisionId(null);
+    setPendingFiles([]);
+    setExistingDocuments([]);
     setSelectedRemision(null);
     setSelectedOrder(null);
     // Reset the form data when going back
@@ -316,54 +327,83 @@ export default function PumpingServiceForm() {
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Upload documents after remision creation
-  const uploadDocuments = async (remisionId: string) => {
-    if (pendingFiles.length === 0) return;
+  type EvidenceUploadBatchResult = {
+    allSucceeded: boolean;
+    attempted: number;
+    successCount: number;
+    failCount: number;
+    errors: string[];
+  };
+
+  /** Upload pending (or failed) evidence files for a remision. Skips entries already `uploaded`. */
+  const uploadDocuments = async (remisionId: string): Promise<EvidenceUploadBatchResult> => {
+    const initial = pendingFiles;
+    const attempted = initial.filter((f) => f.status !== 'uploaded').length;
 
     setUploading(true);
-    const uploadPromises = pendingFiles.map(async (fileInfo, index) => {
-      try {
-        const formData = new FormData();
-        formData.append('file', fileInfo.file);
-        formData.append('remision_id', remisionId);
-        formData.append('document_type', 'remision_proof'); // Default type for pumping service evidence
-        formData.append('document_category', 'pumping_remision');
-
-        const response = await fetch('/api/remisiones/documents', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
-        } else {
-          const error = await response.json();
-          console.error('Error uploading document:', error);
-          return { ...fileInfo, status: 'error' as const, error: error.error };
-        }
-      } catch (error) {
-        console.error('Error uploading document:', error);
-        return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' };
-      }
-    });
-
     try {
+      const uploadPromises = initial.map(async (fileInfo) => {
+        if (fileInfo.status === 'uploaded') {
+          return fileInfo;
+        }
+        try {
+          const formData = new FormData();
+          formData.append('file', fileInfo.file);
+          formData.append('remision_id', remisionId);
+          formData.append('document_type', 'remision_proof');
+          formData.append('document_category', 'pumping_remision');
+
+          const response = await fetch('/api/remisiones/documents', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
+          }
+
+          let message = 'Error al subir el documento';
+          try {
+            const body = await response.json();
+            message = (body.error as string) || message;
+          } catch {
+            /* ignore */
+          }
+          console.error('Error uploading document:', response.status, message);
+          return { ...fileInfo, status: 'error' as const, error: message };
+        } catch (error) {
+          console.error('Error uploading document:', error);
+          return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' };
+        }
+      });
+
       const results = await Promise.all(uploadPromises);
       setPendingFiles(results);
-      
-      const successCount = results.filter(f => f.status === 'uploaded').length;
-      if (successCount > 0) {
-        toast.success(`${successCount} archivo(s) subido(s) correctamente`);
-        
-        // Fetch updated documents list
+
+      let batchOk = 0;
+      let batchFail = 0;
+      for (let i = 0; i < initial.length; i++) {
+        if (initial[i].status === 'uploaded') continue;
+        if (results[i].status === 'uploaded') batchOk++;
+        else batchFail++;
+      }
+
+      const errors = results
+        .filter((f): f is RemisionPendingFile & { status: 'error' } => f.status === 'error')
+        .map((f) => f.error || 'Error desconocido');
+
+      if (batchOk > 0) {
         await fetchExistingDocuments(remisionId);
       }
-      
-      // Clear successfully uploaded files after a delay
-      setTimeout(() => {
-        setPendingFiles(prev => prev.filter(f => f.status !== 'uploaded'));
-      }, 3000);
+
+      return {
+        allSucceeded: attempted === 0 || batchFail === 0,
+        attempted,
+        successCount: batchOk,
+        failCount: batchFail,
+        errors,
+      };
     } finally {
       setUploading(false);
     }
@@ -450,6 +490,40 @@ export default function PumpingServiceForm() {
     }
   };
 
+  const handleRetryEvidenceUpload = async () => {
+    if (!evidenceRetryRemisionId) return;
+    try {
+      setLoading(true);
+      const r = await uploadDocuments(evidenceRetryRemisionId);
+      if (r.attempted > 0 && r.failCount > 0) {
+        showError(r.errors[0] ?? `No se pudieron subir ${r.failCount} archivo(s).`);
+        return;
+      }
+      showSuccess(
+        r.successCount > 0
+          ? `${r.successCount} archivo(s) de evidencia guardado(s) correctamente.`
+          : 'Evidencia actualizada correctamente.'
+      );
+      setEvidenceRetryRemisionId(null);
+      setFormData((prev) => ({
+        ...prev,
+        remisionNumber: '',
+        fecha: new Date().toISOString().split('T')[0],
+        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5),
+        volumen: '',
+        conductor: '',
+        unidad: '',
+      }));
+      setPendingFiles([]);
+      setExistingDocuments([]);
+      setSelectedRemision(null);
+      setSelectedOrder(null);
+      setActiveTab('select-remision');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -468,22 +542,28 @@ export default function PumpingServiceForm() {
 
       const volumen = parseFloat(formData.volumen) || 0;
 
+      const unitPrice = await fetchApprovedPumpUnitPrice(
+        supabase,
+        selectedOrder.client_id,
+        selectedOrder.construction_site
+      );
+
       // 1. Check if there's already a pumping service item in the order, if not, create one
       let pumpServiceItem = selectedOrder.order_items.find(item =>
         item.product_type === 'SERVICIO DE BOMBEO'
       );
 
       if (!pumpServiceItem) {
-        // Create a new pumping service item for this order
+        const totalPrice = unitPrice * volumen;
         const orderItemPayload = {
           order_id: selectedOrder.id,
           product_type: 'SERVICIO DE BOMBEO',
           volume: volumen,
-          unit_price: 0, // No price for pumping service
-          total_price: 0, // No total price for pumping service
+          unit_price: unitPrice,
+          total_price: totalPrice,
           has_pump_service: true,
-          pump_price: 0, // No pump price
-          pump_volume: volumen, // Set pump volume to the pumping service volume
+          pump_price: unitPrice,
+          pump_volume: volumen,
         };
 
         const { data: newItem, error: orderItemError } = await supabase
@@ -494,6 +574,23 @@ export default function PumpingServiceForm() {
 
         if (orderItemError) throw orderItemError;
         pumpServiceItem = newItem;
+      } else {
+        const priceMissing =
+          pumpServiceItem.pump_price == null ||
+          Number(pumpServiceItem.pump_price) === 0;
+        if (priceMissing && unitPrice > 0) {
+          const vol = pumpServiceItem.volume ?? volumen;
+          const { error: updatePriceError } = await supabase
+            .from('order_items')
+            .update({
+              unit_price: unitPrice,
+              pump_price: unitPrice,
+              total_price: unitPrice * vol,
+            })
+            .eq('id', pumpServiceItem.id);
+
+          if (updatePriceError) throw updatePriceError;
+        }
       }
 
       // 2. Prepare the payload for the pumping service remision
@@ -525,31 +622,47 @@ export default function PumpingServiceForm() {
 
       if (remisionError) throw remisionError;
 
-      showSuccess('Remisión de bombeo registrada correctamente');
-      
-      // Upload pending documents if any
-      if (pendingFiles.length > 0) {
-        await uploadDocuments(remisionData.id);
+      try {
+        await recalculateOrderAmount(selectedOrder.id);
+      } catch (recalcErr) {
+        console.error('recalculateOrderAmount after bombeo remisión:', recalcErr);
+      }
+
+      const newRemisionId = remisionData.id;
+      const uploadResult = await uploadDocuments(newRemisionId);
+
+      if (uploadResult.attempted > 0 && uploadResult.failCount > 0) {
+        setEvidenceRetryRemisionId(newRemisionId);
+        showError(
+          uploadResult.errors[0] ??
+            `No se pudieron subir ${uploadResult.failCount} archivo(s). La remisión ya fue registrada. Use «Reintentar evidencia» o corrija los archivos.`
+        );
+        return;
+      }
+
+      setEvidenceRetryRemisionId(null);
+
+      if (uploadResult.successCount > 0) {
+        showSuccess(
+          `Remisión de bombeo registrada correctamente. ${uploadResult.successCount} archivo(s) de evidencia guardado(s).`
+        );
+      } else {
+        showSuccess('Remisión de bombeo registrada correctamente.');
       }
 
       // Resetear formulario pero mantener filtros de búsqueda
-      // Remision number will be set when a new remision is selected
       setFormData(prev => ({
         ...prev,
-        remisionNumber: '', // Will be set when new remision is selected
-        fecha: new Date().toISOString().split('T')[0], // Reset to current date for next pumping service
-        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5), // Reset to current time
+        remisionNumber: '',
+        fecha: new Date().toISOString().split('T')[0],
+        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5),
         volumen: '',
         conductor: '',
         unidad: '',
-        // Keep plantId and filterDate for continued use
       }));
-      
-      // Reset attachment state
+
       setPendingFiles([]);
       setExistingDocuments([]);
-
-      // Go back to remision selection
       setSelectedRemision(null);
       setSelectedOrder(null);
       setActiveTab('select-remision');
@@ -1052,13 +1165,41 @@ export default function PumpingServiceForm() {
                 </CardContent>
               </Card>
 
+              {evidenceRetryRemisionId && (
+                <Alert variant="destructive">
+                  <AlertTitle>No se guardó toda la evidencia</AlertTitle>
+                  <AlertDescription className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                      La remisión ya está registrada. Corrija los archivos con error y pulse reintentar, o vuelva atrás
+                      para abandonar.
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={handleRetryEvidenceUpload}
+                      disabled={loading || uploading}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Reintentar evidencia
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Submit Button */}
               <div className="flex justify-end pt-4 border-t mt-4">
                 <button
                   type="submit"
-                  disabled={loading || plantContextLoading || !formData.plantId}
+                  disabled={loading || plantContextLoading || !formData.plantId || !!evidenceRetryRemisionId}
                   className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ border: '0' }}
+                  title={
+                    evidenceRetryRemisionId
+                      ? 'Resuelva la evidencia pendiente antes de registrar otra remisión'
+                      : undefined
+                  }
                 >
                   {loading ? 'Guardando...' : 'Guardar Remisión de Bombeo'}
                 </button>

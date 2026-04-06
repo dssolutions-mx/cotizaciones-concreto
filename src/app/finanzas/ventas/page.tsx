@@ -467,9 +467,11 @@ export default function VentasDashboard() {
   const clientVolumeData = useMemo(() => {
      const clientSummary = filteredRemisionesWithVacioDeOlla.reduce((acc: Record<string, { clientName: string; volume: number }>, remision) => {
         const clientId = remision.order?.client_id || 'unknown';
-        const clientName = remision.order.clients ?
-          (typeof remision.order.clients === 'object' ?
-            (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
+        const clients = remision.order?.clients;
+        const clientName = clients
+          ? typeof clients === 'object'
+            ? (clients as { business_name?: string }).business_name || 'Desconocido'
+            : 'Desconocido'
           : 'Desconocido';
 
         if (!acc[clientId]) {
@@ -492,9 +494,11 @@ export default function VentasDashboard() {
   const clientAmountData = useMemo(() => {
     const clientSummary = filteredRemisionesWithVacioDeOlla.reduce((acc: Record<string, { clientName: string; volume: number; amount: number }>, remision) => {
       const clientId = remision.order?.client_id || 'unknown';
-      const clientName = remision.order.clients ?
-        (typeof remision.order.clients === 'object' ?
-          (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
+      const clients = remision.order?.clients;
+      const clientName = clients
+        ? typeof clients === 'object'
+          ? (clients as { business_name?: string }).business_name || 'Desconocido'
+          : 'Desconocido'
         : 'Desconocido';
 
       if (!acc[clientId]) {
@@ -878,6 +882,7 @@ export default function VentasDashboard() {
             .eq('plant_id', plant.id)  // Filter by specific plant (like production page)
             .gte('fecha', from)
             .lte('fecha', to)
+            .eq('is_production_record', false)
             .order('fecha', { ascending: false });
 
           if (remError) throw remError;

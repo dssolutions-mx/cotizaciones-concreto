@@ -30,14 +30,17 @@ import {
   ClipboardPlus,
   ChevronDown,
   ChevronUp,
+  Link2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
+import { buildProcurementUrl } from '@/lib/procurement/navigation'
 import StatCard from './ui/StatCard'
 import type { MaterialAlert, AlertStatus } from '@/types/alerts'
 import { cn } from '@/lib/utils'
+import CreatePOModal, { type PrefillFleetFromAlert } from '@/components/po/CreatePOModal'
 
 const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string; icon: React.ElementType }> = {
   pending_confirmation: { label: 'Pendiente confirmación', color: 'bg-amber-100 text-amber-800', icon: Clock },
@@ -53,7 +56,7 @@ const STATUS_CONFIG: Record<AlertStatus, { label: string; color: string; icon: R
   cancelled: { label: 'Cancelada', color: 'bg-stone-100 text-stone-500', icon: XCircle },
 }
 
-type PanelMode = 'confirm' | 'validate' | 'schedule' | null
+type PanelMode = 'confirm' | 'validate' | 'schedule' | 'link_po' | null
 
 export default function MaterialAlertsPage() {
   const { currentPlant } = usePlantContext()
@@ -80,16 +83,23 @@ export default function MaterialAlertsPage() {
     validation_notes: '',
     existing_po_id: '',
     needs_new_po: false,
+    needs_fleet: false,
+    fleet_notes: '',
     scheduled_delivery_date: '',
   })
   const [submitting, setSubmitting] = useState(false)
+  /** Crear OC desde alerta pending_po; al guardar se vincula automáticamente. */
+  const [createPOOpen, setCreatePOOpen] = useState(false)
+  const [alertForCreatePO, setAlertForCreatePO] = useState<MaterialAlert | null>(null)
+  /** Segundo paso: OC de flete cuando la alerta requiere transporte independiente */
+  const [fleetPOContext, setFleetPOContext] = useState<PrefillFleetFromAlert | null>(null)
   /** Evita mismatch de hidratación en pestañas (SSR vs cliente / caché). */
   const [filterTabsReady, setFilterTabsReady] = useState(false)
 
   const myActionableStatuses: AlertStatus[] = useMemo(() => {
     const role = profile?.role || ''
     if (role === 'DOSIFICADOR') return ['pending_confirmation']
-    if (role === 'PLANT_MANAGER') return ['pending_validation', 'confirmed']
+    if (role === 'PLANT_MANAGER') return ['pending_validation', 'confirmed', 'pending_po']
     if (['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE'].includes(role))
       return ['po_linked', 'validated', 'pending_po']
     return []
@@ -269,7 +279,14 @@ export default function MaterialAlertsPage() {
   }
 
   const startValidate = (alert: MaterialAlert) => {
-    setFormData((prev) => ({ ...prev, validation_notes: '', existing_po_id: '', needs_new_po: false }))
+    setFormData((prev) => ({
+      ...prev,
+      validation_notes: '',
+      existing_po_id: '',
+      needs_new_po: false,
+      needs_fleet: !!alert.needs_fleet,
+      fleet_notes: alert.fleet_notes || '',
+    }))
     setOpenPanel({ alertId: alert.id, mode: 'validate' })
     fetchPOsForAlert(alert)
   }
@@ -277,6 +294,38 @@ export default function MaterialAlertsPage() {
   const startSchedule = (alert: MaterialAlert) => {
     setFormData((prev) => ({ ...prev, scheduled_delivery_date: '' }))
     setOpenPanel({ alertId: alert.id, mode: 'schedule' })
+  }
+
+  const startLinkPO = (alert: MaterialAlert) => {
+    setFormData((prev) => ({ ...prev, existing_po_id: '' }))
+    setOpenPanel({ alertId: alert.id, mode: 'link_po' })
+    void fetchPOsForAlert(alert)
+  }
+
+  const handleLinkPO = async (alertId: string) => {
+    if (!formData.existing_po_id) {
+      toast.error('Seleccione una orden de compra')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const res = await fetch(`/api/alerts/material/${alertId}/link-po`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ po_id: formData.existing_po_id }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        closePanel()
+        toast.success('OC vinculada — puede programar la entrega')
+        void fetchPlantStats()
+        void fetchAlerts()
+      } else {
+        toast.error(json.error || 'No se pudo vincular la OC')
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleConfirm = async (alertId: string) => {
@@ -314,6 +363,8 @@ export default function MaterialAlertsPage() {
           existing_po_id: formData.existing_po_id || undefined,
           validation_notes: formData.validation_notes || undefined,
           needs_new_po: formData.needs_new_po,
+          needs_fleet: formData.needs_fleet,
+          fleet_notes: formData.fleet_notes || undefined,
         }),
       })
       const json = await res.json()
@@ -365,7 +416,14 @@ export default function MaterialAlertsPage() {
 
   const isDosificador = profile?.role === 'DOSIFICADOR'
   const isManager = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
-  const isAdmin = ['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE'].includes(profile?.role || '')
+  /** Vincular OC a alerta (API: PLANT_MANAGER, EXECUTIVE, ADMIN_OPERATIONS) */
+  const canLinkPO = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
+  /** Crear OC (API: EXECUTIVE, ADMIN_OPERATIONS) */
+  const canCreatePOFromAlert = ['EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile?.role || '')
+  /** Programar entrega — alineado con POST /schedule */
+  const canScheduleDelivery = ['ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'EXECUTIVE', 'PLANT_MANAGER'].includes(
+    profile?.role || ''
+  )
 
   const getTimeRemaining = (deadline: string | null | undefined) => {
     if (!deadline) return null
@@ -382,9 +440,24 @@ export default function MaterialAlertsPage() {
   const isPanelOpen = (alertId: string, mode: PanelMode) =>
     openPanel?.alertId === alertId && openPanel?.mode === mode
 
+  const comprasHref = buildProcurementUrl('/finanzas/procurement', {
+    plantId: currentPlant?.id || undefined,
+    tab: 'inventario',
+  })
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto w-full">
       <InventoryBreadcrumb />
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          href={comprasHref}
+          className="text-xs font-medium text-sky-800 hover:text-sky-950 hover:underline"
+        >
+          Centro de compras
+        </Link>
+        <span className="text-stone-300">·</span>
+        <span className="text-xs text-stone-500">Coordinación OC y CXP</span>
+      </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
@@ -550,6 +623,17 @@ export default function MaterialAlertsPage() {
                             </span>
                           )}
                           {alert.scheduled_delivery_date && <span>Entrega: {alert.scheduled_delivery_date}</span>}
+                          {alert.needs_fleet && (
+                            <span className="inline-flex items-center gap-1 text-amber-900">
+                              <Truck className="h-3.5 w-3.5" />
+                              Flete independiente
+                              {!alert.fleet_po_id && (
+                                <Badge variant="outline" className="text-[10px] border-amber-400 bg-amber-100">
+                                  Flete pendiente
+                                </Badge>
+                              )}
+                            </span>
+                          )}
                         </div>
                         {alert.discrepancy_notes && (
                           <p className="text-xs text-stone-500 mt-1">Discrepancia: {alert.discrepancy_notes}</p>
@@ -572,17 +656,17 @@ export default function MaterialAlertsPage() {
                         {alert.status === 'pending_confirmation' && (isDosificador || isManager) && (
                           <Button
                             size="sm"
-                            variant={isPanelOpen && openPanel?.mode === 'confirm' ? 'secondary' : 'solid'}
+                            variant={isPanelOpen(alert.id, 'confirm') ? 'secondary' : 'solid'}
                             className={cn(
                               'min-h-10',
-                              !(isPanelOpen && openPanel?.mode === 'confirm') &&
+                              !isPanelOpen(alert.id, 'confirm') &&
                                 'bg-stone-900 text-white hover:bg-stone-800 shadow-none'
                             )}
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'confirm' ? closePanel() : startConfirm(alert)
+                              isPanelOpen(alert.id, 'confirm') ? closePanel() : startConfirm(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'confirm' ? (
+                            {isPanelOpen(alert.id, 'confirm') ? (
                               <>
                                 <ChevronUp className="h-4 w-4 mr-1" />
                                 Cerrar
@@ -601,22 +685,60 @@ export default function MaterialAlertsPage() {
                             variant="outline"
                             className="min-h-10"
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'validate' ? closePanel() : startValidate(alert)
+                              isPanelOpen(alert.id, 'validate') ? closePanel() : startValidate(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'validate' ? 'Cerrar' : 'Validar'}
+                            {isPanelOpen(alert.id, 'validate') ? 'Cerrar' : 'Validar'}
                           </Button>
                         )}
-                        {['po_linked', 'validated'].includes(alert.status) && isAdmin && (
+                        {alert.status === 'pending_po' && canLinkPO && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="min-h-10"
+                              onClick={() =>
+                                isPanelOpen(alert.id, 'link_po') ? closePanel() : startLinkPO(alert)
+                              }
+                            >
+                              {isPanelOpen(alert.id, 'link_po') ? (
+                                <>
+                                  <ChevronUp className="h-4 w-4 mr-1" />
+                                  Cerrar
+                                </>
+                              ) : (
+                                <>
+                                  <Link2 className="h-4 w-4 mr-1" />
+                                  Vincular OC
+                                </>
+                              )}
+                            </Button>
+                            {canCreatePOFromAlert && (
+                              <Button
+                                size="sm"
+                                variant="solid"
+                                className="min-h-10 bg-sky-800 text-white hover:bg-sky-900 shadow-none"
+                                onClick={() => {
+                                  setAlertForCreatePO(alert)
+                                  setCreatePOOpen(true)
+                                }}
+                              >
+                                <ShoppingCart className="h-4 w-4 mr-1" />
+                                Crear OC
+                              </Button>
+                            )}
+                          </>
+                        )}
+                        {['po_linked', 'validated'].includes(alert.status) && canScheduleDelivery && (
                           <Button
                             size="sm"
                             variant="outline"
                             className="min-h-10"
                             onClick={() =>
-                              isPanelOpen && openPanel?.mode === 'schedule' ? closePanel() : startSchedule(alert)
+                              isPanelOpen(alert.id, 'schedule') ? closePanel() : startSchedule(alert)
                             }
                           >
-                            {isPanelOpen && openPanel?.mode === 'schedule' ? 'Cerrar' : 'Programar entrega'}
+                            {isPanelOpen(alert.id, 'schedule') ? 'Cerrar' : 'Programar entrega'}
                           </Button>
                         )}
                       </div>
@@ -771,6 +893,39 @@ export default function MaterialAlertsPage() {
                             Requiere nueva orden de compra
                           </label>
                         </div>
+                        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            id={`needs_fleet_${alert.id}`}
+                            checked={formData.needs_fleet}
+                            onChange={(e) =>
+                              setFormData((prev) => ({ ...prev, needs_fleet: e.target.checked }))
+                            }
+                            className="mt-1"
+                          />
+                          <div className="min-w-0">
+                            <label htmlFor={`needs_fleet_${alert.id}`} className="text-sm font-medium flex items-center gap-1">
+                              <Truck className="h-3.5 w-3.5 shrink-0" />
+                              Requiere flete independiente
+                            </label>
+                            <p className="text-xs text-stone-600 mt-0.5">
+                              Marque si el proveedor de material no incluye transporte y se contratará flete aparte.
+                            </p>
+                          </div>
+                        </div>
+                        {formData.needs_fleet && (
+                          <div>
+                            <label className="text-sm font-medium">Notas de flete (opcional)</label>
+                            <Textarea
+                              className="mt-1"
+                              placeholder="Ej. ruta, contacto de transportes…"
+                              value={formData.fleet_notes}
+                              onChange={(e) =>
+                                setFormData((prev) => ({ ...prev, fleet_notes: e.target.value }))
+                              }
+                            />
+                          </div>
+                        )}
                         <div>
                           <label className="text-sm font-medium">Notas de validación</label>
                           <Textarea
@@ -790,6 +945,57 @@ export default function MaterialAlertsPage() {
                           disabled={submitting}
                         >
                           {submitting ? 'Validando…' : 'Validar alerta'}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Inline: vincular OC (pending_po) */}
+                    {isPanelOpen(alert.id, 'link_po') && (
+                      <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50/50 p-4 space-y-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-purple-900">
+                          Vincular orden de compra existente
+                        </p>
+                        <p className="text-sm text-stone-700">
+                          Elija una OC abierta con saldo pendiente para <strong>{mat}</strong> en esta planta.
+                        </p>
+                        {loadingPOs ? (
+                          <p className="text-sm text-stone-500">Cargando OCs…</p>
+                        ) : availablePOs.length > 0 ? (
+                          <Select
+                            value={formData.existing_po_id || 'none'}
+                            onValueChange={(v) =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                existing_po_id: v === 'none' ? '' : v,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Seleccionar OC…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">— Seleccionar —</SelectItem>
+                              {availablePOs.map((po) => (
+                                <SelectItem key={po.id} value={po.id}>
+                                  {po.po_number} — {po.supplier_name} — {po.pending_summary}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                            No hay OCs abiertas con saldo para este material. Use &quot;Crear OC&quot; o verifique el
+                            proveedor.
+                          </p>
+                        )}
+                        <Button
+                          type="button"
+                          variant="solid"
+                          className="min-h-11 bg-sky-800 hover:bg-sky-900 text-white shadow-none"
+                          onClick={() => handleLinkPO(alert.id)}
+                          disabled={submitting || !formData.existing_po_id}
+                        >
+                          {submitting ? 'Vinculando…' : 'Vincular OC'}
                         </Button>
                       </div>
                     )}
@@ -829,6 +1035,69 @@ export default function MaterialAlertsPage() {
           })}
         </div>
       )}
+
+      <CreatePOModal
+        open={createPOOpen}
+        onClose={() => {
+          setCreatePOOpen(false)
+          setAlertForCreatePO(null)
+        }}
+        defaultPlantId={alertForCreatePO?.plant_id}
+        defaultMaterialId={alertForCreatePO?.material_id}
+        prefillFromAlert={
+          alertForCreatePO
+            ? {
+                alertId: alertForCreatePO.id,
+                materialId: alertForCreatePO.material_id,
+                plantId: alertForCreatePO.plant_id,
+                suggestedQtyKg: Math.max(
+                  Number(alertForCreatePO.physical_count_kg ?? alertForCreatePO.triggered_stock_kg) || 0,
+                  1
+                ),
+              }
+            : null
+        }
+        onSuccess={(createdPoId, meta) => {
+          if (createdPoId && alertForCreatePO) {
+            const a = alertForCreatePO
+            setCreatePOOpen(false)
+            setAlertForCreatePO(null)
+            void fetchPlantStats()
+            void fetchAlerts()
+            // CreatePOModal ya vinculó la OC a la alerta cuando hay prefillFromAlert
+            if (
+              a.needs_fleet &&
+              !a.fleet_po_id &&
+              meta?.materialSupplierId &&
+              typeof window !== 'undefined' &&
+              window.confirm(
+                'Esta alerta requiere flete independiente. ¿Crear orden de compra de servicio de flete ahora?'
+              )
+            ) {
+              setFleetPOContext({
+                alertId: a.id,
+                plantId: a.plant_id,
+                materialSupplierId: meta.materialSupplierId,
+              })
+            }
+          } else {
+            void fetchPlantStats()
+            void fetchAlerts()
+          }
+        }}
+      />
+
+      <CreatePOModal
+        open={!!fleetPOContext}
+        onClose={() => setFleetPOContext(null)}
+        defaultPlantId={fleetPOContext?.plantId}
+        prefillFleetFromAlert={fleetPOContext}
+        onSuccess={() => {
+          setFleetPOContext(null)
+          void fetchPlantStats()
+          void fetchAlerts()
+        }}
+      />
     </div>
   )
 }

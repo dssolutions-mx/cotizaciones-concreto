@@ -54,6 +54,11 @@ export interface MaterialAlert {
   validated_at?: string | null;
   existing_po_id?: string | null;
   validation_notes?: string | null;
+  /** Material supplier does not include shipping — separate fleet PO expected */
+  needs_fleet?: boolean | null;
+  fleet_notes?: string | null;
+  /** Linked PO for transport / fleet service */
+  fleet_po_id?: string | null;
 
   // Delivery scheduling (Step 6)
   scheduled_delivery_date?: string | null;
@@ -80,6 +85,20 @@ export interface MaterialAlert {
     name: string;
     code: string;
   };
+  /** Embedded from purchase_orders when existing_po_id is set (list/detail queries). */
+  linked_po?: {
+    id: string;
+    po_number?: string | null;
+    status?: string | null;
+    po_date?: string | null;
+    notes?: string | null;
+    supplier?: {
+      id: string;
+      name: string;
+      provider_number?: number | null;
+      provider_letter?: string | null;
+    } | null;
+  } | null;
   confirmed_by_user?: {
     first_name: string;
     last_name: string;
@@ -145,6 +164,8 @@ export interface ValidateAlertInput {
   existing_po_id?: string;
   validation_notes?: string;
   needs_new_po?: boolean;
+  needs_fleet?: boolean;
+  fleet_notes?: string;
 }
 
 export interface ScheduleDeliveryInput {
@@ -168,6 +189,8 @@ export interface AlertFilters {
   plant_id?: string;
   status?: AlertStatus | AlertStatus[];
   material_id?: string;
+  /** Filter alerts linked to this purchase order */
+  existing_po_id?: string;
   date_from?: string;
   date_to?: string;
 }

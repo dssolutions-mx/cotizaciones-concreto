@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryDashboardService } from '@/services/inventoryDashboardService';
 import { InventoryDashboardFilters } from '@/types/inventory';
+import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,9 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para acceder al dashboard de inventario' }, { status: 403 });
     }
 
@@ -71,32 +70,28 @@ export async function GET(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Determine target plant ID based on user role and permissions
-    let targetPlantId = profile.plant_id;
-    
-    // EXECUTIVE users can specify any plant_id or use their assigned one
-    if (profile.role === 'EXECUTIVE') {
+    // Global ops (EXECUTIVE, ADMIN_OPERATIONS): optional plant_id query; else require profile.plant_id
+    let targetPlantId = profile.plant_id as string | null | undefined;
+    if (isGlobalInventoryRole(profile.role)) {
       if (plantId) {
         targetPlantId = plantId;
       } else if (!profile.plant_id) {
-        // EXECUTIVE without assigned plant must specify one
-        return NextResponse.json({ 
-          error: 'Debe especificar una planta (plant_id)' 
+        return NextResponse.json({
+          error: 'Debe especificar una planta (plant_id)',
         }, { status: 400 });
       }
     } else {
-      // Non-EXECUTIVE users must have an assigned plant
       if (!profile.plant_id) {
-        return NextResponse.json({ 
-          error: 'Usuario sin planta asignada' 
-        }, { status: 400 });
+        return NextResponse.json(
+          { error: 'Usuario sin planta asignada' },
+          { status: 400 }
+        );
       }
-      
-      // Non-EXECUTIVE users cannot access other plants
       if (plantId && plantId !== profile.plant_id) {
-        return NextResponse.json({ 
-          error: 'Sin permisos para acceder a la planta especificada' 
-        }, { status: 403 });
+        return NextResponse.json(
+          { error: 'Sin permisos para acceder a la planta especificada' },
+          { status: 403 }
+        );
       }
     }
 

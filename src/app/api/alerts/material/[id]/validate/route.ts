@@ -30,6 +30,8 @@ export async function POST(
       existing_po_id: body.existing_po_id,
       validation_notes: body.validation_notes,
       needs_new_po: body.needs_new_po,
+      needs_fleet: body.needs_fleet,
+      fleet_notes: body.fleet_notes,
     }, user.id);
 
     return NextResponse.json({ success: true, data: alert });

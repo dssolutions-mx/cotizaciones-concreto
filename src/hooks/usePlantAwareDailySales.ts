@@ -60,7 +60,8 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       let remisionesQuery = supabase
         .from('remisiones')
         .select('*')
-        .eq('fecha', date);
+        .eq('fecha', date)
+        .eq('is_production_record', false);
 
       if (plantIds && plantIds.length > 0) {
         remisionesQuery = remisionesQuery.in('plant_id', plantIds);
@@ -153,7 +154,8 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       let allRemisionesQuery = supabase
         .from('remisiones')
         .select('order_id, fecha, tipo_remision, volumen_fabricado')
-        .in('order_id', orderIds);
+        .in('order_id', orderIds)
+        .eq('is_production_record', false);
       if (plantIds && plantIds.length > 0) {
         allRemisionesQuery = allRemisionesQuery.in('plant_id', plantIds);
       } else if (plantIds && plantIds.length === 0) {
@@ -261,7 +263,12 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
 
         const fullSubtotal = Number(order.final_amount || 0);
         const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-        const vatMultiplier = fullSubtotal > 0 ? fullTotalWithVAT / fullSubtotal : (order.requires_invoice ? 1.16 : 1);
+        const vatMultiplier =
+          fullSubtotal > 0
+            ? fullTotalWithVAT / fullSubtotal
+            : order.requires_invoice && Number(order.final_amount) > 0
+              ? Number(order.invoice_amount || order.final_amount) / Number(order.final_amount)
+              : 1;
 
         totalSubtotal += subtotal;
         totalWithVAT += subtotal * vatMultiplier;

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { userMessageForDbError } from '@/lib/procurementApiError';
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,14 +35,19 @@ export async function GET(request: NextRequest) {
     const due_from = searchParams.get('due_from') || undefined;
     const due_to = searchParams.get('due_to') || undefined;
     const po_id = searchParams.get('po_id') || undefined;
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
-    const include = searchParams.get('include');
+    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const include = searchParams.get('include') || '';
+    const includeFlags = new Set(
+      include.split(',').map(s => s.trim()).filter(Boolean)
+    );
+    const wantItems = includeFlags.has('items');
+    const wantPayments = includeFlags.has('payments');
 
     // Always query payables first, then optionally enrich items in a second step.
     // This avoids fragile PostgREST nested embeddings that can fail on schema drift.
     const baseSelectNoItems = `*, supplier:suppliers!supplier_id (name)`;
-    let query = supabase.from('payables').select(baseSelectNoItems);
+    let query = supabase.from('payables').select(baseSelectNoItems, { count: 'exact' });
 
     // Role-based plant scoping
     if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
@@ -81,10 +87,15 @@ export async function GET(request: NextRequest) {
     const result = await query.order('due_date', { ascending: true }).range(offset, offset + limit - 1);
     const data = result.data;
     const error = result.error;
+    const totalCount = result.count;
 
     if (error) {
       console.error('GET /api/ap/payables query error:', error.message, (error as any).details);
-      return NextResponse.json({ error: 'Failed to fetch payables' }, { status: 500 });
+      const hint = userMessageForDbError(error);
+      return NextResponse.json(
+        { error: hint ?? 'No se pudieron cargar las cuentas por pagar', detail: error.message },
+        { status: 500 }
+      );
     }
 
     const payablesData = data || [];
@@ -116,8 +127,41 @@ export async function GET(request: NextRequest) {
       amount_paid: amountPaidByPayable[String(row.id)] ?? 0,
     }));
 
+    let paymentHistoryByPayable: Record<string, Array<{ payment_date: string; amount: number; method?: string; reference?: string }>> = {};
+    if (wantPayments && payableIds.length > 0) {
+      try {
+        const { data: payRows, error: payErr } = await supabase
+          .from('payments')
+          .select('payable_id, payment_date, amount, method, reference')
+          .in('payable_id', payableIds)
+          .order('payment_date', { ascending: false });
+        if (!payErr && Array.isArray(payRows)) {
+          for (const r of payRows) {
+            const pid = String((r as any).payable_id);
+            if (!paymentHistoryByPayable[pid]) paymentHistoryByPayable[pid] = [];
+            paymentHistoryByPayable[pid].push({
+              payment_date: (r as any).payment_date,
+              amount: Number((r as any).amount) || 0,
+              method: (r as any).method,
+              reference: (r as any).reference,
+            });
+          }
+        }
+      } catch (_e) {
+        paymentHistoryByPayable = {};
+      }
+    }
+
+    const attachPaymentHistory = (rows: any[]) =>
+      wantPayments
+        ? rows.map((row: any) => ({
+            ...row,
+            payment_history: paymentHistoryByPayable[String(row.id)] || [],
+          }))
+        : rows;
+
     // Optional enrichment: items + entry details in second step
-    if (include === 'items' && payableIds.length > 0) {
+    if (wantItems && payableIds.length > 0) {
       const { data: payableItemsData, error: itemsErr } = await supabase
         .from('payable_items')
         .select('id, payable_id, entry_id, amount, cost_category, created_at, po_item_id')
@@ -159,15 +203,27 @@ export async function GET(request: NextRequest) {
         ...row,
         items: itemsByPayable[String(row.id)] || [],
       }));
-      return NextResponse.json({ payables: withItems });
+      const out = attachPaymentHistory(withItems);
+      return NextResponse.json({
+        payables: out,
+        total_count: totalCount ?? out.length,
+        limit,
+        offset,
+      });
     }
 
     // If filtering by po_id and no matching payable ids, return empty deterministically.
     if (poFilterRequested && (!poPayableIds || poPayableIds.length === 0)) {
-      return NextResponse.json({ payables: [] });
+      return NextResponse.json({ payables: [], total_count: 0, limit, offset });
     }
 
-    return NextResponse.json({ payables: enriched });
+    const out = attachPaymentHistory(enriched);
+    return NextResponse.json({
+      payables: out,
+      total_count: totalCount ?? out.length,
+      limit,
+      offset,
+    });
   } catch (err) {
     console.error('GET /api/ap/payables error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

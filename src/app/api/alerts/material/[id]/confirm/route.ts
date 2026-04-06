@@ -20,7 +20,7 @@ export async function POST(
       .eq('id', user.id)
       .single();
 
-    if (!profile || !['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile.role)) {
+    if (!profile || !['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'].includes(profile.role)) {
       return NextResponse.json({ error: 'No autorizado — solo dosificador puede confirmar alertas' }, { status: 403 });
     }
 

@@ -48,6 +48,7 @@ import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis';
+import ResistanceEvolutionTimeline from '@/components/quality/muestreos/ResistanceEvolutionTimeline';
 import { calcularRendimientoVolumetrico } from '@/lib/qualityMetricsUtils';
 import { supabase } from '@/lib/supabase';
 import {
@@ -1242,6 +1243,16 @@ export default function MuestreoDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Resistance Evolution Timeline */}
+      {muestreo.muestras && muestreo.muestras.length > 0 && (
+        <ResistanceEvolutionTimeline
+          muestras={muestreo.muestras}
+          fechaMuestreo={muestreo.fecha_muestreo_ts || muestreo.fecha_muestreo}
+          strengthFc={muestreo.remision?.recipe?.strength_fc}
+          displayNameById={displayNameById}
+        />
+      )}
         </TabsContent>
         
         <TabsContent value="materials" className="mt-6">

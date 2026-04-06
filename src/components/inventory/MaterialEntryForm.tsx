@@ -20,6 +20,9 @@ import {
   X,
   ChevronDown,
   ClipboardList,
+  Calendar,
+  Truck,
+  RefreshCw,
 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -31,21 +34,46 @@ import type { MaterialAlert } from '@/types/alerts'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
-import { format } from 'date-fns'
+import { format, isToday, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 
-const FULFILLMENT_LINKABLE_STATUSES = new Set<MaterialAlert['status']>([
-  'confirmed',
-  'pending_validation',
-  'validated',
-  'pending_po',
-  'po_linked',
-  'delivery_scheduled',
-])
+/** Dosificador: vincular recepciones a solicitudes con OC; la OC se surte de forma acumulativa (no “en una sola entrada”). */
+const DOSIFICADOR_FULFILLMENT_STATUSES = new Set<MaterialAlert['status']>(['po_linked', 'delivery_scheduled'])
+
+function normalizeAlertLinkedPo(
+  a: MaterialAlert
+): NonNullable<MaterialAlert['linked_po']> | null {
+  const raw = (a as { linked_po?: unknown }).linked_po
+  if (!raw) return null
+  const row = (Array.isArray(raw) ? raw[0] : raw) as NonNullable<MaterialAlert['linked_po']>
+  if (!row?.id) return null
+  const sup = row.supplier as unknown
+  const supplier = (Array.isArray(sup) ? sup[0] : sup) as NonNullable<
+    MaterialAlert['linked_po']
+  >['supplier']
+  return { ...row, supplier: supplier ?? null }
+}
+
+function poRefFromId(id: string | null | undefined): string {
+  if (!id) return ''
+  return String(id).slice(0, 8).toUpperCase()
+}
+
+/** Human-readable OC label: número de OC o ref. corta (sin precios). */
+function linkedPoLabel(
+  lp: NonNullable<MaterialAlert['linked_po']> | null,
+  poId: string | null | undefined
+): string {
+  const n = lp?.po_number?.trim()
+  if (n) return n
+  if (poId) return `OC · ${poRefFromId(poId)}`
+  return 'Orden de compra'
+}
 
 /** PO snapshot for dosificador: no prices (from GET /api/po/[id]/receipt-context). */
 type DosificadorReceiptPo = {
   id: string
+  po_number?: string | null
   display_ref: string
   status: string
   supplier_id: string | null
@@ -80,6 +108,21 @@ const ALERT_STATUS_SHORT: Partial<Record<MaterialAlert['status'], string>> = {
   delivery_scheduled: 'Entrega programada',
 }
 
+function sortAlertsForEntry(alerts: MaterialAlert[]): MaterialAlert[] {
+  const today = new Date().toISOString().slice(0, 10)
+  return [...alerts].sort((x, y) => {
+    const xd = x.scheduled_delivery_date?.slice(0, 10)
+    const yd = y.scheduled_delivery_date?.slice(0, 10)
+    const xToday = xd === today ? 0 : 1
+    const yToday = yd === today ? 0 : 1
+    if (xToday !== yToday) return xToday - yToday
+    if (xd && yd) return xd.localeCompare(yd)
+    if (xd && !yd) return -1
+    if (!xd && yd) return 1
+    return new Date(x.created_at).getTime() - new Date(y.created_at).getTime()
+  })
+}
+
 interface MaterialEntryFormProps {
   onSuccess?: () => void
 }
@@ -89,6 +132,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const { currentPlant } = usePlantContext()
   const searchParams = useSearchParams()
   const urlMaterialApplied = useRef(false)
+  const urlAlertLock = useRef(false)
   
   // Check if user is DOSIFICADOR for simplified form
   const isDosificador = profile?.role === 'DOSIFICADOR'
@@ -143,15 +187,43 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     items: DosificadorReceiptItem[]
   } | null>(null)
   const [dosificadorReceiptLoading, setDosificadorReceiptLoading] = useState(false)
+  /** Increment to retry GET receipt-context after failure */
+  const [dosificadorReceiptRefreshToken, setDosificadorReceiptRefreshToken] = useState(0)
   /** supplier_id last applied from linked PO — ref avoids re-fetch loops in useEffect */
   const supplierAutoFromPoRef = useRef<string | null>(null)
   const [dosificadorSupplierOverride, setDosificadorSupplierOverride] = useState(false)
+  const [fleetPoHeader, setFleetPoHeader] = useState<{ po_number: string | null } | null>(null)
 
   const selectedFulfillmentAlert = useMemo(
     () => fulfillmentAlerts.find((a) => a.id === selectedFulfillmentAlertId),
     [fulfillmentAlerts, selectedFulfillmentAlertId]
   )
+  const selectedLinkedPo = useMemo(
+    () => (selectedFulfillmentAlert ? normalizeAlertLinkedPo(selectedFulfillmentAlert) : null),
+    [selectedFulfillmentAlert]
+  )
   const selectedAlertExistingPoId = selectedFulfillmentAlert?.existing_po_id ?? null
+
+  const dosificadorPoLineForMaterial = useMemo(() => {
+    if (!dosificadorReceiptContext?.items?.length || !formData.material_id) return null
+    return (
+      dosificadorReceiptContext.items.find((i) => i.material_id === formData.material_id) ??
+      dosificadorReceiptContext.items[0] ??
+      null
+    )
+  }, [dosificadorReceiptContext, formData.material_id])
+
+  const dosificadorSummaryMaterialName = useMemo(() => {
+    const fromSel = selectedFulfillmentAlert?.material?.material_name
+    if (fromSel) return fromSel
+    const a = fulfillmentAlerts.find((x) => x.material_id === formData.material_id)
+    return (a?.material as { material_name?: string } | undefined)?.material_name ?? '—'
+  }, [selectedFulfillmentAlert, fulfillmentAlerts, formData.material_id])
+
+  const dosificadorSummarySupplierName = useMemo(() => {
+    if (dosificadorReceiptContext?.po.supplier?.name) return dosificadorReceiptContext.po.supplier.name
+    return selectedLinkedPo?.supplier?.name ?? (formData.supplier_id ? 'Proveedor seleccionado' : '—')
+  }, [dosificadorReceiptContext, selectedLinkedPo, formData.supplier_id])
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
@@ -204,10 +276,12 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       }
     }
     
+    urlAlertLock.current = false
     setFormData(prev => ({ ...prev, material_id: materialId }))
     setFulfillmentAlerts([])
     setSelectedFulfillmentAlertId('')
     setEntrySuccessInfo(null)
+    setFleetPoHeader(null)
     supplierAutoFromPoRef.current = null
     setDosificadorReceiptContext(null)
     setDosificadorSupplierOverride(false)
@@ -231,7 +305,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             )
             const json = ar.ok ? await ar.json() : null
             const all = (json?.data || []) as MaterialAlert[]
-            const linkable = all.filter((a) => FULFILLMENT_LINKABLE_STATUSES.has(a.status))
+            const linkable = sortAlertsForEntry(
+              all.filter((a) => DOSIFICADOR_FULFILLMENT_STATUSES.has(a.status))
+            )
             setFulfillmentAlerts(linkable)
             if (linkable.length === 1) {
               setSelectedFulfillmentAlertId(linkable[0].id)
@@ -244,6 +320,26 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         }
 
         if (!isDosificador) {
+          setFulfillmentAlertsLoading(true)
+          try {
+            const ar = await fetch(
+              `/api/alerts/material?plant_id=${plantId}&material_id=${materialId}&status=delivery_scheduled,po_linked,validated,pending_po`
+            )
+            const json = ar.ok ? await ar.json() : null
+            const all = (json?.data || []) as MaterialAlert[]
+            const linkable = sortAlertsForEntry(
+              all.filter((a) =>
+                ['delivery_scheduled', 'po_linked', 'validated', 'pending_po'].includes(a.status)
+              )
+            )
+            setFulfillmentAlerts(linkable)
+            setSelectedFulfillmentAlertId('')
+          } catch {
+            setFulfillmentAlerts([])
+          } finally {
+            setFulfillmentAlertsLoading(false)
+          }
+
           const params = new URLSearchParams()
           params.set('plant_id', plantId)
           params.set('material_id', materialId)
@@ -305,6 +401,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     }
 
     let cancelled = false
+    setDosificadorReceiptContext(null)
     setDosificadorReceiptLoading(true)
     fetch(
       `/api/po/${selectedAlertExistingPoId}/receipt-context?material_id=${encodeURIComponent(formData.material_id)}`
@@ -339,7 +436,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     return () => {
       cancelled = true
     }
-  }, [isDosificador, selectedFulfillmentAlertId, selectedAlertExistingPoId, formData.material_id])
+  }, [
+    isDosificador,
+    selectedFulfillmentAlertId,
+    selectedAlertExistingPoId,
+    formData.material_id,
+    dosificadorReceiptRefreshToken,
+  ])
+
+  /** Si falla receipt-context pero la alerta trae linked_po, rellenar supplier_id para el POST */
+  useEffect(() => {
+    if (!isDosificador || !selectedFulfillmentAlert || !selectedAlertExistingPoId) return
+    if (dosificadorReceiptLoading) return
+    if (dosificadorReceiptContext) return
+    if (dosificadorSupplierOverride) return
+    const lp = normalizeAlertLinkedPo(selectedFulfillmentAlert)
+    const sid = lp?.supplier?.id
+    if (!sid) return
+    supplierAutoFromPoRef.current = sid
+    setFormData((prev) => (prev.supplier_id === sid ? prev : { ...prev, supplier_id: sid }))
+  }, [
+    isDosificador,
+    selectedFulfillmentAlert,
+    selectedAlertExistingPoId,
+    dosificadorReceiptLoading,
+    dosificadorReceiptContext,
+    dosificadorSupplierOverride,
+  ])
 
   useEffect(() => {
     const mid = searchParams.get('material_id')
@@ -348,6 +471,37 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     void handleMaterialChange(mid)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot URL prefill
   }, [searchParams, currentPlant?.id])
+
+  useEffect(() => {
+    const aid = searchParams.get('alert_id')
+    if (!aid || fulfillmentAlertsLoading || urlAlertLock.current) return
+    const match = fulfillmentAlerts.find((a) => a.id === aid)
+    if (match) {
+      setSelectedFulfillmentAlertId(aid)
+      urlAlertLock.current = true
+    }
+  }, [searchParams, fulfillmentAlerts, fulfillmentAlertsLoading])
+
+  useEffect(() => {
+    const fid = selectedFulfillmentAlert?.fleet_po_id
+    if (!isDosificador || !fid) {
+      setFleetPoHeader(null)
+      return
+    }
+    let cancelled = false
+    fetch(`/api/po/${fid}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.purchase_order) return
+        setFleetPoHeader({ po_number: d.purchase_order.po_number ?? null })
+      })
+      .catch(() => {
+        if (!cancelled) setFleetPoHeader(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isDosificador, selectedFulfillmentAlert?.fleet_po_id])
 
   // Auto-fill form fields when PO item is selected
   useEffect(() => {
@@ -427,8 +581,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     })()
   }, [formData.supplier_id, isDosificador, currentPlant?.id, profile?.plant_id, formData.material_id])
   
-  // Fetch fleet PO items when fleet supplier changes
-  // CRITICAL: Filter by material_supplier_id matching the material supplier (formData.supplier_id)
+  // Fleet PO líneas: material_supplier = proveedor del material; opcional po_supplier = transportista (encabezado OC)
   useEffect(() => {
     if (isDosificador) return
     const plantId = currentPlant?.id || profile?.plant_id
@@ -439,15 +592,38 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     ;(async () => {
       const params = new URLSearchParams()
       params.set('plant_id', plantId)
-      params.set('material_supplier_id', formData.supplier_id) // Filter by material supplier
+      params.set('material_supplier_id', formData.supplier_id)
       params.set('is_service', 'true')
+      if (formData.fleet_supplier_id) {
+        params.set('po_supplier_id', formData.fleet_supplier_id)
+      }
       const res = await fetch(`/api/po/items/search?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setFleetPoItems(data.items || [])
       }
     })()
-  }, [formData.supplier_id, currentPlant?.id, profile?.plant_id, isDosificador]) // Changed from fleet_supplier_id to supplier_id
+  }, [formData.supplier_id, formData.fleet_supplier_id, currentPlant?.id, profile?.plant_id, isDosificador])
+
+  // Al elegir línea de OC de flota, fijar proveedor de transporte desde el encabezado de la OC
+  useEffect(() => {
+    if (!selectedFleetPoItemId || fleetPoItems.length === 0) return
+    const fleetItem = fleetPoItems.find((it) => it.id === selectedFleetPoItemId)
+    const headerSid = fleetItem?.po?.supplier_id as string | undefined
+    if (!headerSid) return
+    setFormData((prev) =>
+      prev.fleet_supplier_id === headerSid ? prev : { ...prev, fleet_supplier_id: headerSid }
+    )
+  }, [selectedFleetPoItemId, fleetPoItems])
+
+  // Si el listado ya cargó y la línea elegida no está (p. ej. cambió el filtro), limpiar
+  useEffect(() => {
+    if (!selectedFleetPoItemId || fleetPoItems.length === 0) return
+    if (!fleetPoItems.some((it) => it.id === selectedFleetPoItemId)) {
+      setSelectedFleetPoItemId('')
+      setFleetQtyEntered(0)
+    }
+  }, [fleetPoItems, selectedFleetPoItemId])
 
   // Handle file upload
   const handleFileUpload = (files: FileList) => {
@@ -519,6 +695,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       return
     }
 
+    if (isDosificador && !String(formData.supplier_invoice || '').trim()) {
+      toast.error('El número de remisión es obligatorio para registrar la recepción')
+      return
+    }
+
     if (!currentPlant?.id) {
       toast.error('Debe seleccionar una planta para continuar')
       return
@@ -579,7 +760,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       }
       
       // Handle fleet PO linkage
-      if (isDosificador && selectedFulfillmentAlertId) {
+      if (selectedFulfillmentAlertId) {
         requestBody.alert_id = selectedFulfillmentAlertId
       }
 
@@ -728,6 +909,34 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </div>
       )}
 
+      {searchParams.get('alert_id') && selectedFulfillmentAlertId && selectedFulfillmentAlert && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 text-sm text-sky-950">
+          Registrando entrada para solicitud{' '}
+          <span className="font-mono font-semibold">{selectedFulfillmentAlert.alert_number}</span>
+        </div>
+      )}
+
+      {isDosificador && selectedFulfillmentAlert?.needs_fleet && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 flex items-start gap-2">
+          <Truck className="h-4 w-4 shrink-0 mt-0.5 text-amber-800" />
+          <div>
+            <p className="font-medium">Esta solicitud requiere flete independiente del proveedor de material.</p>
+            {selectedFulfillmentAlert.fleet_po_id && fleetPoHeader && (
+              <p className="text-xs text-amber-900 mt-1">
+                OC de flete vinculada:{' '}
+                <span className="font-mono">{fleetPoHeader.po_number || selectedFulfillmentAlert.fleet_po_id.slice(0, 8)}</span>
+              </p>
+            )}
+            {selectedFulfillmentAlert.fleet_po_id && !fleetPoHeader && (
+              <p className="text-xs text-amber-800 mt-1">OC de flete registrada en la solicitud.</p>
+            )}
+            {!selectedFulfillmentAlert.fleet_po_id && (
+              <p className="text-xs text-amber-800 mt-1">El equipo de compras gestionará la OC de transporte.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Material Selection */}
       <Card className="border-stone-200">
         <CardHeader>
@@ -738,8 +947,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           <CardDescription>
             {isDosificador ? (
               <>
-                {currentPlant.name} <span className="font-mono text-stone-500">({currentPlant.code})</span> — recepción
-                de material. Si recibió lo solicitado, elija la solicitud correspondiente abajo.
+                {currentPlant.name} <span className="font-mono text-stone-500">({currentPlant.code})</span> — registre{' '}
+                <strong>esta</strong> recepción contra la solicitud correcta; la OC muestra material y proveedor y el
+                avance acumulado (varias entradas pueden aplicar).
               </>
             ) : (
               <>
@@ -749,6 +959,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {!isDosificador ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -766,6 +977,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   onChange={handleMaterialChange}
                   required
                   plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  supplierId={formData.supplier_id || undefined}
                 />
                 <p className="text-xs text-stone-500">
                   {autoFilledFromPO.material
@@ -863,7 +1075,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 })()
               ) : (
                 <>
-                  <Label htmlFor="quantity_received" className={cn("text-sm sm:text-base", isDosificador && "text-base font-semibold")}>
+                  <Label htmlFor="quantity_received" className="text-sm sm:text-base">
                     Cantidad Recibida (kg) *
                   </Label>
                   <Input
@@ -876,20 +1088,107 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       ...prev, 
                       quantity_received: parseFloat(e.target.value) || 0 
                     }))}
-                    className={cn(
-                      "h-12",
-                      isDosificador && "h-16 text-2xl font-semibold text-center"
-                    )}
-                    placeholder={isDosificador ? "0.00" : ""}
+                    className="h-12"
                     required
                   />
-                  <p className={cn("text-xs text-stone-500", isDosificador && "text-center")}>
-                    {isDosificador ? "Ingrese la cantidad en kilogramos" : "Cantidad en kilogramos"}
-                  </p>
+                  <p className="text-xs text-stone-500">Cantidad en kilogramos</p>
                 </>
               )}
             </div>
           </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="material_id">Material *</Label>
+              </div>
+              <div className="space-y-1">
+                <MaterialSelect
+                  value={formData.material_id}
+                  onChange={handleMaterialChange}
+                  required
+                  plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  supplierId={formData.supplier_id || undefined}
+                />
+                <p className="text-xs text-stone-500">
+                  Seleccione material y la solicitud que corresponde a esta recepción. La cantidad es la de <strong>esta</strong>{' '}
+                  entrega (remisión/báscula); la OC sirve para ver material y proveedor y el avance acumulado, no para
+                  “cerrar” la orden en un solo movimiento.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!isDosificador && formData.material_id && (
+            <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 space-y-3">
+              <Label className="text-sm font-semibold text-stone-900">Vincular a alerta (opcional)</Label>
+              <p className="text-xs text-stone-500">
+                Si esta recepción cierra una solicitud coordinada, selecciónela para actualizar el flujo.
+              </p>
+              {fulfillmentAlertsLoading ? (
+                <p className="text-xs text-stone-500">Buscando alertas activas…</p>
+              ) : fulfillmentAlerts.length > 0 ? (
+                <div className="space-y-2">
+                  <label
+                    className={cn(
+                      'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                      selectedFulfillmentAlertId === ''
+                        ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                        : 'border-stone-200 bg-white hover:bg-stone-50/80'
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="admin-fulfillment-alert"
+                      className="mt-1"
+                      checked={selectedFulfillmentAlertId === ''}
+                      onChange={() => setSelectedFulfillmentAlertId('')}
+                    />
+                    <div>
+                      <span className="font-medium text-stone-900">Sin vincular a una alerta</span>
+                      <p className="text-xs text-stone-500 mt-0.5">Recepción general o reabastecimiento.</p>
+                    </div>
+                  </label>
+                  {fulfillmentAlerts.map((a) => (
+                    <label
+                      key={a.id}
+                      className={cn(
+                        'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                        selectedFulfillmentAlertId === a.id
+                          ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                          : 'border-stone-200 bg-white hover:bg-stone-50/80'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="admin-fulfillment-alert"
+                        className="mt-1"
+                        checked={selectedFulfillmentAlertId === a.id}
+                        onChange={() => setSelectedFulfillmentAlertId(a.id)}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
+                          <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
+                            {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-stone-800 mt-0.5">
+                          {(a.material as { material_name?: string })?.material_name ?? 'Material'}
+                        </p>
+                        <p className="text-xs text-stone-500 mt-1 tabular-nums">
+                          {a.scheduled_delivery_date
+                            ? `Entrega programada: ${a.scheduled_delivery_date}`
+                            : `Creada ${format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}`}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-stone-500">No hay alertas elegibles para este material en esta planta.</p>
+              )}
+            </div>
+          )}
 
           {isDosificador && formData.material_id && (
             <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 space-y-3">
@@ -920,41 +1219,348 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       </p>
                     </div>
                   </label>
-                  {fulfillmentAlerts.map((a) => (
-                    <label
-                      key={a.id}
-                      className={cn(
-                        'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
-                        selectedFulfillmentAlertId === a.id
-                          ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
-                          : 'border-stone-200 bg-white hover:bg-stone-50/80'
-                      )}
-                    >
-                      <input
-                        type="radio"
-                        name="fulfillment-alert"
-                        className="mt-1"
-                        checked={selectedFulfillmentAlertId === a.id}
-                        onChange={() => setSelectedFulfillmentAlertId(a.id)}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
-                          <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
-                            {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
-                          </Badge>
+                  {fulfillmentAlerts.map((a) => {
+                    const sched = a.scheduled_delivery_date
+                    const lp = normalizeAlertLinkedPo(a)
+                    const matName = (a.material as { material_name?: string })?.material_name ?? 'Material'
+                    let schedIsToday = false
+                    if (sched) {
+                      try {
+                        const d = parseISO(sched.length > 10 ? sched : `${sched}T12:00:00`)
+                        schedIsToday = isToday(d)
+                      } catch {
+                        schedIsToday = false
+                      }
+                    }
+                    return (
+                      <label
+                        key={a.id}
+                        className={cn(
+                          'flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors',
+                          selectedFulfillmentAlertId === a.id
+                            ? 'border-sky-600 bg-white ring-2 ring-sky-600/25'
+                            : 'border-stone-200 bg-white hover:bg-stone-50/80',
+                          schedIsToday && 'border-emerald-500/80 bg-emerald-50/40'
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="fulfillment-alert"
+                          className="mt-1"
+                          checked={selectedFulfillmentAlertId === a.id}
+                          onChange={() => setSelectedFulfillmentAlertId(a.id)}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs text-stone-600">{a.alert_number}</span>
+                            <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
+                              {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
+                            </Badge>
+                          </div>
+                          <p className="text-sm font-semibold text-stone-900 mt-1">{matName}</p>
+                          {a.physical_count_kg != null && a.physical_count_kg > 0 && (
+                            <p className="text-xs text-stone-700 mt-0.5">
+                              Conteo / necesidad reportada:{' '}
+                              <span className="font-mono tabular-nums">
+                                {Number(a.physical_count_kg).toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
+                              </span>
+                            </p>
+                          )}
+                          {lp ? (
+                            <p className="text-xs text-stone-700 mt-1">
+                              OC:{' '}
+                              <span className="font-mono">
+                                {lp.po_number || poRefFromId(lp.id)}
+                              </span>
+                              {lp.supplier?.name ? (
+                                <>
+                                  {' '}
+                                  · Proveedor: <span className="font-medium">{lp.supplier.name}</span>
+                                </>
+                              ) : null}
+                            </p>
+                          ) : a.existing_po_id ? (
+                            <p className="text-xs text-stone-700 mt-1">
+                              OC vinculada (ref.{' '}
+                              <span className="font-mono">{poRefFromId(a.existing_po_id)}</span>
+                              ). Proveedor y partidas: al seleccionar esta solicitud o en «Verificar entrega».
+                            </p>
+                          ) : (
+                            <p className="text-xs text-amber-800 mt-1">
+                              Sin orden de compra en esta solicitud. Compras debe vincular la OC antes de cerrar con esta
+                              entrada, o use «Sin solicitud previa» si la mercancía no corresponde a una solicitud
+                              coordinada.
+                            </p>
+                          )}
+                          {sched ? (
+                            <div className="text-sm text-stone-800 mt-1 flex items-center gap-1.5 flex-wrap">
+                              <Calendar className="h-3.5 w-3.5 text-stone-500 shrink-0" />
+                              <span className="font-medium">
+                                Entrega programada: {format(parseISO(sched.length > 10 ? sched : `${sched}T12:00:00`), 'dd/MM/yyyy')}
+                              </span>
+                              {schedIsToday && (
+                                <Badge className="text-[10px] h-5 bg-emerald-700 text-white">Hoy</Badge>
+                              )}
+                            </div>
+                          ) : null}
+                          <p className="text-xs text-stone-500 mt-1 tabular-nums">
+                            Creada {format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}
+                            {a.validation_notes
+                              ? ` · ${a.validation_notes.slice(0, 96)}${a.validation_notes.length > 96 ? '…' : ''}`
+                              : null}
+                          </p>
                         </div>
-                        <p className="text-xs text-stone-500 mt-1 tabular-nums">
-                          Creada {format(new Date(a.created_at), 'dd/MM/yyyy HH:mm')}
-                          {a.validation_notes
-                            ? ` · ${a.validation_notes.slice(0, 96)}${a.validation_notes.length > 96 ? '…' : ''}`
+                      </label>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2 text-sm text-stone-700">
+                  <p>No hay solicitudes activas para este material. Esta entrada se registrará sin vincular a una solicitud.</p>
+                  <p className="mt-2">
+                    <Link href="/production-control/alerts" className="text-sky-800 font-medium underline text-sm">
+                      Crear solicitud
+                    </Link>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isDosificador && formData.material_id && (
+            <div className="space-y-4">
+              {selectedAlertExistingPoId && dosificadorReceiptLoading && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="text-sm font-semibold text-stone-900">Orden de compra</p>
+                      <p className="text-base font-mono font-semibold text-stone-900">
+                        {linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                      </p>
+                      {selectedLinkedPo?.supplier?.name && (
+                        <p className="text-sm text-stone-800">
+                          <span className="text-stone-500">Proveedor: </span>
+                          <strong>{selectedLinkedPo.supplier.name}</strong>
+                        </p>
+                      )}
+                      {(selectedLinkedPo?.status || selectedLinkedPo?.po_date) && (
+                        <p className="text-xs text-stone-600">
+                          {selectedLinkedPo?.status ? <>Estado: {selectedLinkedPo.status}</> : null}
+                          {selectedLinkedPo?.status && selectedLinkedPo?.po_date ? ' · ' : null}
+                          {selectedLinkedPo?.po_date
+                            ? `Fecha OC ${selectedLinkedPo.po_date}`
                             : null}
                         </p>
-                      </div>
-                    </label>
-                  ))}
+                      )}
+                      {selectedLinkedPo?.notes?.trim() && (
+                        <p className="text-xs text-stone-600 border-t border-sky-200/80 pt-2 mt-1 line-clamp-3">
+                          {selectedLinkedPo.notes.trim().slice(0, 280)}
+                          {selectedLinkedPo.notes.trim().length > 280 ? '…' : ''}
+                        </p>
+                      )}
+                      <p className="text-xs text-stone-500 flex items-center gap-2">
+                        <span className="inline-block h-2 w-2 rounded-full bg-sky-500 animate-pulse shrink-0" />
+                        Cargando material, proveedor y avance en la OC (pedido / recibido / por recibir). Sin precios.
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              ) : null}
+              )}
+
+              {!dosificadorReceiptLoading && dosificadorReceiptContext && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <p className="text-sm font-semibold text-stone-900">Material y proveedor (orden de compra)</p>
+                      <p className="text-base sm:text-lg font-mono font-semibold text-stone-900 tracking-tight">
+                        {dosificadorReceiptContext.po.po_number?.trim() ||
+                          `Ref. ${dosificadorReceiptContext.po.display_ref}`}
+                      </p>
+                      <p className="text-xs text-stone-600">
+                        Ref. sistema {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
+                        {dosificadorReceiptContext.po.status}
+                        {dosificadorReceiptContext.po.po_date
+                          ? ` · Fecha OC ${dosificadorReceiptContext.po.po_date}`
+                          : ''}
+                      </p>
+                      {dosificadorReceiptContext.po.supplier && (
+                        <p className="text-sm text-stone-800">
+                          <span className="text-stone-500">Proveedor en OC: </span>
+                          <strong>{dosificadorReceiptContext.po.supplier.name}</strong>
+                          {dosificadorReceiptContext.po.supplier.provider_letter
+                            ? ` · Letra ${dosificadorReceiptContext.po.supplier.provider_letter}`
+                            : ''}
+                          {dosificadorReceiptContext.po.supplier.provider_number != null
+                            ? ` · #${dosificadorReceiptContext.po.supplier.provider_number}`
+                            : ''}
+                        </p>
+                      )}
+                      {dosificadorReceiptContext.po.notes?.trim() && (
+                        <div className="rounded-md border border-stone-200 bg-white/80 px-3 py-2 text-xs text-stone-700">
+                          <span className="font-medium text-stone-500">Notas en OC: </span>
+                          {dosificadorReceiptContext.po.notes.trim().slice(0, 500)}
+                          {dosificadorReceiptContext.po.notes.trim().length > 500 ? '…' : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {dosificadorReceiptContext.items.length > 0 ? (
+                    <div className="overflow-x-auto rounded-md border border-stone-200 bg-white">
+                      <table className="w-full text-xs text-left">
+                        <thead>
+                          <tr className="border-b border-stone-200 bg-stone-50 text-stone-600">
+                            <th className="p-2 font-medium">Material</th>
+                            <th className="p-2 font-medium">UoM</th>
+                            <th className="p-2 font-medium text-right">Pedido</th>
+                            <th className="p-2 font-medium text-right">Recibido</th>
+                            <th className="p-2 font-medium text-right">Por recibir</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dosificadorReceiptContext.items.map((row) => (
+                            <tr key={row.id} className="border-b border-stone-100 last:border-0">
+                              <td className="p-2 text-stone-900 max-w-[200px]">{row.material_name}</td>
+                              <td className="p-2 font-mono text-stone-700">{row.uom}</td>
+                              <td className="p-2 text-right font-mono tabular-nums">
+                                {row.qty_ordered.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-2 text-right font-mono tabular-nums">
+                                {row.qty_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="p-2 text-right font-mono tabular-nums font-medium text-stone-900">
+                                {row.qty_remaining.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
+                      <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
+                      No hay partida de este material en la OC. Confirme el material o contacte a compras.
+                    </div>
+                  )}
+                  <p className="text-[10px] text-stone-500 leading-relaxed">
+                    La OC se surte con varias recepciones: la tabla muestra avance acumulado. Verifique material y
+                    proveedor; la cantidad de <strong>esta</strong> recepción la registra abajo y queda vinculada a la
+                    solicitud. Sin precios.
+                  </p>
+                </div>
+              )}
+
+              {selectedAlertExistingPoId &&
+                !dosificadorReceiptLoading &&
+                !dosificadorReceiptContext && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-4 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-5 w-5 text-amber-800 shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-sm font-semibold text-amber-950">
+                          No se pudieron cargar las partidas de la orden de compra
+                        </p>
+                        <p className="text-base font-mono font-medium text-stone-900">
+                          {linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                        </p>
+                        {selectedLinkedPo?.supplier?.name && (
+                          <p className="text-sm text-stone-800">
+                            <span className="text-stone-500">Proveedor: </span>
+                            <strong>{selectedLinkedPo.supplier.name}</strong>
+                          </p>
+                        )}
+                        {(selectedLinkedPo?.status || selectedLinkedPo?.po_date) && (
+                          <p className="text-xs text-stone-700">
+                            {selectedLinkedPo?.status ? <>Estado: {selectedLinkedPo.status}</> : null}
+                            {selectedLinkedPo?.status && selectedLinkedPo?.po_date ? ' · ' : null}
+                            {selectedLinkedPo?.po_date ? `Fecha OC ${selectedLinkedPo.po_date}` : null}
+                          </p>
+                        )}
+                        {selectedLinkedPo?.notes?.trim() && (
+                          <p className="text-xs text-stone-700 border-t border-amber-200/80 pt-2 line-clamp-4">
+                            <span className="font-medium">Notas en OC: </span>
+                            {selectedLinkedPo.notes.trim().slice(0, 400)}
+                            {selectedLinkedPo.notes.trim().length > 400 ? '…' : ''}
+                          </p>
+                        )}
+                        <p className="text-xs text-amber-950/90">
+                          Datos tomados de la solicitud. Reintente para ver material, proveedor y avance acumulado en la
+                          OC.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="border-amber-300 text-amber-950"
+                          onClick={() => setDosificadorReceiptRefreshToken((n) => n + 1)}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                          Reintentar carga de la OC
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              {!!selectedFulfillmentAlertId &&
+                !selectedAlertExistingPoId &&
+                !dosificadorReceiptLoading && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
+                    <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
+                    Esta solicitud aún no tiene OC vinculada. Indique el proveedor según la entrega física o confirme con
+                    administración.
+                  </div>
+                )}
+
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor="quantity_received_dos" className="text-base font-semibold">
+                    Cantidad de esta recepción (kg) *
+                  </Label>
+                  {dosificadorPoLineForMaterial && dosificadorPoLineForMaterial.uom === 'kg' && (
+                    <Badge variant="outline" className="text-[10px] border-sky-300 bg-white text-sky-950">
+                      Saldo por recibir en OC:{' '}
+                      {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      kg (referencia)
+                    </Badge>
+                  )}
+                  {dosificadorPoLineForMaterial &&
+                    dosificadorPoLineForMaterial.uom !== 'kg' &&
+                    dosificadorPoLineForMaterial.qty_remaining > 0 && (
+                      <span className="text-xs text-stone-600">
+                        Saldo por recibir en OC:{' '}
+                        {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        {dosificadorPoLineForMaterial.uom} (referencia; convierta a kg)
+                      </span>
+                    )}
+                </div>
+                <Input
+                  id="quantity_received_dos"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.quantity_received || ''}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      quantity_received: parseFloat(e.target.value) || 0,
+                    }))
+                  }
+                  className="h-16 text-2xl font-semibold text-center"
+                  placeholder="0.00"
+                  required
+                />
+                <p className="text-xs text-stone-500 text-center">
+                  Peso neto de <strong>esta</strong> entrega (kg), según báscula o remisión. La entrada se asocia a la
+                  solicitud elegida. Las recepciones suelen ser parciales frente al total de la OC; no comparamos con el
+                  saldo de la orden.
+                </p>
+              </div>
             </div>
           )}
 
@@ -1198,94 +1804,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CardTitle>
             <CardDescription>
               {isDosificador
-                ? 'Valide contra la orden de compra ligada a su solicitud (sin precios). La remisión del proveedor sigue siendo obligatoria para trazabilidad.'
+                ? 'Si la solicitud tiene OC, el proveedor y el material se confirman en la OC (arriba). Aquí: remisión y evidencia de esta recepción. “Corregir” solo si el proveedor físico no coincide.'
                 : 'Datos del proveedor y documentación'}
             </CardDescription>
           </CardHeader>
         <CardContent className="space-y-4">
-          {isDosificador && dosificadorReceiptLoading && (
-            <p className="text-xs text-stone-500">Cargando datos de la orden de compra…</p>
-          )}
-
-          {isDosificador &&
-            !!selectedFulfillmentAlertId &&
-            !selectedAlertExistingPoId &&
-            !dosificadorReceiptLoading && (
-              <div className="rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
-                <AlertCircle className="inline h-3.5 w-3.5 mr-1 align-text-bottom" />
-                Esta solicitud aún no tiene OC vinculada. Indique el proveedor según la entrega física o confirme con
-                administración.
-              </div>
-            )}
-
-          {isDosificador && dosificadorReceiptContext && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50/50 p-4 space-y-3">
-              <div className="flex items-start gap-2">
-                <ClipboardList className="h-5 w-5 text-sky-800 shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-stone-900">
-                    Orden de compra ligada a la solicitud
-                  </p>
-                  <p className="text-xs text-stone-600 mt-0.5 font-mono">
-                    Ref. OC {dosificadorReceiptContext.po.display_ref} · Estado:{' '}
-                    {dosificadorReceiptContext.po.status}
-                    {dosificadorReceiptContext.po.po_date
-                      ? ` · Fecha OC ${dosificadorReceiptContext.po.po_date}`
-                      : ''}
-                  </p>
-                  {dosificadorReceiptContext.po.supplier && (
-                    <p className="text-sm text-stone-800 mt-2">
-                      <span className="text-stone-500">Proveedor en OC: </span>
-                      <strong>{dosificadorReceiptContext.po.supplier.name}</strong>
-                      {dosificadorReceiptContext.po.supplier.provider_letter
-                        ? ` · Letra ${dosificadorReceiptContext.po.supplier.provider_letter}`
-                        : ''}
-                      {dosificadorReceiptContext.po.supplier.provider_number != null
-                        ? ` · #${dosificadorReceiptContext.po.supplier.provider_number}`
-                        : ''}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {dosificadorReceiptContext.items.length > 0 && (
-                <div className="overflow-x-auto rounded-md border border-stone-200 bg-white">
-                  <table className="w-full text-xs text-left">
-                    <thead>
-                      <tr className="border-b border-stone-200 bg-stone-50 text-stone-600">
-                        <th className="p-2 font-medium">Material</th>
-                        <th className="p-2 font-medium">UoM</th>
-                        <th className="p-2 font-medium text-right">Pedido</th>
-                        <th className="p-2 font-medium text-right">Recibido</th>
-                        <th className="p-2 font-medium text-right">Pendiente</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dosificadorReceiptContext.items.map((row) => (
-                        <tr key={row.id} className="border-b border-stone-100 last:border-0">
-                          <td className="p-2 text-stone-900 max-w-[200px]">{row.material_name}</td>
-                          <td className="p-2 font-mono text-stone-700">{row.uom}</td>
-                          <td className="p-2 text-right font-mono tabular-nums">
-                            {row.qty_ordered.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="p-2 text-right font-mono tabular-nums">
-                            {row.qty_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="p-2 text-right font-mono tabular-nums font-medium text-stone-900">
-                            {row.qty_remaining.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <p className="text-[10px] text-stone-500 leading-relaxed">
-                Vista operativa: sin precios ni importes. Compare camión / remisión contra esta OC antes de registrar
-                cantidades.
-              </p>
-            </div>
-          )}
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
@@ -1296,13 +1819,112 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                     Desde PO
                   </Badge>
                 )}
-                {isDosificador && dosificadorReceiptContext?.po.supplier_id && !dosificadorSupplierOverride && (
+                {isDosificador && selectedAlertExistingPoId && !dosificadorSupplierOverride && (
                   <Badge variant="secondary" className="text-xs bg-sky-100 text-sky-950 border-sky-200">
                     Según OC
                   </Badge>
                 )}
               </div>
-              {isDosificador && dosificadorReceiptContext && !dosificadorSupplierOverride ? (
+              {!isDosificador ? (
+                <>
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  {autoFilledFromPO.supplier && (
+                    <p className="text-xs text-stone-500">Proveedor seleccionado automáticamente desde el PO</p>
+                  )}
+                </>
+              ) : !selectedFulfillmentAlertId || !selectedAlertExistingPoId ? (
+                <>
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      if (dosificadorReceiptContext) {
+                        supplierAutoFromPoRef.current = null
+                      }
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  <p className="text-xs text-stone-500">
+                    Solo si la solicitud no tiene OC vinculada. Si hay OC, el proveedor se toma de la orden.
+                  </p>
+                </>
+              ) : dosificadorReceiptLoading ? (
+                <p className="text-sm text-stone-600">Cargando proveedor desde la orden de compra…</p>
+              ) : dosificadorSupplierOverride ? (
+                <div className="space-y-2">
+                  <SupplierSelect
+                    value={formData.supplier_id || ''}
+                    onChange={(value: string) => {
+                      if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
+                        setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
+                        if (selectedPoItemId) {
+                          const poItem = poItems.find((it) => it.id === selectedPoItemId)
+                          if (poItem && poItem.po?.supplier_id !== value) {
+                            toast.warning(
+                              'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
+                            )
+                          }
+                        }
+                      }
+                      supplierAutoFromPoRef.current = null
+                      setFormData((prev) => ({ ...prev, supplier_id: value }))
+                    }}
+                    plantId={currentPlant?.id || profile?.plant_id || undefined}
+                  />
+                  <p className="text-xs text-amber-800">
+                    Use solo si la entrega no corresponde al proveedor de la OC; avise a su jefe de planta si hay
+                    discrepancia.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto py-1.5 text-xs"
+                    onClick={() => {
+                      setDosificadorSupplierOverride(false)
+                      const fromReceipt = dosificadorReceiptContext?.po.supplier_id
+                      const fromLinked = selectedFulfillmentAlert
+                        ? normalizeAlertLinkedPo(selectedFulfillmentAlert)?.supplier?.id
+                        : null
+                      const sid = fromReceipt || fromLinked || null
+                      if (sid) {
+                        supplierAutoFromPoRef.current = sid
+                        setFormData((prev) => ({ ...prev, supplier_id: sid }))
+                      }
+                    }}
+                  >
+                    Usar proveedor de la OC
+                  </Button>
+                </div>
+              ) : dosificadorReceiptContext ? (
                 <div className="space-y-2">
                   <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-sm text-stone-900">
                     {dosificadorReceiptContext.po.supplier?.name ||
@@ -1319,41 +1941,29 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   </Button>
                 </div>
               ) : (
-                <SupplierSelect
-                  value={formData.supplier_id || ''}
-                  onChange={(value: string) => {
-                    if (autoFilledFromPO.supplier && value !== formData.supplier_id) {
-                      setAutoFilledFromPO((prev) => ({ ...prev, supplier: false }))
-                      if (selectedPoItemId) {
-                        const poItem = poItems.find((it) => it.id === selectedPoItemId)
-                        if (poItem && poItem.po?.supplier_id !== value) {
-                          toast.warning(
-                            'El proveedor seleccionado no coincide con el PO. Verifique que sea correcto.'
-                          )
-                        }
-                      }
-                    }
-                    if (isDosificador && dosificadorReceiptContext) {
-                      supplierAutoFromPoRef.current = null
-                    }
-                    setFormData((prev) => ({ ...prev, supplier_id: value }))
-                  }}
-                  plantId={currentPlant?.id || profile?.plant_id || undefined}
-                />
-              )}
-              {autoFilledFromPO.supplier && !isDosificador && (
-                <p className="text-xs text-stone-500">Proveedor seleccionado automáticamente desde el PO</p>
-              )}
-              {isDosificador && dosificadorSupplierOverride && (
-                <p className="text-xs text-amber-800">
-                  Use solo si la entrega no corresponde al proveedor de la OC; avise a su jefe de planta si hay
-                  discrepancia.
-                </p>
+                <div className="space-y-2">
+                  <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5 text-sm text-stone-900">
+                    {(selectedFulfillmentAlert
+                      ? normalizeAlertLinkedPo(selectedFulfillmentAlert)?.supplier?.name?.trim()
+                      : null) || `Proveedor según OC ${poRefFromId(selectedAlertExistingPoId)}`}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-1 px-0 text-xs text-sky-800 hover:text-sky-950"
+                    onClick={() => setDosificadorSupplierOverride(true)}
+                  >
+                    El proveedor físico no coincide — corregir
+                  </Button>
+                </div>
               )}
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="supplier_invoice">Número de Remisión</Label>
+              <Label htmlFor="supplier_invoice">
+                Número de remisión{isDosificador ? ' *' : ''}
+              </Label>
               <div className="relative">
                 <FileText className="absolute left-3 top-3 h-4 w-4 text-stone-400" />
                 <Input
@@ -1362,8 +1972,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   onChange={(e) => setFormData(prev => ({ ...prev, supplier_invoice: e.target.value }))}
                   className="pl-10"
                   placeholder="Ej: REM-2024-001"
+                  required={isDosificador}
+                  aria-required={isDosificador}
                 />
               </div>
+              {isDosificador && (
+                <p className="text-xs text-stone-600">Obligatorio para vincular la recepción con el documento del proveedor.</p>
+              )}
             </div>
           </div>
           
@@ -1381,70 +1996,85 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CollapsibleTrigger>
             <CollapsibleContent>
           <div className="pt-2 border-t border-stone-200">
+            <p className="text-xs text-stone-600 mb-3">
+              Vincule la recepción a una OC de transporte abierta. Puede elegir primero la OC (se rellena el transportista)
+              o filtrar por proveedor de flota.
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="fleet_supplier_id">Proveedor de Flota</Label>
+              {formData.supplier_id ? (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>OC de flota / transporte (línea de servicio)</Label>
+                  <select
+                    className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                    value={selectedFleetPoItemId}
+                    onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
+                  >
+                    <option value="">Sin OC de flota</option>
+                    {fleetPoItems.length === 0 ? (
+                      <option disabled>No hay líneas de servicio abiertas para este material</option>
+                    ) : (
+                      fleetPoItems.map((it) => {
+                        const materialSupplierName = it.material_supplier?.name || 'Proveedor material'
+                        const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                        const carrier = it.po?.supplier?.name || 'Transportista'
+                        return (
+                          <option key={it.id} value={it.id}>
+                            {`OC ${poNum} · ${carrier} · ${it.service_description || 'Servicio'} · p. ${materialSupplierName} · Rest. ${(Number(it.qty_remaining) || 0).toLocaleString('es-MX')} ${it.uom}`}
+                          </option>
+                        )
+                      })
+                    )}
+                  </select>
+                  {fleetPoItems.length === 0 && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      No hay OC de flota con saldo para el proveedor de material seleccionado
+                      {formData.fleet_supplier_id ? ' y el transportista indicado' : ''}. Cree una OC de servicio en
+                      compras o ajuste el filtro de transportista.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+                  Seleccione primero el proveedor de material arriba para listar OC de flota vinculadas a esa compra.
+                </div>
+              )}
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="fleet_supplier_id">Proveedor de flota (transportista)</Label>
                 <SupplierSelect
                   value={formData.fleet_supplier_id || ''}
-                  onChange={(value: string) => setFormData(prev => ({ ...prev, fleet_supplier_id: value }))}
+                  onChange={(value: string) => {
+                    setFormData((prev) => ({ ...prev, fleet_supplier_id: value }))
+                    setSelectedFleetPoItemId('')
+                    setFleetQtyEntered(0)
+                  }}
                   plantId={currentPlant?.id || profile?.plant_id || undefined}
                 />
-                <p className="text-xs text-stone-500">Opcional: Seleccione si se usó servicio de transporte</p>
+                <p className="text-xs text-stone-500">
+                  Opcional como filtro: al elegir transportista se acotan las OC de flota. Si elige una OC arriba, este
+                  campo se completa solo.
+                </p>
               </div>
-              
-              {formData.fleet_supplier_id && (
-                <>
-                  <div className="space-y-2">
-                    <Label>PO de Flota</Label>
-                    <select
-                      className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
-                      value={selectedFleetPoItemId}
-                      onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
-                    >
-                      <option value="">Sin PO de flota</option>
-                      {fleetPoItems.length === 0 && formData.supplier_id ? (
-                        <option disabled>No hay POs de flota disponibles para este proveedor</option>
-                      ) : (
-                        fleetPoItems.map((it) => {
-                          const materialSupplierName = it.material_supplier?.name || 'Proveedor'
-                          return (
-                            <option key={it.id} value={it.id}>
-                              {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.service_description || 'Servicio'} · Para: ${materialSupplierName} · Restante: ${(Number(it.qty_remaining)||0).toLocaleString('es-MX')} ${it.uom}`}
-                            </option>
-                          )
-                        })
-                      )}
-                    </select>
-                    {formData.supplier_id && fleetPoItems.length === 0 && (
-                      <p className="text-xs text-amber-600 mt-1">
-                        No hay POs de flota disponibles para {formData.supplier_id ? 'este proveedor' : 'el proveedor seleccionado'}. Cree un PO de flota primero.
-                      </p>
-                    )}
+
+              {selectedFleetPoItemId && (
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Cantidad de servicio (flota)</Label>
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="Cantidad"
+                      value={fleetQtyEntered || ''}
+                      onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
+                      className="max-w-xs"
+                    />
+                    <span className="text-sm text-stone-600">
+                      {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom || ''}
+                    </span>
                   </div>
-                  
-                  {selectedFleetPoItemId && (
-                    <div className="space-y-2 md:col-span-2">
-                      <Label>Cantidad de Servicio</Label>
-                      <div className="flex gap-2 items-center">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="Cantidad"
-                          value={fleetQtyEntered || ''}
-                          onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
-                          className="max-w-xs"
-                        />
-                        <span className="text-sm text-stone-600">
-                          {fleetPoItems.find(it => it.id === selectedFleetPoItemId)?.uom || ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-stone-500">
-                        Ej: 2 viajes, 5 toneladas, etc.
-                      </p>
-                    </div>
-                  )}
-                </>
+                  <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
+                </div>
               )}
             </div>
           </div>
@@ -1467,18 +2097,20 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!isDosificador && (
-            <div className="space-y-2">
-              <Label>Notas</Label>
-              <Textarea
-                id="notes"
-                value={formData.notes || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                placeholder="Observaciones adicionales sobre la entrada..."
-              />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="notes">{isDosificador ? 'Observaciones de recepción (opcional)' : 'Notas'}</Label>
+            <Textarea
+              id="notes"
+              value={formData.notes || ''}
+              onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+              rows={isDosificador ? 2 : 3}
+              placeholder={
+                isDosificador
+                  ? 'Ej. sacos dañados, entrega parcial, material húmedo…'
+                  : 'Observaciones adicionales sobre la entrada...'
+              }
+            />
+          </div>
           
           <div className="space-y-2">
             <Label>Documentos de Evidencia</Label>
@@ -1580,6 +2212,58 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </CardContent>
       </Card>
 
+      {isDosificador &&
+        formData.material_id &&
+        formData.quantity_received > 0 &&
+        String(formData.supplier_invoice || '').trim() && (
+          <Card className="border-stone-200 bg-[#faf9f7]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Resumen antes de guardar</CardTitle>
+              <CardDescription className="text-xs">
+                La cantidad corresponde a esta recepción; la solicitud vincula la entrada al flujo. Compruebe remisión
+                frente a material y proveedor en la OC.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm space-y-1.5 text-stone-800">
+              <p>
+                <span className="text-stone-500">Material: </span>
+                <span className="font-medium">{dosificadorSummaryMaterialName}</span>
+              </p>
+              {selectedFulfillmentAlertId && selectedFulfillmentAlert ? (
+                <p>
+                  <span className="text-stone-500">Solicitud (vincula esta entrada): </span>
+                  <span className="font-mono font-semibold">{selectedFulfillmentAlert.alert_number}</span>
+                </p>
+              ) : (
+                <p className="text-stone-600 text-xs">Sin solicitud vinculada (reabastecimiento u otro).</p>
+              )}
+              {selectedAlertExistingPoId && (
+                <p>
+                  <span className="text-stone-500">OC (material y proveedor): </span>
+                  <span className="font-mono font-medium">
+                    {dosificadorReceiptContext?.po.po_number?.trim() ||
+                      linkedPoLabel(selectedLinkedPo, selectedAlertExistingPoId)}
+                  </span>
+                </p>
+              )}
+              <p>
+                <span className="text-stone-500">Proveedor: </span>
+                {dosificadorSummarySupplierName}
+              </p>
+              <p>
+                <span className="text-stone-500">Cantidad de esta recepción: </span>
+                <span className="font-mono tabular-nums font-semibold">
+                  {formData.quantity_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })} kg
+                </span>
+              </p>
+              <p>
+                <span className="text-stone-500">Remisión: </span>
+                <span className="font-mono">{formData.supplier_invoice}</span>
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
       {/* Submit Button */}
       <div className={cn('flex justify-end space-x-3', isDosificador && 'hidden md:flex')}>
         <Button 
@@ -1622,7 +2306,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         <Button
           type="submit"
           variant="solid"
-          disabled={loading || uploading || !formData.material_id || formData.quantity_received <= 0}
+          disabled={
+            loading ||
+            uploading ||
+            !formData.material_id ||
+            formData.quantity_received <= 0 ||
+            (isDosificador && !String(formData.supplier_invoice || '').trim())
+          }
           className="min-w-[120px] bg-sky-800 hover:bg-sky-900 text-white shadow-none"
         >
           {loading ? (
@@ -1637,11 +2327,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       </div>
 
       {/* Warning for missing required fields */}
-      {(!formData.material_id || formData.quantity_received <= 0) && (
+      {(!formData.material_id ||
+        formData.quantity_received <= 0 ||
+        (isDosificador && !String(formData.supplier_invoice || '').trim())) && (
         <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <AlertCircle className="h-4 w-4 text-yellow-600" />
           <p className="text-sm text-yellow-700">
-            Complete el material y la cantidad para continuar
+            {!formData.material_id || formData.quantity_received <= 0
+              ? 'Complete el material y la cantidad para continuar'
+              : 'Ingrese el número de remisión para continuar'}
           </p>
         </div>
       )}
@@ -1665,7 +2359,13 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             size="lg"
             variant="solid"
             className="min-w-[140px] shrink-0 bg-sky-800 hover:bg-sky-900 text-white shadow-none"
-            disabled={loading || uploading || !formData.material_id || formData.quantity_received <= 0}
+            disabled={
+              loading ||
+              uploading ||
+              !formData.material_id ||
+              formData.quantity_received <= 0 ||
+              (isDosificador && !String(formData.supplier_invoice || '').trim())
+            }
           >
             {loading ? 'Guardando…' : 'Guardar'}
           </Button>

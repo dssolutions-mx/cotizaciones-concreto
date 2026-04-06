@@ -68,9 +68,9 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
 
     // Extract base data arrays
     const categories = filteredData.map(item => item.monthName);
-    const salesData = filteredData.map(item => 
-      includeVAT ? item.totalSales * 1.16 : item.totalSales
-    );
+    // Progressive aggregates currently expose volume-first; totalSales is 0 until includeAmounts is implemented.
+    // Do not assume 16% IVA — plant/BU rates vary (e.g. 8%).
+    const salesData = filteredData.map(item => item.totalSales);
     const concreteMonthly = filteredData.map(item => item.concreteVolume || 0);
     const pumpMonthly = filteredData.map(item => item.pumpVolume || 0);
     const clientsData = filteredData.map(item => (item as any).activeClients || 0);

@@ -206,7 +206,8 @@ export async function GET(request: Request) {
         // Use invoice_amount if requires_invoice (credit/fiscal), otherwise final_amount or total_amount (cash/efectivo)
         let amount = 0;
         if (order.requires_invoice) {
-          amount = Number(order.invoice_amount) || Number(order.final_amount) * 1.16 || Number(order.total_amount) * 1.16 || 0;
+          // Single source of truth: invoice_amount (BU VAT); do not duplicate * 1.16 here
+          amount = Number(order.invoice_amount) || Number(order.final_amount) || Number(order.total_amount) || 0;
         } else {
           amount = Number(order.final_amount) || Number(order.total_amount) || 0;
         }

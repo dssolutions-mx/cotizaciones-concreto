@@ -35,6 +35,7 @@ async function getConstructionSiteFromQuote(
         quotes!inner (
           id,
           construction_site,
+          construction_site_id,
           client_id
         )
       `)
@@ -46,20 +47,47 @@ async function getConstructionSiteFromQuote(
       return null;
     }
 
-    const quote = quoteDetail.quotes;
+    const quote = quoteDetail.quotes as {
+      id: string;
+      construction_site: string;
+      construction_site_id?: string | null;
+      client_id: string;
+    };
     if (!quote || quote.client_id !== clientId) {
       console.warn('[getConstructionSiteFromQuote] Quote client mismatch or missing quote');
       return null;
     }
 
-    // Now get the actual construction site ID from the construction_sites table
+    if (quote.construction_site_id) {
+      const { data: byId, error: byIdErr } = await supabase
+        .from('construction_sites')
+        .select('id, name, is_active')
+        .eq('id', quote.construction_site_id)
+        .eq('client_id', clientId)
+        .order('is_active', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!byIdErr && byId) {
+        return { id: byId.id, name: byId.name };
+      }
+      console.warn(
+        '[getConstructionSiteFromQuote] Quote construction_site_id not resolved; falling back to name:',
+        quote.construction_site_id
+      );
+    }
+
+    const siteName = (quote.construction_site || '').trim();
+    if (!siteName) return null;
+
     const { data: constructionSite, error: siteError } = await supabase
       .from('construction_sites')
-      .select('id, name')
+      .select('id, name, is_active')
       .eq('client_id', clientId)
-      .eq('name', quote.construction_site)
-      .eq('is_active', true)
-      .single();
+      .ilike('name', siteName)
+      .order('is_active', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (siteError || !constructionSite) {
       console.warn('[getConstructionSiteFromQuote] Construction site not found:', quote.construction_site, 'for client:', clientId);
@@ -151,6 +179,8 @@ export interface OrderCreationResult {
   materialsProcessed: number;
   orderItemsCreated: number;
   errors: string[];
+  /** Remision IDs created in this batch — used to trigger FIFO costing via /api/inventory/fifo/batch */
+  fifoRemisionIds: string[];
 }
 
 interface OrderCreationData {
@@ -232,7 +262,8 @@ export async function createOrdersFromSuggestions(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   // Track affected clients/sites for batch balance calculation
@@ -282,6 +313,7 @@ export async function createOrdersFromSuggestions(
         result.materialsProcessed += orderResult.materialsProcessed;
         result.orderItemsCreated += orderResult.orderItemsCreated;
         result.errors.push(...orderResult.errors);
+        result.fifoRemisionIds.push(...(orderResult.fifoRemisionIds ?? []));
 
         // Track this order's client/site for balance calculation
         const firstRemision = suggestion.remisiones[0];
@@ -523,7 +555,8 @@ async function createSingleOrder(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   // Get the first remision for order data
@@ -928,6 +961,7 @@ async function createSingleOrder(
           result.errors.push(`Error creando materiales: ${materialsError.message}`);
         } else {
           result.materialsProcessed = allRemisionMaterials.length;
+          result.fifoRemisionIds = createdRemisiones.map((r) => r.id);
           console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
         }
       } else {
@@ -1023,7 +1057,8 @@ async function createSingleOrderWithoutBalanceUpdate(
     remisionesCreated: 0,
     materialsProcessed: 0,
     orderItemsCreated: 0,
-    errors: []
+    errors: [],
+    fifoRemisionIds: [],
   };
 
   try {
@@ -1476,6 +1511,7 @@ async function createSingleOrderWithoutBalanceUpdate(
           result.errors.push(`Error creando materiales: ${materialsError.message}`);
         } else {
           result.materialsProcessed = allRemisionMaterials.length;
+          result.fifoRemisionIds = createdRemisiones.map((r) => r.id);
           console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
         }
       } else {

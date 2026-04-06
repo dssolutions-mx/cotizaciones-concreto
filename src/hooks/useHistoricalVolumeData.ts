@@ -95,7 +95,8 @@ export function useHistoricalVolumeData({
         let pumpQuery = supabase
           .from('remisiones')
           .select('fecha, plant_id, volumen_fabricado, plants!plant_id!inner(id, name)')
-          .eq('tipo_remision', 'BOMBEO');
+          .eq('tipo_remision', 'BOMBEO')
+          .eq('is_production_record', false);
         
         // Apply date filters only if dates are specified
         if (startDateStr) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,9 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has production control permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para ver actividades' }, { status: 403 });
     }
 

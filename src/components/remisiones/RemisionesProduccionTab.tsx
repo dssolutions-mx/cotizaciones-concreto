@@ -1,14 +1,43 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import RemisionMaterialesModal from './RemisionMaterialesModal';
+import { toast } from 'sonner';
+
+const FIFO_STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendiente',
+  allocated: 'Costeado',
+  partial: 'Parcial',
+  error: 'Error',
+  not_applicable: 'N/A',
+};
+
+function fifoBadgeVariant(
+  status: string | null | undefined
+): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (status) {
+    case 'allocated':
+      return 'default';
+    case 'partial':
+      return 'secondary';
+    case 'error':
+      return 'destructive';
+    default:
+      return 'outline';
+  }
+}
 
 export default function RemisionesProduccionTab() {
   const [remisiones, setRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedRemision, setSelectedRemision] = useState<any>(null);
   const [showModal, setShowModal] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRemisiones();
@@ -19,7 +48,8 @@ export default function RemisionesProduccionTab() {
     try {
       const { data, error } = await supabase
         .from('remisiones')
-        .select(`
+        .select(
+          `
           id,
           remision_number,
           fecha,
@@ -28,18 +58,25 @@ export default function RemisionesProduccionTab() {
           conductor,
           unidad,
           recipe_id,
+          fifo_status,
           recipes(recipe_code)
-        `)
+        `
+        )
         .not('recipe_id', 'is', null)
         .not('recipes.recipe_code', 'is', null)
         .order('fecha', { ascending: false });
 
       if (error) throw error;
-      
-      const remisionesConcreto = data?.filter(item => 
-        item.recipes && typeof item.recipes === 'object' && 'recipe_code' in item.recipes && item.recipes.recipe_code
-      ) || [];
-      
+
+      const remisionesConcreto =
+        data?.filter(
+          (item) =>
+            item.recipes &&
+            typeof item.recipes === 'object' &&
+            'recipe_code' in item.recipes &&
+            item.recipes.recipe_code
+        ) || [];
+
       setRemisiones(remisionesConcreto);
     } catch (error) {
       console.error('Error fetching remisiones:', error);
@@ -59,7 +96,7 @@ export default function RemisionesProduccionTab() {
 
       setSelectedRemision({
         ...remision,
-        materiales: materiales || []
+        materiales: materiales || [],
       });
       setShowModal(true);
     } catch (error) {
@@ -67,10 +104,34 @@ export default function RemisionesProduccionTab() {
     }
   };
 
+  const handleConfirmFifo = async (e: React.MouseEvent, remisionId: string) => {
+    e.stopPropagation();
+    setConfirmingId(remisionId);
+    try {
+      const res = await fetch(`/api/remisiones/${remisionId}/confirm`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudo confirmar la remisión');
+      }
+      if (data.skipped?.length) {
+        toast.message('FIFO omitido o parcial', {
+          description: 'Revise materiales y capas de entrada.',
+        });
+      } else {
+        toast.success('FIFO aplicado');
+      }
+      await fetchRemisiones();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al costear');
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
   return (
     <div className="mt-8">
       <h2 className="text-xl font-semibold mb-3">Producción y Consumo de Materiales</h2>
-      
+
       {loading ? (
         <div className="flex items-center justify-center py-6">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -89,28 +150,53 @@ export default function RemisionesProduccionTab() {
                   <TableHead>Volumen (m³)</TableHead>
                   <TableHead>Unidad</TableHead>
                   <TableHead>Conductor</TableHead>
+                  <TableHead>Costeo FIFO</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {remisiones.length > 0 ? (
-                  remisiones.map(remision => (
-                    <TableRow 
-                      key={remision.id} 
-                      className="cursor-pointer hover:bg-gray-50"
-                      onClick={() => handleRowClick(remision)}
-                    >
-                      <TableCell className="font-medium">{remision.remision_number}</TableCell>
-                      <TableCell>{new Date(remision.fecha).toLocaleDateString()}</TableCell>
-                      <TableCell>{remision.hora_carga}</TableCell>
-                      <TableCell>{remision.recipes?.recipe_code}</TableCell>
-                      <TableCell>{remision.volumen_fabricado}</TableCell>
-                      <TableCell>{remision.unidad}</TableCell>
-                      <TableCell>{remision.conductor}</TableCell>
-                    </TableRow>
-                  ))
+                  remisiones.map((remision) => {
+                    const fs = remision.fifo_status || 'pending';
+                    return (
+                      <TableRow
+                        key={remision.id}
+                        className="cursor-pointer hover:bg-gray-50"
+                        onClick={() => handleRowClick(remision)}
+                      >
+                        <TableCell className="font-medium">{remision.remision_number}</TableCell>
+                        <TableCell>{new Date(remision.fecha).toLocaleDateString()}</TableCell>
+                        <TableCell>{remision.hora_carga}</TableCell>
+                        <TableCell>{remision.recipes?.recipe_code}</TableCell>
+                        <TableCell>{remision.volumen_fabricado}</TableCell>
+                        <TableCell>{remision.unidad}</TableCell>
+                        <TableCell>{remision.conductor}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Badge variant={fifoBadgeVariant(fs)}>
+                            {FIFO_STATUS_LABEL[fs] ?? fs}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={confirmingId === remision.id}
+                            onClick={(e) => handleConfirmFifo(e, remision.id)}
+                          >
+                            {confirmingId === remision.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              'Confirmar y costear'
+                            )}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-4">
+                    <TableCell colSpan={9} className="text-center py-4">
                       No hay remisiones de concreto registradas
                     </TableCell>
                   </TableRow>
@@ -118,7 +204,7 @@ export default function RemisionesProduccionTab() {
               </TableBody>
             </Table>
           </div>
-          
+
           {selectedRemision && (
             <RemisionMaterialesModal
               isOpen={showModal}
@@ -130,4 +216,4 @@ export default function RemisionesProduccionTab() {
       )}
     </div>
   );
-} 
+}

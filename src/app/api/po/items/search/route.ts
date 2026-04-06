@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
   const is_service = searchParams.get('is_service') === 'true';
   const is_service_false = searchParams.get('is_service') === 'false';
   const material_supplier_id = searchParams.get('material_supplier_id') || undefined;
+  /** OC de servicio/flota: filtrar por proveedor del encabezado de la OC (transportista). */
+  const po_supplier_id = searchParams.get('po_supplier_id') || undefined;
   /** Solo OC con encabezado abierto o parcial (evita líneas huérfanas de pedidos cerrados). */
   const activePoHeaderOnly = searchParams.get('active_po_header') === 'true';
 
@@ -46,6 +48,7 @@ export async function GET(request: NextRequest) {
   if (is_service_false) query = query.eq('is_service', false);
   // Additional filter for fleet POs by material_supplier_id if provided separately
   if (material_supplier_id) query = query.eq('material_supplier_id', material_supplier_id as any);
+  if (po_supplier_id && is_service) query = query.eq('po.supplier_id', po_supplier_id as any);
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('po.plant_id', profile.plant_id as any);
 
   const { data, error } = await query;

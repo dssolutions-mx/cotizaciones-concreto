@@ -18,7 +18,7 @@ async function requireAllowedRole(supabase: ReturnType<typeof createServerSupaba
   return { ok: true as const };
 }
 
-/** Net adjustments for general balance - matches update_client_balance logic */
+/** Net adjustments for general balance (TRANSFER + general MANUAL_ADDITION); persisted balance adds this in update_client_balance */
 function computeGeneralAdjustments(
   adjustments: Array<{
     adjustment_type: string;

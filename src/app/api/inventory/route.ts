@@ -5,6 +5,7 @@ import {
   MaterialEntryInputSchema,
   MaterialAdjustmentInputSchema 
 } from '@/lib/validations/inventory';
+import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,16 +38,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
-    // Determine which plant_id to use
     let targetPlantId = profile.plant_id;
-    if (validatedQuery.plant_id && profile.role === 'EXECUTIVE') {
-      // Only EXECUTIVE users can query other plants
+    if (validatedQuery.plant_id && isGlobalInventoryRole(profile.role)) {
       targetPlantId = validatedQuery.plant_id;
     } else if (validatedQuery.plant_id && profile.plant_id !== validatedQuery.plant_id) {
       return NextResponse.json({ error: 'No puede consultar inventario de otras plantas' }, { status: 403 });
@@ -149,9 +146,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!hasInventoryStandardAccess(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
@@ -175,7 +170,7 @@ export async function POST(request: NextRequest) {
       const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
       const dateStr = entryDate.replace(/-/g, '');
       
-      // Get current sequence number
+      // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
       const { data: lastEntry } = await supabase
         .from('material_entries')
         .select('entry_number')
@@ -183,7 +178,7 @@ export async function POST(request: NextRequest) {
         .ilike('entry_number', `ENT-${dateStr}-%`)
         .order('entry_number', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
       const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;
@@ -232,7 +227,7 @@ export async function POST(request: NextRequest) {
       const adjustmentDate = validatedData.adjustment_date || new Date().toISOString().split('T')[0];
       const dateStr = adjustmentDate.replace(/-/g, '');
       
-      // Get current sequence number
+      // Get current sequence number (per plant; DB unique is on plant_id + adjustment_number)
       const { data: lastAdjustment } = await supabase
         .from('material_adjustments')
         .select('adjustment_number')
@@ -240,7 +235,7 @@ export async function POST(request: NextRequest) {
         .ilike('adjustment_number', `ADJ-${dateStr}-%`)
         .order('adjustment_number', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       const sequence = lastAdjustment ? parseInt(lastAdjustment.adjustment_number.split('-').pop() || '0') + 1 : 1;
       const adjustmentNumber = `ADJ-${dateStr}-${sequence.toString().padStart(3, '0')}`;

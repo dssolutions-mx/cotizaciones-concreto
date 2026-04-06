@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { canWriteMaterialsCatalog } from '@/lib/auth/materialsCatalogRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
+    const supplierId = searchParams.get('supplier_id');
     const activeParam = searchParams.get('active');
 
     // Build query for materials
@@ -54,7 +56,72 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch materials' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data: materials });
+    let augmented = materials || [];
+
+    /**
+     * When supplier_id is passed (OC / compras), return the full plant catalog and add optional flags
+     * for UI suggestions — no rows are excluded by proveedor (same material puede comprarse a varios).
+     */
+    if (supplierId && augmented.length > 0) {
+      const { data: agreements } = await supabase
+        .from('supplier_agreements')
+        .select('material_id')
+        .eq('supplier_id', supplierId)
+        .eq('is_service', false)
+        .is('effective_to', null)
+        .not('material_id', 'is', null);
+
+      const agreementSet = new Set(
+        (agreements || []).map((a: { material_id?: string }) => a.material_id).filter(Boolean) as string[]
+      );
+
+      /** Material IDs that appeared on OC lines for this supplier + plant (suggested compras previas). */
+      let poHistorySet = new Set<string>();
+      /** Material IDs from recepciones (material_entries) for this supplier + plant — same material can be bought from otro proveedor en otras OCs; aquí solo afirmamos “ya recibimos de este proveedor”. */
+      let entryHistorySet = new Set<string>();
+      if (plantId) {
+        const { data: pos } = await supabase
+          .from('purchase_orders')
+          .select('id')
+          .eq('supplier_id', supplierId)
+          .eq('plant_id', plantId);
+
+        const poIds = (pos || []).map((p: { id: string }) => p.id);
+        if (poIds.length > 0) {
+          const { data: lines } = await supabase
+            .from('purchase_order_items')
+            .select('material_id')
+            .in('po_id', poIds)
+            .not('material_id', 'is', null);
+          for (const l of lines || []) {
+            const mid = (l as { material_id?: string }).material_id;
+            if (mid) poHistorySet.add(mid);
+          }
+        }
+
+        const { data: entryRows } = await supabase
+          .from('material_entries')
+          .select('material_id')
+          .eq('supplier_id', supplierId)
+          .eq('plant_id', plantId)
+          .not('material_id', 'is', null);
+        for (const row of entryRows || []) {
+          const mid = (row as { material_id?: string }).material_id;
+          if (mid) entryHistorySet.add(mid);
+        }
+      }
+
+      augmented = augmented.map(
+        (m: Record<string, unknown> & { id: string; supplier_id?: string | null }) => ({
+          ...m,
+          has_supplier_agreement: agreementSet.has(m.id),
+          has_po_history_with_supplier: poHistorySet.has(m.id),
+          has_entry_history_with_supplier: entryHistorySet.has(m.id),
+        })
+      );
+    }
+
+    return NextResponse.json({ success: true, data: augmented });
   } catch (error) {
     console.error('Error in materials API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -82,9 +149,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to create materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'QUALITY_TEAM'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!canWriteMaterialsCatalog(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
