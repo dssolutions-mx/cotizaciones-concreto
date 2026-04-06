@@ -96,6 +96,13 @@ Thumbs.db
 *.log
 *.cache
 .cache/
+.cursor/
+
+# Claude
+.claude/
+
+# Cursor
+
 
 # Recovery data (contains sensitive order information)
 recovery-exports/
