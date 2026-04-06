@@ -230,6 +230,7 @@ export default function QualityHubLayout({
   urgencyZone,
   error,
   breadcrumb,
+  primaryCta,
   onRefresh,
   refreshing,
   children,
@@ -243,6 +244,8 @@ export default function QualityHubLayout({
   urgencyZone?: UrgencyZone
   error?: string | null
   breadcrumb?: { hubName: string; hubHref: string; items?: { label: string; href?: string }[] }
+  /** Primary action in the header row (e.g. quick link to create a record). */
+  primaryCta?: { label: string; href: string }
   onRefresh?: () => void
   refreshing?: boolean
   children?: React.ReactNode
@@ -312,11 +315,18 @@ export default function QualityHubLayout({
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">{title}</h1>
           <p className="text-sm text-stone-500 mt-0.5">{description}</p>
         </div>
-        {onRefresh && (
-          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing}>
-            <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-          </Button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {primaryCta && (
+            <Button variant="default" size="sm" className="bg-sky-600 hover:bg-sky-700" asChild>
+              <Link href={primaryCta.href}>{primaryCta.label}</Link>
+            </Button>
+          )}
+          {onRefresh && (
+            <Button variant="ghost" size="sm" onClick={onRefresh} disabled={refreshing}>
+              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary strip */}

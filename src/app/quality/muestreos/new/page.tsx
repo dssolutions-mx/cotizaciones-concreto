@@ -76,6 +76,7 @@ import { DateRange } from "react-day-picker";
 import RemisionesStep from '@/components/quality/muestreos/RemisionesStep';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import MeasurementsFields from '@/components/quality/muestreos/MeasurementsFields';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 // schema and date helpers moved to components/quality/muestreos
 
@@ -634,6 +635,16 @@ export default function NuevoMuestreoPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
+      <div className="mb-4">
+        <QualityBreadcrumb
+          hubName="Operaciones"
+          hubHref="/quality/operaciones"
+          items={[
+            { label: 'Muestreos', href: '/quality/muestreos' },
+            { label: 'Nuevo muestreo' },
+          ]}
+        />
+      </div>
       <div className="mb-6">
         <Button 
           variant="outline" 

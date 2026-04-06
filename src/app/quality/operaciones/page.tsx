@@ -130,6 +130,7 @@ export default function OperacionesHub() {
       title="Operaciones"
       description="Registro diario de muestreos, ensayos y verificaciones en campo"
       breadcrumb={{ hubName: 'Operaciones', hubHref: '/quality/operaciones' }}
+      primaryCta={{ label: 'Nuevo muestreo', href: '/quality/muestreos/new' }}
       summaryItems={summaryItems}
       summaryLoading={loading}
       primaryActions={primaryActions}
