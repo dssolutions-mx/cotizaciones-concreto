@@ -101,6 +101,7 @@ export default function ProcurementWorkspacePage() {
   const [createPOOpen, setCreatePOOpen] = useState(false)
   const [prefillFromAlert, setPrefillFromAlert] = useState<PrefillFromAlert | null>(null)
   const [actionQueueKey, setActionQueueKey] = useState(0)
+  const [entriesFocusMode, setEntriesFocusMode] = useState(false)
 
   const canCreatePO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
 
@@ -168,12 +169,16 @@ export default function ProcurementWorkspacePage() {
 
   return (
     <div className={cn(
-      "p-4 md:p-6 max-w-[1600px] mx-auto",
-      activeTab === 'entradas'
-        ? "h-dvh overflow-hidden flex flex-col gap-4 md:gap-6"
-        : "space-y-6"
+      entriesFocusMode && activeTab === 'entradas'
+        ? "fixed inset-0 z-40 overflow-hidden flex flex-col bg-[#f5f3f0]"
+        : cn(
+            "p-4 md:p-6 max-w-[1600px] mx-auto",
+            activeTab === 'entradas'
+              ? "h-dvh overflow-hidden flex flex-col gap-4 md:gap-6"
+              : "space-y-6"
+          )
     )}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      {!entriesFocusMode && <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
             Centro de compras e inventario
@@ -218,9 +223,9 @@ export default function ProcurementWorkspacePage() {
             <Link href="/finanzas">← Finanzas</Link>
           </Button>
         </div>
-      </div>
+      </div>}
 
-      <ProcurementFlowNav plantId={workspacePlantId || undefined} />
+      {!entriesFocusMode && <ProcurementFlowNav plantId={workspacePlantId || undefined} />}
 
       {activeTab !== 'entradas' && (
         <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
@@ -270,12 +275,14 @@ export default function ProcurementWorkspacePage() {
         value={activeTab}
         onValueChange={handleTabChange}
         className={cn(
-          activeTab === 'entradas'
+          entriesFocusMode && activeTab === 'entradas'
             ? "flex-1 min-h-0 flex flex-col"
-            : "space-y-4"
+            : activeTab === 'entradas'
+              ? "flex-1 min-h-0 flex flex-col"
+              : "space-y-4"
         )}
       >
-        <div className={cn("-mx-1 overflow-x-auto px-1 pb-0.5", activeTab === 'entradas' && "shrink-0 mb-4")}>
+        {!entriesFocusMode && <div className={cn("-mx-1 overflow-x-auto px-1 pb-0.5", activeTab === 'entradas' && "shrink-0 mb-4")}>
         <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
           <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <LayoutDashboard className="h-4 w-4" />
@@ -306,7 +313,7 @@ export default function ProcurementWorkspacePage() {
             Proveedores
           </TabsTrigger>
         </TabsList>
-        </div>
+        </div>}
 
         <TabsContent value="resumen" className="space-y-4">
           <ActionCenter
@@ -476,6 +483,8 @@ export default function ProcurementWorkspacePage() {
             workspacePlantId={workspacePlantId}
             canReviewPricing={canCreatePO}
             onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
+            isFocused={entriesFocusMode}
+            onToggleFocusMode={() => setEntriesFocusMode((f) => !f)}
           />
         </TabsContent>
 

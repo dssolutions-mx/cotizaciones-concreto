@@ -29,6 +29,8 @@ import {
   DollarSign,
   Factory,
   List,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   Package,
   Search,
@@ -57,6 +59,8 @@ type Props = {
   workspacePlantId: string
   canReviewPricing?: boolean
   onPricingSuccess?: () => void
+  isFocused?: boolean
+  onToggleFocusMode?: () => void
 }
 
 /* ─── Shared table for both canReviewPricing and !canReviewPricing ─── */
@@ -217,6 +221,8 @@ export default function ProcurementMaterialEntriesView({
   workspacePlantId,
   canReviewPricing = false,
   onPricingSuccess,
+  isFocused = false,
+  onToggleFocusMode,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -482,7 +488,7 @@ export default function ProcurementMaterialEntriesView({
   )
 
   return (
-    <div className="h-full flex flex-col">
+    <div className={cn("h-full flex flex-col", isFocused && "p-3 md:p-4 gap-0")}>
       {/* ─── Compact header: title + sub-tabs ─── */}
       {canReviewPricing ? (
         <Tabs value={entradasView} onValueChange={(v) => setEntradasView(v as 'list' | 'precios')} className="flex-1 min-h-0 flex flex-col">
@@ -491,6 +497,7 @@ export default function ProcurementMaterialEntriesView({
               <Package className="h-4.5 w-4.5 text-amber-700" />
               Recepciones de material
             </h2>
+            <div className="flex items-center gap-2">
             <TabsList className="h-auto bg-stone-200/60 p-0.5 rounded-lg">
               <TabsTrigger
                 value="precios"
@@ -512,6 +519,22 @@ export default function ProcurementMaterialEntriesView({
                 Historial
               </TabsTrigger>
             </TabsList>
+            {onToggleFocusMode && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-stone-500 hover:text-stone-900 hover:bg-stone-100"
+                onClick={onToggleFocusMode}
+                title={isFocused ? 'Salir de modo enfoque' : 'Modo enfoque (pantalla completa)'}
+              >
+                {isFocused
+                  ? <Minimize2 className="h-3.5 w-3.5" />
+                  : <Maximize2 className="h-3.5 w-3.5" />
+                }
+              </Button>
+            )}
+            </div>
           </div>
 
           {/* ─── Pricing Queue: Master-Detail ─── */}
