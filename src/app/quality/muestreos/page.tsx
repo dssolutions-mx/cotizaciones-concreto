@@ -37,6 +37,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { subMonths } from 'date-fns';
 import { formatDate } from '@/lib/utils';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 const PAGE_SIZE = 50; // Pagination limit for performance
 
@@ -316,6 +317,13 @@ export default function MuestreosPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
+      <div className="mb-4">
+        <QualityBreadcrumb
+          hubName="Operaciones"
+          hubHref="/quality/operaciones"
+          items={[{ label: 'Muestreos' }]}
+        />
+      </div>
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">Muestreos de Concreto</h1>

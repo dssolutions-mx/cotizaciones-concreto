@@ -12,13 +12,7 @@ import {
   CardDescription,
   CardFooter,
 } from "@/components/ui/card";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -522,22 +516,15 @@ export default function MuestreoDetailPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       
-      {/* Breadcrumbs */}
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/quality">Calidad</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink href="/quality/muestreos">Muestreos</BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbLink>Detalle</BreadcrumbLink>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <QualityBreadcrumb
+        className="mb-6"
+        hubName="Operaciones"
+        hubHref="/quality/operaciones"
+        items={[
+          { label: 'Muestreos', href: '/quality/muestreos' },
+          { label: `Muestreo #${muestreo.numero_muestreo}` },
+        ]}
+      />
       
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
         <div>

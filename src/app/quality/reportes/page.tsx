@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,8 @@ import RemisionesProduccionTab from '@/components/remisiones/RemisionesProduccio
 import { useClientsWithQualityData } from '@/hooks/useClientsWithQualityData';
 import { useConstructionSitesWithQualityData } from '@/hooks/useConstructionSitesWithQualityData';
 import { useRecipesWithQualityData } from '@/hooks/useRecipesWithQualityData';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
+import { QualityDashboardContent, canUseAnalyticsDashboard } from '@/components/quality/QualityDashboardContent';
 
 // Re-add dynamic import for Chart
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -181,6 +183,23 @@ export default function ReportesPage() {
   const [selectedPlanta, setSelectedPlanta] = useState<string>('all');
   const [selectedClasificacion, setSelectedClasificacion] = useState<string>('all');
   const [activeTab, setActiveTab] = useState('tabla');
+  const defaultTabApplied = useRef(false);
+
+  useEffect(() => {
+    if (!profile?.role || defaultTabApplied.current) return;
+    if (canUseAnalyticsDashboard(profile.role)) {
+      setActiveTab('panel');
+      defaultTabApplied.current = true;
+    }
+  }, [profile?.role]);
+
+  const showAnalyticsPanel = canUseAnalyticsDashboard(profile?.role);
+
+  useEffect(() => {
+    if (!showAnalyticsPanel && activeTab === 'panel') {
+      setActiveTab('tabla');
+    }
+  }, [showAnalyticsPanel, activeTab]);
   
   // Add new filter states
   const [selectedClient, setSelectedClient] = useState<string>('all');
@@ -225,7 +244,7 @@ export default function ReportesPage() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
   const [lastClickedId, setLastClickedId] = useState<string | null>(null);
-  
+
   // Verificar roles permitidos
   const allowedRoles = ['QUALITY_TEAM', 'EXECUTIVE', 'PLANT_MANAGER'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
@@ -243,6 +262,11 @@ export default function ReportesPage() {
   
   // Cargar datos al cambiar filtros
   const loadReportData = async () => {
+    if (activeTab === 'panel' || activeTab === 'produccion') {
+      setLoading(false);
+      return;
+    }
+
     if (!dateRange?.from || !dateRange?.to) {
       setError('Por favor selecciona un rango de fechas válido.');
       return;
@@ -410,6 +434,10 @@ export default function ReportesPage() {
   
   // Exportar a Excel
   const exportToExcel = async () => {
+    if (activeTab === 'panel') {
+      setError('Selecciona una pestaña de datos o eficiencia para exportar a Excel.');
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -509,6 +537,13 @@ export default function ReportesPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
+      <div className="mb-4">
+        <QualityBreadcrumb
+          hubName="Operaciones"
+          hubHref="/quality/operaciones"
+          items={[{ label: 'Reportes' }]}
+        />
+      </div>
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">Reportes de Calidad</h1>
@@ -519,6 +554,7 @@ export default function ReportesPage() {
       </div>
       
       {/* Filtros */}
+      {activeTab !== 'panel' && (
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -675,6 +711,7 @@ export default function ReportesPage() {
           </div>
         </CardContent>
       </Card>
+      )}
       
       {error && (
         <Alert variant="destructive" className="mb-6">
@@ -686,12 +723,21 @@ export default function ReportesPage() {
       
       {/* Contenedor de reportes */}
       <Tabs value={activeTab} className="mb-6" onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 flex flex-wrap gap-1 h-auto min-h-10">
+          {showAnalyticsPanel && (
+            <TabsTrigger value="panel">Panel de calidad</TabsTrigger>
+          )}
           <TabsTrigger value="tabla">Datos por Muestreo</TabsTrigger>
           <TabsTrigger value="eficiencia">Análisis de Eficiencia</TabsTrigger>
           <TabsTrigger value="distribucion">Distribución Resistencias</TabsTrigger>
           <TabsTrigger value="produccion">Producción</TabsTrigger>
         </TabsList>
+
+        {showAnalyticsPanel && (
+          <TabsContent value="panel" className="mt-0">
+            <QualityDashboardContent mode="embedded" />
+          </TabsContent>
+        )}
         
         <TabsContent value="tabla">
           <Card>

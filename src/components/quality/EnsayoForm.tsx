@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { updateMuestraEstado } from '@/services/qualityMuestraService';
 import { FileUploader } from '@/components/ui/file-uploader';
 import { Ensayo, Muestra } from '@/types/quality';
 import { format } from 'date-fns';
+import { EquipoUtilizadoPicker, type EquipoUtilizadoPickerHandle } from '@/components/quality/muestreos/EquipoUtilizadoPicker';
 
 interface EnsayoFormProps {
   muestraId: string;
@@ -21,20 +22,23 @@ interface EnsayoFormProps {
     edad_garantia: number;
   } | null;
   tipoMuestra?: 'CILINDRO' | 'VIGA';
+  plantId?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
 }
 
-export function EnsayoForm({ 
-  muestraId, 
-  muestraData, 
-  recipeData, 
+export function EnsayoForm({
+  muestraId,
+  muestraData,
+  recipeData,
   tipoMuestra = 'CILINDRO',
+  plantId,
   onSuccess,
   onCancel
 }: EnsayoFormProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const equipoPickerRef = useRef<EquipoUtilizadoPickerHandle>(null);
   const [formData, setFormData] = useState({
     cargaKg: '',
     observaciones: '',
@@ -200,7 +204,33 @@ export function EnsayoForm({
       console.log("Submitting ensayo data:", ensayoData);
       
       const ensayo = await createEnsayo(ensayoData);
-      
+
+      // Save EMA instrument snapshots (testing instruments: press, caliper, etc.)
+      const selectedInstrumentos = equipoPickerRef.current?.getSelected() ?? [];
+      if (selectedInstrumentos.length > 0 && ensayo?.id) {
+        try {
+          const snapRes = await fetch(`/api/ema/ensayos/${ensayo.id}/instrumentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instrumentos: selectedInstrumentos }),
+          });
+          if (!snapRes.ok) {
+            const snapJson = await snapRes.json();
+            if (snapRes.status === 422) {
+              throw new Error(snapJson.error ?? 'Instrumentos vencidos bloqueados por configuración EMA');
+            }
+            console.warn('EMA ensayo snapshot warning:', snapJson.error);
+          }
+        } catch (snapErr: any) {
+          if (snapErr.message?.includes('vencidos')) {
+            toast({ title: 'Error EMA', description: snapErr.message, variant: 'destructive' });
+            setLoading(false);
+            return;
+          }
+          console.warn('EMA ensayo snapshot error (non-blocking):', snapErr.message);
+        }
+      }
+
       // Update sample status
       await updateMuestraEstado(muestraId, 'ENSAYADO');
       
@@ -341,7 +371,10 @@ export function EnsayoForm({
               onFilesSelected={handleFileChange}
             />
           </div>
-          
+
+          {/* EMA — Equipo utilizado en el ensayo (prensa, vernier, etc.) */}
+          <EquipoUtilizadoPicker ref={equipoPickerRef} plantId={plantId} />
+
           <div className="flex justify-end space-x-4 pt-4">
             <Button
               type="button"

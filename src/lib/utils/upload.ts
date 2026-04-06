@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase/client'
 
-export type UploadType = 'entry' | 'adjustment' | 'arkik' | 'general'
+export type UploadType = 'entry' | 'adjustment' | 'arkik' | 'general' | 'ema'
 
 interface UploadOptions {
   folder?: string

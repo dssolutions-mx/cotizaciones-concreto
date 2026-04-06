@@ -13,7 +13,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Do not combine glass-* with solid bg-* — .glass-interactive / .glass-thin set `background` and override Tailwind backgrounds, washing out text.
-        primary: "bg-systemBlue text-white hover:bg-systemBlue/90 shadow-sm",
+        primary:
+          "bg-systemBlue text-white hover:bg-systemBlue/90 shadow-sm hover:shadow-none hover:translate-y-0",
         solid: "bg-systemBlue text-white hover:bg-systemBlue/90 shadow-md",
         glassProminent: "glass-tinted-blue text-white border-0",
         glassSecondary: "glass-thin text-gray-800 dark:text-gray-100 border border-white/30 dark:border-white/10",
@@ -21,7 +22,8 @@ const buttonVariants = cva(
         ghost: "bg-transparent text-systemBlue hover:bg-systemBlue/10",
         glass: "glass-interactive text-label-primary",
         outline: "bg-white hover:bg-gray-50 text-gray-800 shadow-sm dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-100",
-        destructive: "bg-systemRed text-white hover:bg-systemRed/90 shadow-sm",
+        destructive:
+          "bg-systemRed text-white hover:bg-systemRed/90 shadow-sm hover:shadow-none hover:translate-y-0",
         danger: "bg-red-600 text-white hover:bg-red-700 shadow-md border-0",
       },
       size: {
