@@ -46,6 +46,7 @@ import ActionCenter from '@/components/procurement/ActionCenter'
 import ProcurementFlowNav from '@/components/procurement/ProcurementFlowNav'
 import PricingReviewQueue from '@/components/procurement/PricingReviewQueue'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { cn } from '@/lib/utils'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import ActivityFeed, { type ActivityFeedItem } from '@/components/procurement/ActivityFeed'
 import InventoryAlertPanel from '@/components/procurement/InventoryAlertPanel'
@@ -166,7 +167,12 @@ export default function ProcurementWorkspacePage() {
   const reviewPricing = searchParams.get('review') === 'pricing'
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className={cn(
+      "p-4 md:p-6 max-w-[1600px] mx-auto",
+      activeTab === 'entradas'
+        ? "h-dvh overflow-hidden flex flex-col gap-4 md:gap-6"
+        : "space-y-6"
+    )}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
@@ -216,50 +222,60 @@ export default function ProcurementWorkspacePage() {
 
       <ProcurementFlowNav plantId={workspacePlantId || undefined} />
 
-      <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-full bg-sky-100 p-2 text-sky-800">
-            <Info className="h-4 w-4" aria-hidden />
-          </div>
-          <div className="min-w-0 space-y-2 text-sm text-stone-600">
-            <p className="font-medium text-stone-800">Coordinación del flujo de materiales</p>
-            <ol className="list-decimal list-inside space-y-1.5 text-stone-600">
-              <li>
-                <span className="text-stone-700">Dosificador</span> confirma existencia física y pasa a validación.
-              </li>
-              <li>
-                <span className="text-stone-700">Jefe de planta / unidad</span> valida, vincula OC existente o marca
-                que hace falta una nueva.
-              </li>
-              <li>
-                <span className="text-stone-700">Usted (operaciones)</span> crea o vincula la OC, programa la entrega y
-                da seguimiento hasta el cierre en inventario.
-              </li>
-              <li>
-                La entrada de material puede cerrar la alerta; puede abrirse desde Control de producción o al registrar
-                la recepción.
-              </li>
-            </ol>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1 text-xs">
-              <Link
-                href="/production-control"
-                className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
-              >
-                Control de producción <ExternalLink className="h-3 w-3" />
-              </Link>
-              <Link
-                href="/production-control/alerts"
-                className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
-              >
-                Alertas (detalle) <ChevronRight className="h-3 w-3" />
-              </Link>
+      {activeTab !== 'entradas' && (
+        <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-full bg-sky-100 p-2 text-sky-800">
+              <Info className="h-4 w-4" aria-hidden />
+            </div>
+            <div className="min-w-0 space-y-2 text-sm text-stone-600">
+              <p className="font-medium text-stone-800">Coordinación del flujo de materiales</p>
+              <ol className="list-decimal list-inside space-y-1.5 text-stone-600">
+                <li>
+                  <span className="text-stone-700">Dosificador</span> confirma existencia física y pasa a validación.
+                </li>
+                <li>
+                  <span className="text-stone-700">Jefe de planta / unidad</span> valida, vincula OC existente o marca
+                  que hace falta una nueva.
+                </li>
+                <li>
+                  <span className="text-stone-700">Usted (operaciones)</span> crea o vincula la OC, programa la entrega y
+                  da seguimiento hasta el cierre en inventario.
+                </li>
+                <li>
+                  La entrada de material puede cerrar la alerta; puede abrirse desde Control de producción o al registrar
+                  la recepción.
+                </li>
+              </ol>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1 text-xs">
+                <Link
+                  href="/production-control"
+                  className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
+                >
+                  Control de producción <ExternalLink className="h-3 w-3" />
+                </Link>
+                <Link
+                  href="/production-control/alerts"
+                  className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
+                >
+                  Alertas (detalle) <ChevronRight className="h-3 w-3" />
+                </Link>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
-        <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className={cn(
+          activeTab === 'entradas'
+            ? "flex-1 min-h-0 flex flex-col"
+            : "space-y-4"
+        )}
+      >
+        <div className={cn("-mx-1 overflow-x-auto px-1 pb-0.5", activeTab === 'entradas' && "shrink-0 mb-4")}>
         <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
           <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
             <LayoutDashboard className="h-4 w-4" />
@@ -455,7 +471,7 @@ export default function ProcurementWorkspacePage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="entradas">
+        <TabsContent value="entradas" className="flex-1 min-h-0 mt-0">
           <ProcurementMaterialEntriesView
             workspacePlantId={workspacePlantId}
             canReviewPricing={canCreatePO}

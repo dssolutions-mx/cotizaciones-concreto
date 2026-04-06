@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User } from 'lucide-react'
 import CreatePOModal, {
   type PrefillFromMaterialEntry,
   type PrefillFleetFromMaterialEntry,
@@ -17,6 +17,9 @@ import CreatePOModal, {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
+import { usePlantContext } from '@/contexts/PlantContext'
+import { cn } from '@/lib/utils'
+import { formatReceivedQuantity, getReceivedQuantityDisplay } from '@/lib/inventory/entryReceivedDisplay'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -152,6 +155,23 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     () => entry.supplier_id || selectedSupplierId || '',
     [entry.supplier_id, selectedSupplierId]
   )
+
+  const { availablePlants } = usePlantContext()
+
+  const plantDisplayName = useMemo(() => {
+    const p = availablePlants.find((x) => x.id === entry.plant_id)
+    if (p?.name) return p.name
+    return entry.plant_id ? `…${entry.plant_id.slice(0, 8)}` : '—'
+  }, [entry.plant_id, availablePlants])
+
+  const creatorDisplayName = useMemo(() => {
+    const u = entry.entered_by_user
+    if (!u) return '—'
+    const n = [u.first_name, u.last_name].filter(Boolean).join(' ').trim()
+    return n || u.email || '—'
+  }, [entry.entered_by_user])
+
+  const receivedQtyDisplay = useMemo(() => getReceivedQuantityDisplay(entry), [entry])
 
   const selectedFleetSearchItem = useMemo(
     () => fleetPoSearchItems.find((it) => it.id === selectedFleetSearchItemId) || null,
@@ -469,16 +489,41 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     <form onSubmit={handleSubmit} className={embedded ? 'flex flex-col h-full' : 'space-y-5 bg-white p-6 rounded-lg border'}>
       {/* ─── Header ─── */}
       {embedded ? (
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-200 bg-stone-50/60 sticky top-0 z-10">
-          <div className="min-w-0">
-            <span className="font-mono text-sm font-medium text-stone-900">{entry.entry_number || entry.id.slice(0, 8)}</span>
-            <span className="text-sm text-stone-600 ml-2 truncate">
-              {entry.material?.material_name}
+        <div className="px-5 py-3 border-b border-stone-200 bg-stone-50/60 sticky top-0 z-10 space-y-1.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <span className="font-mono text-sm font-medium text-stone-900">{entry.entry_number || entry.id.slice(0, 8)}</span>
+              <span className="text-sm text-stone-600 ml-2 truncate block sm:inline">
+                {entry.material?.material_name}
+              </span>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-lg font-semibold tabular-nums text-stone-900 leading-tight">
+                {receivedQtyDisplay.value.toLocaleString('es-MX', {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: receivedQtyDisplay.unit === 'kg' ? 0 : 2,
+                })}
+                <span className="text-sm font-medium text-stone-600 ml-1">{receivedQtyDisplay.unit}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-x-3 gap-y-1 text-xs text-stone-500 min-w-0 flex-wrap">
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[min(100%,14rem)]">
+              <Factory className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
+              <span className="truncate" title={plantDisplayName}>
+                Planta · {plantDisplayName}
+              </span>
+            </span>
+            <span className="text-stone-300 hidden sm:inline" aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[min(100%,14rem)]">
+              <User className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
+              <span className="truncate" title={creatorDisplayName}>
+                Registró · {creatorDisplayName}
+              </span>
             </span>
           </div>
-          <span className="text-sm tabular-nums text-stone-500 shrink-0">
-            {entry.quantity_received.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uomLabel(entry.material?.unit_of_measure)}
-          </span>
         </div>
       ) : (
         <>
@@ -491,9 +536,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               <span className="text-gray-600">Material:</span>
               <span className="font-medium">{entry.material?.material_name || entry.material_id}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Cantidad:</span>
-              <span className="font-medium">{entry.quantity_received.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {entry.material?.unit_of_measure || 'kg'}</span>
+            <div className="flex justify-between text-sm gap-2">
+              <span className="text-gray-600 shrink-0">Cantidad:</span>
+              <span className="font-medium text-right">{formatReceivedQuantity(entry)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-500 gap-2 pt-0.5 border-t border-gray-200/80">
+              <span>Planta · {plantDisplayName}</span>
+              <span className="text-right truncate max-w-[60%]" title={creatorDisplayName}>
+                Registró · {creatorDisplayName}
+              </span>
             </div>
           </div>
         </>
@@ -678,8 +729,8 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
           </Collapsible>
         )}
 
-        {/* ─── 4. Evidence (collapsible) ─── */}
-        <Collapsible>
+        {/* ─── 4. Evidence (collapsible; open when files exist to reduce clicks) ─── */}
+        <Collapsible defaultOpen={(entry.document_count ?? 0) > 0}>
           <CollapsibleTrigger className="flex items-center justify-between w-full py-2 text-sm font-medium text-stone-700 hover:text-stone-900 border-t border-stone-100 pt-3">
             <span className="flex items-center gap-2">
               <Paperclip className="h-4 w-4" />
@@ -920,7 +971,12 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               Cancelar
             </Button>
           )}
-          <Button type="submit" size="sm" disabled={loading}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={loading}
+            className={cn('bg-sky-800 text-white hover:bg-sky-900 shadow-sm')}
+          >
             <Save className="h-4 w-4 mr-1.5" />
             {loading ? 'Guardando…' : 'Guardar'}
           </Button>

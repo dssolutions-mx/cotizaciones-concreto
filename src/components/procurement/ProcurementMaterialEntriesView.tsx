@@ -43,6 +43,7 @@ import EntryPricingForm from '@/components/inventory/EntryPricingForm'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { formatReceivedQuantity } from '@/lib/inventory/entryReceivedDisplay'
 
 function sortEntriesNewestFirst(list: MaterialEntry[]): MaterialEntry[] {
   return [...list].sort((a, b) => {
@@ -131,8 +132,7 @@ function EntriesTable({
                 <div className="text-xs text-stone-500 truncate">{supplierLabel}</div>
               </TableCell>
               <TableCell className="text-right text-sm tabular-nums">
-                {e.quantity_received.toLocaleString('es-MX', { maximumFractionDigits: 2 })}{' '}
-                <span className="text-xs text-stone-400">{e.material?.unit_of_measure || ''}</span>
+                {formatReceivedQuantity(e)}
               </TableCell>
               <TableCell className="text-right">
                 <div className="text-sm tabular-nums">
@@ -482,10 +482,10 @@ export default function ProcurementMaterialEntriesView({
   )
 
   return (
-    <div className="space-y-0">
+    <div className="h-full flex flex-col">
       {/* ─── Compact header: title + sub-tabs ─── */}
       {canReviewPricing ? (
-        <Tabs value={entradasView} onValueChange={(v) => setEntradasView(v as 'list' | 'precios')}>
+        <Tabs value={entradasView} onValueChange={(v) => setEntradasView(v as 'list' | 'precios')} className="flex-1 min-h-0 flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 bg-white rounded-t-lg border border-stone-200">
             <h2 className="text-base font-semibold text-stone-900 flex items-center gap-2">
               <Package className="h-4.5 w-4.5 text-amber-700" />
@@ -515,9 +515,9 @@ export default function ProcurementMaterialEntriesView({
           </div>
 
           {/* ─── Pricing Queue: Master-Detail ─── */}
-          <TabsContent value="precios" className="mt-0">
+          <TabsContent value="precios" className="mt-0 flex-1 min-h-0 flex flex-col">
             {/* Desktop: side-by-side */}
-            <div className="hidden md:flex border border-t-0 border-stone-200 bg-white rounded-b-lg h-[calc(100vh-220px)] min-h-[500px]">
+            <div className="hidden md:flex border border-t-0 border-stone-200 bg-white rounded-b-lg flex-1 min-h-0">
               {/* Left: compact queue */}
               <div className="w-[360px] shrink-0 border-r border-stone-200 overflow-y-auto bg-stone-50/40">
                 <EntryPricingReviewList

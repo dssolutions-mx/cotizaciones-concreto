@@ -5,6 +5,7 @@ import { MaterialEntry } from '@/types/inventory'
 import { format } from 'date-fns'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { formatReceivedQuantity } from '@/lib/inventory/entryReceivedDisplay'
 
 interface EntryPricingReviewListProps {
   entries: MaterialEntry[]
@@ -65,8 +66,7 @@ export default function EntryPricingReviewList({
         } catch {
           timeLabel = ''
         }
-        const qty = entry.quantity_received
-        const uom = entry.material?.unit_of_measure || 'kg'
+        const qtyLabel = formatReceivedQuantity(entry)
 
         return (
           <button
@@ -100,10 +100,7 @@ export default function EntryPricingReviewList({
                 <span className="text-sm text-stone-700 truncate">
                   {entry.material?.material_name || 'Material'}
                 </span>
-                <span className="text-xs tabular-nums text-stone-500 shrink-0">
-                  {qty.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                  <span className="text-[10px] text-stone-400 ml-0.5">{uom}</span>
-                </span>
+                <span className="text-xs tabular-nums text-stone-500 shrink-0">{qtyLabel}</span>
               </div>
             </div>
           </button>
