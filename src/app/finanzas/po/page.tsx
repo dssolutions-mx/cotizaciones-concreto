@@ -28,6 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { cn } from '@/lib/utils'
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
 import POLifecycleView from '@/components/po/POLifecycleView'
@@ -68,6 +69,327 @@ const ALERT_STATUS_PO_LABELS: Record<string, string> = {
   pending_validation: 'Pendiente validación',
   closed: 'Cerrada',
   cancelled: 'Cancelada',
+}
+
+function PODetailPanel({
+  po, items, summary, batchSummary, linkedAlerts, alertsLoading,
+  payablesCount, mxn, canEdit, onEdit, onDelete, onClose,
+}: {
+  po: any
+  items: any[]
+  summary?: { total_ordered_value: number; total_received_value: number; total_credits: number; net_total: number }
+  batchSummary?: { total_ordered_value: number; total_received_value: number; net_line_value: number }
+  linkedAlerts?: MaterialAlert[]
+  alertsLoading: boolean
+  payablesCount?: number
+  mxn: Intl.NumberFormat
+  canEdit: boolean
+  onEdit: () => void
+  onDelete: () => void
+  onClose: () => void
+}) {
+  const ordered = batchSummary?.total_ordered_value ?? 0
+  const received = batchSummary?.total_received_value ?? 0
+  const pct = ordered > 1e-6 ? Math.min(100, Math.round((received / ordered) * 1000) / 10) : 0
+  const paymentLabel = po.payment_terms_days != null
+    ? (PAYMENT_TERMS_LABELS[po.payment_terms_days] ?? `Net ${po.payment_terms_days}`)
+    : null
+  const raw = (po.po_date || po.created_at || '').toString().slice(0, 10)
+  const d0 = new Date(raw + (raw.length <= 10 ? 'T12:00:00' : ''))
+  const daysOpen = !Number.isNaN(d0.getTime()) && (po.status === 'open' || po.status === 'partial')
+    ? Math.floor((Date.now() - d0.getTime()) / 86400000)
+    : null
+
+  return (
+    <div className="w-[360px] xl:w-[400px] shrink-0 flex flex-col overflow-hidden border-l border-border/60 bg-card">
+      {/* Sticky header */}
+      <div className="shrink-0 px-5 py-4 border-b border-border/40 bg-stone-50/60">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-base truncate">
+                {po.po_number || `PO #${po.id.slice(0, 8)}`}
+              </span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_COLORS[po.status] || 'bg-muted text-muted-foreground border border-border'}`}>
+                {STATUS_LABELS[po.status] || po.status}
+              </span>
+              {daysOpen !== null && (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                  {daysOpen}d abierta
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-muted-foreground mt-1 truncate">
+              {po.supplier?.name ?? po.supplier_id?.slice(0, 12) ?? '—'}
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={onClose}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        {/* Quick actions */}
+        <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+          <Link
+            href={procurementEntriesUrl({ plantId: po.plant_id, poId: po.id })}
+            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border bg-background hover:bg-muted transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Ver entradas
+          </Link>
+          {payablesCount !== undefined && payablesCount > 0 && (
+            <Link
+              href={`/finanzas/procurement?tab=cxp&po_id=${po.id}${po.supplier_id ? `&supplier_id=${encodeURIComponent(po.supplier_id)}` : ''}`}
+              className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border bg-background hover:bg-muted transition-colors"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {payablesCount} factura{payablesCount !== 1 ? 's' : ''}
+            </Link>
+          )}
+          {canEdit && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                onClick={onEdit}
+                title="Editar OC"
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                onClick={onDelete}
+                title="Eliminar OC"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        {/* Financial summary */}
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Resumen Financiero
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-muted/30 px-3 py-2.5">
+              <div className="text-[11px] text-muted-foreground">Valor ordenado</div>
+              <div className="font-bold tabular-nums text-sm mt-0.5">{mxn.format(ordered)}</div>
+            </div>
+            <div className="rounded-lg bg-green-50 border border-green-100 px-3 py-2.5">
+              <div className="text-[11px] text-green-600">Valor recibido</div>
+              <div className="font-bold tabular-nums text-sm mt-0.5 text-green-700">{mxn.format(received)}</div>
+            </div>
+            {(summary?.total_credits ?? 0) > 0 && (
+              <div className="rounded-lg bg-orange-50 border border-orange-100 px-3 py-2.5">
+                <div className="text-[11px] text-orange-500">Créditos</div>
+                <div className="font-bold tabular-nums text-sm mt-0.5 text-orange-700">
+                  -{mxn.format(summary!.total_credits)}
+                </div>
+              </div>
+            )}
+            {summary && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+                <div className="text-[11px] text-emerald-600">Neto</div>
+                <div className="font-bold tabular-nums text-sm mt-0.5 text-emerald-700">
+                  {mxn.format(summary.net_total)}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Fulfillment progress */}
+        <section>
+          <div className="flex items-center justify-between mb-1.5">
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Avance de recepción
+            </h3>
+            <span className="text-sm font-bold tabular-nums">{pct}%</span>
+          </div>
+          <div className="w-full bg-muted/40 rounded-full h-2">
+            <div
+              className={cn(
+                'h-2 rounded-full transition-all',
+                pct >= 100 ? 'bg-green-500' : pct > 0 ? 'bg-amber-400' : 'bg-muted'
+              )}
+              style={{ width: `${Math.min(pct, 100)}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
+            <span>{mxn.format(received)} recibido</span>
+            <span>de {mxn.format(ordered)}</span>
+          </div>
+        </section>
+
+        {/* PO details */}
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Detalles
+          </h3>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Planta</dt>
+              <dd className="text-sm font-medium mt-0.5 truncate">
+                {po.plant?.name ?? po.plant?.code ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Fecha OC</dt>
+              <dd className="text-sm font-medium mt-0.5">
+                {po.po_date
+                  ? format(new Date(po.po_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Términos de pago</dt>
+              <dd className="text-sm font-medium mt-0.5">{paymentLabel ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-muted-foreground">Líneas</dt>
+              <dd className="text-sm font-medium mt-0.5">{items.length > 0 ? items.length : '—'}</dd>
+            </div>
+            {po.approved_by && (
+              <div className="col-span-2">
+                <dt className="text-[11px] text-muted-foreground">Aprobado por</dt>
+                <dd className="text-sm font-medium mt-0.5">{po.approved_by}</dd>
+              </div>
+            )}
+          </dl>
+          {po.notes && (
+            <div className="mt-3 rounded-lg bg-amber-50/60 border border-amber-100 px-3 py-2.5">
+              <div className="text-[11px] font-medium text-amber-700 mb-1">Notas</div>
+              <p className="text-xs text-amber-900 leading-relaxed">{po.notes}</p>
+            </div>
+          )}
+          {po.cancellation_reason && (
+            <div className="mt-3 rounded-lg bg-red-50/60 border border-red-100 px-3 py-2.5">
+              <div className="text-[11px] font-medium text-red-700 mb-1">Motivo de cancelación</div>
+              <p className="text-xs text-red-900 leading-relaxed">{po.cancellation_reason}</p>
+            </div>
+          )}
+        </section>
+
+        {/* Lifecycle */}
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Ciclo de vida
+          </h3>
+          <POLifecycleView poId={po.id} plantId={po.plant_id} />
+        </section>
+
+        {/* Line items */}
+        {items.length > 0 && (
+          <section>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Líneas ({items.length})
+            </h3>
+            <div className="space-y-1.5">
+              {items.map((item: any) => {
+                const orderedQty = Number(item.qty_ordered) || 0
+                const receivedQty = Number(item.qty_received ?? item.qty_received_kg ?? item.qty_received_native ?? 0) || 0
+                const itemProgress = orderedQty > 0 ? Math.min((receivedQty / orderedQty) * 100, 100) : 0
+                const lineTotal = orderedQty * Number(item.unit_price || 0)
+                const isItemOverdue = item.required_by && new Date(item.required_by + 'T00:00:00') < new Date()
+                return (
+                  <div key={item.id} className="rounded-lg border border-border/50 px-3 py-2.5 bg-muted/10">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {item.is_service
+                          ? <Truck className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          : <Package className="h-3.5 w-3.5 text-green-600 shrink-0" />}
+                        <span className="text-xs font-medium truncate">
+                          {item.is_service
+                            ? (item.service_description || 'Servicio de Flota')
+                            : (item.material?.material_name || item.material?.material_code || 'Material')}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold tabular-nums shrink-0">{mxn.format(lineTotal)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                      <span className="tabular-nums">
+                        {orderedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {item.uom || 'und'}
+                      </span>
+                      <span className={`rounded-full px-1.5 py-0.5 font-semibold text-[10px] ${STATUS_COLORS[item.status] || 'bg-muted text-muted-foreground border border-border'}`}>
+                        {STATUS_LABELS[item.status] || item.status}
+                      </span>
+                      {isItemOverdue && (item.status === 'open' || item.status === 'partial') && (
+                        <span className="text-red-600 font-medium">⚠ Vencido</span>
+                      )}
+                    </div>
+                    {!item.is_service && (
+                      <div className="mt-1.5">
+                        <div className="w-full bg-muted/30 rounded-full h-1">
+                          <div
+                            className={cn('h-1 rounded-full transition-all', itemProgress >= 100 ? 'bg-green-500' : itemProgress > 0 ? 'bg-amber-400' : 'bg-muted')}
+                            style={{ width: `${itemProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Alerts */}
+        {alertsLoading && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+            <Skeleton className="h-3 w-24 rounded" />
+          </div>
+        )}
+        {!alertsLoading && linkedAlerts && linkedAlerts.length > 0 && (
+          <section>
+            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Alertas vinculadas ({linkedAlerts.length})
+            </h3>
+            <div className="space-y-1.5">
+              {linkedAlerts.map((a) => (
+                <div
+                  key={a.id}
+                  className="rounded-lg border border-amber-200/70 bg-amber-50/30 px-3 py-2 flex items-start justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[11px] text-stone-500">{a.alert_number}</span>
+                      <span className="text-xs text-stone-800 truncate">{a.material?.material_name ?? 'Material'}</span>
+                    </div>
+                    {a.scheduled_delivery_date && (
+                      <div className="text-[11px] text-stone-500 mt-0.5">
+                        Entrega: {a.scheduled_delivery_date}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant="outline" className="text-[10px] h-5">
+                      {ALERT_STATUS_PO_LABELS[a.status] ?? a.status}
+                    </Badge>
+                    <Link href="/production-control/alerts">
+                      <ExternalLink className="h-3 w-3 text-primary" />
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function POKPICards({
@@ -215,6 +537,7 @@ export default function PurchaseOrdersPage() {
     Record<string, { total_ordered_value: number; total_received_value: number; net_line_value: number }>
   >({})
   const [alertCounts, setAlertCounts] = useState<Record<string, number>>({})
+  const [detailPoId, setDetailPoId] = useState<string | null>(null)
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -347,6 +670,14 @@ export default function PurchaseOrdersPage() {
       fetchRelatedPayables(poId)
       void fetchLinkedAlertsForPo(poId)
     }
+  }
+
+  const handleSelectPo = (poId: string) => {
+    setDetailPoId(prev => (prev === poId ? null : poId))
+    fetchPOItems(poId)
+    fetchPOSummary(poId)
+    fetchRelatedPayables(poId)
+    void fetchLinkedAlertsForPo(poId)
   }
 
   const clearFilters = () => {
@@ -682,7 +1013,9 @@ export default function PurchaseOrdersPage() {
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className={cn(detailPoId ? 'p-0 overflow-hidden' : undefined)}>
+          <div className={cn(detailPoId ? 'flex' : undefined)}>
+          <div className={cn(detailPoId ? 'flex-1 min-w-0 overflow-y-auto max-h-[65vh] px-6 pt-6 pb-4' : undefined)}>
           {filterFromUrl === 'ready_close' && (
             <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
               Mostrando OC con recepción completa y estado aún abierto/parcial — listas para cerrar.
@@ -731,7 +1064,12 @@ export default function PurchaseOrdersPage() {
                 return (
                   <div
                     key={po.id}
-                    className="border border-border/60 rounded-xl overflow-hidden transition-all hover:border-border hover:shadow-sm"
+                    className={cn(
+                      'border rounded-xl overflow-hidden transition-all hover:shadow-sm',
+                      detailPoId === po.id
+                        ? 'border-primary/40 ring-1 ring-primary/15 shadow-sm'
+                        : 'border-border/60 hover:border-border'
+                    )}
                   >
                     <div className="p-4 bg-card">
                       <div className="flex items-start justify-between gap-3">
@@ -821,12 +1159,15 @@ export default function PurchaseOrdersPage() {
 
                         <div className="flex gap-1 shrink-0">
                           <Button
-                            variant="ghost"
+                            variant={detailPoId === po.id ? 'secondary' : 'ghost'}
                             size="sm"
-                            onClick={() => toggleExpanded(po.id)}
+                            onClick={() => {
+                              toggleExpanded(po.id)
+                              handleSelectPo(po.id)
+                            }}
                             className="h-8 px-2"
                           >
-                            {isExpanded
+                            {(isExpanded || detailPoId === po.id)
                               ? <><ChevronUp className="h-4 w-4 mr-1" />Ocultar</>
                               : <><ChevronDown className="h-4 w-4 mr-1" />Detalle</>}
                           </Button>
@@ -863,9 +1204,9 @@ export default function PurchaseOrdersPage() {
                       </div>
                     </div>
 
-                    {/* Expanded Details */}
+                    {/* Expanded Details — inline (mobile only) */}
                     {isExpanded && (
-                      <div className="border-t border-border/60 bg-muted/20 p-4">
+                      <div className="border-t border-border/60 bg-muted/20 p-4 md:hidden">
                         <POLifecycleView poId={po.id} plantId={po.plant_id} />
                         {linkedAlertsLoading[po.id] && (
                           <p className="text-xs text-muted-foreground mb-3">Cargando alertas vinculadas…</p>
@@ -1084,6 +1425,33 @@ export default function PurchaseOrdersPage() {
               </div>
             </div>
           )}
+          </div>
+          {detailPoId && (() => {
+            const detailPo = pos.find(p => p.id === detailPoId)
+            if (!detailPo) return null
+            return (
+              <div className="hidden md:block">
+                <PODetailPanel
+                  po={detailPo}
+                  items={poItems[detailPoId] || []}
+                  summary={poSummaries[detailPoId]}
+                  batchSummary={batchSummaries[detailPoId]}
+                  linkedAlerts={linkedAlertsByPo[detailPoId]}
+                  alertsLoading={linkedAlertsLoading[detailPoId] ?? false}
+                  payablesCount={relatedPayablesCount[detailPoId]}
+                  mxn={mxn}
+                  canEdit={canCreateOrEditPO}
+                  onEdit={() => { setSelectedPoId(detailPoId); setEditOpen(true) }}
+                  onDelete={() => {
+                    const p = pos.find(x => x.id === detailPoId)
+                    if (p) setDeleteTarget({ id: detailPoId, label: p.po_number || detailPoId.slice(0, 8) })
+                  }}
+                  onClose={() => setDetailPoId(null)}
+                />
+              </div>
+            )
+          })()}
+          </div>
         </CardContent>
       </Card>
 

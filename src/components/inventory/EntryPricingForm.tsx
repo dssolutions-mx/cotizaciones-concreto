@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User, Clock, ExternalLink, CheckCircle2 } from 'lucide-react'
 import CreatePOModal, {
   type PrefillFromMaterialEntry,
   type PrefillFleetFromMaterialEntry,
@@ -102,6 +102,26 @@ type FleetPoSearchItem = {
   } | null
 }
 
+const PO_STATUS_LABELS: Record<string, string> = {
+  open: 'Abierta', partial: 'Parcial', fulfilled: 'Completada', closed: 'Completada', cancelled: 'Cancelada',
+}
+const PO_STATUS_COLORS: Record<string, string> = {
+  open: 'bg-sky-50 text-sky-700 border-sky-200',
+  partial: 'bg-amber-50 text-amber-700 border-amber-200',
+  fulfilled: 'bg-green-50 text-green-700 border-green-200',
+  closed: 'bg-green-50 text-green-700 border-green-200',
+  cancelled: 'bg-stone-100 text-stone-500 border-stone-200',
+}
+const PAYMENT_TERMS_LABELS: Record<number, string> = {
+  0: 'Contado', 15: 'Net 15', 30: 'Net 30', 45: 'Net 45', 60: 'Net 60',
+}
+function fmtPoDate(d: string | null | undefined) {
+  if (!d) return null
+  const dt = new Date(d + 'T00:00:00')
+  if (isNaN(dt.getTime())) return null
+  return dt.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 function uomLabel(u: string | null | undefined) {
   if (!u) return ''
   const map: Record<string, string> = {
@@ -115,8 +135,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [apiWarnings, setApiWarnings] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [materialPoItem, setMaterialPoItem] = useState<PoLineItem | null>(null)
+  const [materialPoHeader, setMaterialPoHeader] = useState<any>(null)
   const [materialPoLoading, setMaterialPoLoading] = useState(false)
   const [fleetPoItem, setFleetPoItem] = useState<PoLineItem | null>(null)
+  const [fleetPoHeader, setFleetPoHeader] = useState<any>(null)
   const [fleetPoHeaderSupplierId, setFleetPoHeaderSupplierId] = useState<string | null>(null)
   const [fleetPoLoading, setFleetPoLoading] = useState(false)
 
@@ -236,20 +258,27 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   useEffect(() => { fetchSuppliers() }, [])
 
-  // ── Load material PO line ──
+  // ── Load material PO header + line ──
   useEffect(() => {
-    if (!entry.po_id || !entry.po_item_id) { setMaterialPoItem(null); return }
+    if (!entry.po_id || !entry.po_item_id) { setMaterialPoItem(null); setMaterialPoHeader(null); return }
     let cancelled = false
     setMaterialPoLoading(true)
     ;(async () => {
       try {
-        const res = await fetch(`/api/po/${entry.po_id}/items`)
-        if (!res.ok) { setMaterialPoItem(null); return }
-        const data = await res.json()
+        const [itemsRes, headerRes] = await Promise.all([
+          fetch(`/api/po/${entry.po_id}/items`),
+          fetch(`/api/po/${entry.po_id}`),
+        ])
+        if (headerRes.ok) {
+          const hd = await headerRes.json()
+          if (!cancelled) setMaterialPoHeader(hd.purchase_order ?? null)
+        } else if (!cancelled) setMaterialPoHeader(null)
+        if (!itemsRes.ok) { if (!cancelled) setMaterialPoItem(null); return }
+        const data = await itemsRes.json()
         const items: PoLineItem[] = data.items || []
         const line = items.find((i) => i.id === entry.po_item_id) || null
         if (!cancelled) setMaterialPoItem(line)
-      } catch { if (!cancelled) setMaterialPoItem(null) }
+      } catch { if (!cancelled) { setMaterialPoItem(null); setMaterialPoHeader(null) } }
       finally { if (!cancelled) setMaterialPoLoading(false) }
     })()
     return () => { cancelled = true }
@@ -257,7 +286,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   // ── Load fleet PO line ──
   useEffect(() => {
-    if (!entry.fleet_po_id || !entry.fleet_po_item_id) { setFleetPoItem(null); setFleetPoHeaderSupplierId(null); return }
+    if (!entry.fleet_po_id || !entry.fleet_po_item_id) { setFleetPoItem(null); setFleetPoHeaderSupplierId(null); setFleetPoHeader(null); return }
     let cancelled = false
     setFleetPoLoading(true)
     ;(async () => {
@@ -268,8 +297,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         ])
         if (poRes.ok) {
           const poData = await poRes.json()
-          if (!cancelled) setFleetPoHeaderSupplierId(poData.purchase_order?.supplier_id ?? null)
-        } else if (!cancelled) setFleetPoHeaderSupplierId(null)
+          const hdr = poData.purchase_order ?? null
+          if (!cancelled) { setFleetPoHeaderSupplierId(hdr?.supplier_id ?? null); setFleetPoHeader(hdr) }
+        } else if (!cancelled) { setFleetPoHeaderSupplierId(null); setFleetPoHeader(null) }
         if (!itemsRes.ok) { if (!cancelled) setFleetPoItem(null); return }
         const data = await itemsRes.json()
         const items: PoLineItem[] = data.items || []
@@ -661,18 +691,95 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             </CollapsibleTrigger>
             <CollapsibleContent className="pt-2 space-y-2">
               {hasMaterialPoLink ? (
-                <div className="rounded-md bg-stone-50 p-3 space-y-1 text-sm">
-                  <div>
-                    <span className="text-stone-600">OC: </span>
-                    <span className="font-mono font-medium">{entry.po?.po_number || entry.po_id?.slice(0, 8)}</span>
-                    {entry.supplier?.name && <span className="text-stone-500"> · {entry.supplier.name}</span>}
+                <div className="rounded-lg border border-stone-200 bg-stone-50/50 overflow-hidden text-sm">
+                  {/* PO header row */}
+                  <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-stone-100/60 border-b border-stone-200/60">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-3.5 w-3.5 text-stone-500 shrink-0" />
+                      <span className="font-mono font-semibold text-stone-800 truncate">
+                        {materialPoHeader?.po_number ?? entry.po?.po_number ?? entry.po_id?.slice(0, 8)}
+                      </span>
+                      {materialPoHeader?.status && (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${PO_STATUS_COLORS[materialPoHeader.status] ?? 'bg-stone-100 text-stone-500 border-stone-200'}`}>
+                          {PO_STATUS_LABELS[materialPoHeader.status] ?? materialPoHeader.status}
+                        </span>
+                      )}
+                    </div>
+                    <a
+                      href={`/finanzas/po?po_id=${entry.po_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-stone-400 hover:text-stone-700 shrink-0"
+                      title="Ver OC"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
                   </div>
-                  {materialPoLoading ? (
-                    <p className="text-xs text-stone-500">Cargando…</p>
-                  ) : materialPoItem && !materialPoItem.is_service && (
-                    <div className="text-xs text-stone-600">
-                      Pedido: {Number(materialPoItem.qty_ordered ?? 0).toLocaleString('es-MX')} {uomLabel(materialPoItem.uom)} ·
-                      Recibido: {Number(materialPoItem.qty_received ?? materialPoItem.qty_received_native ?? 0).toLocaleString('es-MX')} {uomLabel(materialPoItem.uom)}
+                  <div className="px-3 py-2.5 space-y-2.5">
+                    {/* Supplier + date + payment terms */}
+                    <div className="flex items-center justify-between gap-2 text-xs text-stone-600">
+                      <span className="font-medium truncate">{entry.supplier?.name ?? '—'}</span>
+                      <div className="flex items-center gap-2 shrink-0 text-stone-400">
+                        {materialPoHeader?.payment_terms_days != null && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {PAYMENT_TERMS_LABELS[materialPoHeader.payment_terms_days] ?? `Net ${materialPoHeader.payment_terms_days}`}
+                          </span>
+                        )}
+                        {fmtPoDate(materialPoHeader?.po_date) && (
+                          <span>{fmtPoDate(materialPoHeader.po_date)}</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Agreed price indicator */}
+                    {agreedMaterialUnit != null && (
+                      <div className={cn(
+                        'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5',
+                        priceDiffersFromPo
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      )}>
+                        {priceDiffersFromPo
+                          ? <AlertTriangle className="h-3 w-3 shrink-0" />
+                          : <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                        <span>
+                          Precio OC: <span className="font-mono">{formatCurrency(agreedMaterialUnit)}/{uomLabel(materialUom)}</span>
+                          {priceDiffersFromPo && formData.unit_price && (
+                            <span className="ml-1.5 font-normal opacity-75">
+                              · ingresado: {formatCurrency(parseFloat(formData.unit_price))}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {/* Line fulfillment progress */}
+                    {materialPoLoading ? (
+                      <p className="text-xs text-stone-400">Cargando línea…</p>
+                    ) : materialPoItem && !materialPoItem.is_service && (() => {
+                      const ordQty = Number(materialPoItem.qty_ordered ?? 0)
+                      const recQty = Number(materialPoItem.qty_received ?? materialPoItem.qty_received_native ?? 0)
+                      const pct = ordQty > 1e-6 ? Math.min(100, Math.round((recQty / ordQty) * 1000) / 10) : 0
+                      return (
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] text-stone-500 mb-1">
+                            <span>
+                              {recQty.toLocaleString('es-MX')} / {ordQty.toLocaleString('es-MX')} {uomLabel(materialPoItem.uom)} recibido
+                            </span>
+                            <span className="font-semibold tabular-nums">{pct}%</span>
+                          </div>
+                          <div className="w-full bg-stone-200/70 rounded-full h-1.5">
+                            <div
+                              className={cn('h-1.5 rounded-full transition-all', pct >= 99.9 ? 'bg-green-500' : pct > 0 ? 'bg-amber-400' : 'bg-stone-300')}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                  {materialPoHeader?.notes && (
+                    <div className="px-3 py-2 border-t border-stone-200/60 bg-amber-50/40 text-[11px] text-amber-800 italic">
+                      {materialPoHeader.notes}
                     </div>
                   )}
                 </div>
@@ -704,6 +811,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                       </select>
                       {materialPoSearchItems.length === 0 && !materialPoSearchLoading && (
                         <p className="text-xs text-amber-800">No hay OC con saldo para este proveedor y material.</p>
+                      )}
+                      {selectedMaterialSearchItem && (
+                        <div className="rounded-md border border-stone-200 bg-stone-50/60 px-3 py-2 space-y-1">
+                          <div className="flex items-center justify-between gap-2 text-xs">
+                            <span className="font-medium text-stone-700 truncate">
+                              {(selectedMaterialSearchItem.po?.supplier as { name?: string } | undefined)?.name ?? '—'}
+                            </span>
+                            <span className="font-mono text-stone-500 shrink-0">
+                              {selectedMaterialSearchItem.po?.po_number ?? selectedMaterialSearchItem.po?.id?.slice(0, 8)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-[11px] text-stone-500">
+                            <span className="truncate">{selectedMaterialSearchItem.material?.material_name ?? entry.material?.material_name ?? '—'}</span>
+                            <span className="shrink-0 tabular-nums">
+                              Rest. {Number(selectedMaterialSearchItem.qty_remaining ?? 0).toLocaleString('es-MX')} {uomLabel(selectedMaterialSearchItem.uom)}
+                            </span>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -875,16 +1000,73 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
             {/* Fleet PO info (when linked) */}
             {hasFleetPoLink && (
-              <div className="rounded-md bg-sky-50/60 p-3 space-y-1 text-sm">
-                <div>
-                  <span className="text-sky-800">OC flota: </span>
-                  <span className="font-mono font-medium">{entry.fleet_po?.po_number || entry.fleet_po_id?.slice(0, 8)}</span>
+              <div className="rounded-lg border border-sky-200/70 bg-sky-50/30 overflow-hidden text-sm">
+                {/* Header row */}
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-sky-50/80 border-b border-sky-200/50">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Truck className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                    <span className="font-mono font-semibold text-sky-800 truncate">
+                      {fleetPoHeader?.po_number ?? entry.fleet_po?.po_number ?? entry.fleet_po_id?.slice(0, 8)}
+                    </span>
+                    {fleetPoHeader?.status && (
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold border ${PO_STATUS_COLORS[fleetPoHeader.status] ?? 'bg-stone-100 text-stone-500 border-stone-200'}`}>
+                        {PO_STATUS_LABELS[fleetPoHeader.status] ?? fleetPoHeader.status}
+                      </span>
+                    )}
+                  </div>
+                  <a
+                    href={`/finanzas/po?po_id=${entry.fleet_po_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sky-400 hover:text-sky-700 shrink-0"
+                    title="Ver OC de flota"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
                 </div>
-                {fleetSupplierDisplayName && <div className="text-xs text-sky-800">Transportista: {fleetSupplierDisplayName}</div>}
-                {!fleetPoLoading && fleetPoItem && (
-                  <div className="text-xs text-sky-700">
-                    Precio OC: {formatCurrency(fleetPoItem.unit_price ?? 0)} / {uomLabel(fleetPoItem.uom)} ·
-                    Cantidad: {Number(entry.fleet_qty_entered ?? 0).toLocaleString('es-MX')} {uomLabel(fleetPoItem.uom)}
+                <div className="px-3 py-2.5 space-y-2">
+                  {/* Carrier + payment terms + date */}
+                  <div className="flex items-center justify-between gap-2 text-xs text-sky-700">
+                    <span className="font-medium truncate">{fleetSupplierDisplayName ?? '—'}</span>
+                    <div className="flex items-center gap-2 shrink-0 text-sky-400">
+                      {fleetPoHeader?.payment_terms_days != null && (
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {PAYMENT_TERMS_LABELS[fleetPoHeader.payment_terms_days] ?? `Net ${fleetPoHeader.payment_terms_days}`}
+                        </span>
+                      )}
+                      {fmtPoDate(fleetPoHeader?.po_date) && (
+                        <span>{fmtPoDate(fleetPoHeader.po_date)}</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Fleet line detail */}
+                  {fleetPoLoading ? (
+                    <p className="text-xs text-sky-400">Cargando línea…</p>
+                  ) : fleetPoItem && (
+                    <div className={cn(
+                      'flex items-center gap-1.5 text-xs font-medium rounded-md px-2.5 py-1.5',
+                      fleetCostDiffersFromPo
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                        : 'bg-sky-50 text-sky-700 border border-sky-200'
+                    )}>
+                      {fleetCostDiffersFromPo
+                        ? <AlertTriangle className="h-3 w-3 shrink-0" />
+                        : <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                      <span>
+                        <span className="font-mono">{formatCurrency(fleetPoItem.unit_price ?? 0)}/{uomLabel(fleetPoItem.uom)}</span>
+                        <span className="mx-1.5 opacity-50">·</span>
+                        {Number(entry.fleet_qty_entered ?? 0).toLocaleString('es-MX')} {uomLabel(fleetPoItem.uom)}
+                        {fleetCostDiffersFromPo && agreedFleetTotal != null && (
+                          <span className="ml-1.5 font-normal opacity-75">· total OC: {formatCurrency(agreedFleetTotal)}</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {fleetPoHeader?.notes && (
+                  <div className="px-3 py-2 border-t border-sky-200/50 bg-amber-50/40 text-[11px] text-amber-800 italic">
+                    {fleetPoHeader.notes}
                   </div>
                 )}
               </div>
