@@ -73,6 +73,13 @@ export interface Muestreo {
   created_by?: string;
   created_at?: string;
   updated_at?: string;
+  /** DB columns used by list/detail; optional for older typings */
+  sampling_type?: string | null;
+  gps_location?: unknown;
+  offline_created?: boolean | null;
+  sync_status?: string | null;
+  sampling_notes?: string | null;
+  recovery_notes?: string | null;
 }
 
 // Muestra type
@@ -143,6 +150,34 @@ export interface Alerta {
 }
 
 // Extended types for data with joined relations
+/** Row from public.muestreos_list_view (muestreos.* + joins + muestras_json). */
+export type MuestreosListViewRow = Omit<Muestreo, 'remision_id'> & {
+  remision_id: string | null;
+  remision_number?: string | null;
+  remision_fecha?: string | null;
+  remision_volumen_fabricado?: number | null;
+  remision_is_production_record?: boolean | null;
+  remision_cross_plant_billing_remision_id?: string | null;
+  order_id?: string | null;
+  order_number?: string | null;
+  order_construction_site?: string | null;
+  obra_nombre?: string | null;
+  client_id?: string | null;
+  client_business_name?: string | null;
+  client_code?: string | null;
+  recipe_id?: string | null;
+  recipe_code?: string | null;
+  strength_fc?: number | null;
+  age_days?: number | null;
+  age_hours?: number | null;
+  recipe_notes?: string | null;
+  plant_code?: string | null;
+  plant_name?: string | null;
+  business_unit_id?: string | null;
+  business_unit_name?: string | null;
+  muestras_json: unknown;
+};
+
 export interface MuestreoWithRelations extends Muestreo {
   muestras?: MuestraWithRelations[];
   remision?: {
@@ -189,6 +224,8 @@ export interface MuestreoWithRelations extends Muestreo {
         business_name: string;
       };
     };
+    is_production_record?: boolean;
+    cross_plant_billing_remision_id?: string | null;
   };
   plant?: {
     id: string;

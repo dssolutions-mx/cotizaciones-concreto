@@ -156,6 +156,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [fleetPoPrefillFromEntry, setFleetPoPrefillFromEntry] = useState<PrefillFleetFromMaterialEntry | null>(null)
   const [materialPoSearchRefreshKey, setMaterialPoSearchRefreshKey] = useState(0)
   const [fleetPoSearchRefreshKey, setFleetPoSearchRefreshKey] = useState(0)
+  /** After creating a PO from the modal, auto-select its first line once search refreshes */
+  const [pendingAutoSelectFleetPoId, setPendingAutoSelectFleetPoId] = useState<string | null>(null)
+  const [pendingAutoSelectMaterialPoId, setPendingAutoSelectMaterialPoId] = useState<string | null>(null)
 
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
 
@@ -390,6 +393,27 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     if (!selectedFleetSearchItemId || fleetPoSearchItems.length === 0) return
     if (!fleetPoSearchItems.some((it) => it.id === selectedFleetSearchItemId)) { setSelectedFleetSearchItemId(''); setFleetQtyEnteredLink(0) }
   }, [fleetPoSearchItems, selectedFleetSearchItemId])
+
+  // After "Crear nueva OC de flota", select the new PO line once search results include it
+  useEffect(() => {
+    if (!pendingAutoSelectFleetPoId || fleetPoSearchItems.length === 0) return
+    const match = fleetPoSearchItems.find((item) => item.po?.id === pendingAutoSelectFleetPoId)
+    if (match) {
+      setSelectedFleetSearchItemId(match.id)
+      setFleetQtyEnteredLink((q) => (q <= 0 ? 1 : q))
+      setPendingAutoSelectFleetPoId(null)
+    }
+  }, [fleetPoSearchItems, pendingAutoSelectFleetPoId])
+
+  // After "Crear nueva OC" (material), select the new PO line once search results include it
+  useEffect(() => {
+    if (!pendingAutoSelectMaterialPoId || materialPoSearchItems.length === 0) return
+    const match = materialPoSearchItems.find((item) => item.po?.id === pendingAutoSelectMaterialPoId)
+    if (match) {
+      setSelectedMaterialSearchItemId(match.id)
+      setPendingAutoSelectMaterialPoId(null)
+    }
+  }, [materialPoSearchItems, pendingAutoSelectMaterialPoId])
 
   // Auto-calculate total_cost
   useEffect(() => {
@@ -1173,17 +1197,19 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       defaultMaterialId={entry.material_id}
       prefillFromMaterialEntry={fleetPoPrefillFromEntry ? null : poPrefill}
       prefillFleetFromMaterialEntry={fleetPoPrefillFromEntry}
-      onSuccess={() => {
+      onSuccess={(createdPoId) => {
         const wasFleet = Boolean(fleetPoPrefillFromEntry)
         setCreatePOOpen(false)
         setPoPrefill(null)
         setFleetPoPrefillFromEntry(null)
         if (wasFleet) {
+          if (createdPoId) setPendingAutoSelectFleetPoId(createdPoId)
           setFleetPoSearchRefreshKey((k) => k + 1)
-          toast.success('OC de flota creada. Elija la línea nueva para vincularla.')
+          toast.success('OC de flota creada. Vinculando línea automáticamente…')
         } else {
+          if (createdPoId) setPendingAutoSelectMaterialPoId(createdPoId)
           setMaterialPoSearchRefreshKey((k) => k + 1)
-          toast.success('OC creada. Elija la línea nueva para vincularla.')
+          toast.success('OC creada. Vinculando línea automáticamente…')
         }
         onAfterCreatePO?.()
       }}

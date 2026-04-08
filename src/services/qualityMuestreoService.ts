@@ -10,7 +10,8 @@ import {
   EnsayoWithRelations,
   FiltrosCalidad,
   MetricasCalidad,
-  DatoGraficoResistencia
+  DatoGraficoResistencia,
+  MuestreosListViewRow
 } from '@/types/quality';
 import { format, subMonths } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,6 +32,109 @@ export type PlannedSample = {
 };
 
 // Function to map planta codes to plant_id
+/** Map a row from public.muestreos_list_view to the nested shape the list UI expects. */
+export function mapMuestreosListViewRow(row: MuestreosListViewRow): MuestreoWithRelations {
+  const raw = row.muestras_json;
+  const muestras: MuestraWithRelations[] = Array.isArray(raw)
+    ? (raw as MuestraWithRelations[])
+    : [];
+
+  const siteLabel =
+    (row.obra_nombre && String(row.obra_nombre).trim()) ||
+    (row.order_construction_site && String(row.order_construction_site).trim()) ||
+    '';
+
+  const orderBlock =
+    row.order_id
+      ? {
+          id: row.order_id,
+          order_number: row.order_number ?? '',
+          construction_site: siteLabel,
+          delivery_date: '',
+          delivery_time: '',
+          clients: row.client_id
+            ? { id: row.client_id, business_name: row.client_business_name ?? '' }
+            : undefined
+        }
+      : undefined;
+
+  const remision: MuestreoWithRelations['remision'] | undefined = row.remision_id
+    ? {
+        id: row.remision_id,
+        remision_number: row.remision_number ?? '',
+        fecha: row.remision_fecha ?? '',
+        hora_carga: '',
+        volumen_fabricado: Number(row.remision_volumen_fabricado ?? 0),
+        recipe_id: row.recipe_id ?? '',
+        is_production_record: row.remision_is_production_record ?? undefined,
+        cross_plant_billing_remision_id: row.remision_cross_plant_billing_remision_id ?? undefined,
+        recipe: row.recipe_id
+          ? {
+              id: row.recipe_id,
+              recipe_code: row.recipe_code ?? '',
+              strength_fc: Number(row.strength_fc ?? 0),
+              slump: 0,
+              age_days: Number(row.age_days ?? 0),
+              age_hours: row.age_hours ?? undefined,
+              recipe_versions:
+                row.recipe_notes != null && String(row.recipe_notes).trim() !== ''
+                  ? [{ id: 'current', notes: row.recipe_notes, is_current: true }]
+                  : undefined
+            }
+          : undefined,
+        orders: orderBlock,
+        order: orderBlock
+      }
+    : undefined;
+
+  const plant: MuestreoWithRelations['plant'] | undefined = row.plant_id
+    ? {
+        id: row.plant_id,
+        code: row.plant_code ?? '',
+        name: row.plant_name ?? '',
+        business_unit_id: row.business_unit_id ?? '',
+        business_unit: row.business_unit_id
+          ? {
+              id: row.business_unit_id,
+              name: row.business_unit_name ?? '',
+              code: ''
+            }
+          : undefined
+      }
+    : undefined;
+
+  return {
+    id: row.id,
+    remision_id: row.remision_id ?? '',
+    fecha_muestreo: row.fecha_muestreo,
+    hora_muestreo: row.hora_muestreo,
+    numero_muestreo: row.numero_muestreo,
+    planta: row.planta,
+    plant_id: row.plant_id,
+    revenimiento_sitio: row.revenimiento_sitio,
+    masa_unitaria: row.masa_unitaria,
+    temperatura_ambiente: row.temperatura_ambiente,
+    temperatura_concreto: row.temperatura_concreto,
+    contenido_aire: row.contenido_aire,
+    concrete_specs: row.concrete_specs,
+    manual_reference: row.manual_reference,
+    fecha_muestreo_ts: row.fecha_muestreo_ts,
+    event_timezone: row.event_timezone,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    sampling_type: row.sampling_type,
+    gps_location: row.gps_location,
+    offline_created: row.offline_created,
+    sync_status: row.sync_status,
+    sampling_notes: row.sampling_notes,
+    recovery_notes: row.recovery_notes,
+    muestras,
+    remision,
+    plant
+  };
+}
+
 async function mapPlantaToPlantId(planta: string): Promise<string | null> {
   try {
     const { data, error } = await supabase
@@ -70,27 +174,10 @@ export async function fetchMuestreos(
       resolvedPlantIds = (buPlants || []).map(p => p.id);
     }
 
-    // OPTIMIZED: Simplified select to reduce nested LATERAL joins
-    // Only fetch essential fields - fetch muestras separately when needed for detail view
+    // Single round-trip via public.muestreos_list_view (flat joins + muestras_json aggregates in DB)
     let query = supabase
-      .from('muestreos')
-      .select(`
-        *,
-        remision:remision_id (
-          id,
-          order_id,
-          recipe_id,
-          fecha,
-          volumen_fabricado,
-          remision_number,
-          is_production_record,
-          cross_plant_billing_remision_id,
-          recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
-          orders(id, order_number, construction_site, clients(id, business_name, client_code))
-        ),
-        plant:plant_id (id, code, name, business_unit:business_units(id, name)),
-        muestras(id, tipo_muestra, estado, identificacion, is_edad_garantia, fecha_programada_ensayo, ensayos(id, resistencia_calculada))
-      `, { count: 'exact' })
+      .from('muestreos_list_view')
+      .select('*', { count: 'exact' })
       .order('fecha_muestreo', { ascending: false });
 
     // Apply filters if provided
@@ -113,10 +200,10 @@ export async function fetchMuestreos(
       }
       // Note: business_unit_id is handled via resolvedPlantIds
       if (filters.cliente) {
-        query = query.filter('remision.orders.clients.business_name', 'ilike', `%${filters.cliente}%`);
+        query = query.ilike('client_business_name', `%${filters.cliente}%`);
       }
       if (filters.receta) {
-        query = query.filter('remision.recipe.recipe_code', 'ilike', `%${filters.receta}%`);
+        query = query.ilike('recipe_code', `%${filters.receta}%`);
       }
     }
 
@@ -124,9 +211,10 @@ export async function fetchMuestreos(
     query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
-    
+
     if (error) throw error;
-    return { data: data as MuestreoWithRelations[], count };
+    const rows = (data ?? []) as MuestreosListViewRow[];
+    return { data: rows.map(mapMuestreosListViewRow), count };
   } catch (error) {
     handleError(error, 'fetchMuestreos');
     return { data: [] as MuestreoWithRelations[], count: null };

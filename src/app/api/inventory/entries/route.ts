@@ -806,12 +806,25 @@ export async function PUT(request: NextRequest) {
       // Fetch PO item, header, material densities
       const { data: poItem, error: poItemErr } = await supabase
         .from('purchase_order_items')
-        .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status), material:materials!material_id (id, density_kg_per_l, bulk_density_kg_per_m3)')
+        .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status)')
         .eq('id', updateData.po_item_id)
         .single();
       if (poItemErr || !poItem) {
+        console.error('PO item fetch error:', poItemErr, 'for id:', updateData.po_item_id);
         return NextResponse.json({ success: false, error: 'Item de PO no encontrado' }, { status: 400 });
       }
+      // Fetch material density separately (only needed for m³ UoM fallback)
+      let poItemMaterial: { density_kg_per_l?: number | null; bulk_density_kg_per_m3?: number | null } | null = null;
+      if (poItem.material_id) {
+        const { data: matRow } = await supabase
+          .from('materials')
+          .select('density_kg_per_l, bulk_density_kg_per_m3')
+          .eq('id', poItem.material_id)
+          .single();
+        poItemMaterial = matRow ?? null;
+      }
+      // Attach as poItem.material for downstream UoM resolution
+      (poItem as any).material = poItemMaterial;
       if (poItem.po.plant_id !== currentEntry.plant_id) {
         return NextResponse.json({ success: false, error: 'PO pertenece a otra planta' }, { status: 400 });
       }
@@ -968,10 +981,12 @@ export async function PUT(request: NextRequest) {
       if (fleetPo.plant_id !== currentEntry.plant_id) {
         return NextResponse.json({ success: false, error: 'La OC de flota pertenece a otra planta' }, { status: 400 });
       }
+      const mergedSupplierId =
+        (updateData.supplier_id as string | undefined) ?? currentEntry.supplier_id ?? null;
       if (
-        currentEntry.supplier_id &&
+        mergedSupplierId &&
         fleetPoLine.material_supplier_id &&
-        fleetPoLine.material_supplier_id !== currentEntry.supplier_id
+        fleetPoLine.material_supplier_id !== mergedSupplierId
       ) {
         return NextResponse.json(
           {

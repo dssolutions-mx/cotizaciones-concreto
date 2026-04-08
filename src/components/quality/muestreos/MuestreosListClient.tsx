@@ -39,7 +39,8 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { fetchMuestreos } from '@/services/qualityMuestreoService'
-import type { MuestreoWithRelations } from '@/types/quality'
+import type { FiltrosCalidad, MuestreoWithRelations } from '@/types/quality'
+import type { Plant } from '@/types/plant'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { formatDate, cn } from '@/lib/utils'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -65,8 +66,45 @@ import {
 const PAGE_SIZE = 50
 const COL_SPAN = 8
 
-const PLANTAS = ['P001', 'P002', 'P003', 'P004']
 const CLASIFICACIONES = ['FC', 'MR']
+
+/** Active plants the user may filter by (matches PlantProvider: skip DIACE). */
+function plantsForMuestreoFilter(
+  availablePlants: Plant[],
+  isGlobalAdmin: boolean,
+  profile: { plant_id?: string | null; business_unit_id?: string | null } | null,
+  currentPlant: Plant | null
+): Plant[] {
+  const base = availablePlants
+    .filter((p) => p.code !== 'DIACE')
+    .sort((a, b) => a.code.localeCompare(b.code))
+  if (isGlobalAdmin) return base
+  if (profile?.business_unit_id) {
+    return base.filter((p) => p.business_unit_id === profile.business_unit_id)
+  }
+  if (profile?.plant_id) {
+    const one = base.find((p) => p.id === profile.plant_id)
+    return one ? [one] : base
+  }
+  return currentPlant ? [currentPlant] : base
+}
+
+/** Server scope for list fetch: one plant, or all accessible plant IDs when “todas”. */
+function plantScopeForFetch(
+  plantaSelect: string,
+  filterPlants: Plant[],
+  currentPlant: Plant | null
+): Pick<FiltrosCalidad, 'plant_id' | 'plant_ids'> {
+  if (plantaSelect !== 'todas') {
+    const p = filterPlants.find((x) => x.code === plantaSelect)
+    if (p) return { plant_id: p.id }
+    return currentPlant?.id ? { plant_id: currentPlant.id } : {}
+  }
+  const ids = filterPlants.map((p) => p.id)
+  if (ids.length === 0) return currentPlant?.id ? { plant_id: currentPlant.id } : {}
+  if (ids.length === 1) return { plant_id: ids[0]! }
+  return { plant_ids: ids }
+}
 
 /** Match finanzas procurement / redesigned workspace controls */
 const filterSelectClass =
@@ -90,7 +128,12 @@ function dotClass(kind: SpecimenDotKind): string {
 export default function MuestreosListClient() {
   const router = useRouter()
   const { profile } = useAuthBridge()
-  const { currentPlant } = usePlantContext()
+  const { currentPlant, availablePlants, isGlobalAdmin } = usePlantContext()
+
+  const filterPlants = useMemo(
+    () => plantsForMuestreoFilter(availablePlants, isGlobalAdmin, profile, currentPlant),
+    [availablePlants, isGlobalAdmin, profile, currentPlant]
+  )
   const [muestreos, setMuestreos] = useState<MuestreoWithRelations[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -120,7 +163,7 @@ export default function MuestreosListClient() {
         {
           fechaDesde: dateRange?.from,
           fechaHasta: dateRange?.to,
-          plant_id: currentPlant?.id,
+          ...plantScopeForFetch(planta, filterPlants, currentPlant),
         },
         PAGE_SIZE,
         0
@@ -133,7 +176,7 @@ export default function MuestreosListClient() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange, currentPlant?.id])
+  }, [dateRange, planta, filterPlants, currentPlant])
 
   useEffect(() => {
     loadMuestreos()
@@ -148,7 +191,7 @@ export default function MuestreosListClient() {
         {
           fechaDesde: dateRange?.from,
           fechaHasta: dateRange?.to,
-          plant_id: currentPlant?.id,
+          ...plantScopeForFetch(planta, filterPlants, currentPlant),
         },
         PAGE_SIZE,
         0
@@ -173,7 +216,7 @@ export default function MuestreosListClient() {
         {
           fechaDesde: dateRange?.from,
           fechaHasta: dateRange?.to,
-          plant_id: currentPlant?.id,
+          ...plantScopeForFetch(planta, filterPlants, currentPlant),
         },
         PAGE_SIZE,
         offset
@@ -203,10 +246,6 @@ export default function MuestreosListClient() {
           getConstructionSite(m).toLowerCase().includes(search) ||
           m.manual_reference?.toLowerCase().includes(search)
       )
-    }
-
-    if (planta && planta !== 'todas') {
-      filtered = filtered.filter((m) => m.planta === planta)
     }
 
     if (clasificacion && clasificacion !== 'todas') {
@@ -259,7 +298,7 @@ export default function MuestreosListClient() {
     })
 
     return filtered
-  }, [muestreos, searchQuery, planta, clasificacion, estadoMuestreo, sortBy, sortDirection])
+  }, [muestreos, searchQuery, clasificacion, estadoMuestreo, sortBy, sortDirection])
 
   const clearFilters = () => {
     setSearchQuery('')
@@ -411,13 +450,17 @@ export default function MuestreosListClient() {
               </span>
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0 border-stone-200" align="start">
+          <PopoverContent
+            className="w-auto border-0 bg-transparent p-0 shadow-none"
+            align="start"
+          >
             <Calendar
               mode="range"
               defaultMonth={dateRange?.from}
               selected={dateRange}
               onSelect={setDateRange}
               numberOfMonths={2}
+              className="border-stone-200 shadow-md"
             />
           </PopoverContent>
         </Popover>
@@ -428,9 +471,10 @@ export default function MuestreosListClient() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todas">Todas las plantas</SelectItem>
-            {PLANTAS.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
+            {filterPlants.map((p) => (
+              <SelectItem key={p.id} value={p.code}>
+                <span className="font-mono tabular-nums">{p.code}</span>
+                <span className="text-stone-600"> · {p.name}</span>
               </SelectItem>
             ))}
           </SelectContent>
