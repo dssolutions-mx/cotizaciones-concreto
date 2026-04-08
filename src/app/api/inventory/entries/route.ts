@@ -594,14 +594,14 @@ export async function POST(request: NextRequest) {
       if (effectivePoItemId && entry) {
         const { data: poItemRow } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
           .eq('id', effectivePoItemId)
           .single();
         if (poItemRow) {
           const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(entry, poItemRow);
           if (deltaNative > 0 || deltaKg > 0) {
             const currentNative =
-              Number(poItemRow.qty_received ?? poItemRow.qty_received_native ?? 0) + deltaNative;
+              Number(poItemRow.qty_received ?? 0) + deltaNative;
             const currentKg = Number(poItemRow.qty_received_kg ?? 0) + deltaKg;
             const orderedNative = Number(poItemRow.qty_ordered || 0);
             let newStatus = 'partial';
@@ -625,13 +625,13 @@ export async function POST(request: NextRequest) {
       if (fleetItemId && fleetQty != null && Number(fleetQty) > 0) {
         const { data: fleetItemRow } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_received_native, qty_ordered')
+          .select('qty_received, qty_ordered')
           .eq('id', fleetItemId)
           .single();
         if (fleetItemRow) {
           const delta = Number(fleetQty);
           const currentNative =
-            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+            Number(fleetItemRow.qty_received ?? 0) + delta;
           const orderedNative = Number(fleetItemRow.qty_ordered || 0);
           let newStatus = 'partial';
           if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
@@ -914,7 +914,7 @@ export async function PUT(request: NextRequest) {
       }
 
       // Remaining validation based on native UoM
-      const alreadyReceivedNative = Number(poItem.qty_received ?? poItem.qty_received_native ?? 0);
+      const alreadyReceivedNative = Number(poItem.qty_received ?? 0);
       const orderedNative = Number(poItem.qty_ordered || 0);
 
       // Compute previous native from current entry to find delta.
@@ -964,15 +964,39 @@ export async function PUT(request: NextRequest) {
       Number(updateData.fleet_qty_entered) > 0 &&
       !currentEntry.fleet_po_item_id
     ) {
+      // Do not embed `po` here — PostgREST can fail the whole row when the embed join is ambiguous
+      // or misconfigured, even when the line exists (same issue as /api/po/items/search).
       const { data: fleetPoLine, error: fleetLineErr } = await supabase
         .from('purchase_order_items')
         .select(
-          'id, is_service, material_supplier_id, qty_received, qty_received_native, qty_ordered, po:purchase_orders!po_id (id, plant_id, status)'
+          'id, is_service, material_supplier_id, qty_received, qty_ordered, po_id'
         )
         .eq('id', updateData.fleet_po_item_id)
         .single();
       if (fleetLineErr || !fleetPoLine) {
+        console.error('Fleet PO line fetch:', fleetLineErr?.message, 'item_id:', updateData.fleet_po_item_id);
         return NextResponse.json({ success: false, error: 'Línea de OC de flota no encontrada' }, { status: 400 });
+      }
+      if (!fleetPoLine.po_id) {
+        return NextResponse.json(
+          { success: false, error: 'La línea de OC de flota no tiene pedido asociado' },
+          { status: 400 }
+        );
+      }
+      const { data: fleetPoHeader, error: fleetHdrErr } = await supabase
+        .from('purchase_orders')
+        .select('id, plant_id, status')
+        .eq('id', fleetPoLine.po_id)
+        .single();
+      if (fleetHdrErr || !fleetPoHeader) {
+        console.error('Fleet PO header fetch:', fleetHdrErr?.message, 'po_id:', fleetPoLine.po_id);
+        return NextResponse.json({ success: false, error: 'OC de flota no encontrada' }, { status: 400 });
+      }
+      if (updateData.fleet_po_id && updateData.fleet_po_id !== fleetPoHeader.id) {
+        return NextResponse.json(
+          { success: false, error: 'La OC de flota no coincide con la línea seleccionada' },
+          { status: 400 }
+        );
       }
       if (!fleetPoLine.is_service) {
         return NextResponse.json(
@@ -980,7 +1004,7 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         );
       }
-      const fleetPo = fleetPoLine.po as { id: string; plant_id: string; status: string };
+      const fleetPo = fleetPoHeader;
       if (fleetPo.plant_id !== currentEntry.plant_id) {
         return NextResponse.json({ success: false, error: 'La OC de flota pertenece a otra planta' }, { status: 400 });
       }
@@ -1000,7 +1024,7 @@ export async function PUT(request: NextRequest) {
         );
       }
       const qtyIn = Number(updateData.fleet_qty_entered);
-      const already = Number(fleetPoLine.qty_received ?? fleetPoLine.qty_received_native ?? 0);
+      const already = Number(fleetPoLine.qty_received ?? 0);
       const ordered = Number(fleetPoLine.qty_ordered || 0);
       if (qtyIn > ordered - already + 1e-6) {
         return NextResponse.json(
@@ -1064,11 +1088,11 @@ export async function PUT(request: NextRequest) {
       if (updateData.po_item_id && (__po_delta_native > 0 || __po_delta_kg > 0)) {
         const { data: poItem2, error: poErr2 } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
           .eq('id', result.po_item_id)
           .single();
         if (!poErr2 && poItem2) {
-          const currentNative = Number(poItem2.qty_received ?? poItem2.qty_received_native ?? 0) + __po_delta_native;
+          const currentNative = Number(poItem2.qty_received ?? 0) + __po_delta_native;
           const currentKg = Number(poItem2.qty_received_kg ?? 0) + __po_delta_kg;
           // Determine status using native comparison for materials and services
           const orderedNative = Number(poItem2.qty_ordered || 0);
@@ -1094,13 +1118,13 @@ export async function PUT(request: NextRequest) {
       if (__fleet_po_link_delta_native > 0 && result.fleet_po_item_id) {
         const { data: fleetItemRow } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_received_native, qty_ordered')
+          .select('qty_received, qty_ordered')
           .eq('id', result.fleet_po_item_id)
           .single();
         if (fleetItemRow) {
           const delta = __fleet_po_link_delta_native;
           const currentNative =
-            Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0) + delta;
+            Number(fleetItemRow.qty_received ?? 0) + delta;
           const orderedNative = Number(fleetItemRow.qty_ordered || 0);
           let newStatus = 'partial';
           if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
@@ -1404,7 +1428,7 @@ export async function DELETE(request: NextRequest) {
     if (entry.po_item_id) {
       const { data: poItemRow } = await supabase
         .from('purchase_order_items')
-        .select('qty_received, qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+        .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
         .eq('id', entry.po_item_id)
         .single();
       if (poItemRow) {
@@ -1413,7 +1437,7 @@ export async function DELETE(request: NextRequest) {
           poItemRow
         );
         if (deltaNative > 0 || deltaKg > 0) {
-          const currentNative = Number(poItemRow.qty_received ?? poItemRow.qty_received_native ?? 0);
+          const currentNative = Number(poItemRow.qty_received ?? 0);
           const currentKg = Number(poItemRow.qty_received_kg ?? 0);
           const newNative = Math.max(0, currentNative - deltaNative);
           const newKg = Math.max(0, currentKg - deltaKg);
@@ -1435,12 +1459,12 @@ export async function DELETE(request: NextRequest) {
     if (entry.fleet_po_item_id && entry.fleet_qty_entered != null && Number(entry.fleet_qty_entered) > 0) {
       const { data: fleetItemRow } = await supabase
         .from('purchase_order_items')
-        .select('qty_received, qty_received_native, qty_ordered')
+        .select('qty_received, qty_ordered')
         .eq('id', entry.fleet_po_item_id)
         .single();
       if (fleetItemRow) {
         const delta = Number(entry.fleet_qty_entered);
-        const currentNative = Number(fleetItemRow.qty_received ?? fleetItemRow.qty_received_native ?? 0);
+        const currentNative = Number(fleetItemRow.qty_received ?? 0);
         const newNative = Math.max(0, currentNative - delta);
         const orderedNative = Number(fleetItemRow.qty_ordered || 0);
         let newStatus = 'open';
