@@ -785,14 +785,17 @@ export async function PUT(request: NextRequest) {
     }
 
     if (currentEntry.pricing_status === 'reviewed') {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            'Esta entrada ya fue revisada por administración y no puede modificarse.',
-        },
-        { status: 403 }
-      );
+      const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
+      if (!elevated) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Esta entrada ya fue revisada por administración y no puede modificarse.',
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Prepare update payload

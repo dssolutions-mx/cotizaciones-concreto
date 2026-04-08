@@ -24,11 +24,12 @@ export async function GET(request: NextRequest) {
   /** Solo OC con encabezado abierto o parcial (evita líneas huérfanas de pedidos cerrados). */
   const activePoHeaderOnly = searchParams.get('active_po_header') === 'true';
 
-  // Base: open or partial items, with header join including supplier info
-  // Include material_supplier join for fleet POs
+  // !inner on the po embed ensures PostgREST uses an INNER JOIN — rows whose PO
+  // doesn't match the embedded filters (plant_id, supplier_id, status) are excluded
+  // instead of being returned with po: null.
   let query = supabase
     .from('purchase_order_items')
-    .select('*, po:purchase_orders!po_id (id, po_number, plant_id, supplier_id, status, supplier:suppliers(id, name, provider_number, provider_letter, internal_code)), material:materials!material_id (id, material_name, density_kg_per_l), material_supplier:suppliers!material_supplier_id (id, name, provider_number, provider_letter, internal_code)')
+    .select('*, po:purchase_orders!po_id!inner (id, po_number, plant_id, supplier_id, status, supplier:suppliers(id, name, provider_number, provider_letter, internal_code)), material_supplier:suppliers!material_supplier_id (id, name, provider_number, provider_letter, internal_code)')
     .in('status', ['open', 'partial']);
 
   if (plant_id) query = query.eq('po.plant_id', plant_id as any);
@@ -52,9 +53,44 @@ export async function GET(request: NextRequest) {
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('po.plant_id', profile.plant_id as any);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: 'Failed to search PO items' }, { status: 500 });
+  if (error) {
+    console.error('[po/items/search] query error:', error);
+    return NextResponse.json({ error: 'Failed to search PO items' }, { status: 500 });
+  }
+  if (is_service) {
+    console.log('[po/items/search] fleet query returned', (data || []).length, 'raw rows. plant_id:', plant_id, 'material_supplier_id:', material_supplier_id);
+    for (const r of (data || []).slice(0, 5) as any[]) {
+      console.log('  row:', r.id, 'po:', r.po?.id ?? 'NULL', 'po_status:', r.po?.status ?? 'NULL', 'status:', r.status, 'qty_remaining:', Number(r.qty_ordered) - Number(r.qty_received));
+    }
+  }
 
   let rows = data || [];
+
+  const materialIds = [
+    ...new Set(
+      rows
+        .filter((r: { is_service?: boolean; material_id?: string | null }) => !r.is_service && r.material_id)
+        .map((r: { material_id: string }) => r.material_id)
+    ),
+  ];
+  const matById = new Map<
+    string,
+    { id: string; material_name?: string | null; density_kg_per_l?: number | null; bulk_density_kg_per_m3?: number | null }
+  >();
+  if (materialIds.length > 0) {
+    const { data: mats } = await supabase
+      .from('materials')
+      .select('id, material_name, density_kg_per_l, bulk_density_kg_per_m3')
+      .in('id', materialIds);
+    for (const m of mats || []) matById.set(m.id as string, m);
+  }
+  rows = rows.map((r: Record<string, unknown> & { material_id?: string | null; is_service?: boolean }) => {
+    if (!r.is_service && r.material_id && matById.has(r.material_id)) {
+      return { ...r, material: matById.get(r.material_id) };
+    }
+    return { ...r, material: null };
+  });
+
   if (activePoHeaderOnly) {
     rows = rows.filter((it: any) => {
       const s = String(it.po?.status ?? '').toLowerCase();

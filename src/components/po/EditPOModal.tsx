@@ -76,7 +76,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const [creditHistoryExpanded, setCreditHistoryExpanded] = useState<string | null>(null)
   const [creditHistoryData, setCreditHistoryData] = useState<Record<string, { history: any[]; creditInfo: any }>>({})
-  const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
+  const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 6 })
 
   const fetchCreditHistory = async (itemId: string) => {
     if (creditHistoryData[itemId]) return
@@ -654,7 +654,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                     <div className="mt-1.5">
                       <Input
                         type="number"
-                        step="0.01"
+                        step="any"
                         min="0"
                         value={itemForm.unit_price || ''}
                         onChange={(e) => {
@@ -794,7 +794,7 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                     <div className="mt-1.5">
                       <Input
                         type="number"
-                        step="0.01"
+                        step="any"
                         min="0"
                         value={itemForm.unit_price || ''}
                         onChange={(e) => {

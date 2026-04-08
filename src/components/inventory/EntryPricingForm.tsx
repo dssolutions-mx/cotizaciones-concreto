@@ -85,6 +85,7 @@ type PoLineItem = {
 
 type FleetPoSearchItem = {
   id: string
+  po_id: string
   uom: string | null
   unit_price: number | null
   qty_ordered: number | null
@@ -159,6 +160,8 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   /** After creating a PO from the modal, auto-select its first line once search refreshes */
   const [pendingAutoSelectFleetPoId, setPendingAutoSelectFleetPoId] = useState<string | null>(null)
   const [pendingAutoSelectMaterialPoId, setPendingAutoSelectMaterialPoId] = useState<string | null>(null)
+  /** Only for `/api/po/items/search?po_supplier_id=` — do not tie to formData.fleet_supplier_id or selecting a line refetches and clears the OC pick */
+  const [fleetCarrierFilterForSearch, setFleetCarrierFilterForSearch] = useState('')
 
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
 
@@ -350,16 +353,17 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         params.set('plant_id', entry.plant_id)
         params.set('material_supplier_id', effectiveSupplierId)
         params.set('is_service', 'true')
-        if (formData.fleet_supplier_id) params.set('po_supplier_id', formData.fleet_supplier_id)
+        if (fleetCarrierFilterForSearch) params.set('po_supplier_id', fleetCarrierFilterForSearch)
         const res = await fetch(`/api/po/items/search?${params.toString()}`)
         if (!res.ok) { if (!cancelled) setFleetPoSearchItems([]); return }
         const data = await res.json()
-        if (!cancelled) setFleetPoSearchItems(data.items || [])
-      } catch { if (!cancelled) setFleetPoSearchItems([]) }
+        const fetched = data.items || []
+        if (!cancelled) setFleetPoSearchItems(fetched)
+      } catch (err) { console.error('[FleetSearch] error:', err); if (!cancelled) setFleetPoSearchItems([]) }
       finally { if (!cancelled) setFleetPoSearchLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, formData.fleet_supplier_id, fleetPoSearchRefreshKey])
+  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, fleetCarrierFilterForSearch, fleetPoSearchRefreshKey])
 
   // Load material PO search items
   useEffect(() => {
@@ -391,13 +395,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   useEffect(() => {
     if (!selectedFleetSearchItemId || fleetPoSearchItems.length === 0) return
-    if (!fleetPoSearchItems.some((it) => it.id === selectedFleetSearchItemId)) { setSelectedFleetSearchItemId(''); setFleetQtyEnteredLink(0) }
+    if (!fleetPoSearchItems.some((it) => it.id === selectedFleetSearchItemId)) {
+      setSelectedFleetSearchItemId(''); setFleetQtyEnteredLink(0)
+    }
   }, [fleetPoSearchItems, selectedFleetSearchItemId])
 
   // After "Crear nueva OC de flota", select the new PO line once search results include it
   useEffect(() => {
     if (!pendingAutoSelectFleetPoId || fleetPoSearchItems.length === 0) return
-    const match = fleetPoSearchItems.find((item) => item.po?.id === pendingAutoSelectFleetPoId)
+    const match = fleetPoSearchItems.find((item) => item.po?.id === pendingAutoSelectFleetPoId || item.po_id === pendingAutoSelectFleetPoId)
     if (match) {
       setSelectedFleetSearchItemId(match.id)
       setFleetQtyEnteredLink((q) => (q <= 0 ? 1 : q))
@@ -496,11 +502,17 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         ...(formData.ap_due_date_fleet && { ap_due_date_fleet: formData.ap_due_date_fleet }),
       }
 
-      if (linkingFleetFromSearch && selectedFleetSearchItem?.po?.id) {
-        updatePayload.fleet_po_id = selectedFleetSearchItem.po.id
-        updatePayload.fleet_po_item_id = selectedFleetSearchItem.id
+      if (linkingFleetFromSearch) {
+        const fleetPoId = selectedFleetSearchItem?.po?.id || selectedFleetSearchItem?.po_id
+        if (!fleetPoId) {
+          toast.error('Error: la línea de flota seleccionada no tiene OC asociada')
+          setLoading(false)
+          return
+        }
+        updatePayload.fleet_po_id = fleetPoId
+        updatePayload.fleet_po_item_id = selectedFleetSearchItem!.id
         updatePayload.fleet_qty_entered = fleetQtyEnteredLink
-        updatePayload.fleet_uom = mapFleetUom(selectedFleetSearchItem.uom)
+        updatePayload.fleet_uom = mapFleetUom(selectedFleetSearchItem!.uom)
       }
       if (linkingMaterialFromSearch && selectedMaterialSearchItem) {
         updatePayload.po_item_id = selectedMaterialSearchItem.id
@@ -927,6 +939,32 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                   <p className="text-xs text-stone-600">Cargando líneas de flota…</p>
                 ) : (
                   <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fleet_carrier_filter" className="text-stone-600 font-normal text-xs">
+                        Filtrar por transportista <span className="text-stone-400">(opcional)</span>
+                      </Label>
+                      <Select
+                        value={fleetCarrierFilterForSearch || 'none'}
+                        onValueChange={(value) => {
+                          setSelectedFleetSearchItemId('')
+                          setFleetQtyEnteredLink(0)
+                          const id = value === 'none' ? '' : value
+                          setFleetCarrierFilterForSearch(id)
+                          setFormData((prev) => ({ ...prev, fleet_supplier_id: id }))
+                        }}
+                      >
+                        <SelectTrigger id="fleet_carrier_filter" className="w-full max-w-md h-9 text-sm">
+                          <SelectValue placeholder="Todos los transportistas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Todos los transportistas</SelectItem>
+                          {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-stone-500 leading-snug">
+                        Elija primero la línea de servicio abajo; el transportista queda definido por la OC. Use el filtro solo para acotar la lista.
+                      </p>
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="fleet_oc_search">OC de flota (línea de servicio)</Label>
                       <select
@@ -956,25 +994,20 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                         )}
                       </select>
                     </div>
+                    {selectedFleetSearchItemId && selectedFleetSearchItem && (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium">
+                        <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        OC de flota seleccionada — {selectedFleetSearchItem.po?.po_number || selectedFleetSearchItem.po_id?.slice(0, 8) || '?'}
+                        {' · '}Precio: {formatCurrency(selectedFleetSearchItem.unit_price ?? 0)} / {uomLabel(selectedFleetSearchItem.uom)}
+                      </div>
+                    )}
                     {selectedFleetSearchItemId && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <Label htmlFor="fleet_supplier_filter">Transportista (filtro)</Label>
-                          <Select
-                            value={formData.fleet_supplier_id}
-                            disabled={!!selectedFleetSearchItemId}
-                            onValueChange={(value) => {
-                              setSelectedFleetSearchItemId('')
-                              setFleetQtyEnteredLink(0)
-                              setFormData((prev) => ({ ...prev, fleet_supplier_id: value === 'none' ? '' : value }))
-                            }}
-                          >
-                            <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Todos</SelectItem>
-                              {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2">
+                          <p className="text-[11px] text-stone-500 mb-0.5">Transportista (según OC)</p>
+                          <p className="text-sm font-medium text-stone-900">
+                            {(selectedFleetSearchItem?.po?.supplier as { name?: string } | undefined)?.name ?? '—'}
+                          </p>
                         </div>
                         <div>
                           <Label htmlFor="fleet_qty_link">Cantidad servicio</Label>

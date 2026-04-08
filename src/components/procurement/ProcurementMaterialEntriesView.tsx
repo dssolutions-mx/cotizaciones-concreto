@@ -167,6 +167,17 @@ function EntriesTable({
                       Revisar
                     </Button>
                   )}
+                  {canReviewPricing && !pricingPending && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => onReviewPricing(e)}
+                    >
+                      Editar
+                    </Button>
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
@@ -803,10 +814,12 @@ export default function ProcurementMaterialEntriesView({
               />
 
               <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                {canReviewPricing && inspectionEntry.pricing_status !== 'reviewed' && (
+                {canReviewPricing && (
                   <Button
                     type="button"
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                    className={inspectionEntry.pricing_status === 'reviewed'
+                      ? 'bg-sky-700 hover:bg-sky-800 text-white'
+                      : 'bg-amber-600 hover:bg-amber-700 text-white'}
                     onClick={() => {
                       const e = inspectionEntry
                       setInspectionEntry(null)
@@ -814,7 +827,7 @@ export default function ProcurementMaterialEntriesView({
                     }}
                   >
                     <DollarSign className="h-4 w-4 mr-2" />
-                    Revisar precio
+                    {inspectionEntry.pricing_status === 'reviewed' ? 'Editar precios' : 'Revisar precio'}
                   </Button>
                 )}
                 <Button variant="outline" className="border-stone-300" asChild>
