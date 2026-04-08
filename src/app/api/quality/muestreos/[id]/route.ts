@@ -136,6 +136,17 @@ export async function PUT(
       body.revenimiento_sitio = revenimiento;
     }
 
+    // Validate contenido_aire if provided (optional, 0–100%)
+    if (body.contenido_aire !== undefined && body.contenido_aire !== null) {
+      const ca = Number(body.contenido_aire);
+      if (isNaN(ca) || ca < 0 || ca > 100) {
+        return NextResponse.json({
+          error: 'Contenido de aire debe ser un número entre 0 y 100',
+        }, { status: 400 });
+      }
+      body.contenido_aire = ca;
+    }
+
     // Prepare update object
     const updateData: any = {
       updated_at: new Date().toISOString()
@@ -147,6 +158,7 @@ export async function PUT(
       'masa_unitaria',
       'temperatura_ambiente',
       'temperatura_concreto',
+      'contenido_aire',
       'sampling_notes'
     ];
 

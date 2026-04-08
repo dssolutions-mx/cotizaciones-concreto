@@ -477,6 +477,45 @@ export async function createPaquete(
 // ─────────────────────────────────────────
 
 /**
+ * Load InstrumentoCard rows for snapshot APIs (UUID list from client).
+ * Used to enrich POST /api/ema/muestreos|ensayos/.../instrumentos bodies.
+ */
+export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<string, InstrumentoCard>> {
+  const map = new Map<string, InstrumentoCard>();
+  if (ids.length === 0) return map;
+
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('instrumentos')
+    .select(`
+      id, codigo, nombre, tipo, estado, fecha_proximo_evento,
+      plant_id, marca, modelo_comercial,
+      modelos_instrumento!inner(categoria)
+    `)
+    .in('id', ids);
+
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    const r = row as any;
+    map.set(r.id, {
+      id: r.id,
+      codigo: r.codigo,
+      nombre: r.nombre,
+      tipo: r.tipo,
+      categoria: r.modelos_instrumento?.categoria ?? '',
+      estado: r.estado,
+      fecha_proximo_evento: r.fecha_proximo_evento,
+      plant_id: r.plant_id,
+      marca: r.marca,
+      modelo_comercial: r.modelo_comercial,
+    });
+  }
+
+  return map;
+}
+
+/**
  * Validate selected instruments against bloquear_vencidos config.
  * Call before saving a muestreo or ensayo.
  */

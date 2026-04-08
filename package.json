@@ -10,7 +10,14 @@
     "geocode:backfill": "node --env-file=.env.local -r ts-node/register scripts/geocode-backfill.ts",
     "backfill:product-prices": "node --env-file=.env.local -r ts-node/register scripts/backfill-product-prices.ts",
     "backfill:product-prices:standalone": "node --env-file=.env.local -r ts-node/register scripts/backfill-product-prices.ts --start-server",
-    "validate:p004p-volumes": "node --env-file=.env.local -r ts-node/register scripts/validate_p004p_volumes.ts"
+    "validate:p004p-volumes": "node --env-file=.env.local -r ts-node/register scripts/validate_p004p_volumes.ts",
+    "fetch:march-orders": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/fetch-march-orders.ts",
+    "validate:p002-march-volumes": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/validate_p002_march_volumes.ts",
+    "fetch:p004p-march-orders": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/fetch-p004p-march-orders.ts",
+    "check:p004p-bombeo-csv-vs-db": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/check-p004p-bombeo-csv-vs-db.ts",
+    "validate:p004p-march-volumes": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/validate_p004p_march_volumes.ts",
+    "fetch:p004p-march-orders": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/fetch-p004p-march-orders.ts",
+    "validate:p004p-march-volumes": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/validate_p004p_march_volumes.ts"
   },
   "engines": {
     "node": ">=20.19.0",

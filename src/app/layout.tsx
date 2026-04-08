@@ -105,6 +105,11 @@ const finanzasSubMenuItems = [
     IconComponent: FileBarChart2,
   },
   {
+    title: "Evidencia remisiones (concreto)",
+    href: "/finanzas/evidencia-remisiones-concreto",
+    IconComponent: Layers,
+  },
+  {
     title: "Reportes PDF",
     href: "/finanzas/reportes-clientes",
     IconComponent: FileSpreadsheet,
@@ -125,6 +130,11 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
+      {
+        title: "Evidencia remisiones (concreto)",
+        href: "/finanzas/evidencia-remisiones-concreto",
+        IconComponent: Layers,
+      },
       { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
       { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];
@@ -135,6 +145,11 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
       { title: "Cartera CxC", href: "/finanzas/clientes", IconComponent: Users },
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
+      {
+        title: "Evidencia remisiones (concreto)",
+        href: "/finanzas/evidencia-remisiones-concreto",
+        IconComponent: Layers,
+      },
       { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
       { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];

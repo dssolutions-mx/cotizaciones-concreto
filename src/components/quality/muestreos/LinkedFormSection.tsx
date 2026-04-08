@@ -49,7 +49,7 @@ export default function LinkedFormSection({
             </CardContent>
           ) : (
             <CardContent className="flex justify-center items-center p-6">
-              <p className="text-gray-500">No hay remisión seleccionada</p>
+              <p className="text-stone-500">No hay remisión seleccionada</p>
             </CardContent>
           )}
         </Card>
@@ -86,11 +86,11 @@ export default function LinkedFormSection({
                   </div>
                 )}
 
-                <div className="flex justify-between">
-                  <Button type="button" variant="outline" onClick={onBack}>
+                <div className="flex justify-between gap-2">
+                  <Button type="button" variant="outline" className="h-9 border-stone-300 bg-white shadow-none hover:bg-stone-50" onClick={onBack}>
                     Atrás
                   </Button>
-                  <Button type="submit" variant="ghost" className="!bg-primary !text-primary-foreground" disabled={isSubmitting}>
+                  <Button type="submit" className="h-9 bg-sky-700 text-white shadow-none hover:bg-sky-800" disabled={isSubmitting}>
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

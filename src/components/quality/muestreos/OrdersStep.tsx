@@ -11,6 +11,11 @@ import { cn, formatDate } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 import { adjustDateForTimezone } from "./dateUtils";
 
+const outlineBtn =
+  "h-9 border-stone-300 bg-white px-3 shadow-none hover:bg-stone-50";
+const primaryBtn =
+  "h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800";
+
 type OrdersStepProps = {
   isLoadingOrders: boolean;
   groupedOrders: Record<string, any[]>;
@@ -46,11 +51,11 @@ export function OrdersStep({
         <div className="mt-4 space-y-4">
           <div className="flex flex-col md:flex-row gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-stone-500" />
               <Input
                 type="text"
                 placeholder="Buscar por cliente, obra, número de orden o remisión"
-                className="pl-9"
+                className="pl-9 border-stone-300"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -58,20 +63,20 @@ export function OrdersStep({
             <div className="flex-shrink-0">
               <DatePickerWithRange value={dateRange} onChange={setDateRange} className="w-auto" />
             </div>
-            <Button variant="outline" className="flex-shrink-0" onClick={resetFilters}>
+            <Button variant="outline" className={cn("flex-shrink-0", outlineBtn)} onClick={resetFilters}>
               Limpiar filtros
             </Button>
           </div>
           {(searchTerm || dateRange?.from) && (
             <div className="flex flex-wrap gap-2">
               {searchTerm && (
-                <Badge variant="outline" className="bg-gray-100">
+                <Badge variant="outline" className="border-stone-200 bg-stone-100 text-stone-800">
                   Búsqueda: {searchTerm}
                   <button className="ml-1 hover:text-destructive" onClick={() => setSearchTerm("")}>×</button>
                 </Badge>
               )}
               {dateRange?.from && dateRange?.to && (
-                <Badge variant="outline" className="bg-gray-100">
+                <Badge variant="outline" className="border-stone-200 bg-stone-100 text-stone-800">
                   Fecha: {formatDate(dateRange.from, "dd/MM/yyyy")} - {formatDate(dateRange.to, "dd/MM/yyyy")}
                   <button className="ml-1 hover:text-destructive" onClick={() => setDateRange(undefined)}>×</button>
                 </Badge>
@@ -83,22 +88,22 @@ export function OrdersStep({
       <CardContent>
         {isLoadingOrders ? (
           <div className="flex items-center justify-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-2">Cargando órdenes...</span>
+            <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+            <span className="ml-2 text-stone-600">Cargando órdenes...</span>
           </div>
         ) : Object.keys(groupedOrders).length === 0 ? (
-          <div className="text-center p-8 bg-gray-50 rounded-lg">
-            <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">No hay órdenes disponibles</h3>
-            <p className="text-gray-500 max-w-md mx-auto">No se encontraron órdenes activas con los filtros seleccionados.</p>
+          <div className="text-center p-8 bg-stone-50 rounded-lg border border-stone-200">
+            <Package className="h-12 w-12 text-stone-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2 text-stone-900">No hay órdenes disponibles</h3>
+            <p className="text-stone-500 max-w-md mx-auto">No se encontraron órdenes activas con los filtros seleccionados.</p>
           </div>
         ) : (
           <div className="space-y-6">
             {Object.entries(groupedOrders).map(([date, ordersGroup]) => (
               <div key={date} className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-gray-500" />
-                  <h3 className="font-medium text-lg">
+                  <CalendarDays className="h-4 w-4 text-stone-500" />
+                  <h3 className="font-medium text-lg text-stone-900">
                     {date === "Sin fecha de entrega"
                       ? date
                       : (() => {
@@ -118,28 +123,28 @@ export function OrdersStep({
                     <Card
                       key={order.id}
                       className={cn(
-                        "cursor-pointer transition-all hover:border-primary",
-                        selectedOrder === order.id && "border-primary ring-2 ring-primary ring-opacity-50"
+                        "cursor-pointer transition-all border-stone-200 hover:border-sky-600",
+                        selectedOrder === order.id && "border-sky-600 ring-2 ring-sky-600 ring-opacity-50"
                       )}
                       onClick={() => onSelect(order.id)}
                     >
                       <CardContent className="p-4">
                         <div className="flex items-center gap-3 mb-2">
-                          <div className="bg-primary-50 p-2 rounded-full">
-                            <Package className="h-5 w-5 text-primary" />
+                          <div className="bg-sky-50 p-2 rounded-full">
+                            <Package className="h-5 w-5 text-sky-700" />
                           </div>
                           <div>
-                            <h4 className="font-semibold">{order.order_number || `Orden #${order.id.substring(0, 8)}`}</h4>
-                            <p className="text-sm text-gray-500">
+                            <h4 className="font-semibold text-stone-900">{order.order_number || `Orden #${order.id.substring(0, 8)}`}</h4>
+                            <p className="text-sm text-stone-500">
                               Entrega: {order.delivery_date ? formatDate(adjustDateForTimezone(order.delivery_date) || new Date(), "dd/MM/yyyy") : "Sin fecha"}
                             </p>
                           </div>
                         </div>
                         <div className="space-y-1 mt-3">
-                          <p className="text-sm">
+                          <p className="text-sm text-stone-800">
                             <span className="font-medium">Cliente:</span> {order.clients?.business_name || "N/A"}
                           </p>
-                          <p className="text-sm">
+                          <p className="text-sm text-stone-800">
                             <span className="font-medium">Obra:</span> {order.construction_site || "N/A"}
                           </p>
 
@@ -147,12 +152,12 @@ export function OrdersStep({
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
                                 order.order_status === "validated"
-                                  ? "bg-green-500 text-white"
+                                  ? "bg-emerald-600 text-white"
                                   : order.order_status === "created"
-                                  ? "bg-blue-500 text-white"
+                                  ? "bg-sky-600 text-white"
                                   : order.order_status === "scheduled"
-                                  ? "bg-purple-500 text-white"
-                                  : "bg-gray-500 text-white"
+                                  ? "bg-violet-600 text-white"
+                                  : "bg-stone-500 text-white"
                               }`}
                             >
                               {order.order_status === "validated"
@@ -174,14 +179,12 @@ export function OrdersStep({
           </div>
         )}
       </CardContent>
-      <CardFooter className="justify-between">
-        <Button variant="outline" onClick={onCancel}>Cancelar</Button>
-        <Button onClick={onContinue} disabled={!selectedOrder || isLoadingOrders}>Continuar</Button>
+      <CardFooter className="justify-between gap-2">
+        <Button variant="outline" className={outlineBtn} onClick={onCancel}>Cancelar</Button>
+        <Button className={primaryBtn} onClick={onContinue} disabled={!selectedOrder || isLoadingOrders}>Continuar</Button>
       </CardFooter>
     </Card>
   );
 }
 
 export default OrdersStep;
-
-

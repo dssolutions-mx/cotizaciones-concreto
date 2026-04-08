@@ -30,6 +30,11 @@ export const muestreoFormSchema = z.object({
   peso_recipiente_vacio: z.number().min(0, "Peso vacío debe ser ≥ 0 kg").optional(),
   peso_recipiente_lleno: z.number().min(0, "Peso lleno debe ser ≥ 0 kg").optional(),
   factor_recipiente: z.number().min(0, "Factor debe ser ≥ 0").optional(),
+  contenido_aire: z
+    .number()
+    .min(0, "El contenido de aire debe ser ≥ 0%")
+    .max(100, "El contenido de aire no puede exceder 100%")
+    .optional(),
 });
 
 export type MuestreoFormValues = z.infer<typeof muestreoFormSchema>;

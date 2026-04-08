@@ -34,39 +34,39 @@ import {
 } from "@/components/ui/select";
 import {
   Tabs,
-  TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Steps,
   StepsContent,
   StepsItem,
 } from "@/components/ui/steps";
 import {
-  AlertTriangle, CalendarIcon, ChevronLeft, Loader2, Save, Truck, User, Package, Droplets,
-  Upload, Search, Filter, CalendarDays, Plus, Trash2, Copy, Info
+  AlertTriangle, CalendarIcon, Loader2, Save, Info
 } from 'lucide-react';
-import RemisionesPicker from '@/components/quality/RemisionesPicker';
 import { EquipoUtilizadoPicker, type EquipoUtilizadoPickerHandle, type SelectedInstrumento } from '@/components/quality/muestreos/EquipoUtilizadoPicker';
 import { cn } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createMuestreo, createMuestreoWithSamples } from '@/services/qualityMuestreoService';
-import { crearMuestrasPorEdad } from '@/services/qualityMuestraService';
-import { getOrders } from '@/services/orderService';
+import { createMuestreoWithSamples } from '@/services/qualityMuestreoService';
 import { supabase } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
-import { formatDate, createSafeDate } from '@/lib/utils';
-import { Badge } from "@/components/ui/badge";
+import { formatDate } from '@/lib/utils';
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
-import { addDays, parseISO } from "date-fns";
 import SamplePlan from '@/components/quality/muestreos/SamplePlan';
 import AgePlanSelector from '@/components/quality/muestreos/AgePlanSelector';
 // removed unused list components after modularization
-import ManualMuestreoHeader from '@/components/quality/muestreos/ManualMuestreoHeader';
 import RemisionInfoCard from '@/components/quality/muestreos/RemisionInfoCard';
 import LinkedMuestreoHeader from '@/components/quality/muestreos/LinkedMuestreoHeader';
 import OrdersStep from '@/components/quality/muestreos/OrdersStep';
@@ -77,6 +77,7 @@ import RemisionesStep from '@/components/quality/muestreos/RemisionesStep';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import MeasurementsFields from '@/components/quality/muestreos/MeasurementsFields';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
+import { useToast } from '@/components/ui/use-toast';
 
 // schema and date helpers moved to components/quality/muestreos
 
@@ -86,6 +87,7 @@ import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 export default function NuevoMuestreoPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const { profile } = useAuthBridge();
   const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const [activeStep, setActiveStep] = useState(0);
@@ -141,6 +143,7 @@ export default function NuevoMuestreoPage() {
       numero_cilindros: 1,
       numero_vigas: 0,
       manual_reference: '',
+      contenido_aire: undefined,
     },
   });
   const lastBaseDateRef = useRef<Date | null>((() => {
@@ -582,23 +585,40 @@ export default function NuevoMuestreoPage() {
       const selectedInstrumentos = equipoPickerRef.current?.getSelected() ?? [];
       if (selectedInstrumentos.length > 0) {
         try {
+          const payload = {
+            instrumentos: selectedInstrumentos.map((s) => ({
+              instrumento_id: s.instrumento_id,
+              paquete_id: s.paquete_id ?? null,
+              observaciones: null as string | null,
+            })),
+          };
           const snapRes = await fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ instrumentos: selectedInstrumentos }),
+            body: JSON.stringify(payload),
           });
           if (!snapRes.ok) {
-            const snapJson = await snapRes.json();
-            // Block if EMA config requires it (422)
+            const snapJson = await snapRes.json().catch(() => ({}));
+            const msg =
+              typeof snapJson.error === 'string'
+                ? snapJson.error
+                : 'No se pudo guardar el equipo utilizado (EMA)';
             if (snapRes.status === 422) {
-              throw new Error(snapJson.error ?? 'Instrumentos vencidos bloqueados por configuración EMA');
+              throw new Error(msg);
             }
-            // Non-blocking: log but continue
-            console.warn('EMA snapshot warning:', snapJson.error);
+            toast({
+              title: 'Equipo utilizado (EMA)',
+              description: msg,
+              variant: 'destructive',
+            });
           }
         } catch (snapErr: any) {
           if (snapErr.message?.includes('vencidos')) throw snapErr;
-          console.warn('EMA snapshot error (non-blocking):', snapErr.message);
+          toast({
+            title: 'Equipo utilizado (EMA)',
+            description: snapErr?.message ?? 'Error al guardar instrumentos',
+            variant: 'destructive',
+          });
         }
       }
 
@@ -618,7 +638,7 @@ export default function NuevoMuestreoPage() {
 
   if (!hasAccess) {
     return (
-      <div className="container mx-auto py-16 px-4">
+      <div className="w-full max-w-3xl mx-auto py-16">
         <div className="max-w-3xl mx-auto bg-yellow-50 border border-yellow-300 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-4">
             <AlertTriangle className="h-8 w-8 text-yellow-600" />
@@ -634,7 +654,7 @@ export default function NuevoMuestreoPage() {
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="w-full">
       <div className="mb-4">
         <QualityBreadcrumb
           hubName="Operaciones"
@@ -646,37 +666,33 @@ export default function NuevoMuestreoPage() {
         />
       </div>
       <div className="mb-6">
-        <Button 
-          variant="outline" 
-          onClick={() => router.push('/quality/muestreos')}
-          className="mb-4"
-        >
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Volver a Muestreos
-        </Button>
-        
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Nuevo Muestreo</h1>
-        <p className="text-gray-500">
+        <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
+          Nuevo Muestreo
+        </h1>
+        <p className="text-sm text-stone-500 mt-0.5">
           Sigue los pasos para registrar un nuevo muestreo de concreto
         </p>
 
-        {/* Selector de flujo: Remisión existente vs Captura manual */}
-        <div className="mt-4 inline-flex rounded-md border bg-white overflow-hidden">
-          <button
-            className={`px-3 py-1.5 text-sm ${mode === 'linked' ? 'bg-green-50 text-green-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            onClick={() => setMode('linked')}
-            type="button"
-          >
-            Remisión existente
-          </button>
-          <button
-            className={`px-3 py-1.5 text-sm border-l ${mode === 'manual' ? 'bg-green-50 text-green-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            onClick={() => setMode('manual')}
-            type="button"
-          >
-            Captura manual
-          </button>
-        </div>
+        <Tabs
+          value={mode}
+          onValueChange={(v) => setMode(v as 'linked' | 'manual')}
+          className="mt-4 w-full max-w-md"
+        >
+          <TabsList className="grid w-full grid-cols-2 bg-stone-100/80 p-1 text-stone-600">
+            <TabsTrigger
+              value="linked"
+              className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
+            >
+              Remisión existente
+            </TabsTrigger>
+            <TabsTrigger
+              value="manual"
+              className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
+            >
+              Captura manual
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
       
       {mode === 'linked' ? (
@@ -887,13 +903,14 @@ export default function NuevoMuestreoPage() {
                             type="button" 
                             variant="outline"
                             onClick={() => handleStepChange(1)}
+                            className="h-9 border-stone-300 bg-white shadow-none hover:bg-stone-50"
                           >
                             Atrás
                           </Button>
                           <Button 
                             type="submit" 
-                            className="bg-primary"
                             disabled={isSubmitting}
+                            className="h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800"
                           >
                             {isSubmitting ? (
                               <>
@@ -930,8 +947,8 @@ export default function NuevoMuestreoPage() {
                     </CardDescription>
                     
                     {/* Form Status Indicator */}
-                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                      <div className="flex items-center gap-2 text-sm text-blue-700">
+                    <div className="mt-4 p-3 bg-sky-50/80 border border-sky-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-sm text-sky-900">
                         <Info className="h-4 w-4" />
                         <span>
                           <strong>Consejo:</strong> Completa todos los campos y revisa la información antes de guardar. 
@@ -973,7 +990,7 @@ export default function NuevoMuestreoPage() {
                                       <Button
                                         variant="outline"
                                         className={cn(
-                                          'w-full pl-3 text-left font-normal',
+                                          'w-full pl-3 text-left font-normal border-stone-300 bg-white shadow-none hover:bg-stone-50',
                                           !field.value && 'text-muted-foreground'
                                         )}
                                       >
@@ -1152,232 +1169,6 @@ export default function NuevoMuestreoPage() {
                           addDaysSafe={addDaysSafe}
                           formatAgeSummary={formatAgeSummary as any}
                         />
-                        <div className="hidden">
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <h3 className="text-sm font-semibold">Plan de Muestras</h3>
-                            <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 w-full sm:w-auto">
-                              <Button type="button" variant="outline" size="sm" onClick={() => {
-                                const base = (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})();
-                                const baseStr = base ? formatDate(base, 'yyyy-MM-dd') : formatDate(new Date(), 'yyyy-MM-dd');
-                                const days = ((): number[] => {
-                                  if (clasificacion === 'FC') {
-                                    switch (edadGarantia) {
-                                      case 1: return [1, 1, 3];
-                                      case 3: return [1, 1, 3, 3];
-                                      case 7: return [1, 3, 7, 7];
-                                      case 14: return [3, 7, 14, 14];
-                                      case 28: return [7, 14, 28, 28];
-                                      default: return [7, 14, 28, 28];
-                                    }
-                                  } else {
-                                    switch (edadGarantia) {
-                                      case 1: return [1, 1, 3];
-                                      case 3: return [1, 3, 3];
-                                      case 7: return [3, 7, 7];
-                                      case 14: return [7, 14, 14];
-                                      case 28: return [7, 28, 28];
-                                      default: return [7, 28, 28];
-                                    }
-                                  }
-                                })();
-                                const additions: PlannedSample[] = days.map((d) => {
-                                  const date = createSafeDate(baseStr)!;
-                                  date.setDate(date.getDate() + d);
-                                  return { id: uuidv4(), tipo_muestra: clasificacion === 'MR' ? 'VIGA' : 'CILINDRO', fecha_programada_ensayo: date, diameter_cm: 15, age_days: d };
-                                });
-                                setPlannedSamples((prev) => [...prev, ...additions]);
-                              }}>
-                                <Plus className="h-4 w-4 mr-1" /> Agregar conjunto sugerido
-                              </Button>
-                              <Button type="button" size="sm" onClick={() => {
-                                const base = (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})();
-                                const date = base ? new Date(base) : new Date();
-                                date.setDate(date.getDate() + 1);
-                                setPlannedSamples((prev) => [...prev, { id: uuidv4(), tipo_muestra: 'CILINDRO', fecha_programada_ensayo: date, diameter_cm: 15, age_days: 1 }]);
-                              }}>
-                                <Plus className="h-4 w-4 mr-1" /> Agregar muestra
-                              </Button>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-gray-500">La edad se calcula desde la fecha de muestreo. Ajusta la edad o la fecha y recalcularemos automáticamente.</p>
-                          {plannedSamples.length === 0 ? (
-                            <div className="text-sm text-gray-500">No hay muestras planificadas. Agrega un conjunto sugerido o una muestra.</div>
-                          ) : (
-                            <div className="space-y-2 border rounded-md p-3">
-                              {plannedSamples.map((s) => (
-                                <div key={s.id} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2 items-center">
-                                  <div className="md:col-span-3">
-                                    <FormLabel className="text-xs">Tipo</FormLabel>
-                                    <Select value={s.tipo_muestra} onValueChange={(val) => {
-                                      const v = val as 'CILINDRO' | 'VIGA' | 'CUBO';
-                                      setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, tipo_muestra: v } : p)));
-                                    }}>
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Tipo de muestra" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="CILINDRO">Cilindro</SelectItem>
-                                        <SelectItem value="VIGA">Viga</SelectItem>
-                                        <SelectItem value="CUBO">Cubo</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  {s.tipo_muestra === 'CILINDRO' && (
-                                    <div className="md:col-span-3">
-                                      <FormLabel className="text-xs">Diámetro (cm)</FormLabel>
-                                      <Select value={String(s.diameter_cm || 15)} onValueChange={(val) => {
-                                        const num = parseInt(val, 10);
-                                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, diameter_cm: num } : p)));
-                                      }}>
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Diámetro" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="10">10 cm</SelectItem>
-                                          <SelectItem value="15">15 cm</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                  {s.tipo_muestra === 'CUBO' && (
-                                    <div className="md:col-span-3">
-                                      <FormLabel className="text-xs">Lado del cubo (cm)</FormLabel>
-                                      <Select value={String(s.cube_side_cm || 15)} onValueChange={(val) => {
-                                        const num = parseInt(val, 10);
-                                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, cube_side_cm: num } : p)));
-                                      }}>
-                                        <SelectTrigger>
-                                          <SelectValue placeholder="Tamaño" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="5">5 cm</SelectItem>
-                                          <SelectItem value="10">10 cm</SelectItem>
-                                          <SelectItem value="15">15 cm</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                  )}
-                                  <div className="md:col-span-1">
-                                    <FormLabel className="text-xs">Edad (días)</FormLabel>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      value={(function() {
-                                        const base = (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})();
-                                        const age = typeof s.age_days === 'number' && isFinite(s.age_days) ? s.age_days : (base ? computeAgeDays(base, s.fecha_programada_ensayo) : 0);
-                                        return String(age);
-                                      })()}
-                                      onChange={(e) => {
-                                        const base = (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})();
-                                        const val = parseInt(e.target.value || '0', 10);
-                                        const ageDays = isNaN(val) ? 0 : val;
-                                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
-                                          ...p,
-                                          age_days: ageDays,
-                                          age_hours: undefined,
-                                          fecha_programada_ensayo: base ? addDaysSafe(base, ageDays) : p.fecha_programada_ensayo,
-                                        } : p)));
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="md:col-span-1">
-                                    <FormLabel className="text-xs">Edad (horas)</FormLabel>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      value={typeof s.age_hours === 'number' && isFinite(s.age_hours) ? String(s.age_hours) : ''}
-                                      onChange={(e) => {
-                                        const base = (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})();
-                                        const val = parseInt(e.target.value || '0', 10);
-                                        const ageHours = isNaN(val) ? 0 : val;
-                                        setPlannedSamples(prev => prev.map(p => p.id === s.id ? {
-                                          ...p,
-                                          age_hours: ageHours,
-                                          age_days: undefined,
-                                          fecha_programada_ensayo: (() => { const d = new Date(base || new Date()); d.setHours(d.getHours() + ageHours); return d; })(),
-                                        } : p));
-                                      }}
-                                    />
-                                  </div>
-                                  <div className={cn("", (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? "md:col-span-3" : "md:col-span-6") }>
-                                    <FormLabel className="text-xs">Fecha programada de ensayo</FormLabel>
-                                    <Input type="date" value={formatDate(s.fecha_programada_ensayo, 'yyyy-MM-dd')} onChange={(e) => {
-                                      const val = e.target.value;
-                                      const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
-                                      const newDate = new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
-                                      const base = (() => {
-                                        const val = form.getValues('fecha_muestreo');
-                                        return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-                                      })();
-                                      setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
-                                        ...p,
-                                        fecha_programada_ensayo: newDate,
-                                        age_days: base ? computeAgeDays(base, newDate) : p.age_days,
-                                      } : p)));
-                                    }} />
-                                  </div>
-                                  <div className="md:col-span-2">
-                                    <FormLabel className="text-xs">Hora de Ensayo (local)</FormLabel>
-                                    <Input
-                                      type="time"
-                                      value={(function(){
-                                        const ts = s.fecha_programada_ensayo as Date;
-                                        const hh = String(ts.getHours()).padStart(2,'0');
-                                        const mm = String(ts.getMinutes()).padStart(2,'0');
-                                        return `${hh}:${mm}`;
-                                      })()}
-                                      onChange={(e) => {
-                                        const [h,m] = e.target.value.split(':').map(n => parseInt(n,10));
-                                        if (!isNaN(h) && !isNaN(m)) {
-                                          setPlannedSamples(prev => prev.map(p => {
-                                            if (p.id !== s.id) return p;
-                                            const d = new Date(p.fecha_programada_ensayo);
-                                            d.setHours(h, m, 0, 0);
-                                            return { ...p, fecha_programada_ensayo: d };
-                                          }));
-                                        }
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="md:col-span-1 flex justify-end">
-                                    <Button type="button" variant="outline" size="icon" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                              <div className="text-xs text-gray-500">
-                                Se crearán {plannedSamples.length} muestras{formatAgeSummary(plannedSamples, (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})() ? (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})() : undefined) ? 
-                                  ` · Distribución de edades: ${formatAgeSummary(plannedSamples, (() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})())}` : ''}
-                              </div>
-                            </div>
-                          )}
-                        </div>
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
 
@@ -1409,7 +1200,6 @@ export default function NuevoMuestreoPage() {
                           
                           <Button 
                             type="button" 
-                            className="bg-primary" 
                             disabled={isSubmitting || !form.formState.isValid}
                             onClick={() => {
                               if (!form.formState.isValid) {
@@ -1420,6 +1210,7 @@ export default function NuevoMuestreoPage() {
                               // Show confirmation dialog
                               setShowSubmitConfirmation(true);
                             }}
+                            className="h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800"
                           >
                             {isSubmitting ? (
                               <>
@@ -1435,78 +1226,74 @@ export default function NuevoMuestreoPage() {
                           </Button>
                         </div>
                         
-                        {/* Submit Confirmation Dialog */}
-                        {showSubmitConfirmation && (
-                          <div 
-                            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                            onClick={() => setShowSubmitConfirmation(false)}
-                          >
-                            <div 
-                              className="bg-white rounded-lg p-6 max-w-md mx-4"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center gap-3 mb-4">
-                                <Info className="h-6 w-6 text-blue-600" />
-                                <h3 className="text-lg font-semibold">Confirmar Envío</h3>
-                              </div>
-                              
-                              <div className="text-gray-700 mb-6 space-y-3">
-                                <p>
-                                  ¿Estás seguro de que quieres guardar este muestreo? 
-                                  Verifica que toda la información esté correcta antes de continuar.
-                                </p>
-                                
-                                {/* Summary of what will be created */}
-                                <div className="bg-gray-50 p-3 rounded-md text-sm">
-                                  <h4 className="font-medium mb-2">Resumen del muestreo:</h4>
-                                  <ul className="space-y-1 text-gray-600">
-                                    <li>• Planta: {form.getValues('planta')}</li>
-                                    <li>• Fecha: {form.getValues('fecha_muestreo') ? format((() => {
-  const val = form.getValues('fecha_muestreo');
-  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
-})(), 'PPP', { locale: es }) : 'No definida'}</li>
-                                    <li>• Número de muestreo: {form.getValues('numero_muestreo')}</li>
-                                    <li>• Muestras a crear: {plannedSamples.length}</li>
-                                    {form.getValues('manual_reference') && (
-                                      <li>• Referencia manual: {form.getValues('manual_reference')}</li>
-                                    )}
-                                  </ul>
+                        <Dialog open={showSubmitConfirmation} onOpenChange={setShowSubmitConfirmation}>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle className="flex items-center gap-2 text-stone-900">
+                                <Info className="h-5 w-5 text-sky-600 shrink-0" />
+                                Confirmar envío
+                              </DialogTitle>
+                              <DialogDescription asChild>
+                                <div className="space-y-3 text-left text-stone-600">
+                                  <p>
+                                    ¿Estás seguro de que quieres guardar este muestreo?
+                                    Verifica que toda la información esté correcta antes de continuar.
+                                  </p>
+                                  <div className="rounded-md border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
+                                    <h4 className="font-medium mb-2 text-stone-900">Resumen del muestreo</h4>
+                                    <ul className="space-y-1">
+                                      <li>• Planta: {form.getValues('planta')}</li>
+                                      <li>• Fecha: {form.getValues('fecha_muestreo') ? format((() => {
+                                        const val = form.getValues('fecha_muestreo');
+                                        return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+                                      })(), 'PPP', { locale: es }) : 'No definida'}</li>
+                                      <li>• Número de muestreo: {form.getValues('numero_muestreo')}</li>
+                                      <li>• Muestras a crear: {plannedSamples.length}</li>
+                                      {form.getValues('manual_reference') && (
+                                        <li>• Referencia manual: {form.getValues('manual_reference')}</li>
+                                      )}
+                                      {form.getValues('contenido_aire') != null && (
+                                        <li>• Contenido de aire: {form.getValues('contenido_aire')}%</li>
+                                      )}
+                                    </ul>
+                                  </div>
                                 </div>
-                              </div>
-                              
-                              <div className="flex justify-end gap-3">
-                                <Button 
-                                  variant="outline" 
-                                  onClick={() => setShowSubmitConfirmation(false)}
-                                  disabled={isSubmitting}
-                                >
-                                  Cancelar
-                                </Button>
-                                <Button 
-                                  className="bg-primary" 
-                                  onClick={() => {
-                                    setShowSubmitConfirmation(false);
-                                    // Now submit the form
-                                    form.handleSubmit(onSubmit)();
-                                  }}
-                                  disabled={isSubmitting}
-                                >
-                                  {isSubmitting ? (
-                                    <>
-                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                      Guardando...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Save className="mr-2 h-4 w-4" />
-                                      Sí, Guardar
-                                    </>
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
+                              </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="gap-2 sm:gap-0">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setShowSubmitConfirmation(false)}
+                                disabled={isSubmitting}
+                                className="h-9 border-stone-300 bg-white shadow-none hover:bg-stone-50"
+                              >
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => {
+                                  setShowSubmitConfirmation(false);
+                                  form.handleSubmit(onSubmit)();
+                                }}
+                                disabled={isSubmitting}
+                                className="h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800"
+                              >
+                                {isSubmitting ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Guardando...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="mr-2 h-4 w-4" />
+                                    Sí, guardar
+                                  </>
+                                )}
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </form>
                     </Form>
                   </CardContent>

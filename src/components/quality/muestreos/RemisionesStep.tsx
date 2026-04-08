@@ -8,6 +8,11 @@ import { Loader2, Search, Truck, Factory } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
 import { adjustDateForTimezone } from "./dateUtils";
 
+const outlineBtn =
+  "h-9 border-stone-300 bg-white px-3 shadow-none hover:bg-stone-50";
+const primaryBtn =
+  "h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800";
+
 type RemisionesStepProps = {
   isLoading: boolean;
   items: any[];
@@ -41,16 +46,16 @@ export default function RemisionesStep({
         <div className="mt-4">
           <div className="flex gap-3">
             <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-stone-500" />
               <Input
                 type="text"
                 placeholder="Buscar por remisión, cliente o receta"
-                className="pl-9"
+                className="pl-9 border-stone-300"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Button variant="outline" className="flex-shrink-0" onClick={onResetFilters}>
+            <Button variant="outline" className={cn("flex-shrink-0", outlineBtn)} onClick={onResetFilters}>
               Limpiar
             </Button>
           </div>
@@ -59,14 +64,14 @@ export default function RemisionesStep({
       <CardContent>
         {isLoading ? (
           <div className="flex items-center justify-center p-8">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-2">Cargando remisiones...</span>
+            <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+            <span className="ml-2 text-stone-600">Cargando remisiones...</span>
           </div>
         ) : items.length === 0 ? (
-          <div className="text-center p-8 bg-gray-50 rounded-lg">
-            <Truck className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium mb-2">No hay remisiones disponibles</h3>
-            <p className="text-gray-500 max-w-md mx-auto">
+          <div className="text-center p-8 bg-stone-50 rounded-lg border border-stone-200">
+            <Truck className="h-12 w-12 text-stone-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2 text-stone-900">No hay remisiones disponibles</h3>
+            <p className="text-stone-500 max-w-md mx-auto">
               No se encontraron remisiones disponibles para esta orden o con los filtros seleccionados.
             </p>
           </div>
@@ -76,22 +81,22 @@ export default function RemisionesStep({
               <Card
                 key={remision.id}
                 className={cn(
-                  "cursor-pointer transition-all hover:border-primary",
-                  selectedId === remision.id && "border-primary ring-2 ring-primary ring-opacity-50"
+                  "cursor-pointer transition-all border-stone-200 hover:border-sky-600",
+                  selectedId === remision.id && "border-sky-600 ring-2 ring-sky-600 ring-opacity-50"
                 )}
                 onClick={() => onSelect(remision)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className={cn("p-2 rounded-full", remision.is_production_record ? "bg-orange-50" : "bg-primary-50")}>
+                    <div className={cn("p-2 rounded-full", remision.is_production_record ? "bg-orange-50" : "bg-sky-50")}>
                       {remision.is_production_record
                         ? <Factory className="h-5 w-5 text-orange-500" />
-                        : <Truck className="h-5 w-5 text-primary" />
+                        : <Truck className="h-5 w-5 text-sky-700" />
                       }
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold">Remisión #{remision.remision_number}</h4>
-                      <p className="text-sm text-gray-500">
+                      <h4 className="font-semibold text-stone-900">Remisión #{remision.remision_number}</h4>
+                      <p className="text-sm text-stone-500">
                         {remision.fecha ? formatDate(adjustDateForTimezone(remision.fecha) || new Date(), "dd/MM/yyyy") : "Sin fecha"}
                       </p>
                     </div>
@@ -101,7 +106,7 @@ export default function RemisionesStep({
                       </span>
                     )}
                   </div>
-                  <div className="space-y-1 mt-3">
+                  <div className="space-y-1 mt-3 text-stone-800">
                     <p className="text-sm">
                       <span className="font-medium">Volumen:</span> {remision.volumen_fabricado} m³
                     </p>
@@ -128,16 +133,14 @@ export default function RemisionesStep({
           </div>
         )}
       </CardContent>
-      <CardFooter className="justify-between">
-        <Button variant="outline" onClick={onBack}>
+      <CardFooter className="justify-between gap-2">
+        <Button variant="outline" className={outlineBtn} onClick={onBack}>
           Atrás
         </Button>
-        <Button onClick={onContinue} disabled={!canContinue}>
+        <Button className={primaryBtn} onClick={onContinue} disabled={!canContinue}>
           Continuar
         </Button>
       </CardFooter>
     </Card>
   );
 }
-
-

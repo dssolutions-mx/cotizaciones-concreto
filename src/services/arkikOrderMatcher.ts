@@ -179,16 +179,11 @@ export class ArkikOrderMatcher {
    */
   private buildMatchCriteria(remisiones: StagingRemision[]): OrderMatchCriteria {
     const firstRemision = remisiones[0];
-    
-    // Extract YYYY-MM-DD string directly to avoid timezone issues
-    const remisionYmdString = this.extractYmdString(firstRemision.fecha as any);
-    
-    // For date range search (±1 day), we still need Date objects
+
+    // Same calendar day only (0-day tolerance): query start/end both equal to remisión local date
     const baseDate = this.parseLocalDate(firstRemision.fecha as any);
     const startDate = new Date(baseDate);
-    startDate.setDate(startDate.getDate() - 1);
     const endDate = new Date(baseDate);
-    endDate.setDate(endDate.getDate() + 1);
 
     return {
       client_id: firstRemision.client_id || undefined, // May be undefined, we'll use flexible matching

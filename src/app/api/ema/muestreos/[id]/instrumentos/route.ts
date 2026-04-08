@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { saveMuestreoInstrumentos, getInstrumentosByMuestreo, validateInstrumentos } from '@/services/emaInstrumentoService';
+import {
+  saveMuestreoInstrumentos,
+  getInstrumentosByMuestreo,
+  validateInstrumentos,
+  getInstrumentosCardsByIds,
+} from '@/services/emaInstrumentoService';
+import type { InstrumentoSeleccionado } from '@/types/ema';
 import { z } from 'zod';
 
 const ALLOWED_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
@@ -16,8 +22,9 @@ const RequestSchema = z.object({
 });
 
 /** GET — list instruments used in a muestreo */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -27,7 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (!profile || !ALLOWED_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const instrumentos = await getInstrumentosByMuestreo(params.id);
+    const instrumentos = await getInstrumentosByMuestreo(id);
     return NextResponse.json({ data: instrumentos });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -35,8 +42,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 /** POST — save instrument snapshots for a muestreo (called after muestreo creation) */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id: muestreoId } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -52,18 +60,36 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
     const { instrumentos } = parsed.data;
+    if (instrumentos.length === 0) {
+      return NextResponse.json({ data: { saved: 0 } }, { status: 201 });
+    }
 
-    // Check EMA config: if bloquear_vencidos is enabled, validate states
-    const validation = await validateInstrumentos(instrumentos.map(i => i.instrumento_id));
-    if (validation.blocked) {
+    const uniqueIds = [...new Set(instrumentos.map((i) => i.instrumento_id))];
+    const byId = await getInstrumentosCardsByIds(uniqueIds);
+    const missing = uniqueIds.filter((uid) => !byId.has(uid));
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Instrumento(s) no encontrado(s): ${missing.join(', ')}` },
+        { status: 400 },
+      );
+    }
+
+    const seleccionados: InstrumentoSeleccionado[] = instrumentos.map((row) => ({
+      instrumento: byId.get(row.instrumento_id)!,
+      paquete_id: row.paquete_id ?? undefined,
+      observaciones: row.observaciones ?? undefined,
+    }));
+
+    const validation = await validateInstrumentos(seleccionados);
+    if (!validation.valid) {
       return NextResponse.json({
-        error: `Instrumentos vencidos bloqueados por configuración EMA: ${validation.vencidos.map(v => v.codigo).join(', ')}`,
+        error: `Instrumentos vencidos bloqueados por configuración EMA: ${validation.vencidos.map((v) => v.codigo).join(', ')}`,
         vencidos: validation.vencidos,
       }, { status: 422 });
     }
 
-    const savedCount = await saveMuestreoInstrumentos(params.id, instrumentos);
-    return NextResponse.json({ data: { saved: savedCount } }, { status: 201 });
+    const savedRows = await saveMuestreoInstrumentos(muestreoId, seleccionados);
+    return NextResponse.json({ data: { saved: savedRows.length } }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

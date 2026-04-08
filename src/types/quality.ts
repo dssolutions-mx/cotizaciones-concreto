@@ -21,6 +21,7 @@ export interface MuestreosData {
   remision_id: string;
   fecha_muestreo: string; // ISO date string
   masa_unitaria: number | null;
+  contenido_aire?: number | null;
 }
 
 export interface RemisionesData {
@@ -55,6 +56,8 @@ export interface Muestreo {
   masa_unitaria: number;
   temperatura_ambiente: number;
   temperatura_concreto: number;
+  /** Optional air content percentage (%) measured during sampling */
+  contenido_aire?: number | null;
 
   concrete_specs?: {
     clasificacion?: 'FC' | 'MR';

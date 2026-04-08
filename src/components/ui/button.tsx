@@ -27,11 +27,14 @@ const buttonVariants = cva(
         danger: "bg-red-600 text-white hover:bg-red-700 shadow-md border-0",
       },
       size: {
-        sm: "h-9 px-3 py-1.5 text-footnote rounded-xl",
-        default: "h-10 px-4 py-2.5 text-body rounded-xl",
-        lg: "h-11 px-6 py-3 text-callout rounded-xl",
+        // Use text-sm / text-base — NOT text-body / text-footnote / text-callout. Those custom
+        // `text-*` classes are in tailwind-merge's same group as `text-white` / `text-gray-800`,
+        // so cn() drops the color utilities and primary/outline buttons inherit dark body text.
+        sm: "h-9 px-3 py-1.5 text-sm rounded-xl",
+        default: "h-10 px-4 py-2.5 text-base rounded-xl",
+        lg: "h-11 px-6 py-3 text-base rounded-xl",
         icon: "h-10 w-10 rounded-xl",
-        capsule: "h-10 px-4 py-2.5 text-body rounded-full",
+        capsule: "h-10 px-4 py-2.5 text-base rounded-full",
       },
     },
     defaultVariants: {

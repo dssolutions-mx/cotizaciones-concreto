@@ -18,6 +18,7 @@ export default function MeasurementsFields({ form }: Props) {
   const [factorInput, setFactorInput] = useState<string>("");
   const [tempAmbienteInput, setTempAmbienteInput] = useState<string>("");
   const [tempConcretoInput, setTempConcretoInput] = useState<string>("");
+  const [contenidoAireInput, setContenidoAireInput] = useState<string>("");
   return (
     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
       <FormField
@@ -67,7 +68,7 @@ export default function MeasurementsFields({ form }: Props) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex">
-                  <Info className="h-4 w-4 text-gray-400" />
+                  <Info className="h-4 w-4 text-stone-400" />
                 </span>
               </TooltipTrigger>
               <TooltipContent>Ingresa los pesos y el factor del recipiente; calculamos la masa unitaria automáticamente.</TooltipContent>
@@ -196,7 +197,7 @@ export default function MeasurementsFields({ form }: Props) {
               <FormItem>
                 <FormLabel className="text-xs">Resultado (kg/m³)</FormLabel>
                 <FormControl>
-                  <Input type="number" step="0.1" value={Number.isFinite(field.value as any) ? String(field.value) : ""} readOnly className="bg-gray-50" />
+                  <Input type="number" step="0.1" value={Number.isFinite(field.value as any) ? String(field.value) : ""} readOnly className="bg-stone-50" />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -217,7 +218,7 @@ export default function MeasurementsFields({ form }: Props) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
-                      <Info className="h-4 w-4 text-gray-400" />
+                      <Info className="h-4 w-4 text-stone-400" />
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>Recomendado 10–35°C. Válido de -10 a 60°C.</TooltipContent>
@@ -266,7 +267,7 @@ export default function MeasurementsFields({ form }: Props) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
-                      <Info className="h-4 w-4 text-gray-400" />
+                      <Info className="h-4 w-4 text-stone-400" />
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>Recomendado 10–35°C al muestreo. Válido 5–60°C.</TooltipContent>
@@ -297,6 +298,71 @@ export default function MeasurementsFields({ form }: Props) {
                 />
               </FormControl>
               <FormDescription>Rango recomendado 10–35°C (válido 5–60°C).</FormDescription>
+              <FormMessage />
+            </FormItem>
+          );
+        }}
+      />
+
+      <FormField
+        control={form.control}
+        name="contenido_aire"
+        render={({ field }) => {
+          const displayValue =
+            contenidoAireInput !== ""
+              ? contenidoAireInput
+              : field.value != null
+                ? String(field.value)
+                : "";
+          return (
+            <FormItem className="md:col-span-6">
+              <FormLabel className="flex items-center gap-1">
+                Contenido de Aire (%)
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Info className="h-4 w-4 text-stone-400" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Porcentaje de aire atrapado en el concreto fresco (opcional).
+                  </TooltipContent>
+                </Tooltip>
+              </FormLabel>
+              <FormControl>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="Opcional"
+                  value={displayValue}
+                  onChange={(e) => {
+                    const rawValue = e.target.value;
+                    if (
+                      rawValue === "" ||
+                      rawValue === "." ||
+                      /^-?\d*\.?\d*$/.test(rawValue)
+                    ) {
+                      setContenidoAireInput(rawValue);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const rawValue = e.target.value;
+                    const numValue =
+                      rawValue === "" || rawValue === "."
+                        ? undefined
+                        : parseFloat(rawValue);
+                    const finalValue = isNaN(numValue as number)
+                      ? undefined
+                      : numValue;
+                    field.onChange(finalValue);
+                    setContenidoAireInput(
+                      finalValue != null ? String(finalValue) : "",
+                    );
+                    field.onBlur();
+                  }}
+                />
+              </FormControl>
+              <FormDescription>Opcional. Rango válido 0–100%.</FormDescription>
               <FormMessage />
             </FormItem>
           );

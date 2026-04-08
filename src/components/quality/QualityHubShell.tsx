@@ -2,8 +2,17 @@ import type { ReactNode } from 'react'
 import { DM_Sans, JetBrains_Mono } from 'next/font/google'
 import { cn } from '@/lib/utils'
 
-const dmSans = DM_Sans({ subsets: ['latin'], weight: ['400', '500', '600', '700'] })
-const jetMono = JetBrains_Mono({ subsets: ['latin'], weight: ['400', '600'], variable: '--font-jet-mono' })
+/** Match `finanzas/procurement/layout` (Centro de compras) — DM Sans + JetBrains Mono for código. */
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-dm-procurement',
+})
+const jetMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '600'],
+  variable: '--font-jet-mono',
+})
 
 export default function QualityHubShell({ children }: { children: ReactNode }) {
   return (

@@ -63,6 +63,55 @@ export interface Database {
           created_at?: string
         }
       }
+      order_concrete_evidence: {
+        Row: {
+          id: string
+          order_id: string
+          plant_id: string
+          file_path: string
+          original_name: string
+          file_size: number
+          mime_type: string
+          uploaded_by: string
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          order_id: string
+          plant_id: string
+          file_path: string
+          original_name: string
+          file_size: number
+          mime_type: string
+          uploaded_by: string
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          order_id?: string
+          plant_id?: string
+          file_path?: string
+          original_name?: string
+          file_size?: number
+          mime_type?: string
+          uploaded_by?: string
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'order_concrete_evidence_order_id_fkey'
+            columns: ['order_id']
+            referencedRelation: 'orders'
+            referencedColumns: ['id']
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

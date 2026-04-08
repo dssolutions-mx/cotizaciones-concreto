@@ -13,6 +13,11 @@ import { FormLabel } from '@/components/ui/form';
 import { Trash2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const outlineSm =
+  'h-9 border-stone-300 bg-white text-sm shadow-none hover:bg-stone-50';
+const primarySm =
+  'h-9 bg-sky-700 text-sm text-white shadow-none hover:bg-sky-800';
+
 export type PlannedSample = {
   id: string;
   tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
@@ -121,24 +126,24 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
   return (
     <div className="space-y-3">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h3 className="text-sm font-semibold">Plan de Muestras</h3>
+        <h3 className="text-sm font-semibold text-stone-900">Plan de Muestras</h3>
         <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 w-full sm:w-auto">
           {agePlanUnit !== 'hours' && (
-            <Button type="button" variant="outline" size="sm" onClick={handleAddSuggested}>
+            <Button type="button" variant="outline" size="sm" className={outlineSm} onClick={handleAddSuggested}>
               <Plus className="h-4 w-4 mr-1" /> Agregar conjunto sugerido
             </Button>
           )}
-          <Button type="button" size="sm" onClick={handleAddSingle}>
+          <Button type="button" size="sm" className={primarySm} onClick={handleAddSingle}>
             <Plus className="h-4 w-4 mr-1" /> Agregar muestra
           </Button>
         </div>
       </div>
 
-      <p className="text-xs text-gray-500">La edad se calcula desde la fecha de muestreo. Ajusta la edad o la fecha y recalcularemos automáticamente.</p>
+      <p className="text-xs text-stone-500">La edad se calcula desde la fecha de muestreo. Ajusta la edad o la fecha y recalcularemos automáticamente.</p>
       {plannedSamples.length === 0 ? (
-        <div className="text-sm text-gray-500">No hay muestras planificadas. Agrega un conjunto sugerido o una muestra.</div>
+        <div className="text-sm text-stone-500">No hay muestras planificadas. Agrega un conjunto sugerido o una muestra.</div>
       ) : (
-        <div className="space-y-2 border rounded-md p-3">
+        <div className="space-y-2 border border-stone-200 rounded-md p-3 bg-stone-50/50">
           {plannedSamples.map((s) => {
             const useHours = typeof s.age_hours === 'number' && isFinite(s.age_hours);
 
@@ -342,7 +347,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                 </div>
 
                 <div className="md:col-span-2 flex items-end">
-                  <Button type="button" variant="outline" size="icon" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
+                  <Button type="button" variant="outline" size="icon" className="border-stone-300 hover:bg-stone-50" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -377,17 +382,17 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       } : p)));
                     }}
                   />
-                  <div className="text-[11px] text-gray-500 mt-1">
+                  <div className="text-[11px] text-stone-500 mt-1">
                     Ensayo programado: {ensayoDisplay}
                     {(s.age_days === undefined && s.age_hours === undefined) && (
-                      <span className="ml-2 text-blue-600 font-medium">(tiempo manual)</span>
+                      <span className="ml-2 text-sky-700 font-medium">(tiempo manual)</span>
                     )}
                   </div>
                 </div>
               </div>
             );
           })}
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-stone-500">
             Se crearán {plannedSamples.length} muestras{formatAgeSummary && baseDate ? ` · Distribución de edades: ${formatAgeSummary(plannedSamples, baseDate)}` : ''}
           </div>
         </div>

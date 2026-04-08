@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, ChevronLeft, CheckCircle2, Copy, ArrowLeftRight, ArrowRight, Factory, Link as LinkIcon, Building2, Package, Plus, RefreshCw, Info, Check } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -3274,6 +3275,20 @@ Fin del reporte
                 >
                   <ArrowLeftRight className="h-4 w-4 mr-1.5" />
                   Producción Cruzada
+                </Button>
+              </div>
+            )}
+
+            {importResult.totalRemisionesCreated > 0 && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-sky-900">Evidencia de remisiones (concreto)</p>
+                  <p className="text-xs text-sky-800/90 mt-0.5">
+                    Suba un solo PDF por pedido con las remisiones escaneadas en orden — útil para finanzas.
+                  </p>
+                </div>
+                <Button asChild variant="outline" size="sm" className="shrink-0 border-sky-300 text-sky-900 hover:bg-sky-100 min-h-11">
+                  <Link href="/production-control/evidencia-concreto">Subir evidencia por pedido</Link>
                 </Button>
               </div>
             )}

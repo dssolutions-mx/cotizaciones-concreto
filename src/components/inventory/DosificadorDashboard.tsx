@@ -25,6 +25,7 @@ import {
   ArrowLeftRight,
   ClipboardPlus,
   ChevronRight,
+  FileStack,
 } from 'lucide-react'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -579,6 +580,11 @@ export default function DosificadorDashboard() {
               { href: '/production-control/cross-plant', label: 'Producción cruzada', Icon: ArrowLeftRight },
               { href: '/production-control/reloj-checador', label: 'Reloj checador', Icon: ClockIcon },
               { href: '/production-control/remisiones', label: 'Remisiones', Icon: FileText },
+              {
+                href: '/production-control/evidencia-concreto',
+                label: 'Evidencia remisiones (concreto)',
+                Icon: FileStack,
+              },
             ].map(({ href, label, Icon }) => (
               <Link
                 key={href}

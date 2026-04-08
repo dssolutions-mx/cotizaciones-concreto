@@ -215,11 +215,19 @@ export function EnsayoForm({
             body: JSON.stringify({ instrumentos: selectedInstrumentos }),
           });
           if (!snapRes.ok) {
-            const snapJson = await snapRes.json();
+            const snapJson = await snapRes.json().catch(() => ({}));
+            const msg =
+              typeof snapJson.error === 'string'
+                ? snapJson.error
+                : 'No se pudo guardar el equipo utilizado (EMA)';
             if (snapRes.status === 422) {
-              throw new Error(snapJson.error ?? 'Instrumentos vencidos bloqueados por configuración EMA');
+              throw new Error(msg);
             }
-            console.warn('EMA ensayo snapshot warning:', snapJson.error);
+            toast({
+              title: 'Equipo utilizado (EMA)',
+              description: msg,
+              variant: 'destructive',
+            });
           }
         } catch (snapErr: any) {
           if (snapErr.message?.includes('vencidos')) {
@@ -227,7 +235,11 @@ export function EnsayoForm({
             setLoading(false);
             return;
           }
-          console.warn('EMA ensayo snapshot error (non-blocking):', snapErr.message);
+          toast({
+            title: 'Equipo utilizado (EMA)',
+            description: snapErr?.message ?? 'Error al guardar instrumentos',
+            variant: 'destructive',
+          });
         }
       }
 
