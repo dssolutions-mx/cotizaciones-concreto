@@ -64,7 +64,7 @@ import AuthInitializer from '@/components/auth/auth-initializer';
 import { ReleaseAnnouncementGate } from '@/components/release/ReleaseAnnouncementGate';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { BotIdClient } from 'botid/client';
+import { BotIdClientGate } from '@/components/security/BotIdClientGate';
 
 
 // Define navigation items for different roles
@@ -1374,7 +1374,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="description" content="Sistema de manejo integral de plantas de concreto - DC Concretos" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
-        <BotIdClient protect={protectedRoutes} />
       </head>
       {/* Body doesn't need conditional class anymore based on route */}
       <body className="min-h-screen bg-[#f5f3f0]" suppressHydrationWarning>
@@ -1390,6 +1389,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Toaster />
             <SonnerToaster position="top-right" richColors/>
             <Analytics />
+            <BotIdClientGate protect={protectedRoutes} />
           </OrderPreferencesProvider>
         </PlantProvider>
       </body>

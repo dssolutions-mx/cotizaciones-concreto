@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { batchFetchPumpingRemisionDocuments } from '@/lib/remisiones/batchPumpingRemisionDocuments';
 
 export async function GET(
   request: NextRequest,
@@ -43,37 +44,15 @@ export async function GET(
       return NextResponse.json({ success: true, data: [] });
     }
 
-    // Fetch evidence for each pumping remision
-    const remisionesWithEvidence = await Promise.all(
-      pumpingRemisiones.map(async (remision) => {
-        const { data: evidence, error: evidenceError } = await supabase
-          .from('remision_documents')
-          .select(`
-            id,
-            file_name,
-            original_name,
-            file_path,
-            file_size,
-            mime_type,
-            document_type,
-            document_category,
-            uploaded_by,
-            created_at
-          `)
-          .eq('remision_id', remision.id)
-          .eq('document_category', 'pumping_remision')
-          .order('created_at', { ascending: false });
-
-        if (evidenceError) {
-          console.warn(`Error fetching evidence for remision ${remision.id}:`, evidenceError);
-        }
-
-        return {
-          ...remision,
-          remision_documents: evidence || []
-        };
-      })
+    const evidenceByRemision = await batchFetchPumpingRemisionDocuments(
+      supabase,
+      pumpingRemisiones.map((r) => r.id)
     );
+
+    const remisionesWithEvidence = pumpingRemisiones.map((remision) => ({
+      ...remision,
+      remision_documents: evidenceByRemision.get(remision.id) || [],
+    }));
 
     return NextResponse.json({
       success: true,

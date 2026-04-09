@@ -436,14 +436,14 @@ export default function PumpingServiceForm() {
       
       if (response.ok) {
         setExistingDocuments(prev => prev.filter(doc => doc.id !== documentId));
-        toast.success('Documento eliminado correctamente');
+        showSuccess('Documento eliminado correctamente');
       } else {
         const error = await response.json();
-        toast.error(`Error al eliminar documento: ${error.error}`);
+        showError(`Error al eliminar documento: ${error.error}`);
       }
     } catch (error) {
       console.error('Error deleting document:', error);
-      toast.error('Error al eliminar documento');
+      showError('Error al eliminar documento');
     }
   };
 
@@ -462,11 +462,11 @@ export default function PumpingServiceForm() {
       if (signedUrl) {
         window.open(signedUrl, '_blank', 'noopener,noreferrer');
       } else {
-        toast.error('No se pudo generar enlace para ver el documento');
+        showError('No se pudo generar enlace para ver el documento');
       }
     } catch (error) {
       console.error('Error viewing document:', error);
-      toast.error('Error al abrir el documento');
+      showError('Error al abrir el documento');
     }
   };
 

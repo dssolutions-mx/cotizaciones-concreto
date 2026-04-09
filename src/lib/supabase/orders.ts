@@ -331,9 +331,23 @@ interface OrderWithDetailsBasic extends OrderBasic {
   order_items: OrderItemBasic[];
 }
 
-export async function getOrdersForDosificador(limit: number = 100, offset: number = 0): Promise<{ data: OrderWithClient[], hasMore: boolean }> {
+export type GetOrdersForDosificadorOptions = {
+  /** When set (e.g. from PlantContext), restricts orders to this plant. Required for global roles that would otherwise see all plants. */
+  plantFilterId?: string | null;
+  /** Only orders with at least one CONCRETO remisión for the same plant (uses remisiones.plant_id when a plant scope applies). */
+  requireConcreteRemisiones?: boolean;
+};
+
+export async function getOrdersForDosificador(
+  limit: number = 100,
+  offset: number = 0,
+  options?: GetOrdersForDosificadorOptions
+): Promise<{ data: OrderWithClient[], hasMore: boolean }> {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
+    const plantFilterId = options?.plantFilterId;
+    const requireConcreteRemisiones = options?.requireConcreteRemisiones === true;
+
     // First, get the current user's profile to check their plant assignment
     const { data: profile, error: profileError } = await browserClient
       .from('user_profiles')
@@ -343,9 +357,7 @@ export async function getOrdersForDosificador(limit: number = 100, offset: numbe
 
     if (profileError) throw profileError;
 
-    let query = browserClient
-      .from('orders')
-      .select(`
+    const orderFields = `
         id,
         order_number,
         created_by,
@@ -383,8 +395,15 @@ export async function getOrdersForDosificador(limit: number = 100, offset: numbe
           empty_truck_volume,
           unit_price,
           pump_price
-        )
-      `)
+        )`;
+
+    const selectClause = requireConcreteRemisiones
+      ? `${orderFields}, remisiones!inner(id, plant_id, tipo_remision)`
+      : orderFields;
+
+    let query = browserClient
+      .from('orders')
+      .select(selectClause)
       // Add any specific filters for Dosificador if needed, e.g., status
       .in('order_status', [
         // Lowercase (current standard)
@@ -393,9 +412,20 @@ export async function getOrdersForDosificador(limit: number = 100, offset: numbe
         'CREATED', 'VALIDATED', 'SCHEDULED'
       ]);
 
-    // Filter by the user's assigned plant if they have one
-    if (profile?.plant_id) {
+    if (plantFilterId) {
+      query = query.eq('plant_id', plantFilterId);
+    } else if (profile?.plant_id) {
       query = query.eq('plant_id', profile.plant_id);
+    }
+
+    const effectivePlantForRemision =
+      plantFilterId || profile?.plant_id || null;
+
+    if (requireConcreteRemisiones) {
+      query = query.eq('remisiones.tipo_remision', 'CONCRETO');
+      if (effectivePlantForRemision) {
+        query = query.eq('remisiones.plant_id', effectivePlantForRemision);
+      }
     }
 
     // Apply pagination using range
@@ -405,15 +435,24 @@ export async function getOrdersForDosificador(limit: number = 100, offset: numbe
       .range(offset, offset + limit - 1);
 
     const { data, error } = await query;
-    
+
     if (error) throw error;
-    
-    // Determine if there are more orders available
-    // If we got exactly 'limit' items, there might be more
+
+    let rows = (data || []) as unknown as OrderWithClient[];
+
+    if (requireConcreteRemisiones && rows.length > 0) {
+      const seen = new Map<string, OrderWithClient>();
+      for (const row of rows) {
+        if (!seen.has(row.id)) seen.set(row.id, row);
+      }
+      rows = Array.from(seen.values());
+    }
+
+    // If we got exactly 'limit' items, there might be more (join duplicates can make unique count lower)
     const hasMore = (data?.length || 0) === limit;
-    
+
     return {
-      data: (data || []) as unknown as OrderWithClient[],
+      data: rows,
       hasMore
     };
   } catch (err) {

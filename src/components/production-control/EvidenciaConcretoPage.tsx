@@ -36,7 +36,7 @@ type ConcreteRemRow = {
 };
 
 export default function EvidenciaConcretoPage() {
-  const { currentPlant } = usePlantContext();
+  const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const [orders, setOrders] = useState<OrderWithClient[]>([]);
   const [evidenceOrderIds, setEvidenceOrderIds] = useState<Set<string>>(new Set());
   const [loadingOrders, setLoadingOrders] = useState(true);
@@ -47,11 +47,25 @@ export default function EvidenciaConcretoPage() {
   const [checklist, setChecklist] = useState<ConcreteRemRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
+  /** Avoid PlantContext SSR vs client mismatch on the subtitle (hydration). */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const loadOrders = useCallback(async () => {
+    if (!currentPlant?.id) {
+      setOrders([]);
+      setEvidenceOrderIds(new Set());
+      setLoadingOrders(false);
+      return;
+    }
     setLoadingOrders(true);
     try {
-      const { data } = await getOrdersForDosificador(500, 0);
+      const { data } = await getOrdersForDosificador(500, 0, {
+        plantFilterId: currentPlant.id,
+        requireConcreteRemisiones: true,
+      });
       const list = data || [];
       setOrders(list);
       const ids = list.map((o) => o.id);
@@ -71,11 +85,18 @@ export default function EvidenciaConcretoPage() {
     } finally {
       setLoadingOrders(false);
     }
-  }, []);
+  }, [currentPlant?.id]);
 
   useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+    if (plantLoading) return;
+    void loadOrders();
+  }, [loadOrders, plantLoading, currentPlant?.id]);
+
+  useEffect(() => {
+    setSelectedOrderId(null);
+    setEvidence(null);
+    setChecklist([]);
+  }, [currentPlant?.id]);
 
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -155,7 +176,10 @@ export default function EvidenciaConcretoPage() {
       <div>
         <h1 className="text-2xl font-semibold text-stone-900">Evidencia de remisiones (concreto)</h1>
         <p className="text-sm text-stone-600 mt-1">
-          Un solo archivo por pedido (PDF recomendado) con las remisiones en el orden indicado. {currentPlant?.name}
+          Un solo archivo por pedido (PDF recomendado) con las remisiones en el orden indicado.
+          {mounted && currentPlant?.name ? (
+            <span className="block mt-1 font-medium text-stone-800">Planta: {currentPlant.name}</span>
+          ) : null}
         </p>
       </div>
 
@@ -186,12 +210,20 @@ export default function EvidenciaConcretoPage() {
             </div>
           </CardHeader>
           <CardContent className="max-h-[420px] overflow-y-auto space-y-1 pr-1">
-            {loadingOrders ? (
+            {plantLoading || loadingOrders ? (
               <div className="flex items-center gap-2 text-stone-500 text-sm py-8 justify-center">
                 <Loader2 className="h-5 w-5 animate-spin" /> Cargando…
               </div>
+            ) : !currentPlant?.id ? (
+              <p className="text-sm text-stone-500 py-6 text-center">
+                No hay planta seleccionada. Use el selector de planta en la barra superior.
+              </p>
             ) : filteredOrders.length === 0 ? (
-              <p className="text-sm text-stone-500 py-6 text-center">No hay pedidos que coincidan.</p>
+              <p className="text-sm text-stone-500 py-6 text-center">
+                {search.trim()
+                  ? 'No hay pedidos que coincidan con la búsqueda.'
+                  : 'No hay pedidos abiertos con remisiones de concreto en esta planta.'}
+              </p>
             ) : (
               filteredOrders.map((o) => {
                 const hasEv = evidenceOrderIds.has(o.id);

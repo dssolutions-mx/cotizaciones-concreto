@@ -11,7 +11,7 @@ import {
   BreadcrumbLink,
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb'
-import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus } from 'lucide-react'
+import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText } from 'lucide-react'
 
 interface BreadcrumbItem {
   label: string
@@ -46,6 +46,10 @@ const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
   '/production-control/arkik-upload': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Procesador Arkik', href: '/production-control/arkik-upload', icon: FileUp }
+  ],
+  '/production-control/evidencia-concreto': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Evidencia de remisiones (concreto)', href: '/production-control/evidencia-concreto', icon: FileText }
   ],
   '/production-control/cross-plant': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
