@@ -5,6 +5,32 @@ import { sortConcreteRemisionesForAccounting } from '@/lib/remisiones/sortConcre
 const MAX_BYTES = 50 * 1024 * 1024;
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'application/pdf']);
 
+function normalizeMimeType(mime: string, fileName: string): string {
+  const m = (mime || '').trim().toLowerCase();
+  if (ALLOWED.has(m)) return m;
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  if (ext === 'pdf') return 'application/pdf';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'png') return 'image/png';
+  return mime || 'application/octet-stream';
+}
+
+/** Browsers often send PDF as empty type or octet-stream; accept by extension. */
+function isAllowedFile(mime: string, fileName: string): boolean {
+  const m = (mime || '').trim().toLowerCase();
+  if (ALLOWED.has(m)) return true;
+  if (m === 'application/octet-stream' || m === '') {
+    const ext = (fileName.split('.').pop() || '').toLowerCase();
+    return ext === 'pdf' || ext === 'png' || ext === 'jpg' || ext === 'jpeg';
+  }
+  return false;
+}
+
+function expectedStoragePrefix(plantId: string | null, orderId: string): string {
+  if (!plantId) return '';
+  return `${plantId}/order_concrete_evidence/${orderId}/`;
+}
+
 function canUploadEvidence(profile: { role: string; plant_id: string | null }, orderPlantId: string) {
   if (['EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile.role) && profile.plant_id == null) return true;
   if (['DOSIFICADOR', 'PLANT_MANAGER'].includes(profile.role) && profile.plant_id === orderPlantId) return true;
@@ -112,13 +138,116 @@ export async function POST(
       return NextResponse.json({ error: 'No tiene permiso para subir evidencia en este pedido' }, { status: 403 });
     }
 
+    const { data: existing } = await supabase
+      .from('order_concrete_evidence')
+      .select('id, file_path')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    const contentType = request.headers.get('content-type') || '';
+
+    // Client uploaded to Supabase Storage first (avoids Vercel ~4.5MB request body limit); we only persist metadata.
+    if (contentType.includes('application/json')) {
+      let body: { file_path?: string; original_name?: string; file_size?: number; mime_type?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 });
+      }
+
+      const filePath = typeof body.file_path === 'string' ? body.file_path.trim() : '';
+      const originalName = typeof body.original_name === 'string' ? body.original_name.trim() : '';
+      const fileSize = typeof body.file_size === 'number' ? body.file_size : Number.NaN;
+      const mimeRaw = typeof body.mime_type === 'string' ? body.mime_type : '';
+
+      if (!filePath || !originalName || !Number.isFinite(fileSize) || fileSize < 1) {
+        return NextResponse.json({ error: 'Datos de archivo incompletos' }, { status: 400 });
+      }
+
+      if (fileSize > MAX_BYTES) {
+        return NextResponse.json(
+          { error: `El archivo excede el máximo de ${MAX_BYTES / (1024 * 1024)} MB` },
+          { status: 400 }
+        );
+      }
+
+      const prefix = expectedStoragePrefix(order.plant_id, orderId);
+      if (!prefix || !filePath.startsWith(prefix)) {
+        return NextResponse.json({ error: 'Ruta de almacenamiento no válida para este pedido' }, { status: 400 });
+      }
+
+      const mimeForDb = normalizeMimeType(mimeRaw, originalName);
+      if (!isAllowedFile(mimeRaw, originalName)) {
+        return NextResponse.json({ error: 'Solo se permiten JPEG, PNG o PDF' }, { status: 400 });
+      }
+
+      const previousPath = existing?.file_path;
+      const nowIso = new Date().toISOString();
+      const row = {
+        file_path: filePath,
+        original_name: originalName,
+        file_size: fileSize,
+        mime_type: mimeForDb,
+        updated_at: nowIso,
+      };
+
+      let saved;
+      if (existing?.id) {
+        const { data, error: upErr } = await supabase
+          .from('order_concrete_evidence')
+          .update({
+            file_path: row.file_path,
+            original_name: row.original_name,
+            file_size: row.file_size,
+            mime_type: row.mime_type,
+            uploaded_by: user.id,
+            updated_at: row.updated_at,
+          })
+          .eq('id', existing.id)
+          .select()
+          .single();
+        if (upErr) {
+          await supabase.storage.from('remision-documents').remove([filePath]);
+          console.error('concrete-evidence update:', upErr);
+          return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
+        }
+        saved = data;
+      } else {
+        const { data, error: insErr } = await supabase
+          .from('order_concrete_evidence')
+          .insert({
+            order_id: orderId,
+            plant_id: order.plant_id,
+            file_path: row.file_path,
+            original_name: row.original_name,
+            file_size: row.file_size,
+            mime_type: row.mime_type,
+            uploaded_by: user.id,
+          })
+          .select()
+          .single();
+        if (insErr) {
+          await supabase.storage.from('remision-documents').remove([filePath]);
+          console.error('concrete-evidence insert:', insErr);
+          return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
+        }
+        saved = data;
+      }
+
+      if (previousPath && previousPath !== filePath) {
+        await supabase.storage.from('remision-documents').remove([previousPath]);
+      }
+
+      return NextResponse.json({ success: true, data: saved });
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 });
     }
 
-    if (!ALLOWED.has(file.type)) {
+    if (!isAllowedFile(file.type, file.name)) {
       return NextResponse.json(
         { error: 'Solo se permiten JPEG, PNG o PDF' },
         { status: 400 }
@@ -131,12 +260,6 @@ export async function POST(
         { status: 400 }
       );
     }
-
-    const { data: existing } = await supabase
-      .from('order_concrete_evidence')
-      .select('id, file_path')
-      .eq('order_id', orderId)
-      .maybeSingle();
 
     const plantPath = order.plant_id;
     const ext = file.name.split('.').pop() || 'pdf';
@@ -153,27 +276,27 @@ export async function POST(
       return NextResponse.json({ error: 'Error al subir el archivo' }, { status: 502 });
     }
 
-    const previousPath = existing?.file_path;
-    const nowIso = new Date().toISOString();
-    const row = {
+    const previousPathMultipart = existing?.file_path;
+    const nowIsoMultipart = new Date().toISOString();
+    const rowMultipart = {
       file_path: fileName,
       original_name: file.name,
       file_size: file.size,
-      mime_type: file.type,
-      updated_at: nowIso,
+      mime_type: normalizeMimeType(file.type, file.name),
+      updated_at: nowIsoMultipart,
     };
 
-    let saved;
+    let savedMultipart;
     if (existing?.id) {
       const { data, error: upErr } = await supabase
         .from('order_concrete_evidence')
         .update({
-          file_path: row.file_path,
-          original_name: row.original_name,
-          file_size: row.file_size,
-          mime_type: row.mime_type,
+          file_path: rowMultipart.file_path,
+          original_name: rowMultipart.original_name,
+          file_size: rowMultipart.file_size,
+          mime_type: rowMultipart.mime_type,
           uploaded_by: user.id,
-          updated_at: row.updated_at,
+          updated_at: rowMultipart.updated_at,
         })
         .eq('id', existing.id)
         .select()
@@ -183,17 +306,17 @@ export async function POST(
         console.error('concrete-evidence update:', upErr);
         return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
       }
-      saved = data;
+      savedMultipart = data;
     } else {
       const { data, error: insErr } = await supabase
         .from('order_concrete_evidence')
         .insert({
           order_id: orderId,
           plant_id: order.plant_id,
-          file_path: row.file_path,
-          original_name: row.original_name,
-          file_size: row.file_size,
-          mime_type: row.mime_type,
+          file_path: rowMultipart.file_path,
+          original_name: rowMultipart.original_name,
+          file_size: rowMultipart.file_size,
+          mime_type: rowMultipart.mime_type,
           uploaded_by: user.id,
         })
         .select()
@@ -203,14 +326,14 @@ export async function POST(
         console.error('concrete-evidence insert:', insErr);
         return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
       }
-      saved = data;
+      savedMultipart = data;
     }
 
-    if (previousPath && previousPath !== fileName) {
-      await supabase.storage.from('remision-documents').remove([previousPath]);
+    if (previousPathMultipart && previousPathMultipart !== fileName) {
+      await supabase.storage.from('remision-documents').remove([previousPathMultipart]);
     }
 
-    return NextResponse.json({ success: true, data: saved });
+    return NextResponse.json({ success: true, data: savedMultipart });
   } catch (e) {
     console.error('concrete-evidence POST:', e);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

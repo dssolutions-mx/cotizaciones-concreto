@@ -13,8 +13,14 @@ import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { getOrdersForDosificador } from '@/lib/supabase/orders';
 import { supabase } from '@/lib/supabase/client';
+import { parseJsonResponse } from '@/lib/http/safeJsonResponse';
 import { toast } from 'sonner';
 import type { OrderWithClient } from '@/types/orders';
+
+/** Must match API route; files go to Supabase from the browser to avoid Vercel body limits. */
+const MAX_EVIDENCE_BYTES = 50 * 1024 * 1024;
+/** Multipart fallback only safe under typical serverless limits (~4.5 MB on Vercel). */
+const MULTIPART_FALLBACK_MAX_BYTES = 4 * 1024 * 1024;
 
 type EvidenceRow = {
   id: string;
@@ -116,13 +122,16 @@ export default function EvidenciaConcretoPage() {
     setChecklist([]);
     try {
       const res = await fetch(`/api/orders/${orderId}/concrete-evidence`);
-      const json = await res.json();
+      const json = await parseJsonResponse<{
+        data?: { evidence: EvidenceRow | null; concrete_remisiones_ordered: ConcreteRemRow[] };
+        error?: string;
+      }>(res);
       if (!res.ok) throw new Error(json.error || 'Error');
       setEvidence(json.data?.evidence || null);
       setChecklist(json.data?.concrete_remisiones_ordered || []);
     } catch (e) {
       console.error(e);
-      toast.error('No se pudo cargar el detalle del pedido');
+      toast.error(e instanceof Error ? e.message : 'No se pudo cargar el detalle del pedido');
     } finally {
       setDetailLoading(false);
     }
@@ -130,16 +139,88 @@ export default function EvidenciaConcretoPage() {
 
   const onFile = async (file: File | null) => {
     if (!file || !selectedOrderId) return;
+    const order = orders.find((o) => o.id === selectedOrderId);
+    if (!order?.plant_id) {
+      toast.error('No se encontró la planta del pedido. Vuelva a cargar la lista.');
+      return;
+    }
+    if (file.size > MAX_EVIDENCE_BYTES) {
+      toast.error(`El archivo supera el máximo de ${MAX_EVIDENCE_BYTES / (1024 * 1024)} MB`);
+      return;
+    }
+
+    const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
+    const okExt = ['pdf', 'png', 'jpg', 'jpeg'].includes(ext);
+    if (!okExt) {
+      toast.error('Solo se permiten PDF, JPEG o PNG.');
+      return;
+    }
+
+    let mime = file.type.trim();
+    if (!mime || mime === 'application/octet-stream') {
+      if (ext === 'pdf') mime = 'application/pdf';
+      else if (ext === 'png') mime = 'image/png';
+      else mime = 'image/jpeg';
+    }
+
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
+      const timestamp = Date.now();
+      const randomString = Math.random().toString(36).substring(2, 15);
+      const storagePath = `${order.plant_id}/order_concrete_evidence/${selectedOrderId}/${timestamp}_${randomString}.${ext}`;
+
+      const { error: storageError } = await supabase.storage
+        .from('remision-documents')
+        .upload(storagePath, file, { cacheControl: '3600', upsert: false });
+
+      if (storageError) {
+        if (file.size <= MULTIPART_FALLBACK_MAX_BYTES) {
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await fetch(`/api/orders/${selectedOrderId}/concrete-evidence`, {
+            method: 'POST',
+            body: fd,
+          });
+          const json = await parseJsonResponse<{ data?: EvidenceRow; error?: string }>(res);
+          if (!res.ok) throw new Error(json.error || 'Error al subir');
+          setEvidence(json.data ?? null);
+          setEvidenceOrderIds((prev) => new Set(prev).add(selectedOrderId));
+          toast.success('Evidencia guardada');
+          setFileInputKey((k) => k + 1);
+          return;
+        }
+        throw new Error(
+          storageError.message ||
+            'No se pudo subir el archivo. Verifique permisos o comprima el PDF.'
+        );
+      }
+
       const res = await fetch(`/api/orders/${selectedOrderId}/concrete-evidence`, {
         method: 'POST',
-        body: fd,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_path: storagePath,
+          original_name: file.name,
+          file_size: file.size,
+          mime_type: mime,
+        }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Error al subir');
+      let json: { data?: EvidenceRow; error?: string };
+      try {
+        json = await parseJsonResponse<{ data?: EvidenceRow; error?: string }>(res);
+      } catch (err) {
+        await supabase.storage.from('remision-documents').remove([storagePath]).catch(() => {});
+        throw err;
+      }
+      if (!res.ok) {
+        await supabase.storage.from('remision-documents').remove([storagePath]).catch(() => {});
+        throw new Error(json.error || 'Error al guardar la evidencia');
+      }
+      if (!json.data) {
+        await supabase.storage.from('remision-documents').remove([storagePath]).catch(() => {});
+        throw new Error('No se recibió el registro de evidencia');
+      }
+
       setEvidence(json.data);
       setEvidenceOrderIds((prev) => new Set(prev).add(selectedOrderId));
       toast.success('Evidencia guardada');
@@ -156,7 +237,7 @@ export default function EvidenciaConcretoPage() {
     if (!confirm('¿Eliminar la evidencia de este pedido?')) return;
     try {
       const res = await fetch(`/api/orders/${selectedOrderId}/concrete-evidence`, { method: 'DELETE' });
-      const json = await res.json();
+      const json = await parseJsonResponse<{ error?: string }>(res);
       if (!res.ok) throw new Error(json.error || 'Error');
       setEvidence(null);
       setEvidenceOrderIds((prev) => {
