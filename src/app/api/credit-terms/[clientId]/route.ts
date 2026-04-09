@@ -219,7 +219,7 @@ export async function DELETE(
         .select('created_by, status')
         .eq('client_id', clientId)
         .eq('status', 'active')
-        .single();
+        .maybeSingle();
 
       if (existingTerms && existingTerms.created_by !== user.id) {
         return NextResponse.json(

@@ -116,17 +116,13 @@ export async function getClientCreditTerms(
       .select('*')
       .eq('client_id', clientId)
       .eq('status', 'active')
-      .single();
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows returned - client has no active credit terms yet
-        return null;
-      }
-      throw error;
-    }
+    if (error) throw error;
 
-    return data as ClientCreditTerms;
+    return (data as ClientCreditTerms) ?? null;
   } catch (error) {
     console.error('Error fetching client credit terms:', error);
     handleError(error, 'Failed to fetch client credit terms');
@@ -327,12 +323,16 @@ export async function approveCreditTerms(
     }
 
     // Deactivate any existing active terms for this client
-    const { data: activeTerms } = await client
+    const { data: activeTerms, error: activeTermsError } = await client
       .from('client_credit_terms')
       .select('id')
       .eq('client_id', existingTerms.client_id)
       .eq('status', 'active')
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (activeTermsError) throw activeTermsError;
 
     if (activeTerms) {
       await client

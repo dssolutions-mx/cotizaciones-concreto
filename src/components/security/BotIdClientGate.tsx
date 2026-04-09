@@ -1,11 +1,6 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-
-const BotIdClient = dynamic(
-  () => import('botid/client').then((mod) => mod.BotIdClient),
-  { ssr: false }
-);
+import { useEffect } from 'react';
 
 type ProtectRoute = {
   path: string;
@@ -13,7 +8,23 @@ type ProtectRoute = {
   advancedOptions?: { checkLevel?: 'deepAnalysis' | 'basic' };
 };
 
-/** BotID renders a script tag; load client-only and after body so React 19 / SSR stay happy. */
+/** One init per page load; survives React Strict Mode double-mount. */
+let botIdInitStarted = false;
+
+/** Use `initBotId` instead of `BotIdClient` so React 19 does not warn about script tags in the tree. */
 export function BotIdClientGate({ protect }: { protect: ProtectRoute[] }) {
-  return <BotIdClient protect={protect} />;
+  useEffect(() => {
+    if (botIdInitStarted) return;
+    botIdInitStarted = true;
+    void import('botid/client/core')
+      .then(({ initBotId }) => {
+        initBotId({ protect });
+      })
+      .catch((err) => {
+        console.error('BotID init failed:', err);
+        botIdInitStarted = false;
+      });
+  }, [protect]);
+
+  return null;
 }

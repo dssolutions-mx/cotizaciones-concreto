@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
         .select('id', { count: 'exact', head: true })
         .eq('plant_id', plantId)
         .lte('fecha_programada_ensayo', today)
-        .is('fecha_ensayo_real', null),
+        .eq('estado', 'PENDIENTE'),
 
       // OPERACIONES: recent ensayos (last 7 days)
       supabase
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('alta_estudio')
         .select('tipo_estudio')
-        .eq('plant_id', plantId),
+        .eq('id_planta', plantId),
 
       // EQUIPOS: suppliers count
       supabase
@@ -86,8 +86,8 @@ export async function GET(request: NextRequest) {
       supabase
         .from('alta_estudio')
         .select('id', { count: 'exact', head: true })
-        .eq('plant_id', plantId)
-        .eq('tipo_estudio', 'CARACTERIZACION'),
+        .eq('id_planta', plantId)
+        .contains('tipo_estudio', ['CARACTERIZACION']),
 
       // VALIDACIONES: materials count
       supabase
@@ -115,11 +115,13 @@ export async function GET(request: NextRequest) {
         .limit(10),
     ])
 
-    // Process estudios by type
+    // Process estudios by type (tipo_estudio is text[] in DB)
     const estudios = estudiosCount.data || []
-    const certificadosCount = estudios.filter((e) => e.tipo_estudio === 'CERTIFICADO').length
-    const fichasTecnicasCount = estudios.filter((e) => e.tipo_estudio === 'FICHA_TECNICA').length
-    const hojasSeguridad = estudios.filter((e) => e.tipo_estudio === 'HOJA_SEGURIDAD').length
+    const rowHasTipo = (e: { tipo_estudio: unknown }, tipo: string) =>
+      Array.isArray(e.tipo_estudio) && e.tipo_estudio.includes(tipo)
+    const certificadosCount = estudios.filter((e) => rowHasTipo(e, 'CERTIFICADO')).length
+    const fichasTecnicasCount = estudios.filter((e) => rowHasTipo(e, 'FICHA_TECNICA')).length
+    const hojasSeguridad = estudios.filter((e) => rowHasTipo(e, 'HOJA_SEGURIDAD')).length
 
     return NextResponse.json({
       success: true,
