@@ -2,10 +2,13 @@
 
 import React from 'react'
 import { MaterialEntry } from '@/types/inventory'
-import { format } from 'date-fns'
 import { Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatReceivedQuantity } from '@/lib/inventory/entryReceivedDisplay'
+import {
+  formatReceivedQuantity,
+  formatReceptionAssignedDay,
+  formatEntrySavedShortFor,
+} from '@/lib/inventory/entryReceivedDisplay'
 
 interface EntryPricingReviewListProps {
   entries: MaterialEntry[]
@@ -59,13 +62,16 @@ export default function EntryPricingReviewList({
         const isSelected = selectedId === entry.id
         const hasNoPo = !entry.po_id && !entry.fleet_po_id
         const hasNoEvidence = (entry.document_count ?? 0) === 0
-        let timeLabel = ''
-        try {
-          const dt = new Date(`${entry.entry_date}T${entry.entry_time || '12:00:00'}`)
-          timeLabel = format(dt, 'HH:mm')
-        } catch {
-          timeLabel = ''
-        }
+        const day = formatReceptionAssignedDay(entry, 'dd MMM yyyy')
+        const reg = formatEntrySavedShortFor(entry)
+        const receptionLabel =
+          day === '—' && reg === '—'
+            ? ''
+            : day === '—'
+              ? `Reg. ${reg}`
+              : reg === '—'
+                ? day
+                : `${day} · Reg. ${reg}`
         const qtyLabel = formatReceivedQuantity(entry)
 
         return (
@@ -86,7 +92,12 @@ export default function EntryPricingReviewList({
                 <span className="font-mono font-medium text-stone-800">
                   {entry.entry_number || entry.id.slice(0, 8)}
                 </span>
-                <span className="text-stone-400">{timeLabel}</span>
+                <span
+                  className="text-stone-500 truncate"
+                  title="Día de recepción asignado · hora en que se guardó el registro (no es hora de recepción en planta)"
+                >
+                  {receptionLabel || '—'}
+                </span>
                 <div className="flex items-center gap-1 ml-auto">
                   {hasNoPo && (
                     <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" title="Sin OC" />

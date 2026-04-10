@@ -1,8 +1,7 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { es } from 'date-fns/locale';
+import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Card,
   CardContent,
@@ -10,443 +9,228 @@ import {
   CardTitle,
   CardDescription,
   CardFooter,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { 
-  Loader2, 
-  AlertTriangle, 
-  ChevronLeft, 
-  Save, 
-  FileText, 
-  Calculator, 
-  FileSpreadsheet
-} from 'lucide-react';
-import { Badge } from "@/components/ui/badge";
-import { cn, formatDate, createSafeDate } from '@/lib/utils';
-import { useAuthBridge } from '@/adapters/auth-context-bridge';
-import { z } from 'zod';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { 
-  fetchMuestraById 
-} from '@/services/qualityMuestraService';
-import { 
-  createEnsayo 
-} from '@/services/qualityEnsayoService';
-import type { MuestraWithRelations } from '@/types/quality';
-import { FileUploader } from '@/components/ui/file-uploader';
+} from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Loader2, AlertTriangle, Save, Calculator, FileSpreadsheet, CheckCircle2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { cn, formatDate } from '@/lib/utils'
+import { useAuthBridge } from '@/adapters/auth-context-bridge'
+import { z } from 'zod'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { fetchMuestraById } from '@/services/qualityMuestraService'
+import { createEnsayo } from '@/services/qualityEnsayoService'
+import type { MuestraWithRelations } from '@/types/quality'
+import { FileUploader } from '@/components/ui/file-uploader'
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
-} from '@/components/ui/form';
-import { Switch } from '@/components/ui/switch';
-import { SrFileViewer } from '@/components/quality/SrFileViewer';
-import { extractMaxForce } from '@/utils/sr3Parser';
+} from '@/components/ui/form'
+import { SrFileViewer } from '@/components/quality/SrFileViewer'
+import { extractSr3MaxForceFromFile } from '@/utils/sr3Parser'
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
+import { DatePicker } from '@/components/ui/date-picker'
 
-// Validation schema for the form
 const ensayoFormSchema = z.object({
   muestra_id: z.string().min(1, 'El ID de la muestra es requerido'),
   fecha_ensayo: z.date({
     required_error: 'La fecha del ensayo es requerida',
   }),
   hora_ensayo: z.string().min(1, 'La hora del ensayo es requerida'),
-  carga_kg: z.number({
-    required_error: 'La carga de ruptura es requerida',
-    invalid_type_error: 'La carga debe ser un número válido'
-  })
+  carga_kg: z
+    .number({
+      required_error: 'La carga de ruptura es requerida',
+      invalid_type_error: 'La carga debe ser un número válido',
+    })
     .min(0.01, 'La carga debe ser mayor a 0')
     .max(500000, 'La carga parece demasiado alta'),
-  resistencia_calculada: z.number()
-    .min(0.01, 'La resistencia debe ser mayor a 0'),
-  porcentaje_cumplimiento: z.number()
-    .min(0, 'El porcentaje debe ser un número positivo')
+  resistencia_calculada: z.number().min(0),
+  porcentaje_cumplimiento: z
+    .number()
+    .min(0)
     .max(9999.99, 'El porcentaje no puede exceder 9999.99%'),
-  tiene_evidencias: z.boolean(),
   observaciones: z.string().optional(),
-});
+})
 
-type EnsayoFormValues = z.infer<typeof ensayoFormSchema>;
+type EnsayoFormValues = z.infer<typeof ensayoFormSchema>
+
+const resultCardStyles = {
+  neutral: 'border-stone-200 bg-white text-stone-500',
+  ok: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  warn: 'border-amber-200 bg-amber-50 text-amber-800',
+  bad: 'border-red-200 bg-red-50 text-red-800',
+} as const
+
+function complianceVariant(pct: number, hasCarga: boolean): keyof typeof resultCardStyles {
+  if (!hasCarga) return 'neutral'
+  if (pct >= 100) return 'ok'
+  if (pct >= 80) return 'warn'
+  return 'bad'
+}
+
+function specimenLabel(tipo: string | undefined) {
+  if (tipo === 'CILINDRO') return 'Cilindro'
+  if (tipo === 'VIGA') return 'Viga'
+  if (tipo === 'CUBO') return 'Cubo'
+  return tipo ?? '—'
+}
 
 function NuevoEnsayoContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { profile } = useAuthBridge();
-  const [muestra, setMuestra] = useState<MuestraWithRelations | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Get muestra_id from query
-  const muestraId = searchParams.get('muestra');
-  
-  // Initialize form with default values
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { profile } = useAuthBridge()
+  const cargaInputRef = useRef<HTMLInputElement>(null)
+
+  const [muestra, setMuestra] = useState<MuestraWithRelations | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sr3Parsing, setSr3Parsing] = useState(false)
+
+  const muestraId = searchParams.get('muestra')
+
   const form = useForm<EnsayoFormValues>({
     resolver: zodResolver(ensayoFormSchema),
     defaultValues: {
       muestra_id: muestraId || '',
       fecha_ensayo: new Date(),
-      hora_ensayo: new Date().toTimeString().slice(0, 5), // HH:MM format
-      carga_kg: undefined as any, // Start empty for better UX
-      resistencia_calculada: 0, // Will be calculated automatically
-      porcentaje_cumplimiento: 0, // Will be calculated automatically
-      tiene_evidencias: false,
+      hora_ensayo: new Date().toTimeString().slice(0, 5),
+      carga_kg: undefined as unknown as number,
+      resistencia_calculada: 0,
+      porcentaje_cumplimiento: 0,
       observaciones: '',
     },
-  });
+  })
 
-  // Set muestra_id from query param
+  const watchCarga = form.watch('carga_kg')
+  const watchRes = form.watch('resistencia_calculada')
+  const watchPct = form.watch('porcentaje_cumplimiento')
+  const hasCarga =
+    typeof watchCarga === 'number' && !Number.isNaN(watchCarga) && watchCarga > 0
+
+  const handleCargaChange = useCallback(
+    (value: number) => {
+      form.setValue('carga_kg', value)
+      if (!muestra) return
+
+      let resistencia = 0
+      if (muestra.tipo_muestra === 'CILINDRO') {
+        const diameter =
+          typeof (muestra as { diameter_cm?: number }).diameter_cm === 'number' &&
+          (muestra as { diameter_cm?: number }).diameter_cm! > 0
+            ? (muestra as { diameter_cm: number }).diameter_cm
+            : 15
+        const radius = diameter / 2
+        const area = Math.PI * radius * radius
+        const isMRTest = false
+        resistencia = value / area
+        if (isMRTest) resistencia = resistencia * 0.13
+      } else if (muestra.tipo_muestra === 'CUBO') {
+        const side =
+          typeof (muestra as { cube_side_cm?: number }).cube_side_cm === 'number' &&
+          (muestra as { cube_side_cm?: number }).cube_side_cm! > 0
+            ? (muestra as { cube_side_cm: number }).cube_side_cm
+            : 15
+        const area = side * side
+        resistencia = value / area
+      } else if (muestra.tipo_muestra === 'VIGA') {
+        resistencia = (45 * value) / 3375
+      }
+
+      form.setValue('resistencia_calculada', parseFloat(resistencia.toFixed(3)))
+
+      const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0
+      let porcentaje = 0
+      if (targetStrength > 0 && resistencia > 0) {
+        porcentaje = parseFloat(((resistencia / targetStrength) * 100).toFixed(2))
+      }
+      form.setValue('porcentaje_cumplimiento', porcentaje, { shouldValidate: true })
+    },
+    [form, muestra]
+  )
+
   useEffect(() => {
     if (muestraId) {
-      form.setValue('muestra_id', muestraId);
-      fetchMuestraDetails(muestraId);
+      form.setValue('muestra_id', muestraId)
+      void fetchMuestraDetails(muestraId)
     } else {
-      setLoading(false);
-      setError('No se especificó una muestra para ensayar');
+      setLoading(false)
+      setError('No se especificó una muestra para ensayar')
     }
-  }, [muestraId, form]);
+  }, [muestraId, form])
 
-  // Fetch muestra details
+  useEffect(() => {
+    if (!loading && muestra && cargaInputRef.current) {
+      cargaInputRef.current.focus()
+    }
+  }, [loading, muestra])
+
   const fetchMuestraDetails = async (id: string) => {
     try {
-      setLoading(true);
-      setError(null);
-      
-      const data = await fetchMuestraById(id);
-      setMuestra(data);
-      
-      // Set fecha_ensayo to fecha_programada_ensayo if available
+      setLoading(true)
+      setError(null)
+      const data = await fetchMuestraById(id)
+      setMuestra(data)
+
       if (data?.fecha_programada_ensayo) {
         try {
-          // Parse the date string and create a local date to avoid timezone issues
-          const dateStr = data.fecha_programada_ensayo;
+          const dateStr = data.fecha_programada_ensayo
           if (dateStr.includes('T')) {
-            // If it's an ISO string with time, extract just the date part
-            const [datePart] = dateStr.split('T');
-            const [year, month, day] = datePart.split('-').map(Number);
-            const programmedDate = new Date(year, month - 1, day);
-            form.setValue('fecha_ensayo', programmedDate);
+            const [datePart] = dateStr.split('T')
+            const [year, month, day] = datePart.split('-').map(Number)
+            form.setValue('fecha_ensayo', new Date(year, month - 1, day))
           } else {
-            // If it's just a date string, parse it directly
-            const [year, month, day] = dateStr.split('-').map(Number);
-            const programmedDate = new Date(year, month - 1, day);
-            form.setValue('fecha_ensayo', programmedDate);
+            const [year, month, day] = dateStr.split('-').map(Number)
+            form.setValue('fecha_ensayo', new Date(year, month - 1, day))
           }
-        } catch (error) {
-          console.error('Error parsing fecha_programada_ensayo:', error);
+        } catch (e) {
+          console.error('Error parsing fecha_programada_ensayo:', e)
         }
       }
-      
     } catch (err) {
-      console.error('Error fetching muestra details:', err);
-      setError('Error al cargar los detalles de la muestra');
+      console.error('Error fetching muestra details:', err)
+      setError('Error al cargar los detalles de la muestra')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  // Calculate resistance when carga_kg changes
-  const handleCargaChange = (value: number) => {
-    // Set carga_kg in the form
-    form.setValue('carga_kg', value);
-    
-    // Calculate resistencia_calculada based on sample type and area
-    if (muestra) {
-      let resistencia = 0;
-      
-      // Calculate resistance based on specimen type and dimensions when available
-      if (muestra.tipo_muestra === 'CILINDRO') {
-        const diameter = typeof (muestra as any).diameter_cm === 'number' && (muestra as any).diameter_cm > 0
-          ? (muestra as any).diameter_cm
-          : 15; // default 15 cm
-        const radius = diameter / 2;
-        const area = Math.PI * radius * radius; // cm²
-        
-        // Default to FC; MR factor via cylinder when applicable (not tracked explicitly yet)
-        const isMRTest = false;
-        resistencia = value / area;
-        if (isMRTest) resistencia = resistencia * 0.13;
-      } else if (muestra.tipo_muestra === 'CUBO') {
-        const side = typeof (muestra as any).cube_side_cm === 'number' && (muestra as any).cube_side_cm > 0
-          ? (muestra as any).cube_side_cm
-          : 15; // default 15 cm
-        const area = side * side; // cm²
-        resistencia = value / area;
-      } else if (muestra.tipo_muestra === 'VIGA') {
-        // Company simplified MR formula
-        resistencia = (45 * value) / 3375;
-      }
-      
-      form.setValue('resistencia_calculada', parseFloat(resistencia.toFixed(3)));
-      
-      // Calculate porcentaje_cumplimiento if we have recipe strength info
-      const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0;
-      let porcentaje = 0;
-      if (targetStrength > 0 && resistencia > 0) {
-        porcentaje = parseFloat(((resistencia / targetStrength) * 100).toFixed(2));
-      }
-      
-      // Always set the value, even if it's 0
-      form.setValue('porcentaje_cumplimiento', porcentaje, { shouldValidate: true });
-    }
-  };
-
-  // Handle file selection
-  const handleFilesSelected = (files: File[]) => {
-    setSelectedFiles(files);
-    form.setValue('tiene_evidencias', files.length > 0);
-    
-    // If we have files and they are .sr3 format
-    if (files.length > 0 && files[0].name.toLowerCase().endsWith('.sr3')) {
-      // Process the first SR3 file and extract data
-      processSr3FileData(files[0]);
-    }
-  };
-
-  // Process SR3 file to extract test data
-  const processSr3FileData = async (file: File) => {
-    try {
-      console.log('Processing SR3 file:', file.name, file.size, 'bytes');
-      
-      // Try multiple encodings to handle different environments
-      const encodings = ['UTF-8', 'ISO-8859-1', 'windows-1252'];
-      let success = false;
-      
-      for (const encoding of encodings) {
-        if (success) break;
-        
-        try {
-          console.log(`Trying encoding: ${encoding}`);
-          
-          // Read file with specific encoding
-          const content = await readFileWithEncoding(file, encoding);
-          
-          // Check if content might be binary
-          const hasBinaryContent = /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(content.substring(0, 1000));
-          console.log(`File appears to be binary: ${hasBinaryContent}`);
-          
-          // Use our utility to extract the maximum force
-          const maxForce = extractMaxForce(content);
-          
-          // Only update if we found a valid force
-          if (maxForce && maxForce > 0) {
-            console.log(`Successfully extracted max force: ${maxForce} kg with encoding: ${encoding}`);
-            
-            // Update form with the extracted maximum force
-            form.setValue('carga_kg', maxForce);
-            
-            // Trigger the carga_kg change handler to calculate resistencia
-            handleCargaChange(maxForce);
-            success = true;
-            
-            // If it's binary, try to extract force data directly from the known positions
-            if (hasBinaryContent) {
-              try {
-                // First try direct binary extraction from known positions
-                let forceLine = null;
-                
-                // Try a range of possible positions where data might be found
-                for (let i = 30; i <= 40; i++) {
-                  const line = extractDataFromBinary(content, i);
-                  if (line && line.includes(';')) {
-                    // Count semicolons to identify data lines
-                    const semicolonCount = (line.match(/;/g) || []).length;
-                    if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
-                      console.log(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
-                      
-                      // The first line with many semicolons is the force data
-                      forceLine = line;
-                      console.log(`Using line ${i} as force data`);
-                      break; // We only need force data for extracting max force
-                    }
-                  }
-                }
-                
-                if (forceLine) {
-                  const forceData = parseSemicolonLine(forceLine);
-                  if (forceData.length > 10) {
-                    const extractedMaxForce = Math.max(...forceData.map(f => Math.abs(f)));
-                    if (extractedMaxForce > 0) {
-                      console.log(`Extracted max force directly from binary data: ${extractedMaxForce} kg`);
-                      form.setValue('carga_kg', extractedMaxForce);
-                      handleCargaChange(extractedMaxForce);
-                      success = true;
-                    }
-                  }
-                }
-              } catch (err) {
-                console.error('Error during final direct binary extraction:', err);
-              }
-            }
-            
-            break;
-          }
-        } catch (err) {
-          console.error(`Error with encoding ${encoding}:`, err);
+  const handleFilesSelected = async (files: File[]) => {
+    setSelectedFiles(files)
+    const first = files[0]
+    if (first?.name.toLowerCase().endsWith('.sr3')) {
+      setSr3Parsing(true)
+      try {
+        const maxKg = await extractSr3MaxForceFromFile(first)
+        if (maxKg > 0) {
+          form.setValue('carga_kg', maxKg)
+          handleCargaChange(maxKg)
         }
+      } finally {
+        setSr3Parsing(false)
       }
-      
-      // If we failed with all text encodings and it looks like binary data,
-      // make one more attempt with ISO-8859-1 which is most permissive with binary
-      if (!success) {
-        console.log('All encoding attempts failed, trying final approach');
-        
-        try {
-          const content = await readFileWithEncoding(file, 'ISO-8859-1');
-          
-          // First try direct binary extraction from known positions
-          try {
-            // Try to find data lines by scanning multiple possible positions
-            let forceLine = null;
-            
-            // Try a range of possible positions where data might be found
-            for (let i = 30; i <= 40; i++) {
-              const line = extractDataFromBinary(content, i);
-              if (line && line.includes(';')) {
-                // Count semicolons to identify data lines
-                const semicolonCount = (line.match(/;/g) || []).length;
-                if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
-                  console.log(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
-                  
-                  // The first line with many semicolons is the force data
-                  forceLine = line;
-                  console.log(`Using line ${i} as force data`);
-                  break; // We only need force data for extracting max force
-                }
-              }
-            }
-            
-            if (forceLine) {
-              const forceData = parseSemicolonLine(forceLine);
-              if (forceData.length > 10) {
-                const extractedMaxForce = Math.max(...forceData.map(f => Math.abs(f)));
-                if (extractedMaxForce > 0) {
-                  console.log(`Extracted max force directly from binary data: ${extractedMaxForce} kg`);
-                  form.setValue('carga_kg', extractedMaxForce);
-                  handleCargaChange(extractedMaxForce);
-                  success = true;
-                }
-              }
-            }
-          } catch (err) {
-            console.error('Error during final direct binary extraction:', err);
-          }
-          
-          // If direct extraction failed, try regex patterns
-          if (!success) {
-            // Look for specific patterns that might indicate a force value
-            const simplePatterns = [
-              /MAX\s*LOAD\s*:\s*([\d\.]+)/i,
-              /LOAD\s*:\s*([\d\.]+)/i,
-              /CARGA\s*:\s*([\d\.]+)/i
-            ];
-            
-            for (const pattern of simplePatterns) {
-              const match = pattern.exec(content);
-              if (match && match[1]) {
-                const value = parseFloat(match[1]);
-                if (value > 0) {
-                  // Assume ton-force by default in binary files where we can't see the unit
-                  const maxForce = value * 1000; // Convert to kg
-                  console.log(`Last resort: found max force: ${maxForce} kg`);
-                  
-                  form.setValue('carga_kg', maxForce);
-                  handleCargaChange(maxForce);
-                  success = true;
-                }
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Final attempt failed:', err);
-        }
-      }
-      
-      if (!success) {
-        console.warn('Failed to extract data from SR3 file');
-      }
-    } catch (error) {
-      console.error('Error processing SR3 file:', error);
-      // Don't show error to user, just log it
     }
-  };
-  
-  // Function to extract data from specific line in binary content
-  const extractDataFromBinary = (content: string, lineNumber: number): string | null => {
-    try {
-      // Split by newlines, preserving binary content
-      const lines = content.split('\n');
-      
-      // Check if we have enough lines
-      if (lines.length >= lineNumber) {
-        return lines[lineNumber - 1]; // Return the specified line (adjust for 0-based index)
-      }
-      
-      return null;
-    } catch (err) {
-      console.error(`Error extracting line ${lineNumber} from binary content:`, err);
-      return null;
-    }
-  };
-  
-  // Parse a semicolon-separated line into numbers
-  const parseSemicolonLine = (line: string): number[] => {
-    try {
-      return line.split(';')
-        .map(part => part.trim())
-        .filter(Boolean)
-        .map(part => parseFloat(part))
-        .filter(val => !isNaN(val));
-    } catch (err) {
-      console.error('Error parsing semicolon-separated line:', err);
-      return [];
-    }
-  };
-  
-  // Helper function to read file with specified encoding
-  const readFileWithEncoding = (file: File, encoding: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          resolve(event.target.result as string);
-        } else {
-          reject(new Error(`No se pudo leer el archivo con codificación ${encoding}`));
-        }
-      };
-      
-      reader.onerror = (error) => {
-        console.error(`Error reading file with encoding ${encoding}:`, error);
-        reject(new Error(`Error al leer el archivo con codificación ${encoding}`));
-      };
-      
-      reader.readAsText(file, encoding);
-    });
-  };
+  }
 
-  // Handle form submission
   const onSubmit = async (data: EnsayoFormValues) => {
     try {
-      setIsSubmitting(true);
-      setSubmitError(null);
-      
+      setIsSubmitting(true)
+      setSubmitError(null)
+
       if (!muestra?.muestreo_id) {
-        setSubmitError('No se pudo obtener la información completa del muestreo.');
-        return;
+        setSubmitError('No se pudo obtener la información completa del muestreo.')
+        return
       }
-      
-      
-      // Remove profile.id since it will be fetched from the session in the service
+
       await createEnsayo({
         muestra_id: data.muestra_id,
         fecha_ensayo: data.fecha_ensayo,
@@ -455,479 +239,407 @@ function NuevoEnsayoContent() {
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
         observaciones: data.observaciones || '',
-        evidencia_fotografica: data.tiene_evidencias ? selectedFiles : []
-      });
-      
-      // Show success message and redirect after a delay
-      setSubmitSuccess(true);
-      
-      setTimeout(() => {
-        // Redirect to muestreo detail page
-        if (muestra?.muestreo?.id) {
-          router.push(`/quality/muestreos/${muestra.muestreo.id}`);
-        } else {
-          router.push('/quality/ensayos');
-        }
-      }, 2000);
-      
-    } catch (error) {
-      console.error('Error creating ensayo:', error);
-      setSubmitError('Ocurrió un error al guardar el ensayo. Por favor, intenta nuevamente.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+        evidencia_fotografica: selectedFiles.length > 0 ? selectedFiles : [],
+      })
 
-  // Verify allowed roles
-  const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE'];
-  const hasAccess = profile && allowedRoles.includes(profile.role);
+      setSubmitSuccess(true)
+      setTimeout(() => {
+        if (muestra?.muestreo?.id) {
+          router.push(`/quality/muestreos/${muestra.muestreo.id}`)
+        } else {
+          router.push('/quality/ensayos')
+        }
+      }, 2000)
+    } catch (e) {
+      console.error('Error creating ensayo:', e)
+      setSubmitError('Ocurrió un error al guardar el ensayo. Por favor, intenta nuevamente.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE']
+  const hasAccess = profile && allowedRoles.includes(profile.role)
+  const targetFc = muestra?.muestreo?.remision?.recipe?.strength_fc
 
   if (!hasAccess) {
     return (
-      <div className="container mx-auto py-16 px-4">
-        <div className="max-w-3xl mx-auto bg-yellow-50 border border-yellow-300 rounded-lg p-8">
+      <div className="py-12 px-4">
+        <div className="max-w-3xl mx-auto rounded-lg border border-amber-200 bg-amber-50/90 p-8">
           <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="h-8 w-8 text-yellow-600" />
-            <h2 className="text-2xl font-semibold text-yellow-800">Acceso Restringido</h2>
+            <AlertTriangle className="h-8 w-8 text-amber-700" />
+            <h2 className="text-xl font-semibold text-amber-900">Acceso restringido</h2>
           </div>
-          
-          <p className="text-lg mb-4 text-yellow-700">
-            No tienes permiso para registrar ensayos de laboratorio.
-          </p>
+          <p className="text-sm text-amber-800">No tienes permiso para registrar ensayos de laboratorio.</p>
         </div>
       </div>
-    );
+    )
   }
 
   if (error) {
     return (
-      <div className="container mx-auto p-4 md:p-6">
-        <div className="mb-6">
-          <Button 
-            variant="outline" 
-            onClick={() => router.push('/quality/ensayos')}
-            className="mb-4"
-            type="button"
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Volver a Ensayos
-          </Button>
-        </div>
-        
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center p-8 text-center">
-            <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Error</h3>
-            <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={() => router.push('/quality/ensayos')} type="button">
-              Volver a Ensayos Pendientes
+      <div className="space-y-5">
+        <QualityBreadcrumb
+          hubName="Operaciones"
+          hubHref="/quality/operaciones"
+          items={[{ label: 'Ensayos', href: '/quality/ensayos' }, { label: 'Nuevo ensayo' }]}
+        />
+        <Card className="border border-stone-200 bg-white shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center p-10 text-center">
+            <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
+            <h3 className="text-lg font-semibold text-stone-900 mb-2">No se puede continuar</h3>
+            <p className="text-sm text-stone-600 mb-6 max-w-md">{error}</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-stone-300 bg-white shadow-none hover:bg-stone-50"
+              onClick={() => router.push('/quality/ensayos')}
+            >
+              Volver a ensayos pendientes
             </Button>
           </CardContent>
         </Card>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
-      <div className="mb-6">
-        <Button 
-          variant="outline" 
-          onClick={() => router.push('/quality/ensayos')}
-          className="mb-4"
-          type="button"
-        >
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Volver a Ensayos
-        </Button>
-        
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Nuevo Ensayo</h1>
-        <p className="text-gray-500">
-          Registra los resultados del ensayo para la muestra seleccionada
-        </p>
+    <div className="space-y-5">
+      <QualityBreadcrumb
+        hubName="Operaciones"
+        hubHref="/quality/operaciones"
+        items={[{ label: 'Ensayos', href: '/quality/ensayos' }, { label: 'Nuevo ensayo' }]}
+      />
+
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
+            Registro de ensayo
+          </h1>
+          <p className="text-sm text-stone-500 mt-0.5">
+            Ingresa la carga de ruptura; la resistencia y el cumplimiento se calculan al instante.
+          </p>
+        </div>
       </div>
-      
+
       {loading ? (
-        <div className="flex items-center justify-center p-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="ml-2 text-gray-600">Cargando detalles de la muestra...</span>
+        <div className="flex items-center justify-center gap-3 rounded-lg border border-stone-200 bg-white p-12 shadow-sm">
+          <Loader2 className="h-8 w-8 animate-spin text-sky-700" />
+          <span className="text-sm text-stone-600">Cargando detalles de la muestra…</span>
         </div>
       ) : muestra ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle>Detalles de la Muestra</CardTitle>
-                <CardDescription>
-                  Información sobre la muestra a ensayar
+            <Card className="border border-stone-200 bg-white shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base text-stone-900">Contexto de la muestra</CardTitle>
+                <CardDescription className="text-stone-500">
+                  Datos de referencia para el ensayo
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">ID de Muestra</h3>
-                    <p className="mt-1">{muestra.identificacion || muestra.id.substring(0, 8)}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Tipo de Muestra</h3>
-                    <Badge variant="outline" className="mt-1">
-                      {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
-                    </Badge>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Remisión</h3>
-                    <p className="mt-1">{muestra.muestreo?.remision?.remision_number || 'N/A'}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Fecha de Muestreo</h3>
-                    <p className="mt-1">
-                      {muestra.muestreo?.fecha_muestreo 
-                        ? formatDate(muestra.muestreo.fecha_muestreo, 'PPP')
-                        : 'N/A'
-                      }
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Fecha Programada</h3>
-                    <p className="mt-1">
-                      {muestra.fecha_programada_ensayo 
-                        ? formatDate(muestra.fecha_programada_ensayo, 'PPP')
-                        : 'N/A'
-                      }
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Diseño</h3>
-                    <p className="mt-1">
-                      {muestra.muestreo?.remision?.recipe?.recipe_code || 'N/A'}
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">f'c Objetivo</h3>
-                    <p className="mt-1 font-semibold">
-                      {muestra.muestreo?.remision?.recipe?.strength_fc || 'N/A'} kg/cm²
-                    </p>
-                  </div>
-
-                  {muestra.muestreo?.remision && (
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500">Tiempo desde Carga</h3>
-                      <p className="mt-1 text-sm">
-                        {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800">
-                            Carga: {formatDate(muestra.muestreo.remision.fecha, 'PPP')} {muestra.muestreo.remision.hora_carga}
-                          </span>
-                        ) : (
-                          'Información no disponible'
-                        )}
-                      </p>
-                    </div>
-                  )}
+              <CardContent className="space-y-3.5">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Identificación</p>
+                  <p className="text-sm font-medium text-stone-900 mt-0.5">
+                    {muestra.identificacion || muestra.id.substring(0, 8)}
+                  </p>
                 </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Tipo</p>
+                  <Badge variant="outline" className="mt-1 border-stone-300 text-stone-800">
+                    {specimenLabel(muestra.tipo_muestra)}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Remisión</p>
+                  <p className="text-sm font-medium text-stone-900 mt-0.5 font-mono tabular-nums">
+                    {muestra.muestreo?.remision?.remision_number || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Muestreo</p>
+                  <p className="text-sm text-stone-800 mt-0.5">
+                    {muestra.muestreo?.fecha_muestreo
+                      ? formatDate(muestra.muestreo.fecha_muestreo, 'PPP')
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Fecha programada ensayo</p>
+                  <p className="text-sm text-stone-800 mt-0.5">
+                    {muestra.fecha_programada_ensayo
+                      ? formatDate(muestra.fecha_programada_ensayo, 'PPP')
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">Diseño</p>
+                  <p className="text-sm font-medium text-stone-900 mt-0.5">
+                    {muestra.muestreo?.remision?.recipe?.recipe_code || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-stone-500">f&apos;c objetivo</p>
+                  <p className="text-lg font-semibold font-mono tabular-nums text-stone-900 mt-0.5">
+                    {muestra.muestreo?.remision?.recipe?.strength_fc != null
+                      ? `${muestra.muestreo.remision.recipe.strength_fc} kg/cm²`
+                      : '—'}
+                  </p>
+                </div>
+                {muestra.muestreo?.remision && (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-stone-500">Carga (remisión)</p>
+                    <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                      {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
+                        <>
+                          {formatDate(muestra.muestreo.remision.fecha, 'PPP')}{' '}
+                          <span className="font-mono tabular-nums">
+                            {muestra.muestreo.remision.hora_carga}
+                          </span>
+                        </>
+                      ) : (
+                        'No disponible'
+                      )}
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
-          
+
           <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calculator className="h-5 w-5 text-primary" />
-                  Registro de Ensayo
+            <Card className="border border-stone-200 bg-white shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-lg text-stone-900">
+                  <Calculator className="h-5 w-5 text-stone-600" />
+                  Resultados del laboratorio
                 </CardTitle>
-                <CardDescription>
-                  Ingresa los datos obtenidos del ensayo de laboratorio
+                <CardDescription className="text-stone-500">
+                  Fecha y hora del ensayo, carga máxima y evidencia .sr3 opcional
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {submitSuccess ? (
-                  <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-md">
-                    <div className="flex items-center">
-                      <div className="mr-3 bg-green-100 p-2 rounded-full">
-                        <svg className="h-5 w-5 text-green-600" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 p-5 text-emerald-900">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-full bg-emerald-100 p-2">
+                        <CheckCircle2 className="h-5 w-5 text-emerald-700" />
                       </div>
                       <div>
-                        <p className="font-medium">Ensayo guardado correctamente</p>
-                        <p className="text-sm">Redirigiendo...</p>
+                        <p className="font-semibold">Ensayo guardado correctamente</p>
+                        <p className="text-sm text-emerald-800 mt-0.5">Redirigiendo al muestreo…</p>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <Form {...form}>
-                    <form 
-                      onSubmit={form.handleSubmit(onSubmit)} 
-                      className="space-y-6"
-                      onClick={(e) => {
-                        // Prevent clicks on the form from submitting it unless they're on the submit button
-                        if ((e.target as HTMLElement).tagName !== 'BUTTON' || 
-                            !(e.target as HTMLButtonElement).type || 
-                            (e.target as HTMLButtonElement).type !== 'submit') {
-                          e.stopPropagation();
-                        }
-                      }}
-                    >
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <FormField
                           control={form.control}
                           name="fecha_ensayo"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Fecha del Ensayo</FormLabel>
+                              <FormLabel className="text-stone-700">Fecha del ensayo</FormLabel>
                               <FormControl>
-                                <Input
-                                  type="date"
-                                  {...field}
-                                  value={field.value instanceof Date && !isNaN(field.value.getTime())
-                                    ? field.value.toISOString().split('T')[0]
-                                    : ''}
-                                  onChange={(e) => {
-                                    try {
-                                      // Parse the date as local date (YYYY-MM-DD format)
-                                      const dateStr = e.target.value;
-                                      if (dateStr) {
-                                        // Create date at midnight local time to avoid timezone shifts
-                                        const [year, month, day] = dateStr.split('-').map(Number);
-                                        const date = new Date(year, month - 1, day);
-                                        field.onChange(date);
-                                      } else {
-                                        field.onChange(undefined);
-                                      }
-                                    } catch (error) {
-                                      console.error("Error parsing date:", error);
-                                      field.onChange(undefined);
-                                    }
-                                  }}
+                                <DatePicker
+                                  date={field.value}
+                                  setDate={(d) => field.onChange(d ?? new Date())}
+                                  className="h-9 w-full justify-start border-stone-300 bg-white font-normal text-stone-900 shadow-none hover:bg-stone-50"
                                 />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-
                         <FormField
                           control={form.control}
                           name="hora_ensayo"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Hora del Ensayo</FormLabel>
+                              <FormLabel className="text-stone-700">Hora del ensayo</FormLabel>
                               <FormControl>
                                 <Input
                                   type="time"
+                                  className="h-9 border-stone-300 bg-white shadow-none font-mono tabular-nums"
                                   {...field}
                                   value={field.value || ''}
-                                  onChange={(e) => {
-                                    field.onChange(e.target.value);
-                                  }}
+                                  onChange={(e) => field.onChange(e.target.value)}
                                 />
                               </FormControl>
-                              <FormDescription>
-                                Hora en que se completó el ensayo
-                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
-                        
-                        <FormField
-                          control={form.control}
-                          name="carga_kg"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Carga de Ruptura (kg)</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="number" 
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="carga_kg"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-base font-semibold text-stone-900">
+                              Carga de ruptura
+                            </FormLabel>
+                            <FormControl>
+                              <div className="flex items-stretch gap-2 rounded-lg border border-stone-300 bg-white shadow-sm focus-within:ring-2 focus-within:ring-stone-400/40">
+                                <Input
+                                  ref={(el) => {
+                                    field.ref(el)
+                                    cargaInputRef.current = el
+                                  }}
+                                  type="number"
+                                  inputMode="decimal"
                                   step="0.01"
                                   min="0.01"
-                                  placeholder="Ingrese la carga de ruptura"
-                                  value={field.value || ''}
+                                  placeholder="Ej. 45230.5"
+                                  autoComplete="off"
+                                  className="h-12 flex-1 border-0 text-lg font-mono tabular-nums text-stone-900 shadow-none focus-visible:ring-0"
+                                  value={field.value === undefined || field.value === null ? '' : field.value}
                                   onChange={(e) => {
-                                    const value = e.target.value;
-                                    if (value === '') {
-                                      field.onChange(undefined);
-                                    } else {
-                                      const numValue = parseFloat(value);
-                                      if (!isNaN(numValue)) {
-                                        field.onChange(numValue);
-                                        handleCargaChange(numValue);
-                                      }
+                                    const v = e.target.value
+                                    if (v === '') {
+                                      field.onChange(undefined as unknown as number)
+                                      form.setValue('resistencia_calculada', 0)
+                                      form.setValue('porcentaje_cumplimiento', 0)
+                                      return
+                                    }
+                                    const num = parseFloat(v)
+                                    if (!Number.isNaN(num)) {
+                                      field.onChange(num)
+                                      handleCargaChange(num)
                                     }
                                   }}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                Carga máxima alcanzada durante el ensayo
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="resistencia_calculada"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Resistencia (kg/cm²)</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="number" 
-                                  step="0.01"
-                                  min="0.01"
-                                  {...field}
-                                  value={field.value}
-                                  readOnly 
-                                  className="bg-gray-50"
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                Calculada automáticamente por el sistema al guardar
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="porcentaje_cumplimiento"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                % de Cumplimiento
-                                <span className={cn(
-                                  "ml-2 text-sm font-medium px-2 py-0.5 rounded-md",
-                                  field.value >= 100 
-                                    ? "bg-green-100 text-green-800" 
-                                    : field.value >= 80 
-                                      ? "bg-yellow-100 text-yellow-800"
-                                      : "bg-red-100 text-red-800"
-                                )}>
-                                  {field.value === 0 ? '-' : `${field.value.toFixed(2)}%`}
-                                </span>
-                              </FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="number" 
-                                  step="0.01"
-                                  min="0"
-                                  name={field.name}
-                                  value={field.value ? field.value.toFixed(2) : '0.00'}
-                                  onChange={field.onChange}
                                   onBlur={field.onBlur}
-                                  readOnly 
-                                  className="bg-gray-50"
+                                  name={field.name}
                                 />
-                              </FormControl>
-                              <FormDescription>
-                                Calculado automáticamente por el sistema al guardar
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      
-                      <div className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="tiene_evidencias"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center space-x-2">
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                              <div className="space-y-0.5">
-                                <FormLabel>Incluir archivos de la máquina de ensayo</FormLabel>
-                                <FormDescription>
-                                  Agrega los archivos .sr3 generados por la máquina de ensayo
-                                </FormDescription>
+                                <span className="flex items-center pr-4 text-sm font-medium text-stone-500">
+                                  kg
+                                </span>
                               </div>
-                            </FormItem>
+                            </FormControl>
+                            <p className="text-xs text-stone-500">
+                              Valor máximo registrado por la máquina o leído del archivo .sr3
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div
+                          className={cn(
+                            'rounded-lg border p-4 transition-colors',
+                            resultCardStyles.neutral
                           )}
-                        />
-                        
-                        {form.watch('tiene_evidencias') && (
-                          <div className="border border-dashed rounded-md p-4">
-                            <h3 className="text-sm font-medium flex items-center gap-2 mb-3">
-                              <FileSpreadsheet className="h-4 w-4 text-blue-500" />
-                              Archivos de resultados de la máquina
-                            </h3>
-                            <FileUploader
-                              accept=".sr3"
-                              maxFiles={5}
-                              maxSize={10 * 1024 * 1024} // 10MB
-                              onFilesSelected={handleFilesSelected}
-                            />
-                            
-                            {selectedFiles.length > 0 && selectedFiles[0].name.toLowerCase().endsWith('.sr3') && (
-                              <div className="mt-4">
-                                <div className="mb-2 flex justify-between items-center">
-                                  <div className="text-sm text-gray-500">Vista previa de resultados</div>
-                                </div>
-                                
-                                <SrFileViewer file={selectedFiles[0]} />
-                              </div>
+                        >
+                          <p className="text-xs uppercase tracking-wide text-stone-500">
+                            Resistencia calculada
+                          </p>
+                          <p
+                            className={cn(
+                              'mt-1 text-2xl font-semibold font-mono tabular-nums',
+                              hasCarga && watchRes > 0 ? 'text-stone-900' : 'text-stone-400'
+                            )}
+                          >
+                            {hasCarga && watchRes > 0 ? `${watchRes.toFixed(3)}` : '—'}
+                            <span className="ml-1 text-sm font-normal text-stone-500">kg/cm²</span>
+                          </p>
+                        </div>
+                        <div
+                          className={cn(
+                            'rounded-lg border p-4 transition-colors',
+                            resultCardStyles[complianceVariant(watchPct, hasCarga)]
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs uppercase tracking-wide opacity-90">
+                              % Cumplimiento
+                            </p>
+                            {targetFc != null && (
+                              <span className="text-[11px] text-stone-500 font-mono tabular-nums shrink-0">
+                                obj. {targetFc} kg/cm²
+                              </span>
                             )}
                           </div>
-                        )}
-                        
-                        <FormField
-                          control={form.control}
-                          name="observaciones"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Observaciones</FormLabel>
-                              <FormControl>
-                                <Textarea 
-                                  placeholder="Ingresa cualquier observación o anomalía durante el ensayo..."
-                                  className="min-h-[100px]"
-                                  {...field}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
+                          <p
+                            className={cn(
+                              'mt-1 text-2xl font-semibold font-mono tabular-nums',
+                              !hasCarga && 'text-stone-400'
+                            )}
+                          >
+                            {hasCarga ? `${watchPct.toFixed(2)}%` : '—'}
+                          </p>
+                        </div>
                       </div>
-                      
+
+                      <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50/50 p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <FileSpreadsheet className="h-4 w-4 text-stone-600" />
+                          <span className="text-sm font-medium text-stone-800">
+                            Archivo de máquina (.sr3)
+                          </span>
+                          {sr3Parsing && (
+                            <Loader2 className="h-4 w-4 animate-spin text-sky-700 ml-auto" />
+                          )}
+                        </div>
+                        <FileUploader
+                          accept=".sr3"
+                          maxFiles={5}
+                          maxSize={10 * 1024 * 1024}
+                          onFilesSelected={(files) => void handleFilesSelected(files)}
+                        />
+                        {selectedFiles.length > 0 &&
+                          selectedFiles[0].name.toLowerCase().endsWith('.sr3') && (
+                            <div className="mt-4 space-y-2">
+                              <p className="text-xs uppercase tracking-wide text-stone-500">
+                                Vista previa
+                              </p>
+                              <SrFileViewer file={selectedFiles[0]} />
+                            </div>
+                          )}
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="observaciones"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-stone-700">Observaciones</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder="Anomalías, condiciones del equipo, etc."
+                                className="min-h-[88px] border-stone-300 bg-white shadow-none placeholder:text-stone-400"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
                       {submitError && (
-                        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
-                          <div className="flex items-center">
-                            <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
-                            <span>{submitError}</span>
-                          </div>
+                        <div className="rounded-lg border border-red-200 bg-red-50/90 p-4 flex items-start gap-3">
+                          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                          <p className="text-sm text-red-900">{submitError}</p>
                         </div>
                       )}
-                      
-                      <CardFooter className="flex justify-end px-0 pb-0">
-                        <Button 
-                          type="submit" 
-                          className="bg-primary"
+
+                      <CardFooter className="flex justify-end px-0 pb-0 pt-2">
+                        <Button
+                          type="submit"
                           disabled={isSubmitting}
+                          className="h-10 bg-sky-700 px-5 text-white shadow-none hover:bg-sky-800"
                         >
                           {isSubmitting ? (
                             <>
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Guardando...
+                              Guardando…
                             </>
                           ) : (
                             <>
                               <Save className="mr-2 h-4 w-4" />
-                              Guardar Ensayo
+                              Guardar ensayo
                             </>
                           )}
                         </Button>
@@ -940,36 +652,41 @@ function NuevoEnsayoContent() {
           </div>
         </div>
       ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center p-8 text-center">
-            <FileText className="h-12 w-12 text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Muestra no encontrada</h3>
-            <p className="text-gray-600 mb-4">No se encontró la muestra con el ID especificado.</p>
-            <Button onClick={() => router.push('/quality/ensayos')} type="button">
-              Volver a Ensayos Pendientes
+        <Card className="border border-stone-200 bg-white shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center p-10 text-center">
+            <AlertTriangle className="h-12 w-12 text-stone-300 mb-4" />
+            <h3 className="text-lg font-semibold text-stone-900 mb-2">Muestra no encontrada</h3>
+            <p className="text-sm text-stone-600 mb-6">
+              No se encontró la muestra con el ID indicado.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-stone-300 bg-white shadow-none"
+              onClick={() => router.push('/quality/ensayos')}
+            >
+              Volver a ensayos pendientes
             </Button>
           </CardContent>
         </Card>
       )}
     </div>
-  );
+  )
 }
 
 function NuevoEnsayoLoading() {
   return (
-    <div className="container mx-auto p-4 md:p-6">
-      <div className="flex items-center justify-center p-12">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-gray-600">Cargando formulario de ensayo...</span>
-      </div>
+    <div className="flex items-center justify-center gap-3 py-16">
+      <Loader2 className="h-8 w-8 animate-spin text-sky-700" />
+      <span className="text-sm text-stone-600">Cargando formulario…</span>
     </div>
-  );
+  )
 }
 
 export default function NuevoEnsayoPage() {
   return (
-    <Suspense fallback={<NuevoEnsayoLoading />}> 
+    <Suspense fallback={<NuevoEnsayoLoading />}>
       <NuevoEnsayoContent />
     </Suspense>
-  );
+  )
 }

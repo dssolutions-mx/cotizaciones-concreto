@@ -959,6 +959,24 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {isDosificador && (
+            <div className="space-y-2 rounded-lg border border-stone-200 bg-stone-50/80 p-3">
+              <Label htmlFor="entry_date" className="text-stone-900">
+                Fecha de entrada (recepción física)
+              </Label>
+              <Input
+                id="entry_date"
+                type="date"
+                value={formData.entry_date}
+                onChange={(e) => setFormData((prev) => ({ ...prev, entry_date: e.target.value }))}
+                className="bg-white"
+              />
+              <p className="text-xs text-stone-600">
+                Día al que corresponde esta recepción en planta. La hora se registra al guardar (no confundir con la hora
+                de subir evidencia).
+              </p>
+            </div>
+          )}
           {!isDosificador ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -1782,15 +1800,17 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="entry_date">Fecha de Entrada</Label>
-            <Input
-              id="entry_date"
-              type="date"
-              value={formData.entry_date}
-              onChange={(e) => setFormData(prev => ({ ...prev, entry_date: e.target.value }))}
-            />
-          </div>
+          {!isDosificador && (
+            <div className="space-y-2">
+              <Label htmlFor="entry_date">Fecha de Entrada</Label>
+              <Input
+                id="entry_date"
+                type="date"
+                value={formData.entry_date}
+                onChange={(e) => setFormData((prev) => ({ ...prev, entry_date: e.target.value }))}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 

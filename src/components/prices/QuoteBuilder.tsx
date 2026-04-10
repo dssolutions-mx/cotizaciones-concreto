@@ -1710,11 +1710,16 @@ export default function QuoteBuilder() {
                 const filteredMasters = masters.filter(m => {
                   if (!debouncedRecipeSearch.trim()) return true;
                   const s = debouncedRecipeSearch.toLowerCase();
+                  const variantMatch = (m.variant_recipe_codes || []).some((code) =>
+                    (code || '').toLowerCase().includes(s)
+                  );
                   return (
                     (m.master_code || '').toLowerCase().includes(s) ||
+                    variantMatch ||
                     String(m.strength_fc ?? '').includes(s) ||
                     String(m.slump ?? '').includes(s) ||
-                    (m.placement_type || '').toLowerCase().includes(s)
+                    (m.placement_type || '').toLowerCase().includes(s) ||
+                    (m.display_name || '').toLowerCase().includes(s)
                   );
                 });
 

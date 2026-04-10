@@ -154,7 +154,7 @@ export async function GET(request: NextRequest) {
         ),
         po:purchase_orders!po_id ( id, po_number ),
         fleet_po:purchase_orders!fleet_po_id ( id, po_number ),
-        supplier:suppliers!supplier_id ( id, name, provider_number )
+        supplier:suppliers!supplier_id ( id, name, provider_number, default_payment_terms_days )
       `);
     
     console.log('Base query created');

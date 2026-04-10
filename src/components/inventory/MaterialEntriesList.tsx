@@ -11,7 +11,6 @@ import {
   Edit,
   FileText,
   User,
-  Clock,
   DollarSign,
   ArrowUpDown,
   Paperclip,
@@ -22,6 +21,10 @@ import {
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { MaterialEntry, InventoryDocument } from '@/types/inventory'
+import {
+  formatReceptionAssignedDay,
+  formatEntrySavedShortFor,
+} from '@/lib/inventory/entryReceivedDisplay'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import MaterialEntryEditSheet from '@/components/inventory/MaterialEntryEditSheet'
@@ -134,8 +137,8 @@ function DocumentsSection({
           <div key={doc.id} className="flex items-center justify-between text-xs p-2 bg-white rounded border">
             <div className="flex items-center gap-2 flex-1 min-w-0">
               <span className="text-gray-700 truncate">{doc.original_name}</span>
-              <span className="text-xs text-gray-500">
-                {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
+              <span className="text-xs text-gray-500" title="Momento en que se subió el archivo">
+                Subido: {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -415,8 +418,19 @@ export default function MaterialEntriesList({
                 </div>
                 <div className="flex-1 min-w-0">
                   <CardTitle className="text-base sm:text-lg truncate">{entry.entry_number}</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm">
-                    {format(new Date(`${entry.entry_date}T${entry.entry_time}`), "dd MMM yyyy 'a las' HH:mm", { locale: es })}
+                  <CardDescription className="text-xs sm:text-sm space-y-0.5">
+                    <span
+                      className="block text-stone-800"
+                      title="Día al que se asignó la recepción (fecha de entrada)"
+                    >
+                      Día recepción: {formatReceptionAssignedDay(entry)}
+                    </span>
+                    <span
+                      className="block text-stone-500"
+                      title="Momento en que se guardó el registro en el sistema"
+                    >
+                      Registro guardado: {formatEntrySavedShortFor(entry)}
+                    </span>
                   </CardDescription>
                 </div>
               </div>
@@ -590,14 +604,10 @@ export default function MaterialEntriesList({
             />
 
             {/* Footer Info */}
-            <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
+            <div className="flex items-center text-xs text-gray-500 pt-2 border-t">
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" />
                 Registrado por: {entry.entered_by_user ? `${entry.entered_by_user.first_name} ${entry.entered_by_user.last_name}` : entry.entered_by}
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {format(new Date(entry.created_at), "dd/MM/yyyy HH:mm", { locale: es })}
               </span>
             </div>
           </CardContent>

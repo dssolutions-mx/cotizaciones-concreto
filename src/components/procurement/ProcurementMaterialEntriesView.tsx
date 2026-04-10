@@ -45,7 +45,11 @@ import EntryPricingForm from '@/components/inventory/EntryPricingForm'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import { usePlantContext } from '@/contexts/PlantContext'
-import { formatReceivedQuantity } from '@/lib/inventory/entryReceivedDisplay'
+import {
+  formatReceivedQuantity,
+  formatReceptionAssignedDay,
+  formatEntrySavedShortFor,
+} from '@/lib/inventory/entryReceivedDisplay'
 
 function sortEntriesNewestFirst(list: MaterialEntry[]): MaterialEntry[] {
   return [...list].sort((a, b) => {
@@ -86,7 +90,12 @@ function EntriesTable({
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           <TableHead className="whitespace-nowrap">Entrada</TableHead>
-          <TableHead className="whitespace-nowrap">Fecha</TableHead>
+          <TableHead
+            className="whitespace-nowrap min-w-[9rem]"
+            title="Día asignado a la recepción; «Reg.» es cuando se guardó el registro"
+          >
+            Recepción
+          </TableHead>
           <TableHead>Material</TableHead>
           <TableHead>OC / Proveedor</TableHead>
           <TableHead className="text-right">Cantidad</TableHead>
@@ -120,10 +129,13 @@ function EntriesTable({
               <TableCell className="font-mono text-xs text-stone-800">
                 {e.entry_number || e.id.slice(0, 8)}
               </TableCell>
-              <TableCell className="text-sm whitespace-nowrap">
-                {format(new Date(`${e.entry_date}T${e.entry_time || '12:00:00'}`), 'dd MMM', {
-                  locale: es,
-                })}
+              <TableCell className="text-sm align-top whitespace-nowrap">
+                <div className="leading-tight">
+                  <div>{formatReceptionAssignedDay(e)}</div>
+                  <div className="text-[11px] text-stone-500 tabular-nums">
+                    Reg. {formatEntrySavedShortFor(e)}
+                  </div>
+                </div>
               </TableCell>
               <TableCell className="max-w-[200px]">
                 <div className="font-medium text-stone-900 truncate text-sm">
@@ -752,6 +764,7 @@ export default function ProcurementMaterialEntriesView({
             <div className="mt-4">
               {pricingSheetEntry && (
                 <EntryPricingForm
+                  key={pricingSheetEntry.id}
                   entry={pricingSheetEntry}
                   onCancel={() => setPricingSheetEntry(null)}
                   onAfterCreatePO={() => void fetchEntries()}

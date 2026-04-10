@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
+import { qualityHubPrimaryButtonClass } from '@/components/quality/qualityHubUi'
 
 // --- Types ---
 
@@ -317,7 +318,7 @@ export default function QualityHubLayout({
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {primaryCta && (
-            <Button variant="default" size="sm" className="bg-sky-600 hover:bg-sky-700" asChild>
+            <Button variant="primary" size="sm" className={qualityHubPrimaryButtonClass} asChild>
               <Link href={primaryCta.href}>{primaryCta.label}</Link>
             </Button>
           )}

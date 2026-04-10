@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User, Clock, ExternalLink, CheckCircle2 } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User, Clock, ExternalLink, CheckCircle2, CalendarClock } from 'lucide-react'
 import CreatePOModal, {
   type PrefillFromMaterialEntry,
   type PrefillFleetFromMaterialEntry,
@@ -19,7 +19,19 @@ import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { cn } from '@/lib/utils'
-import { formatReceivedQuantity, getReceivedQuantityDisplay } from '@/lib/inventory/entryReceivedDisplay'
+import {
+  formatReceivedQuantity,
+  getReceivedQuantityDisplay,
+  formatReceptionAssignedDay,
+  formatEntrySavedShortFor,
+} from '@/lib/inventory/entryReceivedDisplay'
+import SupplierPaymentTermsQuickSheet from '@/components/inventory/SupplierPaymentTermsQuickSheet'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import {
+  PAYMENT_TERMS_LABELS,
+  addCalendarDaysToIsoDate,
+  formatPaymentTermsLabel,
+} from '@/lib/procurement/paymentTermsLabels'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -71,6 +83,7 @@ function buildPrefillFleetFromMaterialEntry(
 interface Supplier {
   id: string
   name: string
+  default_payment_terms_days?: number | null
 }
 
 type PoLineItem = {
@@ -113,9 +126,6 @@ const PO_STATUS_COLORS: Record<string, string> = {
   closed: 'bg-green-50 text-green-700 border-green-200',
   cancelled: 'bg-stone-100 text-stone-500 border-stone-200',
 }
-const PAYMENT_TERMS_LABELS: Record<number, string> = {
-  0: 'Contado', 15: 'Net 15', 30: 'Net 30', 45: 'Net 45', 60: 'Net 60',
-}
 function fmtPoDate(d: string | null | undefined) {
   if (!d) return null
   const dt = new Date(d + 'T00:00:00')
@@ -132,6 +142,10 @@ function uomLabel(u: string | null | undefined) {
 }
 
 export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO, embedded = false }: EntryPricingFormProps) {
+  const { profile } = useAuthSelectors()
+  const canEditSupplierPaymentTerms =
+    profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
+  const [supplierTermsSheetOpen, setSupplierTermsSheetOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [apiWarnings, setApiWarnings] = useState<string[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -176,6 +190,21 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     ap_due_date_fleet: entry.ap_due_date_fleet || '',
   })
 
+  const fetchSuppliers = useCallback(async () => {
+    if (!entry.plant_id) return
+    try {
+      const response = await fetch(`/api/suppliers?plant_id=${entry.plant_id}`, {
+        cache: 'no-store',
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSuppliers(data.suppliers || [])
+      }
+    } catch (error) {
+      console.error('Error fetching suppliers:', error)
+    }
+  }, [entry.plant_id])
+
   const hasMaterialPoLink = Boolean(entry.po_id && entry.po_item_id)
   const hasFleetPoLink = Boolean(entry.fleet_po_id && entry.fleet_po_item_id)
 
@@ -198,6 +227,23 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     const n = [u.first_name, u.last_name].filter(Boolean).join(' ').trim()
     return n || u.email || '—'
   }, [entry.entered_by_user])
+
+  /** Día asignado en planta (`entry_date`). La hora del registro viene de `created_at` (al guardar). */
+  const receptionDayDisplay = useMemo(() => formatReceptionAssignedDay(entry), [entry.entry_date])
+  const entrySavedDisplay = useMemo(
+    () => formatEntrySavedShortFor(entry),
+    [entry.entry_date, entry.created_at]
+  )
+
+  /** Resumen en una línea (día recepción + registro); alias estable para tooltips / código que aún referencie el nombre. */
+  const receptionDisplay = useMemo(() => {
+    const day = formatReceptionAssignedDay(entry)
+    const reg = formatEntrySavedShortFor(entry)
+    if (day === '—' && reg === '—') return '—'
+    if (day === '—') return `Reg. ${reg}`
+    if (reg === '—') return day
+    return `${day} · Reg. ${reg}`
+  }, [entry.entry_date, entry.created_at])
 
   const receivedQtyDisplay = useMemo(() => getReceivedQuantityDisplay(entry), [entry])
 
@@ -262,7 +308,131 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     parseFloat(formData.fleet_cost) > 0 &&
     Math.abs(parseFloat(formData.fleet_cost) - agreedFleetTotal) > 1e-2
 
-  useEffect(() => { fetchSuppliers() }, [])
+  /** Lista `/api/suppliers` es la fuente de verdad tras editar plazos; `entry.supplier` puede estar desactualizado. */
+  const materialTermsDays = useMemo(() => {
+    const sid = effectiveSupplierId
+    if (!sid) return null
+    const row = suppliers.find((s) => s.id === sid)
+    if (row) {
+      if (row.default_payment_terms_days !== undefined) {
+        return row.default_payment_terms_days ?? null
+      }
+    }
+    if (entry.supplier?.id === sid && entry.supplier.default_payment_terms_days != null) {
+      return entry.supplier.default_payment_terms_days
+    }
+    return null
+  }, [effectiveSupplierId, suppliers, entry.supplier])
+
+  const fleetSupplierIdForTerms = useMemo(
+    () =>
+      formData.fleet_supplier_id ||
+      fleetPoHeaderSupplierId ||
+      fleetSearchHeaderSupplierId ||
+      entry.fleet_supplier_id ||
+      '',
+    [formData.fleet_supplier_id, fleetPoHeaderSupplierId, fleetSearchHeaderSupplierId, entry.fleet_supplier_id]
+  )
+
+  const fleetTermsDays = useMemo(() => {
+    const sid = fleetSupplierIdForTerms
+    if (!sid) return null
+    const row = suppliers.find((s) => s.id === sid)
+    if (row && row.default_payment_terms_days !== undefined) {
+      return row.default_payment_terms_days ?? null
+    }
+    return null
+  }, [fleetSupplierIdForTerms, suppliers])
+
+  const materialDueAutoHint = useMemo(() => {
+    if (!entry.entry_date || materialTermsDays == null) return false
+    if (!formData.ap_due_date_material) return false
+    const expected = addCalendarDaysToIsoDate(entry.entry_date, materialTermsDays)
+    return expected !== '' && formData.ap_due_date_material === expected
+  }, [entry.entry_date, materialTermsDays, formData.ap_due_date_material])
+
+  const fleetDueAutoHint = useMemo(() => {
+    if (!entry.entry_date || fleetTermsDays == null) return false
+    if (!formData.ap_due_date_fleet) return false
+    const expected = addCalendarDaysToIsoDate(entry.entry_date, fleetTermsDays)
+    return expected !== '' && formData.ap_due_date_fleet === expected
+  }, [entry.entry_date, fleetTermsDays, formData.ap_due_date_fleet])
+
+  const lastAppliedMaterialTermsRef = useRef<number | null>(null)
+  const lastAppliedFleetTermsRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    lastAppliedMaterialTermsRef.current = null
+    lastAppliedFleetTermsRef.current = null
+  }, [entry.id])
+
+  useEffect(() => {
+    if (!entry.entry_date || materialTermsDays == null) return
+    const due = addCalendarDaysToIsoDate(entry.entry_date, materialTermsDays)
+    if (!due) return
+    const prevTermsSnapshot = lastAppliedMaterialTermsRef.current
+    setFormData((prev) => {
+      if (!prev.ap_due_date_material) {
+        return { ...prev, ap_due_date_material: due }
+      }
+      if (prevTermsSnapshot != null) {
+        const prevDue = addCalendarDaysToIsoDate(entry.entry_date, prevTermsSnapshot)
+        if (prevDue && prev.ap_due_date_material === prevDue) {
+          return { ...prev, ap_due_date_material: due }
+        }
+        return prev
+      }
+      if (prev.ap_due_date_material === due) {
+        return prev
+      }
+      return prev
+    })
+    lastAppliedMaterialTermsRef.current = materialTermsDays
+  }, [entry.entry_date, materialTermsDays])
+
+  useEffect(() => {
+    if (!entry.entry_date || fleetTermsDays == null) return
+    const due = addCalendarDaysToIsoDate(entry.entry_date, fleetTermsDays)
+    if (!due) return
+    const prevTermsSnapshot = lastAppliedFleetTermsRef.current
+    setFormData((prev) => {
+      if (!prev.ap_due_date_fleet) {
+        return { ...prev, ap_due_date_fleet: due }
+      }
+      if (prevTermsSnapshot != null) {
+        const prevDue = addCalendarDaysToIsoDate(entry.entry_date, prevTermsSnapshot)
+        if (prevDue && prev.ap_due_date_fleet === prevDue) {
+          return { ...prev, ap_due_date_fleet: due }
+        }
+        return prev
+      }
+      if (prev.ap_due_date_fleet === due) {
+        return prev
+      }
+      return prev
+    })
+    lastAppliedFleetTermsRef.current = fleetTermsDays
+  }, [entry.entry_date, fleetTermsDays])
+
+  const applySuggestedMaterialDue = useCallback(() => {
+    if (!entry.entry_date || materialTermsDays == null) return
+    const due = addCalendarDaysToIsoDate(entry.entry_date, materialTermsDays)
+    if (!due) return
+    setFormData((prev) => ({ ...prev, ap_due_date_material: due }))
+    lastAppliedMaterialTermsRef.current = materialTermsDays
+  }, [entry.entry_date, materialTermsDays])
+
+  const applySuggestedFleetDue = useCallback(() => {
+    if (!entry.entry_date || fleetTermsDays == null) return
+    const due = addCalendarDaysToIsoDate(entry.entry_date, fleetTermsDays)
+    if (!due) return
+    setFormData((prev) => ({ ...prev, ap_due_date_fleet: due }))
+    lastAppliedFleetTermsRef.current = fleetTermsDays
+  }, [entry.entry_date, fleetTermsDays])
+
+  useEffect(() => {
+    void fetchSuppliers()
+  }, [fetchSuppliers])
 
   // ── Load material PO header + line ──
   useEffect(() => {
@@ -448,18 +618,6 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return suppliers.find((s) => s.id === id)?.name || selectedFleetSearchItem?.po?.supplier?.name || null
   }, [fleetPoHeaderSupplierId, fleetSearchHeaderSupplierId, entry.fleet_supplier_id, suppliers, selectedFleetSearchItem])
 
-  const fetchSuppliers = async () => {
-    try {
-      const response = await fetch(`/api/suppliers?plant_id=${entry.plant_id}`)
-      if (response.ok) {
-        const data = await response.json()
-        setSuppliers(data.suppliers || [])
-      }
-    } catch (error) {
-      console.error('Error fetching suppliers:', error)
-    }
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.unit_price) { toast.error('El precio unitario es requerido'); return }
@@ -573,7 +731,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-x-3 gap-y-1 text-xs text-stone-500 min-w-0 flex-wrap">
+          <div
+            className="flex items-center gap-x-3 gap-y-1 text-xs text-stone-500 min-w-0 flex-wrap"
+            title={receptionDisplay}
+          >
             <span className="inline-flex items-center gap-1 min-w-0 max-w-[min(100%,14rem)]">
               <Factory className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
               <span className="truncate" title={plantDisplayName}>
@@ -587,6 +748,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               <User className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
               <span className="truncate" title={creatorDisplayName}>
                 Registró · {creatorDisplayName}
+              </span>
+            </span>
+            <span className="text-stone-300 hidden sm:inline" aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[min(100%,14rem)]">
+              <CalendarClock className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
+              <span className="truncate" title="Día al que se asignó la recepción (fecha de entrada)">
+                Día recepción · {receptionDayDisplay}
+              </span>
+            </span>
+            <span className="text-stone-300 hidden sm:inline" aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[min(100%,14rem)]">
+              <Clock className="h-3.5 w-3.5 shrink-0 text-stone-400" aria-hidden />
+              <span className="truncate" title="Momento en que se guardó el registro (no es hora de recepción en planta)">
+                Registro · {entrySavedDisplay}
               </span>
             </span>
           </div>
@@ -610,6 +789,16 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               <span>Planta · {plantDisplayName}</span>
               <span className="text-right truncate max-w-[60%]" title={creatorDisplayName}>
                 Registró · {creatorDisplayName}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 text-xs text-gray-600 pt-1">
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarClock className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+                <span title="Día al que se asignó la recepción">Día recepción · {receptionDayDisplay}</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 pl-0 sm:pl-5">
+                <Clock className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+                <span title="Momento en que se guardó el registro">Registro guardado · {entrySavedDisplay}</span>
               </span>
             </div>
           </div>
@@ -649,10 +838,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
         {/* ─── 2. Material Pricing (always visible — core task) ─── */}
         <section className="space-y-3">
-          <h4 className="text-sm font-medium flex items-center gap-2 text-stone-800">
-            <DollarSign className="h-4 w-4" />
-            Costo del Material
-          </h4>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h4 className="text-sm font-medium flex items-center gap-2 text-stone-800">
+              <DollarSign className="h-4 w-4" />
+              Costo del Material
+            </h4>
+            {entry.plant_id && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 border-stone-300 bg-white text-stone-800 hover:bg-stone-50"
+                onClick={() => setSupplierTermsSheetOpen(true)}
+              >
+                <CalendarClock className="h-3.5 w-3.5 mr-1.5 text-stone-600" />
+                Plazos por proveedor
+              </Button>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="unit_price">Precio unitario ({uomLabel(materialUom)}) *</Label>
@@ -704,6 +907,32 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                 value={formData.ap_due_date_material}
                 onChange={(e) => setFormData((prev) => ({ ...prev, ap_due_date_material: e.target.value }))}
               />
+              {materialTermsDays != null && (
+                <div className="text-xs mt-1 space-y-0.5">
+                  {materialDueAutoHint ? (
+                    <p className="text-emerald-700">
+                      Sugerido: {formatPaymentTermsLabel(materialTermsDays)} desde fecha de entrada
+                    </p>
+                  ) : (
+                    <div className="text-stone-600 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs">
+                      <span>
+                        Plazo del proveedor:{' '}
+                        <span className="font-medium text-stone-800">
+                          {formatPaymentTermsLabel(materialTermsDays)}
+                        </span>
+                      </span>
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="h-auto p-0 text-xs text-sky-800"
+                        onClick={applySuggestedMaterialDue}
+                      >
+                        Aplicar a vencimiento
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1183,6 +1412,32 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                   value={formData.ap_due_date_fleet}
                   onChange={(e) => setFormData((prev) => ({ ...prev, ap_due_date_fleet: e.target.value }))}
                 />
+                {fleetTermsDays != null && (
+                  <div className="text-xs mt-1 space-y-0.5">
+                    {fleetDueAutoHint ? (
+                      <p className="text-emerald-700">
+                        Sugerido: {formatPaymentTermsLabel(fleetTermsDays)} desde fecha de entrada
+                      </p>
+                    ) : (
+                      <div className="text-stone-600 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs">
+                        <span>
+                          Plazo del transportista:{' '}
+                          <span className="font-medium text-stone-800">
+                            {formatPaymentTermsLabel(fleetTermsDays)}
+                          </span>
+                        </span>
+                        <Button
+                          type="button"
+                          variant="link"
+                          className="h-auto p-0 text-xs text-sky-800"
+                          onClick={applySuggestedFleetDue}
+                        >
+                          Aplicar a vencimiento
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </CollapsibleContent>
@@ -1222,6 +1477,14 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         </div>
       </div>
     </form>
+
+    <SupplierPaymentTermsQuickSheet
+      open={supplierTermsSheetOpen}
+      onOpenChange={setSupplierTermsSheetOpen}
+      plantId={entry.plant_id ?? null}
+      canEdit={canEditSupplierPaymentTerms}
+      onTermsUpdated={() => void fetchSuppliers()}
+    />
 
     <CreatePOModal
       open={createPOOpen}

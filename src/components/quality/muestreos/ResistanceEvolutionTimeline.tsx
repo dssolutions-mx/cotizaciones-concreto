@@ -25,7 +25,8 @@ import {
   Settings2,
 } from 'lucide-react';
 import { MuestraWithRelations } from '@/types/quality';
-import { createSafeDate } from '@/lib/utils';
+import { cn, createSafeDate } from '@/lib/utils';
+import { qualityHubOutlineNeutralClass, qualityHubPrimaryButtonClass } from '@/components/quality/qualityHubUi';
 
 interface AgeGroup {
   ageDays: number;
@@ -75,8 +76,8 @@ function TrendArrow({ prev, next }: { prev: number; next: number }) {
   if (absDiff < 0.5) {
     return (
       <div className="flex flex-col items-center gap-0.5 px-1">
-        <Minus className="h-4 w-4 text-gray-400" />
-        <span className="text-[10px] text-gray-400">≈</span>
+        <Minus className="h-4 w-4 text-stone-400" />
+        <span className="text-[10px] text-stone-400">≈</span>
       </div>
     );
   }
@@ -135,11 +136,12 @@ export default function ResistanceEvolutionTimeline({
     }
 
     const groups: AgeGroup[] = [];
-    for (const [ageDays, specimens] of groupMap) {
+    for (const [ageDays, specimens] of Array.from(groupMap.entries())) {
+      type Sp = AgeGroup['specimens'][number];
       const avgResistencia =
-        specimens.reduce((s, sp) => s + sp.resistencia, 0) / specimens.length;
+        specimens.reduce((s: number, sp: Sp) => s + sp.resistencia, 0) / specimens.length;
       const avgCumplimiento =
-        specimens.reduce((s, sp) => s + sp.cumplimiento, 0) / specimens.length;
+        specimens.reduce((s: number, sp: Sp) => s + sp.cumplimiento, 0) / specimens.length;
       groups.push({ ageDays, specimens, avgResistencia, avgCumplimiento });
     }
 
@@ -150,15 +152,15 @@ export default function ResistanceEvolutionTimeline({
   if (ageGroups.length === 0) return null;
 
   return (
-    <Card className="mb-6 border border-gray-200 bg-white shadow-sm">
+    <Card className="mb-6 border border-stone-200/90 bg-white shadow-sm ring-1 ring-stone-950/[0.02]">
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Activity className="h-5 w-5 text-gray-600" />
+              <Activity className="h-5 w-5 text-stone-600" />
               Evolución de Resistencia
               {factorActive && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200 font-normal">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-sky-50 text-sky-800 border-sky-200 font-normal">
                   Factor ×{factorValue}
                 </Badge>
               )}
@@ -172,9 +174,12 @@ export default function ResistanceEvolutionTimeline({
           <Popover>
             <PopoverTrigger asChild>
               <Button
-                variant={factorActive ? "default" : "outline"}
+                variant={factorActive ? 'primary' : 'outline'}
                 size="sm"
-                className={`h-8 gap-1.5 ${factorActive ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+                className={cn(
+                  'h-8 gap-1.5',
+                  factorActive ? qualityHubPrimaryButtonClass : qualityHubOutlineNeutralClass
+                )}
               >
                 <Settings2 className="h-3.5 w-3.5" />
                 Factor
@@ -185,16 +190,19 @@ export default function ResistanceEvolutionTimeline({
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">Factor de Corrección</Label>
                   <Button
-                    variant={factorActive ? "destructive" : "default"}
+                    variant={factorActive ? 'destructive' : 'primary'}
                     size="sm"
-                    className="h-7 text-xs px-2.5"
+                    className={cn(
+                      'h-7 text-xs px-2.5',
+                      !factorActive && qualityHubPrimaryButtonClass
+                    )}
                     onClick={() => setFactorActive(!factorActive)}
                   >
                     {factorActive ? 'Desactivar' : 'Activar'}
                   </Button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="timeline-factor" className="text-xs text-gray-500 whitespace-nowrap">
+                  <Label htmlFor="timeline-factor" className="text-xs text-stone-500 whitespace-nowrap">
                     Valor:
                   </Label>
                   <Input
@@ -208,7 +216,7 @@ export default function ResistanceEvolutionTimeline({
                     className="h-8 w-20 text-center"
                   />
                 </div>
-                <p className="text-[11px] text-gray-400">
+                <p className="text-[11px] text-stone-400">
                   Multiplica la resistencia y el % de cumplimiento por el factor indicado.
                 </p>
               </div>
@@ -226,11 +234,11 @@ export default function ResistanceEvolutionTimeline({
                 <div className="flex flex-col items-center min-w-[140px]">
                   {/* Age label */}
                   <div className="flex items-center gap-1.5 mb-3">
-                    <span className="text-sm font-bold text-gray-900">
+                    <span className="text-sm font-bold text-stone-900">
                       {group.ageDays} {group.ageDays === 1 ? 'día' : 'días'}
                     </span>
                     {group.specimens.some(s => s.isGarantia) && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-sky-50 text-sky-800 border-sky-200">
                         Garantía
                       </Badge>
                     )}
@@ -256,9 +264,9 @@ export default function ResistanceEvolutionTimeline({
                   {group.specimens.length > 1 && (
                     <div className="mt-2 space-y-0.5 w-full">
                       {group.specimens.map((sp, spIdx) => (
-                        <div key={`${sp.id}-${spIdx}`} className="flex items-center justify-between text-[10px] text-gray-500 px-1">
+                        <div key={`${sp.id}-${spIdx}`} className="flex items-center justify-between text-[10px] text-stone-500 px-1">
                           <span className="truncate max-w-[80px]">{sp.displayName}</span>
-                          <span className="font-medium text-gray-700">
+                          <span className="font-medium text-stone-700">
                             {applyFactor(sp.resistencia).toFixed(0)} kg/cm²
                           </span>
                         </div>
@@ -267,7 +275,7 @@ export default function ResistanceEvolutionTimeline({
                   )}
 
                   {group.specimens.length === 1 && (
-                    <div className="mt-1.5 text-[10px] text-gray-400 text-center">
+                    <div className="mt-1.5 text-[10px] text-stone-400 text-center">
                       {group.specimens[0].displayName}
                     </div>
                   )}
@@ -276,12 +284,12 @@ export default function ResistanceEvolutionTimeline({
                 {/* Trend arrow between ages */}
                 {idx < ageGroups.length - 1 && (
                   <div className="flex items-center self-center pt-4 mx-1">
-                    <div className="w-6 h-px bg-gray-300" />
+                    <div className="w-6 h-px bg-stone-300" />
                     <TrendArrow
                       prev={applyFactor(group.avgResistencia)}
                       next={applyFactor(ageGroups[idx + 1].avgResistencia)}
                     />
-                    <div className="w-6 h-px bg-gray-300" />
+                    <div className="w-6 h-px bg-stone-300" />
                   </div>
                 )}
               </React.Fragment>
@@ -290,20 +298,20 @@ export default function ResistanceEvolutionTimeline({
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-gray-100">
+        <div className="flex items-center gap-4 mt-4 pt-3 border-t border-stone-100">
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-green-500" />
-            <span className="text-[11px] text-gray-500">≥ 100%</span>
+            <span className="text-[11px] text-stone-500">≥ 100%</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-orange-500" />
-            <span className="text-[11px] text-gray-500">70–99%</span>
+            <span className="text-[11px] text-stone-500">70–99%</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-2 w-2 rounded-full bg-red-500" />
-            <span className="text-[11px] text-gray-500">&lt; 70%</span>
+            <span className="text-[11px] text-stone-500">&lt; 70%</span>
           </div>
-          <div className="ml-auto text-[11px] text-gray-400">
+          <div className="ml-auto text-[11px] text-stone-400">
             % cumplimiento vs f'c
           </div>
         </div>

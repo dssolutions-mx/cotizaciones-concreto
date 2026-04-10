@@ -15,8 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import { toast } from 'sonner'
-import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { formatReceptionAssignedDay, formatEntrySavedShortFor } from '@/lib/inventory/entryReceivedDisplay'
 import { Eye, Loader2, Paperclip, Save, Trash2 } from 'lucide-react'
 
 interface MaterialEntryEditSheetProps {
@@ -139,14 +138,14 @@ export default function MaterialEntryEditSheet({
         <SheetHeader className="text-left">
           <SheetTitle className="text-stone-900">Editar entrada</SheetTitle>
           {entry && (
-            <SheetDescription className="text-stone-600">
-              <span className="font-mono text-stone-800">{entry.entry_number}</span>
-              {' · '}
-              {format(
-                new Date(`${entry.entry_date}T${entry.entry_time || '12:00:00'}`),
-                "dd MMM yyyy HH:mm",
-                { locale: es }
-              )}
+            <SheetDescription className="text-stone-600 space-y-0.5">
+              <span className="font-mono text-stone-800 block">{entry.entry_number}</span>
+              <span className="block text-sm">
+                Día recepción: {formatReceptionAssignedDay(entry)}
+              </span>
+              <span className="block text-xs text-stone-500">
+                Registro guardado: {formatEntrySavedShortFor(entry)}
+              </span>
             </SheetDescription>
           )}
         </SheetHeader>

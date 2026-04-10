@@ -186,8 +186,8 @@ export default function EntryEvidencePanel({
             >
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-stone-900 truncate">{doc.original_name || doc.file_name}</div>
-                <div className="text-[11px] text-stone-500 font-mono">
-                  {format(new Date(doc.created_at), 'dd MMM yyyy HH:mm', { locale: es })}
+                <div className="text-[11px] text-stone-500 font-mono" title="Momento en que se subió el archivo">
+                  Subido: {format(new Date(doc.created_at), 'dd MMM yyyy HH:mm', { locale: es })}
                 </div>
               </div>
               {doc.url ? (

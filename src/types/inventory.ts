@@ -67,7 +67,12 @@ export interface MaterialEntry {
   /** Joined for list APIs (procurement / OC context) */
   po?: { id: string; po_number: string | null } | null;
   fleet_po?: { id: string; po_number: string | null } | null;
-  supplier?: { id: string; name: string | null; provider_number?: string | null } | null;
+  supplier?: {
+    id: string;
+    name: string | null;
+    provider_number?: string | null;
+    default_payment_terms_days?: number | null;
+  } | null;
   /** Optional: populated when GET /api/inventory/entries?include=document_counts */
   document_count?: number;
 }
@@ -307,6 +312,8 @@ export interface Supplier {
   phone?: string;
   email?: string;
   is_active: boolean;
+  /** Days until payment is due by default for this supplier (procurement). */
+  default_payment_terms_days?: number | null;
 }
 
 export interface InventoryDocument {

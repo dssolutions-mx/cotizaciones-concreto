@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { qualityHubPrimaryButtonClass } from '@/components/quality/qualityHubUi'
+import { cn } from '@/lib/utils'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import Link from 'next/link'
 import {
@@ -28,7 +30,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { cn } from '@/lib/utils'
 import CreatePOModal from '@/components/po/CreatePOModal'
 import EditPOModal from '@/components/po/EditPOModal'
 import POLifecycleView from '@/components/po/POLifecycleView'
@@ -853,7 +854,12 @@ export default function PurchaseOrdersPage() {
           </Button>
           <Button variant="outline" size="sm" onClick={fetchPOs}>Actualizar</Button>
           {canCreateOrEditPO && (
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Button
+              variant="primary"
+              size="sm"
+              className={cn(qualityHubPrimaryButtonClass, 'gap-0')}
+              onClick={() => setCreateOpen(true)}
+            >
               <ShoppingCart className="h-4 w-4 mr-2" />
               Nueva Orden
             </Button>

@@ -93,12 +93,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields: name, provider_number, plant_id' }, { status: 400 });
     }
 
-    // Create supplier
+    // Create supplier (default payment terms: Net 30 unless specified)
     const { data: supplier, error } = await supabase
       .from('suppliers')
       .insert([{
         ...body,
-        is_active: true
+        is_active: true,
+        default_payment_terms_days: body.default_payment_terms_days ?? 30,
       }])
       .select()
       .single();

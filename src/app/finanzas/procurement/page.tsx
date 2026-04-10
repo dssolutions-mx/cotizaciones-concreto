@@ -30,6 +30,7 @@ import {
   ChevronRight,
   ArrowDownToLine,
   Activity,
+  Settings2,
 } from 'lucide-react'
 import {
   Accordion,
@@ -41,6 +42,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import PurchaseOrdersPage from '@/app/finanzas/po/page'
 import CxpPage from '@/app/finanzas/cxp/page'
 import SupplierAnalysisPage from '@/app/finanzas/proveedores/analisis/page'
+import SupplierManagementPanel from '@/components/procurement/SupplierManagementPanel'
 import CreatePOModal, { type PrefillFromAlert } from '@/components/po/CreatePOModal'
 import ActionCenter from '@/components/procurement/ActionCenter'
 import ProcurementFlowNav from '@/components/procurement/ProcurementFlowNav'
@@ -102,6 +104,7 @@ export default function ProcurementWorkspacePage() {
   const [prefillFromAlert, setPrefillFromAlert] = useState<PrefillFromAlert | null>(null)
   const [actionQueueKey, setActionQueueKey] = useState(0)
   const [entriesFocusMode, setEntriesFocusMode] = useState(false)
+  const [suppliersSubTab, setSuppliersSubTab] = useState<'analisis' | 'gestion'>('analisis')
 
   const canCreatePO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
 
@@ -495,9 +498,44 @@ export default function ProcurementWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="suppliers" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          <div className="p-2 md:p-4">
-            <SupplierAnalysisPage />
-          </div>
+          {canCreatePO ? (
+            <Tabs
+              value={suppliersSubTab}
+              onValueChange={(v) => setSuppliersSubTab(v as 'analisis' | 'gestion')}
+              className="w-full"
+            >
+              <div className="border-b border-stone-200 bg-stone-50/60 px-2 md:px-4 pt-3">
+                <TabsList className="grid w-full max-w-md grid-cols-2 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
+                  <TabsTrigger
+                    value="analisis"
+                    className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white text-sm"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    Análisis
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="gestion"
+                    className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white text-sm"
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    Gestión
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="analisis" className="mt-0">
+                <div className="p-2 md:p-4">
+                  <SupplierAnalysisPage />
+                </div>
+              </TabsContent>
+              <TabsContent value="gestion" className="mt-0">
+                <SupplierManagementPanel workspacePlantId={workspacePlantId} />
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <div className="p-2 md:p-4">
+              <SupplierAnalysisPage />
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

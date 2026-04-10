@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   Card,
@@ -36,6 +37,9 @@ import {
   RefreshCw,
   ChevronUp,
   CalendarDays,
+  ExternalLink,
+  Info,
+  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { fetchMuestreos } from '@/services/qualityMuestreoService'
@@ -43,6 +47,7 @@ import type { FiltrosCalidad, MuestreoWithRelations } from '@/types/quality'
 import type { Plant } from '@/types/plant'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { formatDate, cn } from '@/lib/utils'
+import { qualityHubPrimaryButtonClass } from '@/components/quality/qualityHubUi'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import MuestreoKpiStrip from '@/components/quality/muestreos/MuestreoKpiStrip'
@@ -65,6 +70,8 @@ import {
 
 const PAGE_SIZE = 50
 const COL_SPAN = 8
+
+const ROW_HINT_STORAGE_KEY = 'quality.muestreos.listRowHintDismissed'
 
 const CLASIFICACIONES = ['FC', 'MR']
 
@@ -153,6 +160,26 @@ export default function MuestreosListClient() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const rowClickTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingToggleIdRef = React.useRef<string | null>(null)
+  const [rowHintDismissed, setRowHintDismissed] = useState(false)
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem(ROW_HINT_STORAGE_KEY) === '1') {
+        setRowHintDismissed(true)
+      }
+    } catch {
+      /* keep visible */
+    }
+  }, [])
+
+  const dismissRowHint = useCallback(() => {
+    setRowHintDismissed(true)
+    try {
+      localStorage.setItem(ROW_HINT_STORAGE_KEY, '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   const loadMuestreos = useCallback(async () => {
     try {
@@ -391,7 +418,8 @@ export default function MuestreosListClient() {
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Button
             type="button"
-            className="h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800"
+            variant="primary"
+            className={cn(qualityHubPrimaryButtonClass, 'h-9 px-3 text-sm')}
             onClick={() => router.push('/quality/muestreos/new')}
           >
             <Plus className="mr-2 h-4 w-4" />
@@ -563,6 +591,26 @@ export default function MuestreosListClient() {
         </Card>
       ) : (
         <div className="rounded-lg border border-stone-200 bg-white shadow-sm overflow-hidden">
+          {!rowHintDismissed && (
+            <div className="flex items-start gap-2 border-b border-stone-200 bg-sky-50/60 px-3 py-2.5 sm:px-4">
+              <Info className="h-4 w-4 shrink-0 text-sky-700 mt-0.5" aria-hidden />
+              <p className="flex-1 min-w-0 text-xs sm:text-sm text-stone-700 leading-snug">
+                <span className="font-medium text-stone-900">Cómo usar la tabla: </span>
+                un clic en la fila despliega el resumen; doble clic abre la página completa del muestreo.
+                En pantallas táctiles, el doble toque suele fallar: usa el ícono{' '}
+                <ExternalLink className="inline h-3.5 w-3.5 align-text-bottom text-stone-500" aria-hidden />
+                {' '}al final de cada fila para abrir el detalle con un solo toque.
+              </p>
+              <button
+                type="button"
+                onClick={dismissRowHint}
+                className="shrink-0 rounded-md p-1 text-stone-500 hover:bg-sky-100/80 hover:text-stone-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
+                aria-label="Cerrar aviso"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <Table className="min-w-[960px]">
               <TableHeader>
@@ -588,7 +636,9 @@ export default function MuestreosListClient() {
                   <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[110px]">
                     Estado
                   </TableHead>
-                  <TableHead className="w-10 p-2" />
+                  <TableHead className="w-[5.5rem] min-w-[5.5rem] p-2 text-center">
+                    <span className="sr-only">Expandir fila y abrir detalle</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -620,6 +670,7 @@ export default function MuestreosListClient() {
                           'cursor-pointer border-b border-stone-100 transition-colors',
                           isOpen ? 'bg-stone-50' : 'hover:bg-stone-50'
                         )}
+                        title="Clic: expandir o colapsar. Doble clic: abrir detalle completo."
                         onClick={() => handleRowToggle(id)}
                         onDoubleClick={(e) => {
                           e.preventDefault()
@@ -733,12 +784,25 @@ export default function MuestreosListClient() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="p-2 text-center align-middle text-stone-400">
-                          {isOpen ? (
-                            <ChevronUp className="h-4 w-4 mx-auto" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 mx-auto" />
-                          )}
+                        <TableCell className="p-1.5 text-center align-middle text-stone-400">
+                          <div className="flex items-center justify-center gap-0.5">
+                            <Link
+                              href={`/quality/muestreos/${id}`}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-stone-500 hover:text-sky-800 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
+                              title="Abrir detalle completo"
+                              aria-label="Abrir detalle completo del muestreo"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Link>
+                            <span className="inline-flex h-8 w-7 items-center justify-center" aria-hidden>
+                              {isOpen ? (
+                                <ChevronUp className="h-4 w-4" />
+                              ) : (
+                                <ChevronDown className="h-4 w-4" />
+                              )}
+                            </span>
+                          </div>
                         </TableCell>
                       </TableRow>
                       {isOpen && <MuestreoExpandedRow muestreo={muestreo} colSpan={COL_SPAN} />}
