@@ -532,4 +532,118 @@ function detectHeaderFormat(lines: string[], debug = false): {
   }
   
   return result;
-} 
+}
+
+// --- File-based extraction for ensayo registration UI ---
+
+function readFileWithEncoding(file: File, encoding: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        resolve(event.target.result as string)
+      } else {
+        reject(new Error(`No se pudo leer el archivo con codificación ${encoding}`))
+      }
+    }
+    reader.onerror = () => {
+      reject(new Error(`Error al leer el archivo con codificación ${encoding}`))
+    }
+    reader.readAsText(file, encoding)
+  })
+}
+
+function extractDataFromBinary(content: string, lineNumber: number): string | null {
+  try {
+    const lines = content.split('\n')
+    if (lines.length >= lineNumber) {
+      return lines[lineNumber - 1]
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function parseSemicolonLine(line: string): number[] {
+  try {
+    return line
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => parseFloat(part))
+      .filter((val) => !isNaN(val))
+  } catch {
+    return []
+  }
+}
+
+/** Scan lines ~30–40 for semicolon-heavy force data (binary-tolerant path). */
+function maxForceFromSemicolonDataLines(content: string): number {
+  for (let i = 30; i <= 40; i++) {
+    const line = extractDataFromBinary(content, i)
+    if (!line || !line.includes(';')) continue
+    const semicolonCount = (line.match(/;/g) || []).length
+    if (semicolonCount > 100) {
+      const forceData = parseSemicolonLine(line)
+      if (forceData.length > 10) {
+        const extracted = Math.max(...forceData.map((f) => Math.abs(f)))
+        if (extracted > 0) return extracted
+      }
+    }
+  }
+  return 0
+}
+
+function lastResortPatternMaxForce(content: string): number {
+  const patterns = [/MAX\s*LOAD\s*:\s*([\d.]+)/i, /LOAD\s*:\s*([\d.]+)/i, /CARGA\s*:\s*([\d.]+)/i]
+  for (const pattern of patterns) {
+    const match = pattern.exec(content)
+    if (match?.[1]) {
+      const value = parseFloat(match[1])
+      if (value > 0) return value * 1000
+    }
+  }
+  return 0
+}
+
+/**
+ * Reads an SR3 file from disk, tries multiple encodings and binary fallbacks,
+ * returns max force in kg (or 0 if extraction failed).
+ * Mirrors the multi-step logic previously in `ensayos/new/page.tsx`.
+ */
+export async function extractSr3MaxForceFromFile(file: File): Promise<number> {
+  const encodings = ['UTF-8', 'ISO-8859-1', 'windows-1252'] as const
+
+  for (const encoding of encodings) {
+    try {
+      const content = await readFileWithEncoding(file, encoding)
+      const hasBinaryContent = /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(content.substring(0, 1000))
+      const maxForce = extractMaxForce(content)
+
+      if (maxForce > 0) {
+        if (hasBinaryContent) {
+          const fromBinary = maxForceFromSemicolonDataLines(content)
+          if (fromBinary > 0) return fromBinary
+        }
+        return maxForce
+      }
+    } catch {
+      // try next encoding
+    }
+  }
+
+  try {
+    const content = await readFileWithEncoding(file, 'ISO-8859-1')
+    const fromBinary = maxForceFromSemicolonDataLines(content)
+    if (fromBinary > 0) return fromBinary
+    const last = lastResortPatternMaxForce(content)
+    if (last > 0) return last
+    const fallback = extractMaxForce(content)
+    if (fallback > 0) return fallback
+  } catch {
+    // ignore
+  }
+
+  return 0
+}

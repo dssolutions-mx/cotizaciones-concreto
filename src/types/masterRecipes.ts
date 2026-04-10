@@ -14,6 +14,8 @@ export interface MasterRecipe {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  /** Populated by getMasterRecipes for Quote Builder search (variant codes may differ from master_code after merges). */
+  variant_recipe_codes?: string[];
 }
 
 // Extended Recipe type with master linkage

@@ -15,7 +15,30 @@ export const masterRecipeService = {
       .order('master_code');
     
     if (error) throw error;
-    return data || [];
+    const masters = data || [];
+    if (masters.length === 0) return masters;
+
+    const ids = masters.map((m) => m.id);
+    const { data: variantRows, error: vErr } = await supabase
+      .from('recipes')
+      .select('master_recipe_id, recipe_code')
+      .in('master_recipe_id', ids);
+
+    if (vErr) throw vErr;
+
+    const byMaster = new Map<string, string[]>();
+    for (const row of variantRows || []) {
+      const mid = row.master_recipe_id as string;
+      if (!mid) continue;
+      const list = byMaster.get(mid) || [];
+      if (row.recipe_code) list.push(row.recipe_code);
+      byMaster.set(mid, list);
+    }
+
+    return masters.map((m) => ({
+      ...m,
+      variant_recipe_codes: byMaster.get(m.id) || [],
+    }));
   },
 
   /**
