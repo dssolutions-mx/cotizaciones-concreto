@@ -23,6 +23,10 @@ import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { RemisionDocument, RemisionPendingFile } from '@/types/remisiones';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  REMISION_DOCUMENT_MAX_MB,
+  messageForRemisionDocumentUploadFailure,
+} from '@/lib/constants/remisionDocumentsUpload';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -276,12 +280,17 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         });
 
         if (!response.ok) {
-          let message = 'Error al subir documento';
-          try {
-            const errorData = await response.json();
-            message = (errorData.error as string) || message;
-          } catch {
-            /* ignore */
+          let message = messageForRemisionDocumentUploadFailure(response.status);
+          if (response.status !== 413) {
+            try {
+              const errorData = await response.json();
+              message = messageForRemisionDocumentUploadFailure(
+                response.status,
+                errorData.error as string | undefined
+              );
+            } catch {
+              /* ignore */
+            }
           }
           next[i] = { ...next[i], status: 'error', error: message };
           batchFail++;
@@ -741,7 +750,8 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
               Evidencia de la Remisión
             </CardTitle>
             <CardDescription>
-              Adjunte documentos de evidencia de la entrega del servicio de bombeo (opcional)
+              Adjunte documentos de evidencia de la entrega del servicio de bombeo (opcional). Hasta{' '}
+              {REMISION_DOCUMENT_MAX_MB}MB por archivo (PDF o imagen).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -749,7 +759,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
               onFileSelect={handleFileUpload}
               acceptedTypes={['image/*', 'application/pdf']}
               multiple
-              maxSize={10} // 10MB
+              maxSize={REMISION_DOCUMENT_MAX_MB}
               uploading={loading}
               disabled={loading}
             />

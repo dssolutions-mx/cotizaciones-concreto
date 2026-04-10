@@ -13,7 +13,16 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, AlertTriangle, Save, Calculator, FileSpreadsheet, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
+import {
+  Loader2,
+  AlertTriangle,
+  Save,
+  Calculator,
+  FileSpreadsheet,
+  CheckCircle2,
+  ChevronDown,
+} from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatDate } from '@/lib/utils'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
@@ -79,6 +88,130 @@ function specimenLabel(tipo: string | undefined) {
   if (tipo === 'VIGA') return 'Viga'
   if (tipo === 'CUBO') return 'Cubo'
   return tipo ?? '—'
+}
+
+/** Shared fields for desktop sidebar + mobile “más detalles”. */
+function MuestraContextBody({ muestra }: { muestra: MuestraWithRelations }) {
+  return (
+    <div className="space-y-3.5">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Identificación</p>
+        <p className="text-sm font-medium text-stone-900 mt-0.5">
+          {muestra.identificacion || muestra.id.substring(0, 8)}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Tipo</p>
+        <Badge variant="outline" className="mt-1 border-stone-300 text-stone-800">
+          {specimenLabel(muestra.tipo_muestra)}
+        </Badge>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Remisión</p>
+        <p className="text-sm font-medium text-stone-900 mt-0.5 font-mono tabular-nums">
+          {muestra.muestreo?.remision?.remision_number || '—'}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Muestreo</p>
+        <p className="text-sm text-stone-800 mt-0.5">
+          {muestra.muestreo?.fecha_muestreo ? formatDate(muestra.muestreo.fecha_muestreo, 'PPP') : '—'}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Fecha programada ensayo</p>
+        <p className="text-sm text-stone-800 mt-0.5">
+          {muestra.fecha_programada_ensayo ? formatDate(muestra.fecha_programada_ensayo, 'PPP') : '—'}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">Diseño</p>
+        <p className="text-sm font-medium text-stone-900 mt-0.5">
+          {muestra.muestreo?.remision?.recipe?.recipe_code || '—'}
+        </p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-stone-500">f&apos;c objetivo</p>
+        <p className="text-lg font-semibold font-mono tabular-nums text-stone-900 mt-0.5">
+          {muestra.muestreo?.remision?.recipe?.strength_fc != null
+            ? `${muestra.muestreo.remision.recipe.strength_fc} kg/cm²`
+            : '—'}
+        </p>
+      </div>
+      {muestra.muestreo?.remision && (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-stone-500">Carga (remisión)</p>
+          <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+            {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
+              <>
+                {formatDate(muestra.muestreo.remision.fecha, 'PPP')}{' '}
+                <span className="font-mono tabular-nums">{muestra.muestreo.remision.hora_carga}</span>
+              </>
+            ) : (
+              'No disponible'
+            )}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Mobile: scan-first block so the tech confirms the right muestra before typing. */
+function MobileMuestraCheckpoint({ muestra }: { muestra: MuestraWithRelations }) {
+  const idLabel = muestra.identificacion || muestra.id.substring(0, 8)
+  const rem = muestra.muestreo?.remision?.remision_number || '—'
+  const fc = muestra.muestreo?.remision?.recipe?.strength_fc
+  const recipe = muestra.muestreo?.remision?.recipe?.recipe_code
+
+  return (
+    <section
+      className="rounded-xl border-2 border-stone-300 bg-white p-4 shadow-sm lg:hidden"
+      aria-labelledby="mobile-checkpoint-heading"
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-800">Paso 1 · Confirma la muestra</p>
+      <h2 id="mobile-checkpoint-heading" className="mt-1 text-base font-semibold text-stone-800">
+        ¿Es la muestra correcta?
+      </h2>
+      <div className="mt-3 space-y-2 rounded-lg bg-stone-50 px-3 py-3 border border-stone-200/80">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+          <span className="text-xs text-stone-500 shrink-0">Identificación</span>
+          <span className="text-xl font-bold font-mono tabular-nums text-stone-900 text-right min-w-0 break-all">
+            {idLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-mono tabular-nums font-semibold text-stone-900">{rem}</span>
+          <span className="text-stone-300">·</span>
+          <Badge variant="outline" className="border-stone-300 text-stone-800 text-xs">
+            {specimenLabel(muestra.tipo_muestra)}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-baseline justify-between gap-2 pt-1 border-t border-stone-200/80">
+          <span className="text-xs uppercase tracking-wide text-stone-500">f&apos;c objetivo</span>
+          <span className="text-lg font-semibold font-mono tabular-nums text-stone-900">
+            {fc != null ? `${fc} kg/cm²` : '—'}
+          </span>
+        </div>
+        {recipe && (
+          <p className="text-xs text-stone-600">
+            Diseño <span className="font-medium text-stone-800">{recipe}</span>
+          </p>
+        )}
+      </div>
+      <p className="mt-3 text-xs text-stone-500 leading-snug">
+        Si algo no coincide con la etiqueta física, regresa y elige otra muestra.
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-3 h-11 w-full touch-manipulation border-stone-300 bg-white text-stone-800 shadow-none hover:bg-stone-50"
+        asChild
+      >
+        <Link href="/quality/ensayos">No es esta muestra — volver a pendientes</Link>
+      </Button>
+    </section>
+  )
 }
 
 function NuevoEnsayoContent() {
@@ -304,20 +437,29 @@ function NuevoEnsayoContent() {
   }
 
   return (
-    <div className="space-y-5">
+    <div
+      className={cn(
+        'space-y-4 sm:space-y-5',
+        muestra && !submitSuccess && !loading && 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:pb-0'
+      )}
+    >
       <QualityBreadcrumb
+        className="min-w-0 flex-nowrap overflow-x-auto pb-0.5 [-webkit-overflow-scrolling:touch]"
         hubName="Operaciones"
         hubHref="/quality/operaciones"
         items={[{ label: 'Ensayos', href: '/quality/ensayos' }, { label: 'Nuevo ensayo' }]}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
+        <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
             Registro de ensayo
           </h1>
-          <p className="text-sm text-stone-500 mt-0.5">
-            Ingresa la carga de ruptura; la resistencia y el cumplimiento se calculan al instante.
+          <p className="text-sm text-stone-500 mt-0.5 max-lg:leading-snug">
+            <span className="lg:hidden">Confirma la muestra arriba, luego carga y guarda.</span>
+            <span className="hidden lg:inline">
+              Ingresa la carga de ruptura; la resistencia y el cumplimiento se calculan al instante.
+            </span>
           </p>
         </div>
       </div>
@@ -328,97 +470,38 @@ function NuevoEnsayoContent() {
           <span className="text-sm text-stone-600">Cargando detalles de la muestra…</span>
         </div>
       ) : muestra ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1">
-            <Card className="border border-stone-200 bg-white shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          <aside className="hidden lg:block lg:col-span-1">
+            <Card className="border border-stone-200 bg-white shadow-sm lg:sticky lg:top-4">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base text-stone-900">Contexto de la muestra</CardTitle>
                 <CardDescription className="text-stone-500">
                   Datos de referencia para el ensayo
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3.5">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Identificación</p>
-                  <p className="text-sm font-medium text-stone-900 mt-0.5">
-                    {muestra.identificacion || muestra.id.substring(0, 8)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Tipo</p>
-                  <Badge variant="outline" className="mt-1 border-stone-300 text-stone-800">
-                    {specimenLabel(muestra.tipo_muestra)}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Remisión</p>
-                  <p className="text-sm font-medium text-stone-900 mt-0.5 font-mono tabular-nums">
-                    {muestra.muestreo?.remision?.remision_number || '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Muestreo</p>
-                  <p className="text-sm text-stone-800 mt-0.5">
-                    {muestra.muestreo?.fecha_muestreo
-                      ? formatDate(muestra.muestreo.fecha_muestreo, 'PPP')
-                      : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Fecha programada ensayo</p>
-                  <p className="text-sm text-stone-800 mt-0.5">
-                    {muestra.fecha_programada_ensayo
-                      ? formatDate(muestra.fecha_programada_ensayo, 'PPP')
-                      : '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">Diseño</p>
-                  <p className="text-sm font-medium text-stone-900 mt-0.5">
-                    {muestra.muestreo?.remision?.recipe?.recipe_code || '—'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-stone-500">f&apos;c objetivo</p>
-                  <p className="text-lg font-semibold font-mono tabular-nums text-stone-900 mt-0.5">
-                    {muestra.muestreo?.remision?.recipe?.strength_fc != null
-                      ? `${muestra.muestreo.remision.recipe.strength_fc} kg/cm²`
-                      : '—'}
-                  </p>
-                </div>
-                {muestra.muestreo?.remision && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-stone-500">Carga (remisión)</p>
-                    <p className="text-xs text-stone-600 mt-1 leading-relaxed">
-                      {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
-                        <>
-                          {formatDate(muestra.muestreo.remision.fecha, 'PPP')}{' '}
-                          <span className="font-mono tabular-nums">
-                            {muestra.muestreo.remision.hora_carga}
-                          </span>
-                        </>
-                      ) : (
-                        'No disponible'
-                      )}
-                    </p>
-                  </div>
-                )}
+              <CardContent>
+                <MuestraContextBody muestra={muestra} />
               </CardContent>
             </Card>
-          </div>
+          </aside>
 
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 space-y-4">
+            <MobileMuestraCheckpoint muestra={muestra} />
+
             <Card className="border border-stone-200 bg-white shadow-sm">
-              <CardHeader className="pb-3">
+              <CardHeader className="pb-3 max-lg:px-4 max-lg:pt-4">
                 <CardTitle className="flex items-center gap-2 text-lg text-stone-900">
-                  <Calculator className="h-5 w-5 text-stone-600" />
-                  Resultados del laboratorio
+                  <Calculator className="h-5 w-5 text-stone-600 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="lg:hidden">Paso 2 · </span>
+                    Resultados del laboratorio
+                  </span>
                 </CardTitle>
-                <CardDescription className="text-stone-500">
-                  Fecha y hora del ensayo, carga máxima y evidencia .sr3 opcional
+                <CardDescription className="text-stone-500 max-lg:text-xs">
+                  Fecha, hora, carga y archivo .sr3 si aplica; luego guarda.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="max-lg:px-4 max-lg:pb-2">
                 {submitSuccess ? (
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 p-5 text-emerald-900">
                     <div className="flex items-start gap-3">
@@ -433,8 +516,12 @@ function NuevoEnsayoContent() {
                   </div>
                 ) : (
                   <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <form
+                      id="ensayo-registro-form"
+                      onSubmit={form.handleSubmit(onSubmit)}
+                      className="space-y-5 sm:space-y-6"
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                         <FormField
                           control={form.control}
                           name="fecha_ensayo"
@@ -526,7 +613,7 @@ function NuevoEnsayoContent() {
                         )}
                       />
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3">
                         <div
                           className={cn(
                             'rounded-lg border p-4 transition-colors',
@@ -625,11 +712,11 @@ function NuevoEnsayoContent() {
                         </div>
                       )}
 
-                      <CardFooter className="flex justify-end px-0 pb-0 pt-2">
+                      <CardFooter className="hidden lg:flex justify-end px-0 pb-0 pt-2">
                         <Button
                           type="submit"
                           disabled={isSubmitting}
-                          className="h-10 bg-sky-700 px-5 text-white shadow-none hover:bg-sky-800"
+                          className="h-10 bg-sky-700 px-5 text-white shadow-none hover:bg-sky-800 touch-manipulation"
                         >
                           {isSubmitting ? (
                             <>
@@ -649,6 +736,41 @@ function NuevoEnsayoContent() {
                 )}
               </CardContent>
             </Card>
+
+            <details className="group rounded-xl border border-stone-200 bg-white shadow-sm lg:hidden overflow-hidden">
+              <summary className="flex cursor-pointer select-none list-none items-center justify-between gap-2 px-4 py-3.5 text-sm font-medium text-stone-900 touch-manipulation [&::-webkit-details-marker]:hidden">
+                <span>Más datos de la muestra (opcional)</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-stone-500 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="border-t border-stone-100 px-4 py-4 bg-stone-50/50">
+                <MuestraContextBody muestra={muestra} />
+              </div>
+            </details>
+
+            {!submitSuccess && (
+              <div className="lg:hidden pointer-events-none fixed inset-x-0 bottom-0 z-40 p-3 pt-2 bg-gradient-to-t from-[#f5f3f0] via-[#f5f3f0]/95 to-transparent pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <div className="pointer-events-auto mx-auto max-w-lg">
+                  <Button
+                    type="submit"
+                    form="ensayo-registro-form"
+                    disabled={isSubmitting}
+                    className="h-12 w-full touch-manipulation bg-sky-700 text-base font-semibold text-white shadow-md shadow-stone-900/10 hover:bg-sky-800"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                        Guardando…
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-5 w-5" />
+                        Guardar ensayo
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ) : (

@@ -39,6 +39,10 @@ import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
 import { recalculateOrderAmount } from '@/services/orderService';
+import {
+  REMISION_DOCUMENT_MAX_MB,
+  messageForRemisionDocumentUploadFailure,
+} from '@/lib/constants/remisionDocumentsUpload';
 
 // Plant interface for the form
 interface Plant {
@@ -363,12 +367,17 @@ export default function PumpingServiceForm() {
             return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
           }
 
-          let message = 'Error al subir el documento';
-          try {
-            const body = await response.json();
-            message = (body.error as string) || message;
-          } catch {
-            /* ignore */
+          let message = messageForRemisionDocumentUploadFailure(response.status);
+          if (response.status !== 413) {
+            try {
+              const body = await response.json();
+              message = messageForRemisionDocumentUploadFailure(
+                response.status,
+                body.error as string | undefined
+              );
+            } catch {
+              /* ignore */
+            }
           }
           console.error('Error uploading document:', response.status, message);
           return { ...fileInfo, status: 'error' as const, error: message };
@@ -1069,7 +1078,8 @@ export default function PumpingServiceForm() {
                     Evidencia de la Remisión
                   </CardTitle>
                   <CardDescription>
-                    Adjunte documentos de evidencia de la entrega del servicio de bombeo (opcional)
+                    Adjunte documentos de evidencia de la entrega del servicio de bombeo (opcional).
+                    Hasta {REMISION_DOCUMENT_MAX_MB}MB por archivo.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1081,6 +1091,7 @@ export default function PumpingServiceForm() {
                     onFileSelect={handleFileUpload}
                     acceptedTypes={['image/*', 'application/pdf']}
                     multiple
+                    maxSize={REMISION_DOCUMENT_MAX_MB}
                     uploading={uploading}
                     disabled={loading}
                   />

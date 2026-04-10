@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  REMISION_DOCUMENT_MAX_BYTES,
+  REMISION_DOCUMENT_MAX_MB,
+} from '@/lib/constants/remisionDocumentsUpload';
 
 /** Map thrown errors to HTTP status + safe client message (full detail stays in logs). */
 function clientErrorFromCaughtError(error: unknown): { status: number; message: string } {
@@ -50,6 +54,9 @@ function clientErrorFromCaughtError(error: unknown): { status: number; message: 
   return { status: 500, message: 'Error interno del servidor' };
 }
 
+/** Large PDFs may need more time to stream to Supabase */
+export const maxDuration = 120;
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -98,10 +105,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (file.size > maxSize) {
+    if (file.size > REMISION_DOCUMENT_MAX_BYTES) {
       return NextResponse.json(
-        { success: false, error: 'El archivo excede el tamaño máximo de 10MB' },
+        {
+          success: false,
+          error: `El archivo excede el tamaño máximo de ${REMISION_DOCUMENT_MAX_MB}MB por archivo.`,
+        },
         { status: 400 }
       );
     }

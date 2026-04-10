@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils"
 export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
 /** Neutral day cell: avoid `buttonVariants(ghost)` — project ghost uses systemBlue. */
+/** Keep `rdp-day_button`. Use `text-inherit` so the grid cell (`day`) controls color: RDP v9 applies `selected` / `text-white` on the cell, not the button; `text-stone-700` on the button overrides inherit and stays dark on a selected cell. */
 const dayButtonNeutral = cn(
+  "rdp-day_button",
   "inline-flex h-9 w-9 items-center justify-center rounded-md p-0 text-sm font-normal",
-  "text-stone-700 hover:bg-stone-100 hover:text-stone-900",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-1",
-  "aria-selected:opacity-100"
+  "text-inherit hover:bg-stone-100 hover:text-stone-900",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-1"
 )
 
 const navButtonNeutral = cn(
@@ -32,6 +33,19 @@ function Calendar({
   const customStyles = `
     .rdp-weekdays {
       display: none !important;
+    }
+    /* Backup: selected cell may be td or div; button must stay light on dark cell */
+    .rdp-root [data-selected="true"] > .rdp-day_button,
+    .rdp-root [aria-selected="true"] > .rdp-day_button,
+    .rdp-root .rdp-selected > .rdp-day_button {
+      color: #fff !important;
+      background-color: transparent !important;
+    }
+    .rdp-root [data-selected="true"] > .rdp-day_button:hover,
+    .rdp-root [aria-selected="true"] > .rdp-day_button:hover,
+    .rdp-root .rdp-selected > .rdp-day_button:hover {
+      color: #fff !important;
+      background-color: rgb(255 255 255 / 0.12) !important;
     }
   `
 
@@ -63,7 +77,8 @@ function Calendar({
           weekday: "text-muted-foreground text-xs font-medium text-center",
           week: "grid grid-cols-7 mt-2",
           day: cn(
-            "relative flex h-9 w-9 items-center justify-center p-0 text-center text-sm",
+            "rdp-day",
+            "relative flex h-9 w-9 items-center justify-center p-0 text-center text-sm text-stone-700",
             "[&:has([aria-selected])]:bg-stone-100 first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md",
             "focus-within:relative focus-within:z-20"
           ),
@@ -71,12 +86,14 @@ function Calendar({
           range_end: "day-range-end",
           selected: cn(
             "bg-stone-800 text-white",
-            "hover:bg-stone-800 hover:text-white",
-            "focus:bg-stone-800 focus:text-white"
+            /* Inner day button holds the number — must match td contrast */
+            "[&_button]:!text-white [&_button]:bg-transparent",
+            "[&_button]:hover:!text-white [&_button]:hover:bg-white/10",
+            "[&_button]:focus-visible:!text-white [&_button]:focus-visible:bg-white/10"
           ),
           today: cn(
             "rounded-md border border-stone-300 bg-stone-50 font-medium text-stone-900",
-            "data-[selected=true]:border-transparent"
+            "data-[selected=true]:border-transparent data-[selected=true]:bg-stone-800 data-[selected=true]:!text-white"
           ),
           outside:
             "text-stone-400 opacity-70 aria-selected:bg-stone-100/80 aria-selected:text-stone-600 aria-selected:opacity-100",
