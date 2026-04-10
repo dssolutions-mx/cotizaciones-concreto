@@ -20,8 +20,8 @@ interface MaterialSelectionProps {
   };
   selectedMaterials: SelectedMaterials;
   materialSelectionStep: MaterialSelectionStep;
-  onMaterialSelect: (type: keyof SelectedMaterials, id: number) => void;
-  onMaterialRemove: (type: keyof SelectedMaterials, id: number) => void;
+  onMaterialSelect: (type: keyof SelectedMaterials, id: string) => void;
+  onMaterialRemove: (type: keyof SelectedMaterials, id: string) => void;
   onStepChange: (step: MaterialSelectionStep) => void;
   onComplete: () => void;
 }
@@ -35,8 +35,6 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
   onStepChange,
   onComplete
 }) => {
-  const idKey = (id: number | string) => String(id);
-
   // Validate material properties
   const validateMaterial = (material: MaterialWithPrice): string[] => {
     const errors: string[] = [];
@@ -76,18 +74,13 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
     type: keyof SelectedMaterials,
     allowMultiple: boolean = false
   ) => {
-    const selected = type === 'cement' 
-      ? (selectedMaterials[type] ? [selectedMaterials[type]] : [])
-      : selectedMaterials[type as 'sands' | 'gravels' | 'additives'];
-
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {materials.map((material) => {
-          const numericId = parseInt(String(material.id), 10);
           const isSelected =
             type === 'cement'
-              ? selectedMaterials.cement != null && idKey(selectedMaterials.cement) === material.id
-              : (selected as number[]).some((sid) => idKey(sid) === material.id);
+              ? selectedMaterials.cement === material.id
+              : selectedMaterials[type as 'sands' | 'gravels' | 'additives'].includes(material.id);
 
           const validationErrors = validateMaterial(material);
           const hasErrors = validationErrors.length > 0;
@@ -100,9 +93,9 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
               } ${hasErrors ? 'border-red-300 bg-red-50' : ''}`}
               onClick={() => {
                 if (isSelected && type !== 'cement') {
-                  onMaterialRemove(type, numericId);
+                  onMaterialRemove(type, material.id);
                 } else if (!isSelected) {
-                  onMaterialSelect(type, numericId);
+                  onMaterialSelect(type, material.id);
                 }
               }}
             >
@@ -194,9 +187,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Cemento:</h4>
                 {selectedMaterials.cement && (
                   <Badge variant="default">
-                    {availableMaterials.cements.find(
-                      (c) => c.id === idKey(selectedMaterials.cement!)
-                    )?.material_name}
+                    {availableMaterials.cements.find((c) => c.id === selectedMaterials.cement)?.material_name}
                   </Badge>
                 )}
               </div>
@@ -205,7 +196,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Arenas:</h4>
                 <div className="flex flex-wrap gap-2">
                   {selectedMaterials.sands.map(id => {
-                    const sand = availableMaterials.sands.find((s) => s.id === idKey(id));
+                    const sand = availableMaterials.sands.find((s) => s.id === id);
                     return sand && (
                       <Badge key={id} variant="secondary">{sand.material_name}</Badge>
                     );
@@ -217,7 +208,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Gravas:</h4>
                 <div className="flex flex-wrap gap-2">
                   {selectedMaterials.gravels.map(id => {
-                    const gravel = availableMaterials.gravels.find((g) => g.id === idKey(id));
+                    const gravel = availableMaterials.gravels.find((g) => g.id === id);
                     return gravel && (
                       <Badge key={id} variant="secondary">{gravel.material_name}</Badge>
                     );
@@ -230,7 +221,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                   <h4 className="font-medium text-sm text-gray-700 mb-2">Aditivos:</h4>
                   <div className="flex flex-wrap gap-2">
                     {selectedMaterials.additives.map(id => {
-                      const additive = availableMaterials.additives.find((a) => a.id === idKey(id));
+                      const additive = availableMaterials.additives.find((a) => a.id === id);
                       return additive && (
                         <Badge key={id} variant="outline">{additive.material_name}</Badge>
                       );

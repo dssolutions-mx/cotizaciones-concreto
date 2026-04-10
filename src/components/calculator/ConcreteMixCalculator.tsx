@@ -439,7 +439,7 @@ const ConcreteMixCalculator = () => {
     
     // Validate cement
     if (selectedMaterials.cement) {
-      const cement = availableMaterials.cements.find(c => c.id === selectedMaterials.cement!.toString());
+      const cement = availableMaterials.cements.find((c) => c.id === selectedMaterials.cement);
       if (cement) {
         errors.push(...validateMaterialProperties(cement, `Cemento: ${cement.material_name}`));
       }
@@ -447,7 +447,7 @@ const ConcreteMixCalculator = () => {
     
     // Validate sands
     selectedMaterials.sands.forEach((id, index) => {
-      const sand = availableMaterials.sands.find(s => s.id === id.toString());
+      const sand = availableMaterials.sands.find((s) => s.id === id);
       if (sand) {
         errors.push(...validateMaterialProperties(sand, `Arena ${index + 1}: ${sand.material_name}`));
       }
@@ -455,7 +455,7 @@ const ConcreteMixCalculator = () => {
     
     // Validate gravels
     selectedMaterials.gravels.forEach((id, index) => {
-      const gravel = availableMaterials.gravels.find(g => g.id === id.toString());
+      const gravel = availableMaterials.gravels.find((g) => g.id === id);
       if (gravel) {
         errors.push(...validateMaterialProperties(gravel, `Grava ${index + 1}: ${gravel.material_name}`));
       }
@@ -463,7 +463,7 @@ const ConcreteMixCalculator = () => {
     
     // Validate additives
     selectedMaterials.additives.forEach((id, index) => {
-      const additive = availableMaterials.additives.find(a => a.id === id.toString());
+      const additive = availableMaterials.additives.find((a) => a.id === id);
       if (additive) {
         errors.push(...validateMaterialProperties(additive, `Aditivo ${index + 1}: ${additive.material_name}`));
       }
@@ -489,7 +489,7 @@ const ConcreteMixCalculator = () => {
     
     // Set cement with real data
     if (selectedMaterials.cement) {
-      const cement = availableMaterials.cements.find(c => c.id === selectedMaterials.cement!.toString());
+      const cement = availableMaterials.cements.find((c) => c.id === selectedMaterials.cement);
       if (cement) {
         calculatorMaterials.cement = {
           id: 1,
@@ -503,7 +503,7 @@ const ConcreteMixCalculator = () => {
     
     // Set sands with real data
     calculatorMaterials.sands = selectedMaterials.sands.map((id, index) => {
-      const sand = availableMaterials.sands.find(s => s.id === id.toString());
+      const sand = availableMaterials.sands.find((s) => s.id === id);
       return {
         id: index,
         name: sand?.material_name || `ARENA ${index + 1}`,
@@ -515,7 +515,7 @@ const ConcreteMixCalculator = () => {
     
     // Set gravels with real data
     calculatorMaterials.gravels = selectedMaterials.gravels.map((id, index) => {
-      const gravel = availableMaterials.gravels.find(g => g.id === id.toString());
+      const gravel = availableMaterials.gravels.find((g) => g.id === id);
       return {
         id: index,
         name: gravel?.material_name || `GRAVA ${index + 1}`,
@@ -527,7 +527,7 @@ const ConcreteMixCalculator = () => {
     
     // Set additives with real data
     calculatorMaterials.additives = selectedMaterials.additives.map((id, index) => {
-      const additive = availableMaterials.additives.find(a => a.id === id.toString());
+      const additive = availableMaterials.additives.find((a) => a.id === id);
       return {
         id: index,
         name: additive?.material_name || `ADITIVO ${index + 1}`,
@@ -888,7 +888,7 @@ const ConcreteMixCalculator = () => {
     
     const codes: Record<string, { longCode: string; shortCode: string }> = {};
     const detectNames = selectedMaterials.additives
-      .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name || '')
+      .map((id) => availableMaterials.additives.find((a) => a.id === id)?.material_name || '')
       .filter(Boolean) as string[];
     
     memoizedRecipes.forEach(r => {
@@ -940,7 +940,7 @@ const ConcreteMixCalculator = () => {
   }, [arkikCodesMemoized]);
 
   // Handle material selection
-  const handleMaterialSelect = (type: keyof SelectedMaterials, id: number) => {
+  const handleMaterialSelect = (type: keyof SelectedMaterials, id: string) => {
     if (type === 'cement') {
       setSelectedMaterials(prev => ({ ...prev, cement: id }));
     } else {
@@ -951,11 +951,11 @@ const ConcreteMixCalculator = () => {
     }
   };
 
-  const handleMaterialRemove = (type: keyof SelectedMaterials, id: number) => {
+  const handleMaterialRemove = (type: keyof SelectedMaterials, id: string) => {
     if (type !== 'cement') {
       setSelectedMaterials(prev => ({
         ...prev,
-        [type]: prev[type as 'sands' | 'gravels' | 'additives'].filter(i => i !== id)
+        [type]: prev[type as 'sands' | 'gravels' | 'additives'].filter((i) => i !== id)
       }));
     }
   };
@@ -3338,10 +3338,10 @@ const ConcreteMixCalculator = () => {
                     }
                   }
                   selectionMap = {
-                    cementId: selectedMaterials.cement ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement) : undefined,
-                    sandIds: selectedMaterials.sands.map(id => String(id)),
-                    gravelIds: selectedMaterials.gravels.map(id => String(id)),
-                    additiveIds: selectedMaterials.additives.map(id => String(id))
+                    cementId: selectedMaterials.cement ?? undefined,
+                    sandIds: [...selectedMaterials.sands],
+                    gravelIds: [...selectedMaterials.gravels],
+                    additiveIds: [...selectedMaterials.additives]
                   };
                   
                   // Detect PCE from recipes if auto-detection is enabled

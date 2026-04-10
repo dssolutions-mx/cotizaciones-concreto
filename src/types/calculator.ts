@@ -191,11 +191,12 @@ export interface Materials {
   additives: Additive[];
 }
 
+/** DB material ids are strings (UUID or numeric string); store them as-is for reliable lookup. */
 export interface SelectedMaterials {
-  cement: number | null;
-  sands: number[];
-  gravels: number[];
-  additives: number[];
+  cement: string | null;
+  sands: string[];
+  gravels: string[];
+  additives: string[];
 }
 
 export type MaterialSelectionStep = 'cement' | 'sands' | 'gravels' | 'additives' | 'complete';
