@@ -71,6 +71,7 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
 
             const ensayoViewId = primaryEnsayoIdForView(m)
             const isDiscarded = m.estado === 'DESCARTADO'
+            const isNoRealizado = m.estado === 'NO_REALIZADO'
             const isPending = m.estado === 'PENDIENTE'
             const isTested = m.estado === 'ENSAYADO'
 
@@ -92,14 +93,18 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                       'text-[10px] px-1.5 py-0 shrink-0',
                       m.estado === 'ENSAYADO' && 'border-emerald-200 text-emerald-800 bg-emerald-50',
                       m.estado === 'PENDIENTE' && 'border-amber-200 text-amber-800 bg-amber-50',
-                      m.estado === 'DESCARTADO' && 'border-stone-200 text-stone-600 bg-stone-100'
+                      m.estado === 'DESCARTADO' && 'border-stone-200 text-stone-600 bg-stone-100',
+                      m.estado === 'NO_REALIZADO' &&
+                        'border-stone-300 text-stone-800 bg-stone-200'
                     )}
                   >
                     {m.estado === 'ENSAYADO'
                       ? 'Ensayado'
                       : m.estado === 'PENDIENTE'
                         ? 'Pendiente'
-                        : 'Descartado'}
+                        : m.estado === 'NO_REALIZADO'
+                          ? 'No realizado'
+                          : 'Descartado'}
                   </Badge>
                 </div>
                 <div className="text-[10px] text-stone-500 mb-1">
@@ -145,6 +150,16 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                 <div
                   key={m.id}
                   className={cn(baseTile, 'border-stone-200 cursor-default opacity-60')}
+                >
+                  {tileInner}
+                </div>
+              )
+            }
+            if (isNoRealizado) {
+              return (
+                <div
+                  key={m.id}
+                  className={cn(baseTile, 'border-stone-200 cursor-default opacity-80')}
                 >
                   {tileInner}
                 </div>

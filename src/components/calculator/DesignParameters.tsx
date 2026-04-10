@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, Plus, Trash2, Droplets, FlaskRound } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Settings, Plus, Trash2, Droplets, FlaskRound, ChevronDown } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -7,10 +7,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DesignParams, RecipeParams, Materials, DesignType, WaterQuantities } from '@/types/calculator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  DesignParams,
+  RecipeParams,
+  Materials,
+  DesignType,
+  WaterQuantities,
+  RoundingModeKg5,
+  AdditiveRuleField,
+  AdditiveSystemConfigField,
+  WaterDefinitionField
+} from '@/types/calculator';
 import { AGGREGATE_SIZES, AIR_CONTENTS, FC_STRENGTHS, MR_STRENGTHS } from '@/lib/calculator/constants';
 import { getCementRangeCompletionStatus, getStandardDeviationForStrength } from '@/lib/calculator/calculations';
 import { CONCRETE_TYPES, ConcreteTypeCode } from '@/config/concreteTypes';
+import type { CalculatorValidationIssue } from '@/lib/calculator/validation';
+import { calculatorFilterControlClass } from '@/components/calculator/calculatorHubUi';
+import { cn } from '@/lib/utils';
 
 interface DesignParametersProps {
   designType: DesignType;
@@ -31,11 +46,13 @@ interface DesignParametersProps {
   onVarianteChange: (value: string) => void;
   onEnablePceAutoDetectionChange: (enabled: boolean) => void;
   onCombinationChange: (index: number, value: string, type: string) => void;
-  onWaterDefinitionChange: (index: number, field: string, value: any) => void;
-  onAdditiveSystemConfigChange: (field: string, value: any) => void;
-  onAdditiveRuleChange: (ruleIndex: number, field: string, value: any) => void;
+  onWaterDefinitionChange: (index: number, field: WaterDefinitionField, value: boolean | number | 'D' | 'B') => void;
+  onAdditiveSystemConfigChange: (field: AdditiveSystemConfigField, value: number) => void;
+  onAdditiveRuleChange: (ruleIndex: number, field: AdditiveRuleField, value: number) => void;
   onAddAdditiveRule: () => void;
   onRemoveAdditiveRule: (ruleIndex: number) => void;
+  /** Errores bloqueantes del validador central (combinaciones, agua, MR, aditivos) */
+  blockingValidationIssues?: CalculatorValidationIssue[];
 }
 
 export const DesignParameters: React.FC<DesignParametersProps> = ({
@@ -61,8 +78,22 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   onAdditiveSystemConfigChange,
   onAdditiveRuleChange,
   onAddAdditiveRule,
-  onRemoveAdditiveRule
+  onRemoveAdditiveRule,
+  blockingValidationIssues = []
 }) => {
+  const [combinationsOpen, setCombinationsOpen] = useState(false);
+  const [additiveRulesOpen, setAdditiveRulesOpen] = useState(true);
+
+  const combinationSummary = useMemo(() => {
+    const fmt = (arr: number[]) => (arr.length ? arr.map((n) => n.toFixed(0)).join('/') : '—');
+    return {
+      sandTd: fmt(designParams.sandCombinationTD),
+      sandBomb: fmt(designParams.sandCombinationBomb),
+      gravelTd: fmt(designParams.gravelCombinationTD),
+      gravelBomb: fmt(designParams.gravelCombinationBomb)
+    };
+  }, [designParams]);
+
   // Debounced validation state to avoid constant error messages while typing
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null);
@@ -265,6 +296,19 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
 
   return (
     <div className="space-y-6">
+      {blockingValidationIssues.length > 0 && (
+        <Alert variant="destructive" className="border-red-200 bg-red-50">
+          <AlertDescription>
+            <p className="font-semibold text-red-900 mb-1">Revise parámetros antes de generar recetas</p>
+            <ul className="text-sm text-red-800 list-disc list-inside space-y-0.5">
+              {blockingValidationIssues.map((issue) => (
+                <li key={issue.id}>{issue.message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Design Type Selection */}
       <Card>
         <CardHeader>
@@ -448,10 +492,12 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <div>
               <Label>Unidad de Edad</Label>
               <Select
-                value={(recipeParams.ageUnit as any) || 'D'}
-                onValueChange={(v) => onRecipeParamsChange({ ...(recipeParams as any), ageUnit: v as any })}
+                value={recipeParams.ageUnit}
+                onValueChange={(v) =>
+                  onRecipeParamsChange({ ageUnit: v === 'H' ? 'H' : 'D' })
+                }
               >
-                <SelectTrigger className="h-10">
+                <SelectTrigger className={cn('h-10', calculatorFilterControlClass)}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -482,8 +528,12 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 <Input
                   id="ageHours"
                   type="number"
-                  value={(recipeParams as any).ageHours || ''}
-                  onChange={(e) => onRecipeParamsChange({ ...(recipeParams as any), ageHours: e.target.value ? parseInt(e.target.value) : undefined })}
+                  value={recipeParams.ageHours ?? ''}
+                  onChange={(e) =>
+                    onRecipeParamsChange({
+                      ageHours: e.target.value ? parseInt(e.target.value, 10) : undefined
+                    })
+                  }
                   min="1"
                   max="720"
                   step="1"
@@ -506,6 +556,29 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 className="h-10"
                 placeholder="19.0"
               />
+            </div>
+
+            <div className="col-span-3">
+              <Label htmlFor="rounding-mode-kg5">Redondeo masas (cemento y agregados, kg/m³ a múltiplos de 5)</Label>
+              <Select
+                value={recipeParams.roundingModeKg5 ?? 'CEIL_5'}
+                onValueChange={(v) =>
+                  onRecipeParamsChange({ roundingModeKg5: v as RoundingModeKg5 })
+                }
+              >
+                <SelectTrigger id="rounding-mode-kg5" className={cn('h-10', calculatorFilterControlClass)}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CEIL_5">Hacia arriba (ceil) — igual al comportamiento histórico</SelectItem>
+                  <SelectItem value="MROUND_5">Al más cercano (MROUND)</SelectItem>
+                  <SelectItem value="FLOOR_5">Hacia abajo (floor)</SelectItem>
+                  <SelectItem value="NONE">Sin redondeo a 5 kg/m³</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                El A/C efectivo puede variar respecto a la curva cuando el cemento redondeado no coincide exactamente con el agua.
+              </p>
             </div>
 
             <div className="col-span-3">
@@ -1093,7 +1166,9 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                     <div className="flex items-center gap-2">
                       <Checkbox
                         checked={def.enabled}
-                        onCheckedChange={(checked) => onWaterDefinitionChange(index, 'enabled', checked)}
+                        onCheckedChange={(checked) =>
+                          onWaterDefinitionChange(index, 'enabled', checked === true)
+                        }
                       />
                       <Label className="text-sm font-medium">
                         Rev {def.slump}cm {def.placement}
@@ -1116,7 +1191,9 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                       <Label className="text-xs">Colocación</Label>
                       <Select
                         value={def.placement}
-                        onValueChange={(value) => onWaterDefinitionChange(index, 'placement', value)}
+                        onValueChange={(value) =>
+                          onWaterDefinitionChange(index, 'placement', value === 'B' ? 'B' : 'D')
+                        }
                       >
                         <SelectTrigger className="h-8">
                           <SelectValue />
@@ -1161,7 +1238,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 </div>
               ))}
             </div>
-            
+
             <div className="mt-4 p-3 bg-yellow-50 rounded-lg">
               <p className="text-xs text-yellow-800">
                 💡 <strong>Ejemplo:</strong> Si solo habilitas "Rev 10D" y "Rev 14B", entonces para FC se generarán recetas solo con esas combinaciones: FC100-10D, FC100-14B, FC150-10D, FC150-14B, etc.
@@ -1212,11 +1289,22 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
           </div>
 
           {/* Additive Rules */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="font-semibold text-gray-800">
-                📋 Reglas de Distribución de Aditivos
-              </h4>
+          <Collapsible open={additiveRulesOpen} onOpenChange={setAdditiveRulesOpen}>
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 text-left font-semibold text-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30 rounded"
+                >
+                  <ChevronDown
+                    className={cn('h-4 w-4 shrink-0 transition-transform', additiveRulesOpen && 'rotate-180')}
+                  />
+                  Reglas de distribución de aditivos
+                  <span className="text-xs font-normal text-stone-500">
+                    ({recipeParams.additiveSystemConfig?.additiveRules?.length ?? 0})
+                  </span>
+                </button>
+              </CollapsibleTrigger>
               <Button
                 onClick={() => {
                   handleUserInteraction();
@@ -1224,17 +1312,18 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 }}
                 size="sm"
                 variant="outline"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 shrink-0"
               >
                 <Plus className="h-4 w-4" />
                 Agregar Regla
               </Button>
             </div>
-            
-            <div className="space-y-3">
-              {recipeParams.additiveSystemConfig?.additiveRules?.map((rule, index) => (
-                <div key={index} className="bg-white p-4 rounded-lg border">
-                  <div className="grid grid-cols-6 gap-3 items-center">
+
+            <CollapsibleContent>
+              <div className="space-y-3">
+                {(recipeParams.additiveSystemConfig?.additiveRules ?? []).map((rule, index) => (
+                  <div key={index} className="bg-white p-4 rounded-lg border">
+                    <div className="grid grid-cols-6 gap-3 items-center">
                     <div>
                       <Label className="text-xs">Aditivo</Label>
                       <Select
@@ -1344,11 +1433,13 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                     )}
                   </div>
                 </div>
-              ))}
-            </div>
-            
-            {/* Show typing indicator when validation is hidden */}
-            {!showValidationErrors && recipeParams.additiveSystemConfig?.additiveRules && recipeParams.additiveSystemConfig.additiveRules.length > 0 && (
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          {/* Show typing indicator when validation is hidden */}
+          {!showValidationErrors && recipeParams.additiveSystemConfig?.additiveRules && recipeParams.additiveSystemConfig.additiveRules.length > 0 && (
               <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2">
                   <div className="animate-pulse h-2 w-2 bg-blue-500 rounded-full"></div>
@@ -1435,10 +1526,9 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 <br/><br/>
                 ⚠️ <strong>Comportamiento Esperado:</strong> FC400 con diferentes revenimientos puede usar 430-465 kg/m³ de cemento, activando la regla 400-600 kg/m³. Si no hay segundo aditivo disponible, solo se mostrará el primero.
                 <br/><br/>
-                📝 <strong>Nota importante:</strong> Los rangos son excluyentes en el límite superior. Por ejemplo, si tienes reglas 0-300 y 300-1000, en exactamente 300 kg/m³ solo aplicará la segunda regla (300-1000), evitando superposiciones.
+                📝 <strong>Nota importante:</strong> Los rangos son excluyentes en el límite superior. Por ejemplo, si tienes reglas 0-300 y 300-1000, en exactamente 300 kg/m³ solo aplicará la segunda regla (300-1000),                 evitando superposiciones.
               </p>
             </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -1446,37 +1536,57 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
 
       {/* Material Combinations */}
       {materials.sands.length > 0 && materials.gravels.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Combinaciones de Materiales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="sand-td">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="sand-td">Arena TD</TabsTrigger>
-                <TabsTrigger value="sand-bomb">Arena Bombeo</TabsTrigger>
-                <TabsTrigger value="gravel-td">Grava TD</TabsTrigger>
-                <TabsTrigger value="gravel-bomb">Grava Bombeo</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="sand-td" className="mt-4">
-                {renderCombinationInputs('sand', 'TD')}
-              </TabsContent>
-              
-              <TabsContent value="sand-bomb" className="mt-4">
-                {renderCombinationInputs('sand', 'Bomb')}
-              </TabsContent>
-              
-              <TabsContent value="gravel-td" className="mt-4">
-                {renderCombinationInputs('gravel', 'TD')}
-              </TabsContent>
-              
-              <TabsContent value="gravel-bomb" className="mt-4">
-                {renderCombinationInputs('gravel', 'Bomb')}
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        <Collapsible open={combinationsOpen} onOpenChange={setCombinationsOpen}>
+          <Card>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="w-full text-left rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/30"
+              >
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <div>
+                    <CardTitle>Combinaciones de Materiales</CardTitle>
+                    <p className="text-xs text-stone-500 font-normal mt-1">
+                      Arena TD {combinationSummary.sandTd} · Bombeo {combinationSummary.sandBomb} · Grava TD{' '}
+                      {combinationSummary.gravelTd} · Bombeo {combinationSummary.gravelBomb}
+                    </p>
+                  </div>
+                  <ChevronDown
+                    className={cn('h-5 w-5 shrink-0 text-stone-500 transition-transform', combinationsOpen && 'rotate-180')}
+                  />
+                </CardHeader>
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent>
+                <Tabs defaultValue="sand-td">
+                  <TabsList className="grid w-full grid-cols-4">
+                    <TabsTrigger value="sand-td">Arena TD</TabsTrigger>
+                    <TabsTrigger value="sand-bomb">Arena Bombeo</TabsTrigger>
+                    <TabsTrigger value="gravel-td">Grava TD</TabsTrigger>
+                    <TabsTrigger value="gravel-bomb">Grava Bombeo</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="sand-td" className="mt-4">
+                    {renderCombinationInputs('sand', 'TD')}
+                  </TabsContent>
+
+                  <TabsContent value="sand-bomb" className="mt-4">
+                    {renderCombinationInputs('sand', 'Bomb')}
+                  </TabsContent>
+
+                  <TabsContent value="gravel-td" className="mt-4">
+                    {renderCombinationInputs('gravel', 'TD')}
+                  </TabsContent>
+
+                  <TabsContent value="gravel-bomb" className="mt-4">
+                    {renderCombinationInputs('gravel', 'Bomb')}
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       )}
     </div>
   );

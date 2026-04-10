@@ -98,12 +98,14 @@ export default function MuestreoSpecimenGrid({
                             ? 'bg-green-100 text-green-800 border-green-300'
                             : muestra.estado === 'DESCARTADO'
                               ? ''
-                              : 'bg-stone-100 text-stone-800 border-stone-300'
+                              : muestra.estado === 'NO_REALIZADO'
+                                ? 'bg-stone-200 text-stone-800 border-stone-400'
+                                : 'bg-stone-100 text-stone-800 border-stone-300'
                         }`}
                       >
-                        {muestra.estado}
+                        {muestra.estado === 'NO_REALIZADO' ? 'No realizado' : muestra.estado}
                       </Badge>
-                      {muestra.estado !== 'ENSAYADO' && (
+                      {(muestra.estado === 'PENDIENTE' || muestra.estado === 'DESCARTADO') && (
                         <Button
                           type="button"
                           variant="ghost"
@@ -143,7 +145,16 @@ export default function MuestreoSpecimenGrid({
                     ) : null
                   })()}
 
-                  {muestra.estado === 'PENDIENTE' ? (
+                  {muestra.estado === 'NO_REALIZADO' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={cn(qualityHubOutlineNeutralClass, 'w-full h-9')}
+                      disabled
+                    >
+                      No realizado
+                    </Button>
+                  ) : muestra.estado === 'PENDIENTE' ? (
                     <Link href={`/quality/ensayos/new?muestra=${muestra.id}`}>
                       <Button
                         size="sm"

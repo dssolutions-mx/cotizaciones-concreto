@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info, Plus, Minus, RefreshCw } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -10,6 +10,17 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,7 +38,11 @@ import {
   FCROverrides,
   CalculatorMaterial,
   Additive,
-  CalculatedAdditive
+  CalculatedAdditive,
+  MaterialWeights,
+  WaterDefinitionField,
+  AdditiveSystemConfigField,
+  AdditiveRuleField
 } from '@/types/calculator';
 
 // Constants
@@ -42,7 +57,9 @@ import {
   FC_PLACEMENTS,
   MR_PLACEMENTS,
   DEFAULT_WATER_DEFINITIONS,
-  DEFAULT_ADDITIVE_SYSTEM_CONFIG
+  DEFAULT_ADDITIVE_SYSTEM_CONFIG,
+  DEFAULT_ROUNDING_MODE_KG5,
+  AC_RATIO_DRIFT_EPSILON
 } from '@/lib/calculator/constants';
 
 // Utilities
@@ -54,7 +71,6 @@ import {
   calculateCosts,
   calculateSandWeights,
   calculateGravelWeights,
-  calculateAbsorptionWater,
   generateRecipeCode,
   getMortarVolume,
   calculateAdditives,
@@ -62,8 +78,28 @@ import {
   validateWaterDefinitions,
   validateAdditiveSystemConfig,
   getCementRangeCompletionStatus,
-  roundToNearestMultipleOf5
+  roundKgPerM3ToStep,
+  cementKgFromWaterAndAc,
+  effectiveAcRatioFromMaterials,
+  calculateAbsorptionWaterSplit
 } from '@/lib/calculator/calculations';
+import { runCalculatorValidation } from '@/lib/calculator/validation';
+import { toCalculatorRecipe } from '@/lib/calculator/recipeMapping';
+import type { PreflightMasterRow, PreflightRecipeRow } from '@/lib/calculator/preflightTypes';
+import {
+  saveCalculatorDraft,
+  loadCalculatorDraft,
+  clearCalculatorDraft,
+  type CalculatorDraftPayload
+} from '@/lib/calculator/calculatorDraft';
+import {
+  calculatorPageBgClass,
+  calculatorCardClass,
+  calculatorPrimaryButtonClass,
+  calculatorOutlineNeutralClass,
+  calculatorMutedCalloutClass
+} from '@/components/calculator/calculatorHubUi';
+import { CalculatorRecipeKpiStrip, type RowFilter } from '@/components/calculator/CalculatorRecipeKpiStrip';
 
 // Components
 import { MaterialSelection } from './MaterialSelection';
@@ -78,11 +114,20 @@ import {
   retryPopulateMaterialsForSavedVersions,
   type MaterialRetryVersionTarget
 } from '@/lib/services/calculatorService';
-import type { CalculatorSaveDecision } from '@/types/masterRecipes';
+import type { CalculatorSaveDecision, SaveAction } from '@/types/masterRecipes';
 import { computeArkikCodes } from '@/lib/utils/masterRecipeUtils';
 import { CONCRETE_TYPES, ConcreteTypeCode, getDefaultConcreteTypeForDesignType } from '@/config/concreteTypes';
 
 type ConcreteTypePerRecipe = Record<string, ConcreteTypeCode>;
+
+function parseSaveAction(raw: string): SaveAction | null {
+  if (raw === 'updateVariant' || raw === 'createVariant' || raw === 'newMaster') return raw;
+  return null;
+}
+
+function parseMasterMode(raw: string): 'existing' | 'new' {
+  return raw === 'new' ? 'new' : 'existing';
+}
 
 const ConcreteMixCalculator = () => {
   const { profile } = useAuthBridge();
@@ -177,6 +222,7 @@ const ConcreteMixCalculator = () => {
     waterQuantitiesBomb: DEFAULT_WATER_QUANTITIES_BOMB,
     waterDefinitions: DEFAULT_WATER_DEFINITIONS,
     additiveSystemConfig: DEFAULT_ADDITIVE_SYSTEM_CONFIG,
+    roundingModeKg5: DEFAULT_ROUNDING_MODE_KG5,
     ageUnit: 'D',
     ageHours: undefined
   });
@@ -198,6 +244,13 @@ const ConcreteMixCalculator = () => {
   const [editingFCR, setEditingFCR] = useState<string | null>(null);
   const [tempFCR, setTempFCR] = useState<string>('');
   const [activeTab, setActiveTab] = useState('materials');
+  const [recipeRowFilter, setRecipeRowFilter] = useState<RowFilter>('all');
+  const [recipeTableDensity, setRecipeTableDensity] = useState<'comfortable' | 'compact'>(() => {
+    if (typeof window === 'undefined') return 'comfortable';
+    return window.localStorage.getItem('matriz.recipeTableDensity') === 'compact' ? 'compact' : 'comfortable';
+  });
+  const [draftPrompt, setDraftPrompt] = useState<CalculatorDraftPayload | null>(null);
+  const [clearOverridesOpen, setClearOverridesOpen] = useState(false);
 
   // Save-to-system confirmation modal
   const [saveOpen, setSaveOpen] = useState(false);
@@ -297,14 +350,22 @@ const ConcreteMixCalculator = () => {
       // Create price lookup maps (prefer material_id, fallback to material_type/code)
       const priceById = new Map<string, number>();
       const priceByType = new Map<string, number>();
-      materialPrices?.forEach((price: any) => {
-        if (price.material_id && !priceById.has(price.material_id)) {
-          priceById.set(price.material_id, price.price_per_unit);
+      materialPrices?.forEach(
+        (price: {
+          material_id?: string | null;
+          material_type?: string | null;
+          price_per_unit?: number | null;
+        }) => {
+          const p = price.price_per_unit;
+          if (p == null || Number.isNaN(p)) return;
+          if (price.material_id && !priceById.has(price.material_id)) {
+            priceById.set(price.material_id, p);
+          }
+          if (price.material_type && !priceByType.has(price.material_type)) {
+            priceByType.set(price.material_type, p);
+          }
         }
-        if (price.material_type && !priceByType.has(price.material_type)) {
-          priceByType.set(price.material_type, price.price_per_unit);
-        }
-      });
+      );
       
       // Validate and categorize materials with their prices
       // Use case-insensitive, space-tolerant subcategory matching for agregados
@@ -353,7 +414,7 @@ const ConcreteMixCalculator = () => {
   };
 
   // Validate material properties before allowing recipe generation
-  const validateMaterialProperties = (material: any, materialType: string): string[] => {
+  const validateMaterialProperties = (material: Material, materialType: string): string[] => {
     const errors: string[] = [];
     
     // Check required properties
@@ -522,12 +583,13 @@ const ConcreteMixCalculator = () => {
     
     // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
     // For MR recipes, the originalFcr already includes standard deviation, and MR adjustment is applied to it
-    const acRatio = calculateACRatio(
+    const acRatioFormula = calculateACRatio(
       originalFcr, 
       designParams.resistanceFactors,
       designType,
       designParams.mrFcrAdjustment
     );
+    const mode = recipeParams.roundingModeKg5;
     
     // Step 3: Calculate adjusted FCR for MR recipes (for display only)
     // For MR, standard deviation is already in originalFcr, then MR adjustment is applied
@@ -536,8 +598,8 @@ const ConcreteMixCalculator = () => {
     // Step 4: Use the provided water amount (no lookup needed)
     // const water = [provided as parameter]
     
-    // Step 4: Calculate cement quantity (rounded UP to nearest multiple of 5)
-    const cement = Math.ceil((water / acRatio) / 5) * 5;
+    // Step 4: Calculate cement quantity (rounding per recipeParams.roundingModeKg5)
+    const cement = cementKgFromWaterAndAc(water, acRatioFormula, mode);
     
     // Step 5: Get mortar volume
     const mortarVolume = getMortarVolume(designType, placement, slump, designParams.mortarVolumes);
@@ -578,30 +640,35 @@ const ConcreteMixCalculator = () => {
     
     // Step 10: Calculate sand and gravel SSD weights from volumes
     // IMPORTANT: Densities provided are bulk (SSD) specific gravity, so volume→kg yields SSD mass.
-    const sandSSDWeights = calculateSandWeights(volumes.sand, sandCombination, materials);
-    const gravelSSDWeights = calculateGravelWeights(volumes.gravel, gravelCombination, materials);
+    const sandSSDWeights = calculateSandWeights(volumes.sand, sandCombination, materials, mode);
+    const gravelSSDWeights = calculateGravelWeights(volumes.gravel, gravelCombination, materials, mode);
 
     // Convert SSD weights to OVEN-DRY for Dry state: W_dry = W_SSD / (1 + absorption)
-    const sandDryWeights: any = {};
-    const gravelDryWeights: any = {};
+    const sandDryWeights: MaterialWeights = {};
+    const gravelDryWeights: MaterialWeights = {};
     Object.keys(sandSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('sand', ''));
       const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeights[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeights[key] / (1 + a)));
+      const dryRaw = sandSSDWeights[key] / (1 + a);
+      const basePart = mode === 'NONE' ? dryRaw : Math.round(dryRaw);
+      sandDryWeights[key] = roundKgPerM3ToStep(basePart, mode);
     });
     Object.keys(gravelSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('gravel', ''));
       const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeights[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeights[key] / (1 + a)));
+      const dryRaw = gravelSSDWeights[key] / (1 + a);
+      const basePart = mode === 'NONE' ? dryRaw : Math.round(dryRaw);
+      gravelDryWeights[key] = roundKgPerM3ToStep(basePart, mode);
     });
     
-    // Step 11: Calculate absorption water using SSD weights × absorption
-    const absorptionWater = calculateAbsorptionWater(materials, sandSSDWeights, gravelSSDWeights);
+    // Step 11: Absorption water (total + split by material, not fixed 60/40)
+    const absorptionSplit = calculateAbsorptionWaterSplit(materials, sandSSDWeights, gravelSSDWeights);
+    const absorptionWater = absorptionSplit.total;
     const waterTotal = water + absorptionWater;
 
     // Step 12: Create materials SSS and Dry
     // In SSS (SSD) state, show user-defined effective water (no absorption added)
-    const materialsSSS: any = {
+    const materialsSSS: MaterialWeights = {
       cement,
       water: Math.round(water),
       ...sandSSDWeights,
@@ -622,7 +689,7 @@ const ConcreteMixCalculator = () => {
     
     // Calculate dry materials (adjust water and aggregates)
     // In Dry state, add absorption water and convert SSD aggregate weights to oven-dry
-    const materialsDry: any = {
+    const materialsDry: MaterialWeights = {
       cement,
       water: Math.round(waterTotal), // Effective water + absorption
       ...sandDryWeights,
@@ -685,8 +752,12 @@ const ConcreteMixCalculator = () => {
       }
     });
     
-    const ageUnit: 'D' | 'H' = (recipeParams as any).ageUnit === 'H' ? 'H' : 'D';
-    const ageValue = ageUnit === 'H' && (recipeParams as any).ageHours ? (recipeParams as any).ageHours : designParams.age;
+    const ageUnit: 'D' | 'H' = recipeParams.ageUnit === 'H' ? 'H' : 'D';
+    const ageValue =
+      ageUnit === 'H' && recipeParams.ageHours != null ? recipeParams.ageHours : designParams.age;
+
+    const waterRounded = Math.round(water);
+    const acRatioEffective = effectiveAcRatioFromMaterials(waterRounded, cement);
 
     return {
       code: generateRecipeCode(designType, strength, slump, placement, ageValue, ageUnit),
@@ -697,7 +768,8 @@ const ConcreteMixCalculator = () => {
       placement,
       aggregateSize,
       fcr,
-      acRatio,
+      acRatio: acRatioEffective,
+      acRatioFormula,
       materialsSSS,
       materialsDry,
       volumes,
@@ -708,173 +780,33 @@ const ConcreteMixCalculator = () => {
       costs,
       extraWater: Math.round(absorptionWater),
       absorptionDetails: {
-        sandAbsorptionWater: Math.round(absorptionWater * 0.6), // Aproximación
-        gravelAbsorptionWater: Math.round(absorptionWater * 0.4) // Aproximación
+        sandAbsorptionWater: absorptionSplit.sandAbsorptionWater,
+        gravelAbsorptionWater: absorptionSplit.gravelAbsorptionWater
       },
       calculatedAdditives: calculatedAdditivesLegacy2
     };
   };
 
-  // Calculate single recipe following the correct methodology (LEGACY - for backwards compatibility)
-  const calculateRecipe = (
-    strength: number, 
-    slump: number, 
-    placement: string, 
-    aggregateSize: number
-  ): Recipe => {
-    // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
-    const originalFcr = calculateFcr(strength, designParams.standardDeviation);
-    
-    // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
-    // For MR recipes, the originalFcr already includes standard deviation, and MR adjustment is applied to it
-    const acRatio = calculateACRatio(
-      originalFcr, 
-      designParams.resistanceFactors,
-      designType,
-      designParams.mrFcrAdjustment
-    );
-    
-    // Step 3: Calculate adjusted FCR for MR recipes (for display only)
-    // For MR, standard deviation is already in originalFcr, then MR adjustment is applied
-    const fcr = getAdjustedFcr(originalFcr);
-    
-    // Step 4: Determine water quantity
-    const waterQuantities = placement === 'D' 
-      ? recipeParams.waterQuantitiesTD 
-      : recipeParams.waterQuantitiesBomb;
-    const waterKey = getWaterKey(slump, placement);
-    const water = waterQuantities[waterKey] || waterQuantities['14D'];
-    
-    // Step 4: Calculate cement quantity (rounded UP to nearest multiple of 5)
-    const cement = Math.ceil((water / acRatio) / 5) * 5;
-    
-    // Step 5: Get mortar volume
-    const mortarVolume = getMortarVolume(designType, placement, slump, designParams.mortarVolumes);
-    
-    // Step 6: Calculate air content
-    const airContentPercent = placement === 'D' ? designParams.airContentTD : designParams.airContentBomb;
-    
-    // Step 7: Get combinations
-    const sandCombination = placement === 'D' 
-      ? designParams.sandCombinationTD 
-      : designParams.sandCombinationBomb;
-    const gravelCombination = placement === 'D' 
-      ? designParams.gravelCombinationTD 
-      : designParams.gravelCombinationBomb;
-    
-    // Step 8: Calculate additives using dynamic system (need for volumes)
-    const calculatedAdditivesLegacy = calculateAdditives(
-      strength,
-      cement,
-      materials,
-      recipeParams.additiveSystemConfig
-    );
+  const memoizedRecipesRef = useRef<Recipe[]>([]);
 
-    const totalAdditiveVolumeLitersLegacy = calculatedAdditivesLegacy.reduce((sum, ad) => sum + (ad.totalCC / 1000), 0);
+  const calculatorValidation = useMemo(
+    () => runCalculatorValidation(recipeParams, designParams, materials),
+    [recipeParams, designParams, materials]
+  );
 
-    const volumes = calculateVolumes(
-      materials,
-      cement,
-      water,
-      mortarVolume,
-      airContentPercent,
-      sandCombination,
-      gravelCombination,
-      totalAdditiveVolumeLitersLegacy
-    );
-    
-    // Step 9: Calculate sand and gravel SSD weights from volumes (see note above)
-    const sandSSDWeightsLegacy = calculateSandWeights(volumes.sand, sandCombination, materials);
-    const gravelSSDWeightsLegacy = calculateGravelWeights(volumes.gravel, gravelCombination, materials);
-
-    // Convert SSD → DRY for Dry state
-    const sandDryWeightsLegacy: any = {};
-    const gravelDryWeightsLegacy: any = {};
-    Object.keys(sandSSDWeightsLegacy).forEach(key => {
-      const idx = parseInt(key.replace('sand', ''));
-      const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeightsLegacy[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeightsLegacy[key] / (1 + a)));
-    });
-    Object.keys(gravelSSDWeightsLegacy).forEach(key => {
-      const idx = parseInt(key.replace('gravel', ''));
-      const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeightsLegacy[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeightsLegacy[key] / (1 + a)));
-    });
-
-    // Step 10: Calculate absorption water using SSD weights × absorption
-    const absorptionWater = calculateAbsorptionWater(materials, sandSSDWeightsLegacy, gravelSSDWeightsLegacy);
-    const waterTotal = water + absorptionWater;
-
-    // Step 12: Create materials SSS and Dry
-    const materialsSSS: any = {
-      cement,
-      water: Math.round(water),
-      ...sandSSDWeightsLegacy,
-      ...gravelSSDWeightsLegacy
-    };
-    
-    // Add calculated additives to materials (storing as LITERS as requested)
-    calculatedAdditivesLegacy.forEach((additive: CalculatedAdditive, index: number) => {
-      const volumeLiters = additive.totalCC / 1000; // Convert CC to liters
-      materialsSSS[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000; // Store in liters, rounded to 3 decimals
-    });
-    
-    // Calculate dry materials (adjust water and aggregates)
-    const materialsDry: any = {
-      cement,
-      water: Math.round(waterTotal), // Effective water + absorption makeup
-      ...sandDryWeightsLegacy,
-      ...gravelDryWeightsLegacy
-    };
-    
-    // Add additives to dry materials (same as SSS since additives don't absorb water, in LITERS)
-    calculatedAdditivesLegacy.forEach((additive: CalculatedAdditive, index: number) => {
-      const volumeLiters = additive.totalCC / 1000; // Convert CC to liters
-      materialsDry[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000; // Store in liters, rounded to 3 decimals
-    });
-    
-    // Dry weights already computed; no further adjustment needed
-    
-    // Step 12: Calculate costs
-    const costs = calculateCosts(materials, materialsSSS, calculatedAdditivesLegacy);
-
-    // Step 13: Calculate unit mass
-    const unitMassSSS = Object.values(materialsSSS).reduce((sum: number, val: any) => 
-      typeof val === 'number' ? sum + val : sum, 0
-    );
-    const unitMassDry = Object.values(materialsDry).reduce((sum: number, val: any) => 
-      typeof val === 'number' ? sum + val : sum, 0
-    );
-    
-    const ageUnit: 'D' | 'H' = (recipeParams as any).ageUnit === 'H' ? 'H' : 'D';
-    const ageValue = ageUnit === 'H' && (recipeParams as any).ageHours ? (recipeParams as any).ageHours : designParams.age;
-
-    return {
-      code: generateRecipeCode(designType, strength, slump, placement, ageValue, ageUnit),
-      strength,
-      age: ageValue,
-      ageUnit,
-      slump,
-      placement,
-      aggregateSize,
-      fcr,
-      acRatio,
-      materialsSSS,
-      materialsDry,
-      volumes,
-      unitMass: {
-        sss: Math.round(unitMassSSS),
-        dry: Math.round(unitMassDry)
-      },
-      costs,
-      extraWater: Math.round(absorptionWater),
-      absorptionDetails: {
-        sandAbsorptionWater: Math.round(absorptionWater * 0.6), // Aproximación
-        gravelAbsorptionWater: Math.round(absorptionWater * 0.4) // Aproximación
-      },
-      calculatedAdditives: calculatedAdditivesLegacy
-    };
-  };
+  const recipesForTable = useMemo(() => {
+    let list = generatedRecipes;
+    if (recipeRowFilter === 'overrides') {
+      list = list.filter((r) => fcrOverrides[r.code] !== undefined);
+    }
+    if (recipeRowFilter === 'drift') {
+      list = list.filter((r) => {
+        if (typeof r.acRatioFormula !== 'number' || Number.isNaN(r.acRatioFormula)) return false;
+        return Math.abs(r.acRatio - r.acRatioFormula) > AC_RATIO_DRIFT_EPSILON;
+      });
+    }
+    return list;
+  }, [generatedRecipes, recipeRowFilter, fcrOverrides]);
 
   // Memoize enabled combinations to avoid recalculating
   const enabledCombinations = useMemo(() => {
@@ -946,6 +878,10 @@ const ConcreteMixCalculator = () => {
     recalculationTrigger // Include recalculation trigger to allow manual recalculation
   ]);
 
+  useEffect(() => {
+    memoizedRecipesRef.current = memoizedRecipes;
+  }, [memoizedRecipes]);
+
   // Memoize ARKIK code generation - depends on generated recipes and concrete type settings
   const arkikCodesMemoized = useMemo(() => {
     if (memoizedRecipes.length === 0) return {};
@@ -998,11 +934,6 @@ const ConcreteMixCalculator = () => {
     selectedMaterials.additives,
     availableMaterials.additives
   ]);
-
-  // Update state when memoized values change
-  useEffect(() => {
-    setGeneratedRecipes(memoizedRecipes);
-  }, [memoizedRecipes]);
 
   useEffect(() => {
     setArkikCodes(arkikCodesMemoized);
@@ -1077,53 +1008,36 @@ const ConcreteMixCalculator = () => {
     setTempFCR(fcr.toString());
   };
 
-  // Helper function to recalculate a recipe with a new FCR value
-  const recalculateRecipeWithNewFCR = (recipe: Recipe, newFCR: number): Recipe => {
-    // Use the recipe's existing water value to maintain consistency
+  // Recalculate a recipe when user overrides FCR (same rounding + A/C effective rules as auto path)
+  const recalculateRecipeWithNewFCR = useCallback((recipe: Recipe, newFCR: number): Recipe => {
     const water = recipe.materialsSSS.water;
-    
-    // When user edits FCR, they're editing the already-adjusted FCR value (what's displayed)
-    // So we should use it directly for A/C calculation without applying adjustment again
     const adjustedFcr = newFCR;
-    
-    // When user edits FCR, they're editing the already-adjusted FCR value
-    // Use it directly for A/C calculation without applying adjustment again
-    const newACRatio = calculateACRatio(
+    const acRatioFormula = calculateACRatio(
       newFCR,
       designParams.resistanceFactors,
-      undefined, // Don't apply adjustment - value is already adjusted
-      undefined // Don't apply adjustment - value is already adjusted
+      undefined,
+      undefined
     );
-    
-    // Recalculate cement quantity (rounded UP to nearest multiple of 5)
-    const newCement = Math.ceil((water / newACRatio) / 5) * 5;
-    
-    // Get mortar volume
+    const mode = recipeParams.roundingModeKg5;
+    const newCement = cementKgFromWaterAndAc(water, acRatioFormula, mode);
+
     const mortarVolume = getMortarVolume(designType, recipe.placement, recipe.slump, designParams.mortarVolumes);
-    
-    // Calculate air content
     const airContentPercent = recipe.placement === 'D' ? designParams.airContentTD : designParams.airContentBomb;
-    
-    // Get combinations
-    const sandCombination = recipe.placement === 'D' 
-      ? designParams.sandCombinationTD 
+    const sandCombination = recipe.placement === 'D'
+      ? designParams.sandCombinationTD
       : designParams.sandCombinationBomb;
-    const gravelCombination = recipe.placement === 'D' 
-      ? designParams.gravelCombinationTD 
+    const gravelCombination = recipe.placement === 'D'
+      ? designParams.gravelCombinationTD
       : designParams.gravelCombinationBomb;
-    
-    // Calculate additives using dynamic system
+
     const calculatedAdditives = calculateAdditives(
       recipe.strength,
       newCement,
       materials,
       recipeParams.additiveSystemConfig
     );
-
-    // Sum additive volumes in liters
     const totalAdditiveVolumeLiters = calculatedAdditives.reduce((sum, ad) => sum + (ad.totalCC / 1000), 0);
 
-    // Calculate volumes with correct additive volume and air from absolute volume
     const volumes = calculateVolumes(
       materials,
       newCement,
@@ -1134,64 +1048,60 @@ const ConcreteMixCalculator = () => {
       gravelCombination,
       totalAdditiveVolumeLiters
     );
-    
-    // Calculate sand and gravel SSD weights from volumes
-    const sandSSDWeights = calculateSandWeights(volumes.sand, sandCombination, materials);
-    const gravelSSDWeights = calculateGravelWeights(volumes.gravel, gravelCombination, materials);
 
-    // Convert SSD weights to OVEN-DRY for Dry state
-    const sandDryWeights: any = {};
-    const gravelDryWeights: any = {};
+    const sandSSDWeights = calculateSandWeights(volumes.sand, sandCombination, materials, mode);
+    const gravelSSDWeights = calculateGravelWeights(volumes.gravel, gravelCombination, materials, mode);
+
+    const sandDryWeights: Record<string, number> = {};
+    const gravelDryWeights: Record<string, number> = {};
     Object.keys(sandSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('sand', ''));
       const a = (materials.sands[idx]?.absorption || 0) / 100;
-      sandDryWeights[key] = roundToNearestMultipleOf5(Math.round(sandSSDWeights[key] / (1 + a)));
+      const dryRaw = sandSSDWeights[key] / (1 + a);
+      const basePart = mode === 'NONE' ? dryRaw : Math.round(dryRaw);
+      sandDryWeights[key] = roundKgPerM3ToStep(basePart, mode);
     });
     Object.keys(gravelSSDWeights).forEach(key => {
       const idx = parseInt(key.replace('gravel', ''));
       const a = (materials.gravels[idx]?.absorption || 0) / 100;
-      gravelDryWeights[key] = roundToNearestMultipleOf5(Math.round(gravelSSDWeights[key] / (1 + a)));
+      const dryRaw = gravelSSDWeights[key] / (1 + a);
+      const basePart = mode === 'NONE' ? dryRaw : Math.round(dryRaw);
+      gravelDryWeights[key] = roundKgPerM3ToStep(basePart, mode);
     });
-    
-    // Calculate absorption water using SSD weights × absorption
-    const absorptionWater = calculateAbsorptionWater(materials, sandSSDWeights, gravelSSDWeights);
+
+    const absorptionSplit = calculateAbsorptionWaterSplit(materials, sandSSDWeights, gravelSSDWeights);
+    const absorptionWater = absorptionSplit.total;
     const waterTotal = water + absorptionWater;
 
-    // Create materials SSS and Dry
-    const materialsSSS: any = {
+    const materialsSSS: Record<string, number> = {
       cement: newCement,
       water: Math.round(water),
       ...sandSSDWeights,
       ...gravelSSDWeights
     };
-    
-    // Add calculated additives to materials (storing as LITERS)
+
     calculatedAdditives.forEach((additive: CalculatedAdditive, index: number) => {
       const volumeLiters = additive.totalCC / 1000;
       materialsSSS[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000;
     });
-    
-    // Calculate dry materials
-    const materialsDry: any = {
+
+    const materialsDry: Record<string, number> = {
       cement: newCement,
       water: Math.round(waterTotal),
       ...sandDryWeights,
       ...gravelDryWeights
     };
-    
-    // Add additives to dry materials
+
     calculatedAdditives.forEach((additive: CalculatedAdditive, index: number) => {
       const volumeLiters = additive.totalCC / 1000;
       materialsDry[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000;
     });
-    
-    // Calculate costs
+
     const costs = calculateCosts(materials, materialsSSS, calculatedAdditives);
-    
-    // Calculate unit mass (converting additive liters to kg using density)
+
     let unitMassSSS = 0;
     let unitMassDry = 0;
-    
+
     Object.entries(materialsSSS).forEach(([key, val]) => {
       if (typeof val === 'number') {
         if (key.startsWith('additive')) {
@@ -1200,8 +1110,7 @@ const ConcreteMixCalculator = () => {
           if (additive) {
             const materialAdditive = materials.additives.find(add => add.id === additive.id);
             if (materialAdditive) {
-              const weightKg = val * materialAdditive.density;
-              unitMassSSS += weightKg;
+              unitMassSSS += val * materialAdditive.density;
             }
           }
         } else {
@@ -1209,7 +1118,7 @@ const ConcreteMixCalculator = () => {
         }
       }
     });
-    
+
     Object.entries(materialsDry).forEach(([key, val]) => {
       if (typeof val === 'number') {
         if (key.startsWith('additive')) {
@@ -1218,8 +1127,7 @@ const ConcreteMixCalculator = () => {
           if (additive) {
             const materialAdditive = materials.additives.find(add => add.id === additive.id);
             if (materialAdditive) {
-              const weightKg = val * materialAdditive.density;
-              unitMassDry += weightKg;
+              unitMassDry += val * materialAdditive.density;
             }
           }
         } else {
@@ -1228,10 +1136,14 @@ const ConcreteMixCalculator = () => {
       }
     });
 
+    const waterRounded = Math.round(water);
+    const acRatioEffective = effectiveAcRatioFromMaterials(waterRounded, newCement);
+
     return {
       ...recipe,
-      fcr: adjustedFcr, // Store adjusted FCR for display
-      acRatio: newACRatio,
+      fcr: adjustedFcr,
+      acRatio: acRatioEffective,
+      acRatioFormula,
       materialsSSS,
       materialsDry,
       volumes,
@@ -1242,29 +1154,51 @@ const ConcreteMixCalculator = () => {
       costs,
       extraWater: Math.round(absorptionWater),
       absorptionDetails: {
-        sandAbsorptionWater: Math.round(absorptionWater * 0.6),
-        gravelAbsorptionWater: Math.round(absorptionWater * 0.4)
+        sandAbsorptionWater: absorptionSplit.sandAbsorptionWater,
+        gravelAbsorptionWater: absorptionSplit.gravelAbsorptionWater
       },
       calculatedAdditives
     };
-  };
+  }, [designType, designParams, materials, recipeParams]);
 
   const handleSaveFCR = (code: string) => {
     const newFCR = parseFloat(tempFCR);
     if (!isNaN(newFCR) && newFCR > 0) {
-      setFcrOverrides(prev => ({ ...prev, [code]: newFCR }));
-      
-      // Fully recalculate recipe with new FCR
-      setGeneratedRecipes(prev => prev.map(recipe => {
-        if (recipe.code === code) {
-          return recalculateRecipeWithNewFCR(recipe, newFCR);
-        }
-        return recipe;
-      }));
+      const anchor = memoizedRecipesRef.current.find(r => r.code === code);
+      if (anchor) {
+        const strength = anchor.strength;
+        let applied = 0;
+        setFcrOverrides(prev => {
+          const next = { ...prev };
+          memoizedRecipesRef.current.forEach(r => {
+            if (r.strength === strength) {
+              next[r.code] = newFCR;
+              applied += 1;
+            }
+          });
+          return next;
+        });
+        toast({
+          title: "F'cr actualizado",
+          description: `Se aplicó F'cr ${newFCR.toFixed(2)} a ${applied} receta(s) de f'c = ${strength} kg/cm² (misma resistencia).`,
+          variant: 'default'
+        });
+      }
     }
     setEditingFCR(null);
     setTempFCR('');
   };
+
+  useEffect(() => {
+    const merged = memoizedRecipes.map(recipe => {
+      const override = fcrOverrides[recipe.code];
+      if (override !== undefined) {
+        return recalculateRecipeWithNewFCR(recipe, override);
+      }
+      return recipe;
+    });
+    setGeneratedRecipes(merged);
+  }, [memoizedRecipes, fcrOverrides, recalculateRecipeWithNewFCR]);
 
   // Handle legacy JSON export (kept)
   const handleExportSelected = async () => {
@@ -1292,6 +1226,7 @@ const ConcreteMixCalculator = () => {
           slump: recipe.slump,
           placement: recipe.placement,
           acRatio: recipe.acRatio,
+          acRatioFormula: recipe.acRatioFormula,
           materials: recipe.materialsSSS,
           costs: recipe.costs,
           volumes: recipe.volumes,
@@ -1467,6 +1402,9 @@ const ConcreteMixCalculator = () => {
         }))
       });
 
+      const recipeRows: PreflightRecipeRow[] = (allRecipes ?? []) as PreflightRecipeRow[];
+      const masterRows: PreflightMasterRow[] = (allMasters ?? []) as PreflightMasterRow[];
+
       // Check all codes at once
       const allIntendedCodes = provisional.map(p => p.intendedCode);
       const { data: existingCodes, error: codesError } = await supabase
@@ -1509,7 +1447,7 @@ const ConcreteMixCalculator = () => {
         
         // Filter recipes in memory by specs
         // CRITICAL: Use permissive aggregate size matching (19mm and 20mm are both 3/4")
-        const sameSpecRecipes = (allRecipes || []).filter((row: any) => {
+        const sameSpecRecipes = recipeRows.filter((row) => {
           const placementMatch = placementDbValues.includes(row.placement_type);
           // Allow 1mm tolerance for aggregate size (19 ≈ 20 mm)
           const aggregateSizeMatch = Math.abs(row.max_aggregate_size - r.aggregateSize) <= 1;
@@ -1527,7 +1465,7 @@ const ConcreteMixCalculator = () => {
         });
 
         // Filter by age (using helper function for consistency)
-        const sameSpecFiltered = sameSpecRecipes.filter((row: any) => {
+        const sameSpecFiltered = sameSpecRecipes.filter((row) => {
           const ageMatches = matchesAgeCriteria(row.age_days, row.age_hours, r.age, r.ageUnit);
           if (!ageMatches) {
             console.log(`[Preflight Recipe: ${r.code}] Age mismatch for ${row.recipe_code}:`, {
@@ -1544,7 +1482,7 @@ const ConcreteMixCalculator = () => {
 
         // Filter masters in memory by specs
         // CRITICAL: Use permissive aggregate size matching (19mm and 20mm are both 3/4")
-        const sameSpecMasters = (allMasters || []).filter((master: any) => {
+        const sameSpecMasters = masterRows.filter((master) => {
           const placementMatch = placementDbValues.includes(master.placement_type);
           // Allow 1mm tolerance for aggregate size (19 ≈ 20 mm)
           const aggregateSizeMatch = Math.abs(master.max_aggregate_size - r.aggregateSize) <= 1;
@@ -1558,7 +1496,7 @@ const ConcreteMixCalculator = () => {
         console.log(`[Preflight Recipe: ${r.code}] Found ${sameSpecMasters.length} masters with matching specs (before age filter)`);
 
         // Filter masters by age using helper function
-        const sameSpecMastersFiltered = sameSpecMasters.filter((master: any) => {
+        const sameSpecMastersFiltered = sameSpecMasters.filter((master) => {
           const ageMatches = matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
           if (!ageMatches) {
             console.log(`[Preflight Recipe: ${r.code}] Age mismatch for master ${master.master_code}:`, {
@@ -1577,7 +1515,7 @@ const ConcreteMixCalculator = () => {
 
         // Combine recipe candidates with master data and master-only candidates
         // IMPROVED: Better extraction of master information from recipes
-        const sameSpecWithMasters = sameSpecFiltered.map((row: any) => {
+        const sameSpecWithMasters = sameSpecFiltered.map((row) => {
           // Extract master info - handle both nested object and direct reference
           const masterId = row.master_recipe_id;
           const masterCode = row.master_recipes?.master_code || 
@@ -1595,7 +1533,7 @@ const ConcreteMixCalculator = () => {
         // Add master candidates that don't yet have variants
         // Collect all master IDs that are referenced by recipes
         const masterIdsFromRecipes = new Set<string>();
-        sameSpecFiltered.forEach((r: any) => {
+        sameSpecFiltered.forEach((r) => {
           if (r.master_recipe_id) {
             masterIdsFromRecipes.add(r.master_recipe_id);
           }
@@ -1753,7 +1691,8 @@ const ConcreteMixCalculator = () => {
         materialsRetryContext.decisions,
         currentPlant.id,
         materialsRetryContext.retryTargets,
-        materialsRetryContext.selectionMap
+        materialsRetryContext.selectionMap,
+        recipeParams.roundingModeKg5
       );
 
       const createdCodes = materialsRetryContext.decisions.map(d => d.finalArkikCode);
@@ -1982,17 +1921,21 @@ const ConcreteMixCalculator = () => {
   };
 
   // Handle water definition changes
-  const handleWaterDefinitionChange = (index: number, field: string, value: any) => {
+  const handleWaterDefinitionChange = (
+    index: number,
+    field: WaterDefinitionField,
+    value: boolean | number | 'D' | 'B'
+  ) => {
     setRecipeParams(prev => ({
       ...prev,
-      waterDefinitions: prev.waterDefinitions.map((def, i) => 
+      waterDefinitions: prev.waterDefinitions.map((def, i) =>
         i === index ? { ...def, [field]: value } : def
       )
     }));
   };
 
   // Handle additive system config changes
-  const handleAdditiveSystemConfigChange = (field: string, value: any) => {
+  const handleAdditiveSystemConfigChange = (field: AdditiveSystemConfigField, value: number) => {
     setRecipeParams(prev => ({
       ...prev,
       additiveSystemConfig: {
@@ -2003,7 +1946,7 @@ const ConcreteMixCalculator = () => {
   };
 
   // Handle additive rule changes
-  const handleAdditiveRuleChange = (ruleIndex: number, field: string, value: any) => {
+  const handleAdditiveRuleChange = (ruleIndex: number, field: AdditiveRuleField, value: number) => {
     setRecipeParams(prev => ({
       ...prev,
       additiveSystemConfig: {
@@ -2072,6 +2015,11 @@ const ConcreteMixCalculator = () => {
     }
   }, [plantLoading, currentPlant, refreshPlantData]);
 
+  useEffect(() => {
+    const draft = loadCalculatorDraft();
+    if (draft) setDraftPrompt(draft);
+  }, []);
+
   // Reset local calculator state when plant changes
   useEffect(() => {
     if (!currentPlant?.id) return;
@@ -2106,9 +2054,9 @@ const ConcreteMixCalculator = () => {
 
   if (plantLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className={`${calculatorPageBgClass} p-6`}>
         <div className="max-w-7xl mx-auto">
-          <div className="bg-white rounded-lg shadow-sm p-6 flex items-center gap-2 text-blue-600">
+          <div className={`${calculatorCardClass} p-6 flex items-center gap-2 text-sky-800`}>
             <Loader2 className="h-5 w-5 animate-spin" />
             <span>Cargando planta seleccionada...</span>
           </div>
@@ -2128,32 +2076,94 @@ const ConcreteMixCalculator = () => {
   }
 
   const validationSummary = getValidationSummary();
+  const paramsTabBlocking =
+    materials.sands.length > 0 && calculatorValidation.blocking.length > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className={`${calculatorPageBgClass} p-6`}>
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center justify-between">
+        <div className={`${calculatorCardClass} p-6`}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center space-x-3">
-              <Calculator className="h-8 w-8 text-blue-600" />
+              <Calculator className="h-8 w-8 text-sky-700" />
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">
+                <h1 className="text-2xl font-bold text-stone-900">
                   MATRIZ 1.0 - Calculadora de Diseño
                 </h1>
-                <p className="text-gray-600">
+                <p className="text-stone-600 text-sm">
                   Sistema modular de cálculo de mezclas de concreto
                 </p>
               </div>
             </div>
-            {loading && (
-              <div className="flex items-center gap-2 text-blue-600">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span>Procesando...</span>
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {loading && (
+                <div className="flex items-center gap-2 text-sky-800 text-sm">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Procesando...</span>
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                className={calculatorOutlineNeutralClass}
+                onClick={() => {
+                  saveCalculatorDraft({
+                    designType,
+                    designParams,
+                    recipeParams,
+                    fcrOverrides: Object.keys(fcrOverrides).length ? fcrOverrides : undefined
+                  });
+                  toast({
+                    title: 'Borrador guardado',
+                    description: 'Configuración guardada solo en este navegador.',
+                    variant: 'default'
+                  });
+                }}
+              >
+                Guardar borrador local
+              </Button>
+            </div>
           </div>
         </div>
+
+        {draftPrompt && (
+          <Alert className="border-sky-200 bg-sky-50">
+            <Info className="h-4 w-4 text-sky-700" />
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-sm text-sky-900">
+                Hay un borrador guardado en este navegador ({new Date(draftPrompt.savedAt).toLocaleString()}).
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className={calculatorPrimaryButtonClass}
+                  onClick={() => {
+                    setDesignType(draftPrompt.designType);
+                    setDesignParams(draftPrompt.designParams);
+                    setRecipeParams(draftPrompt.recipeParams);
+                    if (draftPrompt.fcrOverrides) setFcrOverrides(draftPrompt.fcrOverrides);
+                    setDraftPrompt(null);
+                    toast({ title: 'Borrador restaurado', variant: 'default' });
+                  }}
+                >
+                  Restaurar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={calculatorOutlineNeutralClass}
+                  onClick={() => {
+                    clearCalculatorDraft();
+                    setDraftPrompt(null);
+                  }}
+                >
+                  Descartar
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Validation Warning */}
         {validationSummary && (
@@ -2162,7 +2172,7 @@ const ConcreteMixCalculator = () => {
             <AlertDescription>
               <div className="space-y-2">
                 <p className="font-semibold text-red-800">
-                  ⚠️ Materiales incompletos ({validationSummary.incompleteMaterials} problemas encontrados)
+                  Materiales incompletos ({validationSummary.incompleteMaterials} problemas encontrados)
                 </p>
                 <p className="text-sm text-red-700">
                   Los siguientes materiales necesitan información adicional antes de poder generar recetas:
@@ -2182,22 +2192,67 @@ const ConcreteMixCalculator = () => {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="materials">
-              <Database className="h-4 w-4 mr-2" />
+          <TabsList className="grid w-full grid-cols-4 h-auto min-h-11 gap-1 p-1 bg-stone-100/90 border border-stone-200 rounded-lg">
+            <TabsTrigger
+              value="materials"
+              className="data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm text-stone-600"
+            >
+              <Database className="h-4 w-4 mr-2 shrink-0" />
               Materiales
             </TabsTrigger>
-            <TabsTrigger value="parameters" disabled={materials.sands.length === 0}>
-              Parámetros
+            <TabsTrigger
+              value="parameters"
+              disabled={materials.sands.length === 0}
+              title={
+                materials.sands.length === 0
+                  ? 'Seleccione arenas y gravas en Materiales para editar parámetros.'
+                  : undefined
+              }
+              className="data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm text-stone-600"
+            >
+              <span className="relative inline-flex items-center gap-2">
+                {paramsTabBlocking && (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full bg-red-500"
+                    aria-hidden
+                  />
+                )}
+                Parámetros
+              </span>
             </TabsTrigger>
-            <TabsTrigger value="recipes" disabled={generatedRecipes.length === 0}>
-              <FileText className="h-4 w-4 mr-2" />
+            <TabsTrigger
+              value="recipes"
+              disabled={generatedRecipes.length === 0}
+              title={
+                generatedRecipes.length === 0
+                  ? 'Las recetas aparecen cuando los materiales y parámetros permiten generar combinaciones.'
+                  : undefined
+              }
+              className="data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm text-stone-600"
+            >
+              <FileText className="h-4 w-4 mr-2 shrink-0" />
               Recetas
             </TabsTrigger>
-            <TabsTrigger value="configuration" disabled={materials.sands.length === 0}>
+            <TabsTrigger
+              value="configuration"
+              disabled={materials.sands.length === 0}
+              title={
+                materials.sands.length === 0
+                  ? 'Seleccione materiales antes de configurar densidades y precios.'
+                  : undefined
+              }
+              className="data-[state=active]:bg-white data-[state=active]:text-stone-900 data-[state=active]:shadow-sm text-stone-600"
+            >
               Configuración
             </TabsTrigger>
           </TabsList>
+          <p className="mt-2 text-xs text-stone-500 px-0.5">
+            {materials.sands.length === 0 &&
+              'Seleccione cemento, arenas y gravas en Materiales para habilitar Parámetros y Configuración.'}
+            {materials.sands.length > 0 &&
+              generatedRecipes.length === 0 &&
+              'Recetas se habilita cuando exista al menos una receta generada (parámetros y materiales válidos).'}
+          </p>
 
           <TabsContent value="materials" className="mt-6">
             <MaterialSelection
@@ -2253,41 +2308,111 @@ const ConcreteMixCalculator = () => {
               onAdditiveRuleChange={handleAdditiveRuleChange}
               onAddAdditiveRule={handleAddAdditiveRule}
               onRemoveAdditiveRule={handleRemoveAdditiveRule}
+              blockingValidationIssues={calculatorValidation.blocking}
             />
           </TabsContent>
 
           <TabsContent value="recipes" className="mt-6">
             <div className="space-y-4">
-              {/* Manual Recalculation Button */}
-              <div className="flex items-center justify-between mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="flex items-center gap-3">
+              {Object.keys(fcrOverrides).length > 0 && (
+                <Alert className="border-amber-200 bg-amber-50/90">
+                  <AlertTriangle className="h-4 w-4 text-amber-700" />
+                  <AlertDescription className="text-sm text-amber-950">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        Hay ajustes manuales de F&apos;cr. Se conservan al cambiar parámetros; pulse Recalcular
+                        para regenerar desde curvas y redondeo actuales y reaplicar esos valores.
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-auto px-2 py-0 text-amber-900 hover:bg-amber-100/80 shrink-0"
+                        onClick={() => setRecipeRowFilter('overrides')}
+                      >
+                        Ver solo filas con F&apos;cr manual
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <CalculatorRecipeKpiStrip
+                recipes={generatedRecipes}
+                selectedCodes={selectedRecipesForExport}
+                fcrOverrides={fcrOverrides}
+                roundingMode={recipeParams.roundingModeKg5}
+                designType={designType}
+                acDriftEpsilon={AC_RATIO_DRIFT_EPSILON}
+                rowFilter={recipeRowFilter}
+                onRowFilterChange={setRecipeRowFilter}
+                tableDensity={recipeTableDensity}
+                onTableDensityChange={(d) => {
+                  setRecipeTableDensity(d);
+                  if (typeof window !== 'undefined') {
+                    window.localStorage.setItem('matriz.recipeTableDensity', d);
+                  }
+                }}
+              />
+
+              <div
+                className={`${calculatorMutedCalloutClass} flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
+                    type="button"
+                    className={`${calculatorPrimaryButtonClass} inline-flex items-center gap-2`}
                     onClick={() => {
-                      console.log('[Recalc] Manual recalculation triggered');
-                      console.log('[Recalc] Current standardDeviation:', designParams.standardDeviation);
-                      setRecalculationTrigger(prev => prev + 1);
+                      setRecalculationTrigger((p) => p + 1);
                       toast({
-                        title: "Recalculando recetas",
-                        description: "Las recetas se están recalculando con los parámetros actuales.",
-                        variant: "default",
+                        title: 'Recalculando recetas',
+                        description:
+                          'Se regeneran recetas con los parámetros actuales; los overrides de F\'cr se reaplican después.',
+                        variant: 'default'
                       });
                     }}
-                    variant="secondary"
-                    className="flex items-center gap-2"
                   >
                     <RefreshCw className="h-4 w-4" />
-                    Recalcular Recetas
+                    Recalcular
                   </Button>
-                  <p className="text-sm text-gray-600">
-                    Usa este botón para recalcular manualmente las recetas con los parámetros actuales
-                  </p>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={calculatorOutlineNeutralClass}
+                      >
+                        Qué hace recalcular
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="max-w-sm text-sm" align="start">
+                      <p className="font-medium text-stone-900 mb-2">Recalcular</p>
+                      <ul className="list-disc pl-4 space-y-1 text-stone-700">
+                        <li>Regenera todas las recetas desde parámetros y curvas vigentes.</li>
+                        <li>Respeta el modo de redondeo (kg/m³) en Parámetros → Cálculo.</li>
+                        <li>
+                          Las filas con F&apos;cr manual se recalculan a partir del valor de override guardado
+                          por resistencia.
+                        </li>
+                      </ul>
+                    </PopoverContent>
+                  </Popover>
+                  {Object.keys(fcrOverrides).length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-red-200 text-red-800 hover:bg-red-50"
+                      onClick={() => setClearOverridesOpen(true)}
+                    >
+                      Limpiar overrides ({Object.keys(fcrOverrides).length})
+                    </Button>
+                  )}
                 </div>
               </div>
-              
-              {/* Recipe Table */}
+
               <RecipeTable
-                recipes={generatedRecipes}
+                recipes={recipesForTable}
                 materials={materials}
+                designType={designType}
                 fcrOverrides={fcrOverrides}
                 selectedRecipesForExport={selectedRecipesForExport}
                 showDetails={showDetails}
@@ -2295,13 +2420,16 @@ const ConcreteMixCalculator = () => {
                 tempFCR={tempFCR}
                 onToggleDetails={() => setShowDetails(!showDetails)}
                 onSaveSelected={handleSaveSelectedToSystem}
-                onExportArkik={() => toast({
-                  title: "Exportar ARKIK",
-                  description: "Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.",
-                  variant: "default",
-                })}
+                onExportArkik={() =>
+                  toast({
+                    title: 'Exportar ARKIK',
+                    description:
+                      'Exporte las recetas desde esta pestaña después de guardarlas en el sistema.',
+                    variant: 'default'
+                  })
+                }
                 onToggleRecipeSelection={(code) => {
-                  setSelectedRecipesForExport(prev => {
+                  setSelectedRecipesForExport((prev) => {
                     const newSet = new Set(prev);
                     if (newSet.has(code)) {
                       newSet.delete(code);
@@ -2312,10 +2440,21 @@ const ConcreteMixCalculator = () => {
                   });
                 }}
                 onToggleAllRecipes={() => {
-                  if (selectedRecipesForExport.size === generatedRecipes.length) {
-                    setSelectedRecipesForExport(new Set());
+                  const visible = recipesForTable.map((r) => r.code);
+                  const allVisibleSelected =
+                    visible.length > 0 && visible.every((c) => selectedRecipesForExport.has(c));
+                  if (allVisibleSelected) {
+                    setSelectedRecipesForExport((prev) => {
+                      const next = new Set(prev);
+                      visible.forEach((c) => next.delete(c));
+                      return next;
+                    });
                   } else {
-                    setSelectedRecipesForExport(new Set(generatedRecipes.map(r => r.code)));
+                    setSelectedRecipesForExport((prev) => {
+                      const next = new Set(prev);
+                      visible.forEach((c) => next.add(c));
+                      return next;
+                    });
                   }
                 }}
                 onStartEditingFCR={handleStartEditingFCR}
@@ -2325,16 +2464,19 @@ const ConcreteMixCalculator = () => {
                   setEditingFCR(null);
                   setTempFCR('');
                 }}
-              arkikCodes={arkikCodes}
-              onArkikCodeChange={(recipeCode, newLong) => {
-                setArkikCodes(prev => ({
-                  ...prev,
-                  [recipeCode]: {
-                    longCode: newLong,
-                    shortCode: prev[recipeCode]?.shortCode || ''
-                  }
-                }));
-              }}
+                arkikCodes={arkikCodes}
+                onArkikCodeChange={(recipeCode, newLong) => {
+                  setArkikCodes((prev) => ({
+                    ...prev,
+                    [recipeCode]: {
+                      longCode: newLong,
+                      shortCode: prev[recipeCode]?.shortCode || ''
+                    }
+                  }));
+                }}
+                tableDensity={recipeTableDensity}
+                acDriftEpsilon={AC_RATIO_DRIFT_EPSILON}
+                showAggregatedSummary={false}
               />
             </div>
           </TabsContent>
@@ -2733,14 +2875,17 @@ const ConcreteMixCalculator = () => {
                               <select
                                 className="w-full border rounded px-2 py-1 text-sm"
                                 value={v.decision}
-                                onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
-                                  i === conflictIdx ? {
+                                onChange={(e) => {
+                                  const decision = parseSaveAction(e.target.value);
+                                  if (!decision) return;
+                                  setConflicts(prev => prev.map((conf, i) => i === conflictIdx ? {
                                     ...conf,
                                     variants: conf.variants.map((variant, vi) => 
-                                      vi === variantIdx ? { ...variant, decision: e.target.value as any } : variant
+                                      vi === variantIdx ? { ...variant, decision } : variant
                                     )
                                   } : conf
-                                ))}
+                                ));
+                                }}
                               >
                                 <option value="updateVariant">Actualizar variante existente</option>
                                 <option value="createVariant">Crear nueva variante</option>
@@ -2791,14 +2936,17 @@ const ConcreteMixCalculator = () => {
                                   <select 
                                     className="w-full border rounded px-2 py-1 text-sm" 
                                     value={v.masterMode || 'existing'} 
-                                    onChange={(e) => setConflicts(prev => prev.map((conf, i) => 
+                                    onChange={(e) => {
+                                      const masterMode = parseMasterMode(e.target.value);
+                                      setConflicts(prev => prev.map((conf, i) => 
                                       i === conflictIdx ? {
                                         ...conf,
                                         variants: conf.variants.map((variant, vi) => 
-                                          vi === variantIdx ? { ...variant, masterMode: e.target.value as any } : variant
+                                          vi === variantIdx ? { ...variant, masterMode } : variant
                                         )
                                       } : conf
-                                    ))}
+                                    ));
+                                    }}
                                   >
                                     <option value="existing">Maestro existente</option>
                                     <option value="new">Nuevo maestro</option>
@@ -3153,7 +3301,7 @@ const ConcreteMixCalculator = () => {
                     
                     for (const v of c.variants) {
                       const finalCode = v.overrideCode || c.intendedCode;
-                      payload.push({ ...baseRecipe, code: finalCode, recipeType: designType });
+                      payload.push(toCalculatorRecipe({ ...baseRecipe, code: finalCode }, { recipeType: designType }));
                       
                       if (v.decision === 'updateVariant' && v.selectedExistingId) {
                         decisions.push({ 
@@ -3199,8 +3347,8 @@ const ConcreteMixCalculator = () => {
                   // Detect PCE from recipes if auto-detection is enabled
                   let finalVariante = variante;
                   if (enablePceAutoDetection) {
-                    const hasPCEInAnyRecipe = payload.some((r: any) => {
-                      return r.calculatedAdditives?.some((additive: any) => {
+                    const hasPCEInAnyRecipe = payload.some((r: CalculatorRecipe) => {
+                      return r.calculatedAdditives?.some((additive: CalculatedAdditive) => {
                         const hasPCE = additive.name?.toUpperCase().includes('PCE');
                         const hasQuantity = additive.totalCC > 0;
                         return hasPCE && hasQuantity;
@@ -3228,7 +3376,8 @@ const ConcreteMixCalculator = () => {
                       volumenConcreto: parseFloat(arkikExportParams.volumen) || 1000,
                       contenidoAire: parseFloat(arkikExportParams.aire) || 1.5,
                       factorG: arkikExportParams.factorG ? parseFloat(arkikExportParams.factorG) : null
-                    }
+                    },
+                    recipeParams.roundingModeKg5
                   );
                   
                   // Extract ARKIK codes from decisions for success modal
@@ -3566,6 +3715,35 @@ const ConcreteMixCalculator = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={clearOverridesOpen} onOpenChange={setClearOverridesOpen}>
+          <AlertDialogContent className="border-stone-200">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Limpiar ajustes manuales de F&apos;cr</AlertDialogTitle>
+              <AlertDialogDescription className="text-stone-600">
+                Se eliminarán {Object.keys(fcrOverrides).length} override(s). Las recetas volverán a los valores
+                calculados por curva y redondeo hasta que vuelva a editar F&apos;cr.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className={calculatorOutlineNeutralClass}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={() => {
+                  setFcrOverrides({});
+                  setClearOverridesOpen(false);
+                  toast({
+                    title: 'Overrides eliminados',
+                    description: 'F\'cr manual limpiado en todas las filas.',
+                    variant: 'default'
+                  });
+                }}
+              >
+                Limpiar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

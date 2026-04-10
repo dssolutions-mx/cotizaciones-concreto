@@ -1,9 +1,13 @@
 import React, { useMemo, useState, memo } from 'react';
-import { Eye, EyeOff, Download, Edit2, ToggleLeft, ToggleRight, ChevronRight, ChevronDown } from 'lucide-react';
-import { Recipe, Materials, FCROverrides } from '@/types/calculator';
+import { Eye, EyeOff, Download, Edit2, ChevronRight, ChevronDown } from 'lucide-react';
+import { Recipe, Materials, FCROverrides, DesignType } from '@/types/calculator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { AC_RATIO_DRIFT_EPSILON } from '@/lib/calculator/constants';
 import {
   Table,
   TableBody,
@@ -16,6 +20,7 @@ import {
 interface RecipeTableProps {
   recipes: Recipe[];
   materials: Materials;
+  designType: DesignType;
   fcrOverrides: FCROverrides;
   selectedRecipesForExport: Set<string>;
   showDetails: boolean;
@@ -33,11 +38,16 @@ interface RecipeTableProps {
   // ARKIK code map and change handler for inline override
   arkikCodes?: Record<string, { longCode: string; shortCode: string }>;
   onArkikCodeChange?: (recipeCode: string, newLongCode: string) => void;
+  tableDensity?: 'comfortable' | 'compact';
+  acDriftEpsilon?: number;
+  /** When false, hides the gray summary strip (use when parent shows a KPI strip). */
+  showAggregatedSummary?: boolean;
 }
 
 export const RecipeTable: React.FC<RecipeTableProps> = memo(({
   recipes,
   materials,
+  designType,
   fcrOverrides,
   selectedRecipesForExport,
   showDetails,
@@ -53,11 +63,16 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
   onSaveFCR,
   onCancelEditingFCR,
   arkikCodes,
-  onArkikCodeChange
+  onArkikCodeChange,
+  tableDensity = 'comfortable',
+  acDriftEpsilon = AC_RATIO_DRIFT_EPSILON,
+  showAggregatedSummary = true
 }) => {
   const allSelected = recipes.length > 0 && recipes.every(r => selectedRecipesForExport.has(r.code));
-  const someSelected = recipes.some(r => selectedRecipesForExport.has(r.code));
   const [showSSS, setShowSSS] = useState(true);
+  const compact = tableDensity === 'compact';
+  const rowCellPad = compact ? 'py-1 px-2' : 'py-2.5 px-3';
+  const headCellPad = compact ? 'h-9 px-2' : 'h-11 px-3';
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingArkik, setEditingArkik] = useState<string | null>(null);
 
@@ -110,7 +125,15 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
       <div className="p-4 bg-white">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div><span className="text-gray-500">F'cr:</span> <span className="font-mono font-semibold">{typeof recipe.fcr === 'number' ? recipe.fcr.toFixed(2) : recipe.fcr}</span></div>
-          <div><span className="text-gray-500">A/C:</span> <span className="font-mono font-semibold">{recipe.acRatio.toFixed(2)}</span></div>
+          <div>
+            <span className="text-gray-500">A/C efectivo:</span>{' '}
+            <span className="font-mono font-semibold">{recipe.acRatio.toFixed(2)}</span>
+            {typeof recipe.acRatioFormula === 'number' && !Number.isNaN(recipe.acRatioFormula) && (
+              <span className="text-gray-500 ml-2">
+                (teórico curva: <span className="font-mono font-semibold text-gray-700">{recipe.acRatioFormula.toFixed(2)}</span>)
+              </span>
+            )}
+          </div>
           <div><span className="text-gray-500">Agua SSS:</span> <span className="font-mono font-semibold">{sssWater} L</span></div>
           <div><span className="text-gray-500">Agua Seco:</span> <span className="font-mono font-semibold">{dryWater} L</span></div>
           <div><span className="text-gray-500">Vol MC:</span> <span className="font-mono font-semibold">{recipe.volumes.mcVolume} L</span></div>
@@ -211,6 +234,11 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
 
   const groupedRecipes = groupRecipesByStrength(recipes);
 
+  const acDriftsFromCurve = (recipe: Recipe) =>
+    typeof recipe.acRatioFormula === 'number' &&
+    !Number.isNaN(recipe.acRatioFormula) &&
+    Math.abs(recipe.acRatio - recipe.acRatioFormula) > acDriftEpsilon;
+
   return (
     <div className="space-y-4">
       {/* Controls */}
@@ -226,18 +254,42 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
             {showDetails ? 'Ocultar Detalles' : 'Mostrar Detalles'}
           </Button>
           
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setShowSSS(!showSSS)}
-            className="flex items-center gap-2"
-          >
-            {showSSS ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
-            {showSSS ? 'SSS' : 'Seco'}
-          </Button>
-          
-          <div className="text-sm text-gray-600">
-            Mostrando pesos en estado: <strong>{showSSS ? 'Saturado Superficie Seca (SSS)' : 'Seco'}</strong>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className="inline-flex rounded-md border border-stone-300 bg-stone-50 p-0.5"
+                role="group"
+                aria-label="Estado de humedad de agregados"
+              >
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded px-3 py-1 text-xs font-medium transition-colors',
+                    showSSS ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                  )}
+                  onClick={() => setShowSSS(true)}
+                >
+                  SSS
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded px-3 py-1 text-xs font-medium transition-colors',
+                    !showSSS ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600 hover:text-stone-900'
+                  )}
+                  onClick={() => setShowSSS(false)}
+                >
+                  Seco
+                </button>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              SSS = pesos en estado saturado superficie seca; Seco = pesos corregidos a horno seco (incluye agua de absorción en el agua total).
+            </TooltipContent>
+          </Tooltip>
+
+          <div className={cn('text-gray-600', compact ? 'text-xs' : 'text-sm')}>
+            Vista: <strong>{showSSS ? 'SSS' : 'Seco'}</strong>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -262,44 +314,70 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
       </div>
 
       {/* Table */}
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border border-stone-200 rounded-lg overflow-hidden bg-white">
+        <div className="max-h-[min(70vh,56rem)] overflow-auto">
         <Table>
-          <TableHeader>
-            <TableRow className="bg-gray-50">
-              <TableHead className="w-12">
+          <TableHeader className="sticky top-0 z-20 bg-stone-50 shadow-[inset_0_-1px_0_0_rgb(231_229_228)]">
+            <TableRow className="bg-stone-50 hover:bg-stone-50">
+              <TableHead className={cn('w-12 sticky left-0 z-30 bg-stone-50', headCellPad)}>
                 <Checkbox
                   checked={allSelected}
                   onCheckedChange={onToggleAllRecipes}
                 />
               </TableHead>
-              <TableHead className="w-10" />
-              <TableHead>Código</TableHead>
-              <TableHead className="text-center">F'c/MR</TableHead>
-              <TableHead className="text-center">F'cr</TableHead>
-              <TableHead className="text-center">Edad</TableHead>
-              <TableHead className="text-center">Rev.</TableHead>
-              <TableHead className="text-center">Coloc.</TableHead>
-              <TableHead className="text-center">A/C</TableHead>
+              <TableHead className={cn('w-10', headCellPad)} />
+              <TableHead className={headCellPad}>Código</TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help border-b border-dotted border-stone-400">F&apos;c / MR</span>
+                  </TooltipTrigger>
+                  <TooltipContent>Resistencia de diseño (MPa o kg/cm² según tipo de diseño).</TooltipContent>
+                </Tooltip>
+              </TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help border-b border-dotted border-stone-400">F&apos;cr</span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Resistencia requerida a compresión. Puede editarse por fila; con MR puede estar ya ajustada por factor.
+                  </TooltipContent>
+                </Tooltip>
+              </TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>Edad</TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>Rev.</TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>Coloc.</TableHead>
+              <TableHead className={cn('text-center', headCellPad)}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help border-b border-dotted border-stone-400">A/C (efectivo)</span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Relación agua/cemento con cemento y agua de mezcla ya redondeados. Puede diferir del valor teórico de curva.
+                  </TooltipContent>
+                </Tooltip>
+              </TableHead>
               
               {/* Material columns */}
-              <TableHead className="text-center bg-blue-50">
+              <TableHead className={cn('text-center bg-blue-50', headCellPad)}>
                 Cemento<br/>
                 <span className="text-xs text-gray-600">(kg)</span>
               </TableHead>
-              <TableHead className="text-center bg-blue-50">
+              <TableHead className={cn('text-center bg-blue-50', headCellPad)}>
                 Agua Total<br/>
                 <span className="text-xs text-gray-600">(L)</span>
               </TableHead>
               
               {materials.sands.map((sand, idx) => (
-                <TableHead key={`sand-${idx}`} className="text-center bg-yellow-50">
+                <TableHead key={`sand-${idx}`} className={cn('text-center bg-yellow-50', headCellPad)}>
                   {sand.name}<br/>
                   <span className="text-xs text-gray-600">(kg)</span>
                 </TableHead>
               ))}
               
               {materials.gravels.map((gravel, idx) => (
-                <TableHead key={`gravel-${idx}`} className="text-center bg-gray-100">
+                <TableHead key={`gravel-${idx}`} className={cn('text-center bg-gray-100', headCellPad)}>
                   {gravel.name}<br/>
                   <span className="text-xs text-gray-600">(kg)</span>
                 </TableHead>
@@ -307,7 +385,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
               
               {/* Show all unique additives for consistent columns */}
               {uniqueAdditives.map((additive) => (
-                <TableHead key={`additive-${additive.id}`} className="text-center bg-green-50">
+                <TableHead key={`additive-${additive.id}`} className={cn('text-center bg-green-50', headCellPad)}>
                   {additive.name}<br/>
                   <span className="text-xs text-gray-600">(L)</span>
                 </TableHead>
@@ -315,19 +393,19 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
               
               {showDetails && (
                 <>
-                  <TableHead className="text-center">
+                  <TableHead className={cn('text-center', headCellPad)}>
                     Masa Unitaria<br/>
                     <span className="text-xs text-gray-600">(kg/m³)</span>
                   </TableHead>
-                  <TableHead className="text-center">
+                  <TableHead className={cn('text-center', headCellPad)}>
                     Vol. Mortero<br/>
                     <span className="text-xs text-gray-600">(L/m³)</span>
                   </TableHead>
-                  <TableHead className="text-center">
+                  <TableHead className={cn('text-center', headCellPad)}>
                     MC<br/>
                     <span className="text-xs text-gray-600">(%)</span>
                   </TableHead>
-                  <TableHead className="text-center">
+                  <TableHead className={cn('text-center', headCellPad)}>
                     Costo<br/>
                     <span className="text-xs text-gray-600">($/m³)</span>
                   </TableHead>
@@ -343,7 +421,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                 <React.Fragment key={`strength-${strength}`}>
                   {/* Strength Header Row */}
                   <TableRow className={`${resistanceColor} border-l-4`}>
-                    <TableCell>
+                    <TableCell className={rowCellPad}>
                       <Checkbox
                         checked={strengthRecipes.every(r => selectedRecipesForExport.has(r.code)) && strengthRecipes.length > 0}
                         onCheckedChange={(checked) => {
@@ -362,7 +440,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                         className="cursor-pointer"
                       />
                     </TableCell>
-                    <TableCell colSpan={totalColumns - 1}>
+                    <TableCell colSpan={totalColumns - 1} className={rowCellPad}>
                       <div className="flex items-center gap-2 py-1">
                         <div className="font-bold text-lg">F'c = {strength} kg/cm²</div>
                         <div className="text-sm text-gray-600">({strengthRecipes.length} receta{strengthRecipes.length > 1 ? 's' : ''})</div>
@@ -379,56 +457,72 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                     return (
                       <React.Fragment key={`recipe-${recipe.code}`}>
                       <TableRow key={`${recipe.code}-main`} className={`hover:bg-gray-50 ${resistanceColor.split('bg-')[1]}`}>
-                        <TableCell>
+                        <TableCell className={rowCellPad}>
                           <Checkbox
                             checked={selectedRecipesForExport.has(recipe.code)}
                             onCheckedChange={() => onToggleRecipeSelection(recipe.code)}
                           />
                         </TableCell>
-                        <TableCell className="text-center">
-                          <button onClick={() => toggleRow(recipe.code)} className="p-1 rounded hover:bg-gray-100">
+                        <TableCell className={cn('text-center', rowCellPad)}>
+                          <button type="button" onClick={() => toggleRow(recipe.code)} className="p-1 rounded hover:bg-gray-100">
                             {expandedRows.has(recipe.code) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           </button>
                         </TableCell>
                         
-                        <TableCell className="font-mono text-sm">
-                          <div className="flex items-center gap-1">
-                            {editingArkik === recipe.code ? (
-                              <input
-                                autoFocus
-                                value={arkikCodes?.[recipe.code]?.longCode || ''}
-                                onChange={(e) => onArkikCodeChange && onArkikCodeChange(recipe.code, e.target.value)}
-                                className="font-mono text-xs border rounded px-1 py-0.5 flex-1 min-w-[200px]"
-                                onBlur={() => setEditingArkik(null)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') setEditingArkik(null);
-                                  if (e.key === 'Escape') setEditingArkik(null);
-                                }}
-                              />
-                            ) : (
-                              <span
-                                className="cursor-pointer hover:text-blue-600 flex-1 truncate max-w-[240px]"
-                                title={arkikCodes?.[recipe.code]?.longCode}
-                                onClick={() => setEditingArkik(recipe.code)}
-                              >
-                                {arkikCodes?.[recipe.code]?.longCode || recipe.code}
-                              </span>
-                            )}
-                            {editingArkik !== recipe.code && (
-                              <Edit2 className="h-3 w-3 text-gray-400 hover:text-gray-600" />
-                            )}
+                        <TableCell className={cn('font-mono text-sm align-top', rowCellPad)}>
+                          <div className="flex flex-col gap-1 min-w-[8rem]">
+                            <div className="flex items-center gap-1">
+                              {editingArkik === recipe.code ? (
+                                <input
+                                  autoFocus
+                                  value={arkikCodes?.[recipe.code]?.longCode || ''}
+                                  onChange={(e) => onArkikCodeChange && onArkikCodeChange(recipe.code, e.target.value)}
+                                  className="font-mono text-xs border rounded px-1 py-0.5 flex-1 min-w-[200px]"
+                                  onBlur={() => setEditingArkik(null)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') setEditingArkik(null);
+                                    if (e.key === 'Escape') setEditingArkik(null);
+                                  }}
+                                />
+                              ) : (
+                                <span
+                                  className="cursor-pointer hover:text-sky-700 flex-1 truncate max-w-[240px]"
+                                  title={arkikCodes?.[recipe.code]?.longCode}
+                                  onClick={() => setEditingArkik(recipe.code)}
+                                >
+                                  {arkikCodes?.[recipe.code]?.longCode || recipe.code}
+                                </span>
+                              )}
+                              {editingArkik !== recipe.code && (
+                                <Edit2 className="h-3 w-3 text-gray-400 hover:text-gray-600 shrink-0" />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                              {fcrOverrides[recipe.code] !== undefined && (
+                                <Badge variant="outline" className="text-[10px] h-5 px-1 font-normal border-amber-300 bg-amber-50 text-amber-900">
+                                  F&apos;cr manual
+                                </Badge>
+                              )}
+                              {acDriftsFromCurve(recipe) && (
+                                <Badge variant="outline" className="text-[10px] h-5 px-1 font-normal border-sky-300 bg-sky-50 text-sky-900">
+                                  A/C ≠ curva
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-center font-semibold">{recipe.strength}</TableCell>
+                        <TableCell className={cn('text-center font-semibold', rowCellPad)}>{recipe.strength}</TableCell>
                         
-                        <TableCell className="text-center">
+                        <TableCell className={cn('text-center', rowCellPad)}>
                           {editingFCR === recipe.code ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-col items-center gap-1 min-w-[10rem]">
+                              <div className="flex items-center gap-1">
                               <Input
                                 type="number"
                                 value={tempFCR}
                                 onChange={(e) => onTempFCRChange(e.target.value)}
                                 className="w-20 h-7 text-center"
+                                autoFocus
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') onSaveFCR(recipe.code);
                                   if (e.key === 'Escape') onCancelEditingFCR();
@@ -450,6 +544,12 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                               >
                                 ✕
                               </Button>
+                              </div>
+                              {designType === 'MR' && (
+                                <p className="text-[10px] text-muted-foreground text-center leading-tight max-w-[14rem]">
+                                  MR: el F&apos;cr en tabla suele estar ya ajustado (p. ej. dividido por factor). Al editar, usa el mismo tipo de valor que ves en la celda.
+                                </p>
+                              )}
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-1">
@@ -468,27 +568,27 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                           )}
                         </TableCell>
                         
-                        <TableCell className="text-center">{recipe.age}{recipe.ageUnit}</TableCell>
-                        <TableCell className="text-center">{recipe.slump}cm</TableCell>
-                        <TableCell className="text-center">{recipe.placement}</TableCell>
-                        <TableCell className="text-center">{recipe.acRatio.toFixed(2)}</TableCell>
+                        <TableCell className={cn('text-center', rowCellPad)}>{recipe.age}{recipe.ageUnit}</TableCell>
+                        <TableCell className={cn('text-center', rowCellPad)}>{recipe.slump}cm</TableCell>
+                        <TableCell className={cn('text-center', rowCellPad)}>{recipe.placement}</TableCell>
+                        <TableCell className={cn('text-center', rowCellPad)}>{recipe.acRatio.toFixed(2)}</TableCell>
                         
                         {/* Material quantities */}
-                        <TableCell className="text-center bg-blue-50 font-mono">
+                        <TableCell className={cn('text-center bg-blue-50 font-mono', rowCellPad)}>
                           {materialsToShow.cement}
                         </TableCell>
-                        <TableCell className="text-center bg-blue-50 font-mono">
+                        <TableCell className={cn('text-center bg-blue-50 font-mono', rowCellPad)}>
                           {materialsToShow.water}
                         </TableCell>
                         
                         {materials.sands.map((_, idx) => (
-                          <TableCell key={`sand-${idx}`} className="text-center bg-yellow-50 font-mono">
+                          <TableCell key={`sand-${idx}`} className={cn('text-center bg-yellow-50 font-mono', rowCellPad)}>
                             {materialsToShow[`sand${idx}`] || '-'}
                           </TableCell>
                         ))}
                         
                         {materials.gravels.map((_, idx) => (
-                          <TableCell key={`gravel-${idx}`} className="text-center bg-gray-100 font-mono">
+                          <TableCell key={`gravel-${idx}`} className={cn('text-center bg-gray-100 font-mono', rowCellPad)}>
                             {materialsToShow[`gravel${idx}`] || '-'}
                           </TableCell>
                         ))}
@@ -496,7 +596,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                         {uniqueAdditives.map((additive) => {
                           const value = getAdditiveValueById(recipe, additive.id, materialsToShow);
                           return (
-                            <TableCell key={`additive-${additive.id}`} className="text-center bg-green-50 font-mono">
+                            <TableCell key={`additive-${additive.id}`} className={cn('text-center bg-green-50 font-mono', rowCellPad)}>
                               {value > 0 ? value.toFixed(3) : '-'}
                             </TableCell>
                           );
@@ -504,12 +604,12 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                         
                         {showDetails && (
                           <>
-                            <TableCell className="text-center font-mono">
+                            <TableCell className={cn('text-center font-mono', rowCellPad)}>
                               {showSSS ? recipe.unitMass.sss : recipe.unitMass.dry}
                             </TableCell>
-                            <TableCell className="text-center font-mono">{recipe.volumes.mortar || '-'}</TableCell>
-                            <TableCell className="text-center font-mono">{recipe.volumes.mc || '-'}%</TableCell>
-                            <TableCell className="text-center font-semibold">
+                            <TableCell className={cn('text-center font-mono', rowCellPad)}>{recipe.volumes.mortar || '-'}</TableCell>
+                            <TableCell className={cn('text-center font-mono', rowCellPad)}>{recipe.volumes.mc || '-'}%</TableCell>
+                            <TableCell className={cn('text-center font-semibold', rowCellPad)}>
                               ${recipe.costs.total.toFixed(2)}
                             </TableCell>
                           </>
@@ -530,10 +630,11 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
             })}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {/* Summary */}
-      {recipes.length > 0 && (
+      {showAggregatedSummary && recipes.length > 0 && (
         <div className="bg-gray-50 rounded-lg p-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>

@@ -5,7 +5,8 @@ import { Material } from '@/types/material';
 import { Recipe as DatabaseRecipe, MaterialQuantity } from '@/types/recipes';
 import { CalculatorSaveDecision } from '@/types/masterRecipes';
 import { parseMasterAndVariantFromRecipeCode } from '@/lib/utils/masterRecipeUtils';
-import { roundToNearestMultipleOf5 } from '@/lib/calculator/calculations';
+import { roundKgPerM3ToStep } from '@/lib/calculator/calculations';
+import type { CalculatedAdditive, RoundingModeKg5 } from '@/types/calculator';
 
 // Calculator-specific interfaces (matching concrete-mix-calculator.tsx)
 export interface CalculatorMaterial {
@@ -45,6 +46,8 @@ export interface CalculatorRecipe {
   aggregateSize: number;
   fcr: number;
   acRatio: number;
+  /** Optional: theoretical A/C from strength curve (for exports / diagnostics) */
+  acRatioFormula?: number;
   materialsSSS: { [key: string]: number };
   materialsDry: { [key: string]: number };
   volumes: {
@@ -68,6 +71,8 @@ export interface CalculatorRecipe {
     gravelAbsorptionWater: number;
   };
   recipeType: 'FC' | 'MR';
+  /** Present on recipes from the UI; used for PCE auto-detection before save */
+  calculatedAdditives?: CalculatedAdditive[];
 }
 
 export interface CalculatorMaterialSelection {
@@ -226,7 +231,8 @@ export const calculatorService = {
     plantId: string,
     userId: string,
     selection?: CalculatorMaterialSelection,
-    arkik?: ArkikDefaults
+    arkik?: ArkikDefaults,
+    roundingModeKg5: RoundingModeKg5 = 'CEIL_5'
   ): Promise<void> {
     try {
       // Fetch material master to resolve material_ids by name mapping used in calculator
@@ -272,7 +278,7 @@ export const calculatorService = {
               ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
               : undefined) || sands[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
-              dryMaterials.push({ material_id: target.id, quantity: roundToNearestMultipleOf5(recipe.materialsDry[key]), unit: 'kg/m³' });
+              dryMaterials.push({ material_id: target.id, quantity: roundKgPerM3ToStep(recipe.materialsDry[key], roundingModeKg5), unit: 'kg/m³' });
             }
           });
 
@@ -286,7 +292,7 @@ export const calculatorService = {
               ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
               : undefined) || gravels[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
-              dryMaterials.push({ material_id: target.id, quantity: roundToNearestMultipleOf5(recipe.materialsDry[key]), unit: 'kg/m³' });
+              dryMaterials.push({ material_id: target.id, quantity: roundKgPerM3ToStep(recipe.materialsDry[key], roundingModeKg5), unit: 'kg/m³' });
             }
           });
 
@@ -397,7 +403,7 @@ export const calculatorService = {
               const target = (selection?.sandIds && selection.sandIds[idx]
                 ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
                 : undefined) || sands[idx];
-              const val = roundToNearestMultipleOf5(recipe.materialsSSS[key] || 0);
+              const val = roundKgPerM3ToStep(recipe.materialsSSS[key] || 0, roundingModeKg5);
               if (target && val > 0) {
                 refRows.push({
                   recipe_version_id: versionId,
@@ -418,7 +424,7 @@ export const calculatorService = {
               const target = (selection?.gravelIds && selection.gravelIds[idx]
                 ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
                 : undefined) || gravels[idx];
-              const val = roundToNearestMultipleOf5(recipe.materialsSSS[key] || 0);
+              const val = roundKgPerM3ToStep(recipe.materialsSSS[key] || 0, roundingModeKg5);
               if (target && val > 0) {
                 refRows.push({
                   recipe_version_id: versionId,
@@ -541,7 +547,8 @@ function buildMaterialsForRecipe(
   r: CalculatorRecipe,
   versionId: string,
   allMaterials: any[],
-  selection?: CalculatorMaterialSelection
+  selection?: CalculatorMaterialSelection,
+  roundingModeKg5: RoundingModeKg5 = 'CEIL_5'
 ): { materialQuantities: any[]; ssMaterials: any[] } {
         const materialQuantities: any[] = [];
   const ssMaterials: any[] = [];
@@ -600,8 +607,8 @@ function buildMaterialsForRecipe(
           if (selection.sandIds) {
             Object.entries(selection.sandIds).forEach(([idx, matId]) => {
               const key = `sand${idx}`;
-              const dryValue = roundToNearestMultipleOf5(r.materialsDry[key] || 0);
-        const sssValue = roundToNearestMultipleOf5(r.materialsSSS[key] || 0);
+              const dryValue = roundKgPerM3ToStep(r.materialsDry[key] || 0, roundingModeKg5);
+              const sssValue = roundKgPerM3ToStep(r.materialsSSS[key] || 0, roundingModeKg5);
         
               if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({
@@ -613,7 +620,7 @@ function buildMaterialsForRecipe(
                 });
               }
         
-        if (sssValue && sssValue > 0 && matId) {
+        if (sssValue > 0 && matId) {
           ssMaterials.push({
             recipe_version_id: versionId,
             material_id: matId,
@@ -629,8 +636,8 @@ function buildMaterialsForRecipe(
           if (selection.gravelIds) {
             Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
               const key = `gravel${idx}`;
-              const dryValue = roundToNearestMultipleOf5(r.materialsDry[key] || 0);
-        const sssValue = roundToNearestMultipleOf5(r.materialsSSS[key] || 0);
+              const dryValue = roundKgPerM3ToStep(r.materialsDry[key] || 0, roundingModeKg5);
+              const sssValue = roundKgPerM3ToStep(r.materialsSSS[key] || 0, roundingModeKg5);
         
               if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({
@@ -642,7 +649,7 @@ function buildMaterialsForRecipe(
                 });
               }
         
-        if (sssValue && sssValue > 0 && matId) {
+        if (sssValue > 0 && matId) {
           ssMaterials.push({
             recipe_version_id: versionId,
             material_id: matId,
@@ -661,7 +668,7 @@ function buildMaterialsForRecipe(
               const dryValue = r.materialsDry[key];
         const sssValue = r.materialsSSS[key];
         
-        if ((dryValue && dryValue > 0) || (sssValue && sssValue > 0)) {
+        if ((dryValue && dryValue > 0) || (typeof sssValue === 'number' && sssValue > 0)) {
                 const additiveMat = allMaterials?.find(m => m.id === matId);
                 const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
           
@@ -675,7 +682,7 @@ function buildMaterialsForRecipe(
                 });
           }
           
-          if (sssValue && sssValue > 0 && matId) {
+          if (sssValue > 0 && matId) {
             ssMaterials.push({
               recipe_version_id: versionId,
               material_id: matId,
@@ -753,6 +760,7 @@ export async function saveRecipesWithDecisions(
   userId: string,
   selection?: CalculatorMaterialSelection,
   arkik?: ArkikDefaults,
+  roundingModeKg5: RoundingModeKg5 = 'CEIL_5',
   onProgress?: (current: number, total: number, recipeName: string) => void
 ): Promise<void> {
   // Keep recipe<->decision pairing positional to support multiple variants for the same base recipe.
@@ -795,7 +803,8 @@ export async function saveRecipesWithDecisions(
       recipe,
       '00000000-0000-0000-0000-000000000000',
       allMaterials || [],
-      selection
+      selection,
+      roundingModeKg5
     );
     return { finalCode, materialCount: preview.materialQuantities.length };
   });
@@ -1158,7 +1167,8 @@ export async function saveRecipesWithDecisions(
       r,
       versionId,
       allMaterials || [],
-      selection
+      selection,
+      roundingModeKg5
     );
 
     allMaterialQuantities.push(...materialQuantities);
@@ -1268,7 +1278,8 @@ export async function retryPopulateMaterialsForSavedVersions(
   decisions: CalculatorSaveDecision[],
   plantId: string,
   retryTargets: MaterialRetryVersionTarget[],
-  selection?: CalculatorMaterialSelection
+  selection?: CalculatorMaterialSelection,
+  roundingModeKg5: RoundingModeKg5 = 'CEIL_5'
 ): Promise<{
   updatedVersions: number;
   skippedVersions: number;
@@ -1290,7 +1301,7 @@ export async function retryPopulateMaterialsForSavedVersions(
     const finalCode = decision.finalArkikCode || recipe.code;
     const versionId = versionByCode.get(finalCode);
     if (!versionId) continue;
-    rowsByVersion.set(versionId, buildMaterialsForRecipe(recipe, versionId, allMaterials || [], selection));
+    rowsByVersion.set(versionId, buildMaterialsForRecipe(recipe, versionId, allMaterials || [], selection, roundingModeKg5));
   }
 
   const versionIds = Array.from(rowsByVersion.keys());

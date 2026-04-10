@@ -4,6 +4,10 @@ import { Material, MaterialWithPrice } from '@/types/material';
 import { SelectedMaterials, MaterialSelectionStep } from '@/types/calculator';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import {
+  calculatorPrimaryButtonClass,
+  calculatorOutlineNeutralClass
+} from '@/components/calculator/calculatorHubUi';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -31,6 +35,8 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
   onStepChange,
   onComplete
 }) => {
+  const idKey = (id: number | string) => String(id);
+
   // Validate material properties
   const validateMaterial = (material: MaterialWithPrice): string[] => {
     const errors: string[] = [];
@@ -77,10 +83,12 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {materials.map((material) => {
-          const isSelected = type === 'cement' 
-            ? selectedMaterials.cement === material.id
-            : (selected as number[]).includes(material.id);
-          
+          const numericId = parseInt(String(material.id), 10);
+          const isSelected =
+            type === 'cement'
+              ? selectedMaterials.cement != null && idKey(selectedMaterials.cement) === material.id
+              : (selected as number[]).some((sid) => idKey(sid) === material.id);
+
           const validationErrors = validateMaterial(material);
           const hasErrors = validationErrors.length > 0;
 
@@ -92,9 +100,9 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
               } ${hasErrors ? 'border-red-300 bg-red-50' : ''}`}
               onClick={() => {
                 if (isSelected && type !== 'cement') {
-                  onMaterialRemove(type, material.id);
+                  onMaterialRemove(type, numericId);
                 } else if (!isSelected) {
-                  onMaterialSelect(type, material.id);
+                  onMaterialSelect(type, numericId);
                 }
               }}
             >
@@ -186,7 +194,9 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Cemento:</h4>
                 {selectedMaterials.cement && (
                   <Badge variant="default">
-                    {availableMaterials.cements.find(c => c.id === selectedMaterials.cement)?.material_name}
+                    {availableMaterials.cements.find(
+                      (c) => c.id === idKey(selectedMaterials.cement!)
+                    )?.material_name}
                   </Badge>
                 )}
               </div>
@@ -195,7 +205,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Arenas:</h4>
                 <div className="flex flex-wrap gap-2">
                   {selectedMaterials.sands.map(id => {
-                    const sand = availableMaterials.sands.find(s => s.id === id);
+                    const sand = availableMaterials.sands.find((s) => s.id === idKey(id));
                     return sand && (
                       <Badge key={id} variant="secondary">{sand.material_name}</Badge>
                     );
@@ -207,7 +217,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                 <h4 className="font-medium text-sm text-gray-700 mb-2">Gravas:</h4>
                 <div className="flex flex-wrap gap-2">
                   {selectedMaterials.gravels.map(id => {
-                    const gravel = availableMaterials.gravels.find(g => g.id === id);
+                    const gravel = availableMaterials.gravels.find((g) => g.id === idKey(id));
                     return gravel && (
                       <Badge key={id} variant="secondary">{gravel.material_name}</Badge>
                     );
@@ -220,7 +230,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
                   <h4 className="font-medium text-sm text-gray-700 mb-2">Aditivos:</h4>
                   <div className="flex flex-wrap gap-2">
                     {selectedMaterials.additives.map(id => {
-                      const additive = availableMaterials.additives.find(a => a.id === id);
+                      const additive = availableMaterials.additives.find((a) => a.id === idKey(id));
                       return additive && (
                         <Badge key={id} variant="outline">{additive.material_name}</Badge>
                       );
@@ -230,7 +240,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
               )}
             </div>
 
-            <Button onClick={onComplete} className="w-full">
+            <Button onClick={onComplete} className={`w-full ${calculatorPrimaryButtonClass}`}>
               Confirmar Selección y Continuar
             </Button>
           </div>
@@ -262,7 +272,14 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Selección de Materiales</CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Selección de Materiales
+          <span className="text-xs font-normal text-stone-500">
+            ({selectedMaterials.sands.length} arena{selectedMaterials.sands.length !== 1 ? 's' : ''},{' '}
+            {selectedMaterials.gravels.length} grava{selectedMaterials.gravels.length !== 1 ? 's' : ''},{' '}
+            {selectedMaterials.additives.length} aditivo{selectedMaterials.additives.length !== 1 ? 's' : ''})
+          </span>
+        </CardTitle>
         <div className="flex gap-2 mt-4">
           {(['cement', 'sands', 'gravels', 'additives'] as MaterialSelectionStep[]).map((step) => (
             <div
@@ -284,6 +301,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
         <div className="flex justify-between mt-6">
           <Button
             variant="outline"
+            className={calculatorOutlineNeutralClass}
             onClick={() => {
               const prevStep = getPrevStep(materialSelectionStep);
               if (prevStep) onStepChange(prevStep);
@@ -294,6 +312,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
           </Button>
           
           <Button
+            className={calculatorPrimaryButtonClass}
             onClick={() => {
               const nextStep = getNextStep(materialSelectionStep);
               if (nextStep) onStepChange(nextStep);

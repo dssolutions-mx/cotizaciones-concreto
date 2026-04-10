@@ -33,6 +33,10 @@ export default function MuestreoSampleSummaryCard({
   firstEnsayoId,
 }: Props) {
   const pending = muestreo.muestras?.filter((m) => m.estado === 'PENDIENTE') ?? []
+  const hasEnsayado = muestreo.muestras?.some((m) => m.estado === 'ENSAYADO') ?? false
+  const allNoRealizado =
+    (muestreo.muestras?.length ?? 0) > 0 &&
+    muestreo.muestras!.every((m) => m.estado === 'NO_REALIZADO')
   const asDate = (d?: string) => (d ? createSafeDate(d) : null)
   const nextDate = (() => {
     if (pending.length === 0) return null
@@ -91,10 +95,20 @@ export default function MuestreoSampleSummaryCard({
                   {nextDate ? formatDate(nextDate, 'PPP') : 'Fecha no programada'}
                 </p>
               </div>
-            ) : (
+            ) : allNoRealizado ? (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-stone-500" />
+                <p className="text-stone-600 text-sm">Muestras marcadas como no realizadas</p>
+              </div>
+            ) : hasEnsayado ? (
               <div className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4 text-green-600" />
                 <p className="text-green-600 text-sm">Todos los ensayos completados</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-stone-500" />
+                <p className="text-stone-600 text-sm">Sin ensayos pendientes</p>
               </div>
             )}
           </div>

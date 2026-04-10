@@ -1,5 +1,8 @@
 // Type definitions for the Concrete Mix Calculator
 
+/** How to round kg/m³ quantities (cement, aggregates) — mirrors Excel CEILING/MROUND/FLOOR patterns */
+export type RoundingModeKg5 = 'CEIL_5' | 'MROUND_5' | 'FLOOR_5' | 'NONE';
+
 export interface CalculatorMaterial {
   id: number;
   name: string;
@@ -64,7 +67,10 @@ export interface Recipe {
   placement: string;
   aggregateSize: number;
   fcr: number;
+  /** Effective water/cement from rounded materials (SSS water L and cement kg/m3) */
   acRatio: number;
+  /** Relación A/C teórica desde la curva (factores de resistencia), antes del redondeo de cemento */
+  acRatioFormula: number;
   materialsSSS: MaterialWeights;
   materialsDry: MaterialWeights;
   volumes: RecipeVolumes;
@@ -155,10 +161,28 @@ export interface RecipeParams {
   // New fields for dynamic water definition
   waterDefinitions: WaterDefinition[]; // Defines which water combinations to use for recipe generation
   additiveSystemConfig: AdditiveSystemConfig; // Configuration for the additive system
-  // Optional precise age support
-  ageUnit?: 'D' | 'H';
+  /** Redondeo de cemento y agregados (por defecto igual al comportamiento histórico: CEIL_5) */
+  roundingModeKg5: RoundingModeKg5;
+  /** Unidad de edad para códigos y recetas (siempre definida en estado de la app) */
+  ageUnit: 'D' | 'H';
+  /** Edad en horas cuando ageUnit === 'H' */
   ageHours?: number;
 }
+
+/** Typed fields for water definition inline editors */
+export type WaterDefinitionField = keyof Pick<
+  WaterDefinition,
+  'slump' | 'placement' | 'waterTD' | 'waterBomb' | 'enabled'
+>;
+
+export type WaterDefinitionFieldValue = WaterDefinition[WaterDefinitionField];
+
+export type AdditiveSystemConfigField = 'totalCCPerKgCement';
+
+export type AdditiveRuleField = keyof Pick<
+  AdditiveRule,
+  'additiveId' | 'ccPercentage' | 'minCement' | 'maxCement' | 'priority'
+>;
 
 export interface Materials {
   cement: CalculatorMaterial;

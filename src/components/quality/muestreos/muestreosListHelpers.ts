@@ -81,8 +81,8 @@ export function computeResistanceCompliance(
   return 'fail'
 }
 
-/** One dot per muestra: tested | nextPending | pending */
-export type SpecimenDotKind = 'tested' | 'next' | 'pending' | 'discarded'
+/** One dot per muestra: tested | nextPending | pending | discarded | not_done */
+export type SpecimenDotKind = 'tested' | 'next' | 'pending' | 'discarded' | 'not_done'
 
 export function computeSpecimenDots(muestreo: MuestreoWithRelations): {
   dots: SpecimenDotKind[]
@@ -103,6 +103,7 @@ export function computeSpecimenDots(muestreo: MuestreoWithRelations): {
 
   const dots: SpecimenDotKind[] = sorted.map((m) => {
     if (m.estado === 'DESCARTADO') return 'discarded'
+    if (m.estado === 'NO_REALIZADO') return 'not_done'
     if (m.estado === 'ENSAYADO') return 'tested'
     if (nextPending && m.id === nextPending.id) return 'next'
     return 'pending'

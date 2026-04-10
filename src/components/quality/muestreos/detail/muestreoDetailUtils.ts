@@ -67,6 +67,8 @@ export function getFirstEnsayoId(muestreo: MuestreoWithRelations): string | unde
   return sorted[0]?.id
 }
 
+const terminalNoTest = new Set(['ENSAYADO', 'NO_REALIZADO', 'DESCARTADO'])
+
 export function getMuestreoPageStatus(muestreo: MuestreoWithRelations): {
   label: string
   className: string
@@ -75,13 +77,18 @@ export function getMuestreoPageStatus(muestreo: MuestreoWithRelations): {
   if (muestras.length === 0) {
     return { label: 'Sin muestras', className: 'bg-stone-100 text-stone-700 border-stone-300' }
   }
-  const allTested = muestras.every((m) => m.estado === 'ENSAYADO')
-  if (allTested) {
-    return { label: 'Completado', className: 'bg-emerald-50 text-emerald-800 border-emerald-300' }
-  }
   const anyPending = muestras.some((m) => m.estado === 'PENDIENTE')
   if (anyPending) {
     return { label: 'En progreso', className: 'bg-amber-50 text-amber-900 border-amber-300' }
+  }
+  const allNoRealizado = muestras.every((m) => m.estado === 'NO_REALIZADO')
+  const hasEnsayado = muestras.some((m) => m.estado === 'ENSAYADO')
+  if (allNoRealizado && !hasEnsayado) {
+    return { label: 'No realizado', className: 'bg-stone-100 text-stone-800 border-stone-300' }
+  }
+  const allResolved = muestras.every((m) => terminalNoTest.has(m.estado))
+  if (allResolved && hasEnsayado) {
+    return { label: 'Completado', className: 'bg-emerald-50 text-emerald-800 border-emerald-300' }
   }
   return { label: 'En revisión', className: 'bg-stone-50 text-stone-800 border-stone-300' }
 }

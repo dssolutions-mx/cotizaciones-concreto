@@ -127,6 +127,8 @@ function dotClass(kind: SpecimenDotKind): string {
       return 'bg-stone-300'
     case 'discarded':
       return 'bg-stone-200 border border-dashed border-stone-400'
+    case 'not_done':
+      return 'bg-stone-400 border border-stone-500 opacity-70'
     default:
       return 'bg-stone-200'
   }
@@ -287,11 +289,18 @@ export default function MuestreosListClient() {
         if (!m.muestras || m.muestras.length === 0) return false
         switch (estadoMuestreo) {
           case 'completado':
-            return m.muestras.every((muestra) => muestra.estado === 'ENSAYADO')
+            return (
+              m.muestras.every(
+                (muestra) =>
+                  muestra.estado === 'ENSAYADO' ||
+                  muestra.estado === 'NO_REALIZADO' ||
+                  muestra.estado === 'DESCARTADO'
+              ) && m.muestras.some((muestra) => muestra.estado === 'ENSAYADO')
+            )
           case 'en-proceso':
             return (
               m.muestras.some((muestra) => muestra.estado === 'ENSAYADO') &&
-              !m.muestras.every((muestra) => muestra.estado === 'ENSAYADO')
+              m.muestras.some((muestra) => muestra.estado === 'PENDIENTE')
             )
           case 'pendiente':
             return m.muestras.every((muestra) => muestra.estado === 'PENDIENTE')

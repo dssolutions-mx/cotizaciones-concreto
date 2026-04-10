@@ -13,8 +13,30 @@ import {
   CalculatedAdditive,
   AdditiveSystemConfig,
   AdditiveRule,
-  WaterDefinition
+  WaterDefinition,
+  RoundingModeKg5
 } from '@/types/calculator';
+
+/** Round kg/m³ to step of 5 kg (or leave decimals if NONE) — Excel CEILING / MROUND / FLOOR parity */
+export const roundKgPerM3ToStep = (value: number, mode: RoundingModeKg5): number => {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (mode === 'NONE') return Math.round(value * 1000) / 1000;
+  if (mode === 'CEIL_5') return Math.ceil(value / 5) * 5;
+  if (mode === 'FLOOR_5') return Math.floor(value / 5) * 5;
+  return Math.round(value / 5) * 5;
+};
+
+/** Cement kg/m³ from mix water (L/m³) and theoretical A/C, with chosen rounding */
+export const cementKgFromWaterAndAc = (water: number, acRatio: number, mode: RoundingModeKg5): number => {
+  if (!(acRatio > 0) || !Number.isFinite(acRatio)) return 0;
+  return roundKgPerM3ToStep(water / acRatio, mode);
+};
+
+/** Effective A/C from displayed materials (SSS water and rounded cement) */
+export const effectiveAcRatioFromMaterials = (waterSss: number, cementKg: number): number => {
+  if (!(cementKg > 0) || !Number.isFinite(cementKg)) return 0;
+  return Math.round((waterSss / cementKg) * 1000) / 1000;
+};
 
 // Helper function to get standard deviation for a specific strength
 export const getStandardDeviationForStrength = (
@@ -266,19 +288,19 @@ export const calculateCosts = (
 };
 
 /**
- * Rounds a number up to the nearest multiple of 5
- * Examples: 1037 → 1040, 1034 → 1035, 1031 → 1035
+ * Historical name: always rounds UP to multiple of 5 (Excel CEILING(x,5)).
+ * Prefer `roundKgPerM3ToStep(value, mode)` for user-selectable rounding.
  */
 export const roundToNearestMultipleOf5 = (value: number): number => {
-  if (value <= 0) return 0;
-  return Math.ceil(value / 5) * 5;
+  return roundKgPerM3ToStep(value, 'CEIL_5');
 };
 
 // Calculate sand weights from volume and combination percentages
 export const calculateSandWeights = (
   sandVolume: number,
   sandCombination: number[],
-  materials: Materials
+  materials: Materials,
+  roundingModeKg5: RoundingModeKg5 = 'CEIL_5'
 ): MaterialWeights => {
   const sandWeights: MaterialWeights = {};
   
@@ -303,7 +325,9 @@ export const calculateSandWeights = (
   
   materials.sands.forEach((sand, index) => {
     const pct = (sandCombination[index] || 0) / sumPercent;
-    sandWeights[`sand${index}`] = roundToNearestMultipleOf5(Math.round(totalSandWeight * pct));
+    const portion = totalSandWeight * pct;
+    const basePart = roundingModeKg5 === 'NONE' ? portion : Math.round(portion);
+    sandWeights[`sand${index}`] = roundKgPerM3ToStep(basePart, roundingModeKg5);
   });
   
   return sandWeights;
@@ -313,7 +337,8 @@ export const calculateSandWeights = (
 export const calculateGravelWeights = (
   gravelVolume: number,
   gravelCombination: number[],
-  materials: Materials
+  materials: Materials,
+  roundingModeKg5: RoundingModeKg5 = 'CEIL_5'
 ): MaterialWeights => {
   const gravelWeights: MaterialWeights = {};
   
@@ -337,7 +362,9 @@ export const calculateGravelWeights = (
   
   materials.gravels.forEach((gravel, index) => {
     const pct = (gravelCombination[index] || 0) / sumPercent;
-    gravelWeights[`gravel${index}`] = roundToNearestMultipleOf5(Math.round(totalGravelWeight * pct));
+    const portion = totalGravelWeight * pct;
+    const basePart = roundingModeKg5 === 'NONE' ? portion : Math.round(portion);
+    gravelWeights[`gravel${index}`] = roundKgPerM3ToStep(basePart, roundingModeKg5);
   });
   
   return gravelWeights;
@@ -389,6 +416,39 @@ export const calculateAbsorptionWater = (
   });
 
   return Math.round(absorptionWater);
+};
+
+/** Per-fraction absorption water (L/m³) from SSD aggregate masses — replaces fixed 60/40 split */
+export const calculateAbsorptionWaterSplit = (
+  materials: Materials,
+  sandWeights: MaterialWeights,
+  gravelWeights: MaterialWeights
+): { total: number; sandAbsorptionWater: number; gravelAbsorptionWater: number } => {
+  let sandAbs = 0;
+  let gravelAbs = 0;
+
+  Object.entries(sandWeights).forEach(([key, weight]) => {
+    const idx = parseInt(key.replace('sand', ''));
+    const sand = materials.sands[idx];
+    if (sand) {
+      sandAbs += weight * (sand.absorption / 100);
+    }
+  });
+
+  Object.entries(gravelWeights).forEach(([key, weight]) => {
+    const idx = parseInt(key.replace('gravel', ''));
+    const gravel = materials.gravels[idx];
+    if (gravel) {
+      gravelAbs += weight * (gravel.absorption / 100);
+    }
+  });
+
+  const total = sandAbs + gravelAbs;
+  return {
+    total: Math.round(total),
+    sandAbsorptionWater: Math.round(sandAbs),
+    gravelAbsorptionWater: Math.round(gravelAbs)
+  };
 };
 
 // Generate recipe code

@@ -89,7 +89,7 @@ export interface Muestra {
   tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
   identificacion: string;
   fecha_programada_ensayo: string;
-  estado: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO';
+  estado: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO' | 'NO_REALIZADO';
   // Optional specimen dimensions (persisted in DB after migration)
   diameter_cm?: number | null; // for cylinders
   cube_side_cm?: number | null; // for cubes
@@ -296,7 +296,7 @@ export interface FiltrosCalidad {
   fechaHasta?: Date;
   planta?: 'P001' | 'P002' | 'P003' | 'P004';
   clasificacion?: 'FC' | 'MR';
-  estadoMuestra?: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO';
+  estadoMuestra?: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO' | 'NO_REALIZADO';
   cliente?: string;
   receta?: string;
   plant_id?: string;

@@ -1,6 +1,13 @@
 // Constants for the Concrete Mix Calculator
 
-import { WaterQuantities, WaterDefinition, AdditiveSystemConfig } from '@/types/calculator';
+import { WaterQuantities, WaterDefinition, AdditiveSystemConfig, RoundingModeKg5 } from '@/types/calculator';
+
+/** Consider A/C "drifted" from curve when effective vs formula differs by more than this */
+export const AC_RATIO_DRIFT_EPSILON = 0.005;
+
+/** Default: match legacy calculator (always round up to 5 kg/m³) */
+
+export const DEFAULT_ROUNDING_MODE_KG5: RoundingModeKg5 = 'CEIL_5';
 
 export const DEFAULT_WATER_QUANTITIES_TD: WaterQuantities = {
   '10D': 180,

@@ -1697,35 +1697,72 @@ export async function recalculateOrderAmount(orderId: string) {
         !item.has_empty_truck_charge
       ) || [];
       
-      // Track delivered volume per order item
-      const deliveredVolumeByItem = new Map<string, number>();
-      
-      // Match each remision to its corresponding order item
+      // Resolve recipe_id -> master_recipe_id (legacy remisiones often only store recipe_id;
+      // order lines often only store master_recipe_id — without this, all volumes stay 0).
+      errorContext.step = 'fetch_recipe_masters';
+      const recipeIds = [...new Set(concreteRemisiones.map((r) => r.recipe_id).filter(Boolean))] as string[];
+      const recipeToMaster = new Map<string, string | null>();
+      if (recipeIds.length > 0) {
+        const { data: recipeRows, error: recipeLookupError } = await supabase
+          .from('recipes')
+          .select('id, master_recipe_id')
+          .in('id', recipeIds);
+        if (recipeLookupError) throw recipeLookupError;
+        for (const row of recipeRows || []) {
+          recipeToMaster.set(row.id, row.master_recipe_id ?? null);
+        }
+      }
+
+      // Aggregate CONCRETO m³ by master recipe, then split across lines that share the same master.
+      const volumeByMaster = new Map<string, number>();
       for (const remision of concreteRemisiones) {
-        const volumeFabricado = remision.volumen_fabricado || 0;
-        
-        // Try to match by master_recipe_id first (most common)
-        let matchedItem = concreteItems.find(item => 
-          remision.master_recipe_id && item.master_recipe_id === remision.master_recipe_id
-        );
-        
-        // If no master match, try recipe_id as fallback
-        if (!matchedItem && remision.recipe_id) {
-          matchedItem = concreteItems.find(item => 
-            item.recipe_id === remision.recipe_id
+        const resolvedMaster =
+          remision.master_recipe_id ??
+          (remision.recipe_id ? recipeToMaster.get(remision.recipe_id) ?? null : null);
+        if (!resolvedMaster) {
+          if (remision.recipe_id || remision.master_recipe_id) {
+            console.warn(
+              `Could not resolve master for remision ${remision.remision_number} (recipe: ${remision.recipe_id}, master: ${remision.master_recipe_id})`
+            );
+          }
+          continue;
+        }
+        const volumeFabricado = Number(remision.volumen_fabricado) || 0;
+        volumeByMaster.set(resolvedMaster, (volumeByMaster.get(resolvedMaster) ?? 0) + volumeFabricado);
+      }
+
+      const deliveredVolumeByItem = new Map<string, number>();
+      for (const [masterId, totalVol] of volumeByMaster.entries()) {
+        const itemsForMaster = concreteItems.filter((item) => item.master_recipe_id === masterId);
+        if (itemsForMaster.length === 0) {
+          console.warn(`No order line with master_recipe_id=${masterId} for ${totalVol} m³ delivered`);
+          continue;
+        }
+        const orderedSum =
+          itemsForMaster.reduce((s, item) => s + (Number(item.volume) || 0), 0) || 1;
+        for (const item of itemsForMaster) {
+          const share = ((Number(item.volume) || 0) / orderedSum) * totalVol;
+          deliveredVolumeByItem.set(item.id, share);
+          console.log(
+            `Assigned ${share.toFixed(2)} m³ CONCRETO (master ${masterId}) to line ${item.product_type}`
           );
         }
-        
-        if (matchedItem) {
-          // Accumulate delivered volume for this order item
-          const currentDelivered = deliveredVolumeByItem.get(matchedItem.id) || 0;
-          deliveredVolumeByItem.set(matchedItem.id, currentDelivered + volumeFabricado);
-          console.log(`Matched CONCRETO remision ${remision.remision_number} (${volumeFabricado}m³) to order item ${matchedItem.product_type}`);
-        } else {
-          // Only warn if remision has recipe/master info but couldn't match
-          if (remision.recipe_id || remision.master_recipe_id) {
-            console.warn(`Could not match CONCRETO remision ${remision.remision_number} (recipe: ${remision.recipe_id}, master: ${remision.master_recipe_id}) to any order item`);
-          }
+      }
+
+      // Fallback: recipe row has no master_recipe_id — match remision.recipe_id to line.recipe_id
+      for (const remision of concreteRemisiones) {
+        if (!remision.recipe_id) continue;
+        const masterFromRecipe =
+          remision.master_recipe_id ?? recipeToMaster.get(remision.recipe_id) ?? null;
+        if (masterFromRecipe) continue;
+        const matchedByRecipe = concreteItems.find((item) => item.recipe_id === remision.recipe_id);
+        if (matchedByRecipe) {
+          const vol = Number(remision.volumen_fabricado) || 0;
+          const current = deliveredVolumeByItem.get(matchedByRecipe.id) || 0;
+          deliveredVolumeByItem.set(matchedByRecipe.id, current + vol);
+          console.log(
+            `Matched CONCRETO remision ${remision.remision_number} (${vol} m³) to line by recipe_id ${matchedByRecipe.product_type}`
+          );
         }
       }
       

@@ -12,7 +12,7 @@ import {
   MetricasCalidad,
   DatoGraficoResistencia
 } from '@/types/quality';
-import { format, subMonths } from 'date-fns';
+import { format, subDays, subMonths } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDate, createSafeDate } from '@/lib/utils';
 
@@ -111,7 +111,10 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
   }
 }
 
-export async function updateMuestraEstado(id: string, estado: 'ENSAYADO' | 'DESCARTADO') {
+export async function updateMuestraEstado(
+  id: string,
+  estado: 'ENSAYADO' | 'DESCARTADO' | 'NO_REALIZADO'
+) {
   try {
     const { data, error } = await supabase
       .from('muestras')
@@ -130,6 +133,28 @@ export async function updateMuestraEstado(id: string, estado: 'ENSAYADO' | 'DESC
     return data;
   } catch (error) {
     console.error('Error in updateMuestraEstado:', error);
+    throw error;
+  }
+}
+
+/** Bulk-archive pending samples whose scheduled date is before the cutoff (date-only field). */
+export async function archiveStaleTests(cutoffDays = 60): Promise<number> {
+  try {
+    const cutoff = format(subDays(new Date(), cutoffDays), 'yyyy-MM-dd');
+    const { data, error } = await supabase
+      .from('muestras')
+      .update({
+        estado: 'NO_REALIZADO',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('estado', 'PENDIENTE')
+      .lt('fecha_programada_ensayo', cutoff)
+      .select('id');
+
+    if (error) throw error;
+    return data?.length ?? 0;
+  } catch (error) {
+    handleError(error, 'archiveStaleTests');
     throw error;
   }
 }
