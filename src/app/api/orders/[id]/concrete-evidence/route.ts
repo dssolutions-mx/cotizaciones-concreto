@@ -75,11 +75,11 @@ export async function GET(
       }))
     );
 
-    const { data: evidence, error: evErr } = await supabase
+    const { data: evidenceList, error: evErr } = await supabase
       .from('order_concrete_evidence')
       .select('id, file_path, original_name, file_size, mime_type, uploaded_by, notes, created_at, updated_at')
       .eq('order_id', orderId)
-      .maybeSingle();
+      .order('created_at', { ascending: true });
 
     if (evErr) {
       console.error('concrete-evidence GET evidence:', evErr);
@@ -89,7 +89,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        evidence: evidence || null,
+        evidence: evidenceList || [],
         concrete_remisiones_ordered,
       },
     });
@@ -138,15 +138,8 @@ export async function POST(
       return NextResponse.json({ error: 'No tiene permiso para subir evidencia en este pedido' }, { status: 403 });
     }
 
-    const { data: existing } = await supabase
-      .from('order_concrete_evidence')
-      .select('id, file_path')
-      .eq('order_id', orderId)
-      .maybeSingle();
-
     const contentType = request.headers.get('content-type') || '';
 
-    // Client uploaded to Supabase Storage first (avoids Vercel ~4.5MB request body limit); we only persist metadata.
     if (contentType.includes('application/json')) {
       let body: { file_path?: string; original_name?: string; file_size?: number; mime_type?: string };
       try {
@@ -181,61 +174,24 @@ export async function POST(
         return NextResponse.json({ error: 'Solo se permiten JPEG, PNG o PDF' }, { status: 400 });
       }
 
-      const previousPath = existing?.file_path;
-      const nowIso = new Date().toISOString();
-      const row = {
-        file_path: filePath,
-        original_name: originalName,
-        file_size: fileSize,
-        mime_type: mimeForDb,
-        updated_at: nowIso,
-      };
+      const { data: saved, error: insErr } = await supabase
+        .from('order_concrete_evidence')
+        .insert({
+          order_id: orderId,
+          plant_id: order.plant_id,
+          file_path: filePath,
+          original_name: originalName,
+          file_size: fileSize,
+          mime_type: mimeForDb,
+          uploaded_by: user.id,
+        })
+        .select()
+        .single();
 
-      let saved;
-      if (existing?.id) {
-        const { data, error: upErr } = await supabase
-          .from('order_concrete_evidence')
-          .update({
-            file_path: row.file_path,
-            original_name: row.original_name,
-            file_size: row.file_size,
-            mime_type: row.mime_type,
-            uploaded_by: user.id,
-            updated_at: row.updated_at,
-          })
-          .eq('id', existing.id)
-          .select()
-          .single();
-        if (upErr) {
-          await supabase.storage.from('remision-documents').remove([filePath]);
-          console.error('concrete-evidence update:', upErr);
-          return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
-        }
-        saved = data;
-      } else {
-        const { data, error: insErr } = await supabase
-          .from('order_concrete_evidence')
-          .insert({
-            order_id: orderId,
-            plant_id: order.plant_id,
-            file_path: row.file_path,
-            original_name: row.original_name,
-            file_size: row.file_size,
-            mime_type: row.mime_type,
-            uploaded_by: user.id,
-          })
-          .select()
-          .single();
-        if (insErr) {
-          await supabase.storage.from('remision-documents').remove([filePath]);
-          console.error('concrete-evidence insert:', insErr);
-          return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
-        }
-        saved = data;
-      }
-
-      if (previousPath && previousPath !== filePath) {
-        await supabase.storage.from('remision-documents').remove([previousPath]);
+      if (insErr) {
+        await supabase.storage.from('remision-documents').remove([filePath]);
+        console.error('concrete-evidence insert:', insErr);
+        return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
       }
 
       return NextResponse.json({ success: true, data: saved });
@@ -276,61 +232,24 @@ export async function POST(
       return NextResponse.json({ error: 'Error al subir el archivo' }, { status: 502 });
     }
 
-    const previousPathMultipart = existing?.file_path;
-    const nowIsoMultipart = new Date().toISOString();
-    const rowMultipart = {
-      file_path: fileName,
-      original_name: file.name,
-      file_size: file.size,
-      mime_type: normalizeMimeType(file.type, file.name),
-      updated_at: nowIsoMultipart,
-    };
+    const { data: savedMultipart, error: insMultipartErr } = await supabase
+      .from('order_concrete_evidence')
+      .insert({
+        order_id: orderId,
+        plant_id: order.plant_id,
+        file_path: fileName,
+        original_name: file.name,
+        file_size: file.size,
+        mime_type: normalizeMimeType(file.type, file.name),
+        uploaded_by: user.id,
+      })
+      .select()
+      .single();
 
-    let savedMultipart;
-    if (existing?.id) {
-      const { data, error: upErr } = await supabase
-        .from('order_concrete_evidence')
-        .update({
-          file_path: rowMultipart.file_path,
-          original_name: rowMultipart.original_name,
-          file_size: rowMultipart.file_size,
-          mime_type: rowMultipart.mime_type,
-          uploaded_by: user.id,
-          updated_at: rowMultipart.updated_at,
-        })
-        .eq('id', existing.id)
-        .select()
-        .single();
-      if (upErr) {
-        await supabase.storage.from('remision-documents').remove([fileName]);
-        console.error('concrete-evidence update:', upErr);
-        return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
-      }
-      savedMultipart = data;
-    } else {
-      const { data, error: insErr } = await supabase
-        .from('order_concrete_evidence')
-        .insert({
-          order_id: orderId,
-          plant_id: order.plant_id,
-          file_path: rowMultipart.file_path,
-          original_name: rowMultipart.original_name,
-          file_size: rowMultipart.file_size,
-          mime_type: rowMultipart.mime_type,
-          uploaded_by: user.id,
-        })
-        .select()
-        .single();
-      if (insErr) {
-        await supabase.storage.from('remision-documents').remove([fileName]);
-        console.error('concrete-evidence insert:', insErr);
-        return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
-      }
-      savedMultipart = data;
-    }
-
-    if (previousPathMultipart && previousPathMultipart !== fileName) {
-      await supabase.storage.from('remision-documents').remove([previousPathMultipart]);
+    if (insMultipartErr) {
+      await supabase.storage.from('remision-documents').remove([fileName]);
+      console.error('concrete-evidence insert multipart:', insMultipartErr);
+      return NextResponse.json({ error: 'Error al guardar la evidencia' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, data: savedMultipart });
@@ -341,11 +260,16 @@ export async function POST(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id: orderId } = await params;
+    const evidenceId = request.nextUrl.searchParams.get('evidence_id');
+    if (!evidenceId?.trim()) {
+      return NextResponse.json({ error: 'Se requiere evidence_id en la URL' }, { status: 400 });
+    }
+
     const supabase = await createServerSupabaseClient();
     const {
       data: { user },
@@ -382,16 +306,20 @@ export async function DELETE(
     const { data: existing, error: findErr } = await supabase
       .from('order_concrete_evidence')
       .select('id, file_path')
+      .eq('id', evidenceId.trim())
       .eq('order_id', orderId)
       .maybeSingle();
 
     if (findErr || !existing) {
-      return NextResponse.json({ error: 'No hay evidencia para eliminar' }, { status: 404 });
+      return NextResponse.json({ error: 'Evidencia no encontrada' }, { status: 404 });
     }
 
     await supabase.storage.from('remision-documents').remove([existing.file_path]);
 
-    const { error: delErr } = await supabase.from('order_concrete_evidence').delete().eq('id', existing.id);
+    const { error: delErr } = await supabase
+      .from('order_concrete_evidence')
+      .delete()
+      .eq('id', existing.id);
     if (delErr) {
       console.error('concrete-evidence delete:', delErr);
       return NextResponse.json({ error: 'Error al eliminar el registro' }, { status: 500 });

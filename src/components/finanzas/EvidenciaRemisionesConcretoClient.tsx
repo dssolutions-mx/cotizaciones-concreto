@@ -19,6 +19,16 @@ import {
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { toast } from 'sonner';
 
+type EvidenceFile = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  original_name: string;
+  uploaded_by: string | null;
+  uploaded_by_name: string | null;
+  file_path: string;
+};
+
 type Row = {
   order_id: string;
   order_number: string;
@@ -27,15 +37,10 @@ type Row = {
   client_name: string | null;
   concrete_remisiones_count: number;
   has_evidence: boolean;
-  evidence: {
-    id: string;
-    created_at: string;
-    updated_at: string;
-    original_name: string;
-    uploaded_by: string | null;
-    uploaded_by_name: string | null;
-    file_path: string;
-  } | null;
+  evidence_count: number;
+  evidence_files: EvidenceFile[];
+  evidence_last_at: string | null;
+  evidence_last_uploader_name: string | null;
 };
 
 export default function EvidenciaRemisionesConcretoClient() {
@@ -83,7 +88,7 @@ export default function EvidenciaRemisionesConcretoClient() {
       <div>
         <h1 className="text-large-title text-gray-900">Evidencia remisiones (concreto)</h1>
         <p className="text-footnote text-muted-foreground mt-1">
-          Verificación de un archivo por pedido (escaneo de remisiones de concreto).
+          Verificación de uno o varios archivos por pedido (p. ej. varios PDF con remisiones de concreto).
         </p>
       </div>
 
@@ -138,7 +143,7 @@ export default function EvidenciaRemisionesConcretoClient() {
                 <TableHead className="text-right">Rem. concreto</TableHead>
                 <TableHead>Evidencia</TableHead>
                 <TableHead>Última carga</TableHead>
-                <TableHead className="text-right">Acción</TableHead>
+                <TableHead className="text-right">Archivos</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -158,7 +163,8 @@ export default function EvidenciaRemisionesConcretoClient() {
                     <TableCell>
                       {r.has_evidence ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 text-sm">
-                          <CheckCircle2 className="h-4 w-4" /> Sí
+                          <CheckCircle2 className="h-4 w-4" /> {r.evidence_count}{' '}
+                          {r.evidence_count === 1 ? 'archivo' : 'archivos'}
                         </span>
                       ) : r.concrete_remisiones_count > 0 ? (
                         <span className="inline-flex items-center gap-1 text-amber-700 text-sm">
@@ -169,25 +175,32 @@ export default function EvidenciaRemisionesConcretoClient() {
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {r.evidence?.updated_at
-                        ? format(new Date(r.evidence.updated_at), 'dd/MM/yyyy HH:mm', { locale: es })
+                      {r.evidence_last_at
+                        ? format(new Date(r.evidence_last_at), 'dd/MM/yyyy HH:mm', { locale: es })
                         : '—'}
-                      {r.evidence?.uploaded_by_name && (
-                        <span className="block text-xs">{r.evidence.uploaded_by_name}</span>
+                      {r.evidence_last_uploader_name && (
+                        <span className="block text-xs">{r.evidence_last_uploader_name}</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {r.evidence?.file_path ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={urlLoading}
-                          onClick={() => openEvidence(r.evidence!.file_path)}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          Ver
-                        </Button>
+                    <TableCell className="text-right align-top">
+                      {r.evidence_files.length > 0 ? (
+                        <div className="flex flex-col items-end gap-1">
+                          {r.evidence_files.map((f, i) => (
+                            <Button
+                              key={f.id}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 max-w-[220px]"
+                              disabled={urlLoading(f.file_path)}
+                              title={f.original_name}
+                              onClick={() => openEvidence(f.file_path)}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 mr-1 shrink-0" />
+                              <span className="truncate">Abrir {i + 1}</span>
+                            </Button>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

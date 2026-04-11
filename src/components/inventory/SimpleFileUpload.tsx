@@ -38,7 +38,7 @@ export default function SimpleFileUpload({
   onFileSelect,
   acceptedTypes = ['image/*', 'application/pdf'],
   multiple = true,
-  maxFiles = 5,
+  maxFiles = 15,
   maxSize = 10,
   uploading = false,
   disabled = false,
@@ -180,7 +180,8 @@ export default function SimpleFileUpload({
             <>
               <Upload className="h-8 w-8 text-gray-400 mb-2" />
               <p className="text-sm text-gray-600 text-center mb-2">
-                <span className="font-medium">Haga clic para subir</span> o arrastre archivos aquí
+                <span className="font-medium">Haga clic para subir</span> o arrastre archivos aquí.
+                <span className="block mt-1 font-normal">Puede subir varios archivos a la vez.</span>
               </p>
               <p className="text-xs text-gray-500 text-center">
                 {acceptedTypes.includes('image/*') && 'Imágenes, '}

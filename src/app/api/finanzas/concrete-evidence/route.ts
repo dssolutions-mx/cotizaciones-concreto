@@ -16,6 +16,25 @@ function parseYmd(s: string | null): string | null {
   return m ? m[1] : null;
 }
 
+type OrderConcreteEvidenceRow = {
+  order_id: string;
+  id: string;
+  created_at: string;
+  updated_at: string;
+  original_name: string;
+  uploaded_by: string | null;
+  file_path: string;
+};
+
+function pickLatestEvidence(files: OrderConcreteEvidenceRow[]): OrderConcreteEvidenceRow | null {
+  if (files.length === 0) return null;
+  return files.reduce((best, cur) => {
+    const bt = new Date(best.updated_at || best.created_at).getTime();
+    const ct = new Date(cur.updated_at || cur.created_at).getTime();
+    return ct >= bt ? cur : best;
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
@@ -106,16 +125,19 @@ export async function GET(request: NextRequest) {
     const { data: evidenceRows, error: evErr } = await supabase
       .from('order_concrete_evidence')
       .select('order_id, id, created_at, updated_at, original_name, uploaded_by, file_path')
-      .in('order_id', orderIds);
+      .in('order_id', orderIds)
+      .order('created_at', { ascending: true });
 
     if (evErr) {
       console.error('finanzas concrete-evidence evidence:', evErr);
       return NextResponse.json({ error: 'Error al cargar evidencia' }, { status: 500 });
     }
 
-    const evidenceByOrder = new Map<string, (typeof evidenceRows)[0]>();
-    for (const e of evidenceRows || []) {
-      evidenceByOrder.set(e.order_id, e);
+    const evidenceByOrder = new Map<string, OrderConcreteEvidenceRow[]>();
+    for (const e of (evidenceRows || []) as OrderConcreteEvidenceRow[]) {
+      const list = evidenceByOrder.get(e.order_id) || [];
+      list.push(e);
+      evidenceByOrder.set(e.order_id, list);
     }
 
     const { data: remisionesCounts, error: cErr } = await supabase
@@ -135,7 +157,13 @@ export async function GET(request: NextRequest) {
       countByOrder.set(oid, (countByOrder.get(oid) || 0) + 1);
     }
 
-    const uploaderIds = [...new Set((evidenceRows || []).map((e) => e.uploaded_by).filter(Boolean))] as string[];
+    const uploaderIds = Array.from(
+      new Set(
+        ((evidenceRows || []) as OrderConcreteEvidenceRow[])
+          .map((e) => e.uploaded_by)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
     const uploaderNames: Record<string, string> = {};
     if (uploaderIds.length > 0) {
       const { data: ups } = await supabase
@@ -148,7 +176,7 @@ export async function GET(request: NextRequest) {
     }
 
     let rows = orderList.map((o: any) => {
-      const ev = evidenceByOrder.get(o.id);
+      const fileRows = evidenceByOrder.get(o.id) || [];
       const concreteCount = countByOrder.get(o.id) || 0;
       const clientName =
         o.clients && typeof o.clients === 'object' && !Array.isArray(o.clients)
@@ -156,6 +184,19 @@ export async function GET(request: NextRequest) {
           : Array.isArray(o.clients)
             ? (o.clients[0] as { business_name?: string })?.business_name
             : null;
+
+      const evidence_files = fileRows.map((ev) => ({
+        id: ev.id,
+        created_at: ev.created_at,
+        updated_at: ev.updated_at,
+        original_name: ev.original_name,
+        uploaded_by: ev.uploaded_by,
+        uploaded_by_name: ev.uploaded_by ? uploaderNames[ev.uploaded_by] ?? null : null,
+        file_path: ev.file_path,
+      }));
+
+      const latest = pickLatestEvidence(fileRows);
+
       return {
         order_id: o.id,
         order_number: o.order_number,
@@ -165,18 +206,12 @@ export async function GET(request: NextRequest) {
         client_id: o.client_id,
         client_name: clientName ?? null,
         concrete_remisiones_count: concreteCount,
-        has_evidence: !!ev,
-        evidence: ev
-          ? {
-              id: ev.id,
-              created_at: ev.created_at,
-              updated_at: ev.updated_at,
-              original_name: ev.original_name,
-              uploaded_by: ev.uploaded_by,
-              uploaded_by_name: ev.uploaded_by ? uploaderNames[ev.uploaded_by] ?? null : null,
-              file_path: ev.file_path,
-            }
-          : null,
+        has_evidence: fileRows.length > 0,
+        evidence_count: fileRows.length,
+        evidence_files,
+        evidence_last_at: latest ? latest.updated_at || latest.created_at : null,
+        evidence_last_uploader_name:
+          latest?.uploaded_by ? uploaderNames[latest.uploaded_by] ?? null : null,
       };
     });
 
