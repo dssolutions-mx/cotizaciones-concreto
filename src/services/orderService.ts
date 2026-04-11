@@ -10,6 +10,7 @@ import {
 } from '@/types/orders';
 // Import the singleton Supabase client
 import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode } from '@/services/geocodingService';
 
 type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
@@ -640,10 +641,17 @@ export async function getOrderById(id: string) {
     // Rename clients to client for consistency with OrderWithDetails
     const { clients, products, plant, ...orderData } = data;
     
-    // Map products to include recipe_id directly
+    // Map products to include recipe_id directly.
+    // Important: if the order item is already normalized at master level, do NOT
+    // fall back to quote_details.recipe_id, because legacy quote details can carry
+    // stale/deleted variant IDs that break save-time price resolution.
     const structuredProducts = (products || []).map((p: { recipe_id: string | null; quote_details: { recipe_id: string } | null; [key: string]: any }) => {
-      // Usar el recipe_id directo del order_item si existe, sino el de quote_details como fallback
-      const recipeId = p.recipe_id !== null ? p.recipe_id : (p.quote_details?.recipe_id || null);
+      const recipeId =
+        p.recipe_id !== null
+          ? p.recipe_id
+          : p.master_recipe_id
+            ? null
+            : (p.quote_details?.recipe_id || null);
       const { quote_details, ...productData } = p;
       return {
         ...productData,
@@ -1038,7 +1046,7 @@ export async function updateOrderNormalized(
         .from('master_recipes')
         .select('id, master_code')
         .eq('id', p.recipe_id)
-        .single();
+        .maybeSingle();
       
       if (!masterErr && masterRow) {
         // It's a master recipe ID
@@ -1068,7 +1076,7 @@ export async function updateOrderNormalized(
           .from('master_recipes')
           .select('master_code')
           .eq('id', masterId)
-          .single();
+          .maybeSingle();
         if (!masterErr && masterRow) {
           masterCode = masterRow.master_code;
         }
@@ -1132,9 +1140,9 @@ export async function updateOrderNormalized(
 
   // Resolve pricing per master as of created_at
   const { resolveMasterPriceForAsOf } = await import('@/lib/services/productPriceResolver');
-  const resolvedPerMaster: Record<string, { quoteId: string | null; quoteDetailId: string; unitPrice: number; priceSource: 'as_of'|'current'|'existing' }> = {};
+  const resolvedPerMaster: Record<string, { quoteId: string | null; quoteDetailId: string | null; unitPrice: number; priceSource: 'as_of'|'current'|'existing' }> = {};
   for (const g of groups) {
-    if (g.needsPriceLookup || !g.existingQuoteDetailId) {
+    if (g.needsPriceLookup) {
       const resolved = await resolveMasterPriceForAsOf({
         clientId,
         constructionSite: site,
@@ -1143,13 +1151,24 @@ export async function updateOrderNormalized(
         masterRecipeId: g.masterId,
       });
       resolvedPerMaster[g.masterId] = resolved;
-    } else {
+    } else if (g.existingQuoteDetailId || g.existingUnitPrice != null) {
+      // Legacy orders may have a valid master + unit_price but no quote_detail_id linkage.
+      // Preserve that price on save instead of forcing a resolver lookup that can fail.
       resolvedPerMaster[g.masterId] = {
         quoteId: (orderRow as any).quote_id || null,
-        quoteDetailId: g.existingQuoteDetailId,
+        quoteDetailId: g.existingQuoteDetailId || null,
         unitPrice: g.existingUnitPrice || 0,
         priceSource: 'existing'
       };
+    } else {
+      const resolved = await resolveMasterPriceForAsOf({
+        clientId,
+        constructionSite: site,
+        plantId,
+        createdAt,
+        masterRecipeId: g.masterId,
+      });
+      resolvedPerMaster[g.masterId] = resolved;
     }
   }
 
@@ -1621,23 +1640,28 @@ export async function deleteOrder(orderId: string) {
 }
 
 // New function to recalculate an order's final amount
-export async function recalculateOrderAmount(orderId: string) {
+export async function recalculateOrderAmount(
+  orderId: string,
+  client: SupabaseClient = supabase
+) {
+  const db = client;
   const errorContext = { orderId, step: 'init' as string };
   try {
     // First, check if there are any remisiones for this order
     errorContext.step = 'fetch_remisiones';
-    const { data: remisiones, error: remisionesError } = await supabase
+    const { data: remisiones, error: remisionesError } = await db
       .from('remisiones')
       .select('id, volumen_fabricado, tipo_remision, recipe_id, master_recipe_id, remision_number')
       .eq('order_id', orderId);
     
     if (remisionesError) throw remisionesError;
+    const hasAnyRemisiones = (remisiones?.length ?? 0) > 0;
     
     // Get order details to know if it requires invoice and plant_id
     errorContext.step = 'fetch_order';
-    const { data: orderData, error: orderError } = await supabase
+    const { data: orderData, error: orderError } = await db
       .from('orders')
-      .select('requires_invoice, client_id, construction_site, plant_id')
+      .select('requires_invoice, client_id, construction_site, plant_id, effective_for_balance')
       .eq('id', orderId)
       .single();
     
@@ -1647,7 +1671,7 @@ export async function recalculateOrderAmount(orderId: string) {
     errorContext.step = 'fetch_plant_vat';
     let vatRate = 0.16; // Default fallback
     if (orderData.plant_id) {
-      const { data: plantData, error: plantError } = await supabase
+      const { data: plantData, error: plantError } = await db
         .from('plants')
         .select(`
           id,
@@ -1659,14 +1683,20 @@ export async function recalculateOrderAmount(orderId: string) {
         .eq('id', orderData.plant_id)
         .single();
       
-      if (!plantError && plantData?.business_unit?.vat_rate) {
-        vatRate = plantData.business_unit.vat_rate;
+      const buRaw = plantData?.business_unit as
+        | { vat_rate?: number }
+        | { vat_rate?: number }[]
+        | null
+        | undefined;
+      const resolvedVat = Array.isArray(buRaw) ? buRaw[0]?.vat_rate : buRaw?.vat_rate;
+      if (!plantError && resolvedVat != null) {
+        vatRate = resolvedVat;
       }
     }
     
     // Get all order items
     errorContext.step = 'fetch_order_items';
-    const { data: orderItems, error: itemsError } = await supabase
+    const { data: orderItems, error: itemsError } = await db
       .from('order_items')
       .select('*')
       .eq('order_id', orderId);
@@ -1675,7 +1705,7 @@ export async function recalculateOrderAmount(orderId: string) {
     
     // Step 1: Reset all concrete_volume_delivered and pump_volume_delivered to 0
     errorContext.step = 'reset_delivered_volumes';
-    await supabase
+    await db
       .from('order_items')
       .update({ 
         concrete_volume_delivered: 0, 
@@ -1703,7 +1733,7 @@ export async function recalculateOrderAmount(orderId: string) {
       const recipeIds = [...new Set(concreteRemisiones.map((r) => r.recipe_id).filter(Boolean))] as string[];
       const recipeToMaster = new Map<string, string | null>();
       if (recipeIds.length > 0) {
-        const { data: recipeRows, error: recipeLookupError } = await supabase
+        const { data: recipeRows, error: recipeLookupError } = await db
           .from('recipes')
           .select('id, master_recipe_id')
           .in('id', recipeIds);
@@ -1768,70 +1798,64 @@ export async function recalculateOrderAmount(orderId: string) {
       
       // Update each matched order item with its delivered volume
       for (const [itemId, deliveredVolume] of deliveredVolumeByItem.entries()) {
-        await supabase
+        await db
           .from('order_items')
           .update({ concrete_volume_delivered: deliveredVolume })
           .eq('id', itemId);
         console.log(`Updated order item ${itemId} with delivered volume: ${deliveredVolume}m³`);
       }
       
-      // Handle pump volume delivered - both from remisiones and global pump service
+      // Pump: single SERVICIO DE BOMBEO line — delivered m³ is exactly the sum of BOMBEO remisiones (no ratios).
       const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
       const totalPumpDelivered = pumpRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
-    
-      // Find pump service items (both legacy and global)
-      const pumpItems = orderItems?.filter(item => item.has_pump_service) || [];
-      
-      // Handle global pump service items
-      const globalPumpItems = pumpItems.filter(item => 
-        item.product_type === 'SERVICIO DE BOMBEO' || item.quote_detail_id === null
-      );
-      
-      // Handle regular pump service items  
-      const regularPumpItems = pumpItems.filter(item => 
-        item.product_type !== 'SERVICIO DE BOMBEO' && item.quote_detail_id !== null
-      );
-      
-      // For global pump service, set pump_volume_delivered to actual delivered volume from BOMBEO remisiones
-      for (const globalItem of globalPumpItems) {
-        if (globalItem.volume > 0) {
-          await supabase
-            .from('order_items')
-            .update({ pump_volume_delivered: totalPumpDelivered })
-            .eq('id', globalItem.id);
-        }
-      }
-      
-      // For regular pump items, distribute the remision pump volume
-      if (regularPumpItems.length > 0 && totalPumpDelivered > 0) {
-        const totalPumpOrdered = regularPumpItems.reduce((sum, item) => sum + (item.pump_volume || 0), 0);
-        const pumpDeliveryRatio = totalPumpOrdered > 0 ? totalPumpDelivered / totalPumpOrdered : 0;
-        
-        for (const item of regularPumpItems) {
-          const deliveredPumpVolume = (item.pump_volume || 0) * pumpDeliveryRatio;
-          await supabase
-            .from('order_items')
-            .update({ pump_volume_delivered: deliveredPumpVolume })
-            .eq('id', item.id);
-        }
+      const pumpServiceItem = orderItems?.find(item => item.product_type === 'SERVICIO DE BOMBEO');
+      if (pumpServiceItem) {
+        await db
+          .from('order_items')
+          .update({ pump_volume_delivered: totalPumpDelivered })
+          .eq('id', pumpServiceItem.id);
       }
     } else {
-      // If no remisiones, but there's a global pump service, delivered volume should be 0
-      const globalPumpItems = orderItems?.filter(item => 
-        item.product_type === 'SERVICIO DE BOMBEO' && item.volume > 0
-      ) || [];
-      
-      for (const globalItem of globalPumpItems) {
-        await supabase
+      // No remisiones: global pump line has nothing delivered yet.
+      const pumpServiceItem = orderItems?.find(item => item.product_type === 'SERVICIO DE BOMBEO');
+      if (pumpServiceItem) {
+        await db
           .from('order_items')
           .update({ pump_volume_delivered: 0 })
-          .eq('id', globalItem.id);
+          .eq('id', pumpServiceItem.id);
       }
     }
     
+    if ((!remisiones || remisiones.length === 0) && !orderData.effective_for_balance) {
+      errorContext.step = 'clear_unrealized_amounts';
+      const { error: clearOrderError } = await db
+        .from('orders')
+        .update({
+          final_amount: null,
+          invoice_amount: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+
+      if (clearOrderError) throw clearOrderError;
+
+      errorContext.step = 'update_client_balance';
+      const { error: balanceError } = await db.rpc('update_client_balance', {
+        p_client_id: orderData.client_id,
+        p_site_name: orderData.construction_site
+      });
+
+      if (balanceError) throw balanceError;
+
+      return {
+        success: true,
+        message: 'La orden no tiene remisiones ni aplica directo a balance; se mantuvo solo el monto preliminar.'
+      };
+    }
+
     // Step 3: Calculate the final amount manually since we understand the logic better
     errorContext.step = 'recalculate_amounts';
-    const { data: updatedItems, error: updatedItemsError } = await supabase
+    const { data: updatedItems, error: updatedItemsError } = await db
       .from('order_items')
       .select('*')
       .eq('order_id', orderId);
@@ -1848,29 +1872,21 @@ export async function recalculateOrderAmount(orderId: string) {
       )
       .reduce((sum, item) => sum + ((item.unit_price || 0) * (item.concrete_volume_delivered || 0)), 0) || 0;
     
-    // Calculate pump amount - avoid double charging when there's a global pump service
-    const hasGlobalPumpService = updatedItems?.some(item => item.product_type === 'SERVICIO DE BOMBEO') || false;
+    // Pump amount: only the global SERVICIO DE BOMBEO line (legacy per-line pump was migrated in DB).
+    const pumpAmount =
+      updatedItems
+        ?.filter(item => item.product_type === 'SERVICIO DE BOMBEO' && (item.pump_volume_delivered || 0) > 0)
+        .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
     
-    const pumpAmount = hasGlobalPumpService
-      ? // If there's a global pump service, only charge from that item
-        updatedItems
-          ?.filter(item => item.product_type === 'SERVICIO DE BOMBEO' && (item.pump_volume_delivered || 0) > 0)
-          .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0
-      : // Otherwise, charge from individual items with pump service
-        updatedItems
-          ?.filter(item => item.has_pump_service && (item.pump_volume_delivered || 0) > 0)
-          .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
-    
-    // Calculate empty truck amount
-    // Business rule: Only include vacío de olla if there is at least one remisión
-    const hasAnyRemisiones = Array.isArray(remisiones) && remisiones.length > 0;
+    // Calculate empty truck amount.
+    // Keep this aligned with the DB trigger: if the charge line exists, bill it.
     const emptyTruckAmount = hasAnyRemisiones
-      ? (updatedItems
-          ?.filter(item => 
-            item.product_type === 'VACÍO DE OLLA' || 
+      ? updatedItems
+          ?.filter(item =>
+            item.product_type === 'VACÍO DE OLLA' ||
             item.has_empty_truck_charge
           )
-          .reduce((sum, item) => sum + ((item.empty_truck_price || 0) * (item.empty_truck_volume || 0)), 0) || 0)
+          .reduce((sum, item) => sum + ((item.empty_truck_price || 0) * (item.empty_truck_volume || 0)), 0) || 0
       : 0;
     
     // Calculate additional products amount
@@ -1908,7 +1924,7 @@ export async function recalculateOrderAmount(orderId: string) {
     
     // Update the order with new amounts
     errorContext.step = 'update_order';
-    const { error: updateOrderError } = await supabase
+    const { error: updateOrderError } = await db
       .from('orders')
         .update({ 
         final_amount: finalAmount,
@@ -1921,7 +1937,7 @@ export async function recalculateOrderAmount(orderId: string) {
     
     // Update client balance
     errorContext.step = 'update_client_balance';
-    const { error: balanceError } = await supabase.rpc('update_client_balance', {
+    const { error: balanceError } = await db.rpc('update_client_balance', {
       p_client_id: orderData.client_id,
       p_site_name: orderData.construction_site
     });

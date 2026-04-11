@@ -1,9 +1,10 @@
 /**
- * Single-file limit for POST /api/remisiones/documents (evidencia por remisión: bombeo, etc.).
- * Keep in sync with client validators on forms that call this route.
+ * Single-file limit for remisión document evidence (bombeo, etc.).
+ * Browsers should upload bytes to Supabase Storage first, then POST JSON to /api/remisiones/documents
+ * (see `uploadRemisionDocumentFromClient`) so large PDFs are not limited by the hosting request body.
+ * Keep in sync with client validators on forms that use that helper.
  *
- * Note: Some hosts (e.g. Vercel serverless) enforce a smaller max request body; users may see 413
- * even below this cap — see `messageForRemisionDocumentUploadFailure`.
+ * Multipart POST to the same route remains for small files / scripts; it may hit host body limits (~4.5MB on Vercel).
  */
 export const REMISION_DOCUMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const REMISION_DOCUMENT_MAX_MB = 50;

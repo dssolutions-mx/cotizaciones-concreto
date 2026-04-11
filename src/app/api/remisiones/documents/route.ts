@@ -4,6 +4,11 @@ import {
   REMISION_DOCUMENT_MAX_BYTES,
   REMISION_DOCUMENT_MAX_MB,
 } from '@/lib/constants/remisionDocumentsUpload';
+import {
+  isAllowedRemisionDocumentMime,
+  isValidRegisteredRemisionDocumentPath,
+  normalizeRemisionDocumentMime,
+} from '@/lib/remisiones/remisionDocumentUploadShared';
 
 /** Map thrown errors to HTTP status + safe client message (full detail stays in logs). */
 function clientErrorFromCaughtError(error: unknown): { status: number; message: string } {
@@ -57,9 +62,171 @@ function clientErrorFromCaughtError(error: unknown): { status: number; message: 
 /** Large PDFs may need more time to stream to Supabase */
 export const maxDuration = 120;
 
+type SupabaseServer = Awaited<ReturnType<typeof createServerSupabaseClient>>;
+
+/**
+ * Client uploaded bytes directly to Supabase Storage; we only validate + insert DB (small JSON body — works on Vercel).
+ */
+async function handleRemisionDocumentJsonRegister(
+  request: NextRequest,
+  supabase: SupabaseServer
+): Promise<NextResponse> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ success: false, error: 'Usuario no autenticado' }, { status: 401 });
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return NextResponse.json({ success: false, error: 'Perfil de usuario no encontrado' }, { status: 403 });
+  }
+
+  let body: {
+    remision_id?: string;
+    document_type?: string;
+    document_category?: string;
+    file_path?: string;
+    original_name?: string;
+    file_size?: number;
+    mime_type?: string;
+  };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Cuerpo JSON inválido' }, { status: 400 });
+  }
+
+  const remisionId = typeof body.remision_id === 'string' ? body.remision_id.trim() : '';
+  const documentType = body.document_type as string;
+  const documentCategory = body.document_category as string;
+  const filePath = typeof body.file_path === 'string' ? body.file_path.trim() : '';
+  const originalName = typeof body.original_name === 'string' ? body.original_name.trim() : '';
+  const fileSize = typeof body.file_size === 'number' ? body.file_size : Number.NaN;
+  const mimeRaw = typeof body.mime_type === 'string' ? body.mime_type : '';
+
+  if (!remisionId) {
+    return NextResponse.json(
+      { success: false, error: 'ID de remisión es requerido' },
+      { status: 400 }
+    );
+  }
+
+  if (
+    !documentType ||
+    !['remision_proof', 'delivery_evidence', 'quality_check', 'additional'].includes(documentType)
+  ) {
+    return NextResponse.json({ success: false, error: 'Tipo de documento inválido' }, { status: 400 });
+  }
+
+  if (
+    !documentCategory ||
+    !['concrete_remision', 'pumping_remision', 'general'].includes(documentCategory)
+  ) {
+    return NextResponse.json({ success: false, error: 'Categoría de documento inválida' }, { status: 400 });
+  }
+
+  if (!filePath || !originalName || !Number.isFinite(fileSize) || fileSize < 1) {
+    return NextResponse.json({ success: false, error: 'Datos de archivo incompletos' }, { status: 400 });
+  }
+
+  if (fileSize > REMISION_DOCUMENT_MAX_BYTES) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `El archivo excede el tamaño máximo de ${REMISION_DOCUMENT_MAX_MB}MB por archivo.`,
+      },
+      { status: 400 }
+    );
+  }
+
+  if (!isAllowedRemisionDocumentMime(mimeRaw, originalName)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Tipo de archivo no permitido. Solo se permiten: JPEG, PNG, PDF, CSV',
+      },
+      { status: 400 }
+    );
+  }
+
+  const mimeForDb = normalizeRemisionDocumentMime(mimeRaw, originalName);
+
+  const { data: remision, error: remisionError } = await supabase
+    .from('remisiones')
+    .select('id, plant_id')
+    .eq('id', remisionId)
+    .single();
+
+  if (remisionError || !remision) {
+    return NextResponse.json({ success: false, error: 'Remisión no encontrada' }, { status: 404 });
+  }
+
+  if (!isValidRegisteredRemisionDocumentPath(filePath, remision.plant_id, documentCategory, remisionId)) {
+    return NextResponse.json(
+      { success: false, error: 'Ruta de almacenamiento no válida para esta remisión' },
+      { status: 400 }
+    );
+  }
+
+  const documentData = {
+    remision_id: remisionId,
+    file_name: filePath,
+    original_name: originalName,
+    file_path: filePath,
+    file_size: fileSize,
+    mime_type: mimeForDb,
+    document_type: documentType,
+    document_category: documentCategory,
+    uploaded_by: user.id,
+  };
+
+  const { data: documentRecord, error: insertError } = await supabase
+    .from('remision_documents')
+    .insert(documentData)
+    .select()
+    .single();
+
+  if (insertError) {
+    throw new Error(`Error al guardar información del documento: ${insertError.message}`);
+  }
+
+  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+    .from('remision-documents')
+    .createSignedUrl(filePath, 3600);
+
+  let documentUrl: string | null = null;
+  if (signedUrlError || !signedUrlData?.signedUrl) {
+    console.warn('Failed to create signed URL for uploaded document:', signedUrlError);
+  } else {
+    documentUrl = signedUrlData.signedUrl;
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      ...documentRecord,
+      url: documentUrl,
+    },
+    message: 'Documento subido exitosamente',
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
+    const contentType = request.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      return await handleRemisionDocumentJsonRegister(request, supabase);
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -75,14 +242,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!documentType || !['remision_proof', 'delivery_evidence', 'quality_check', 'additional'].includes(documentType)) {
+    if (
+      !documentType ||
+      !['remision_proof', 'delivery_evidence', 'quality_check', 'additional'].includes(documentType)
+    ) {
       return NextResponse.json(
         { success: false, error: 'Tipo de documento inválido' },
         { status: 400 }
       );
     }
 
-    if (!documentCategory || !['concrete_remision', 'pumping_remision', 'general'].includes(documentCategory)) {
+    if (
+      !documentCategory ||
+      !['concrete_remision', 'pumping_remision', 'general'].includes(documentCategory)
+    ) {
       return NextResponse.json(
         { success: false, error: 'Categoría de documento inválida' },
         { status: 400 }
@@ -96,11 +269,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type and size
-    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'text/csv'];
-    if (!allowedTypes.includes(file.type)) {
+    if (!isAllowedRemisionDocumentMime(file.type, file.name)) {
       return NextResponse.json(
-        { success: false, error: 'Tipo de archivo no permitido. Solo se permiten: JPEG, PNG, PDF, CSV' },
+        {
+          success: false,
+          error: 'Tipo de archivo no permitido. Solo se permiten: JPEG, PNG, PDF, CSV',
+        },
         { status: 400 }
       );
     }
@@ -115,13 +289,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get user session
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
     }
 
-    // Get user profile to check plant access
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('*')
@@ -132,7 +307,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 403 });
     }
 
-    // Verify the remision exists and get its plant_id (RLS policies will handle access control)
     const { data: remision, error: remisionError } = await supabase
       .from('remisiones')
       .select('id, plant_id')
@@ -143,40 +317,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Remisión no encontrada' }, { status: 404 });
     }
 
-    // Generate unique filename using the remision's plant_id
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 15);
     const fileExtension = file.name.split('.').pop();
-    
-    // Use the plant where the remision belongs (not the user's plant)
+
     const plantPath = remision.plant_id ? remision.plant_id.toString() : 'general';
     const fileName = `${plantPath}/${documentCategory}/${remisionId}_${timestamp}_${randomString}.${fileExtension}`;
 
-    // Upload document to storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('remision-documents')
       .upload(fileName, file, {
         cacheControl: '3600',
-        upsert: false
+        upsert: false,
       });
 
     if (uploadError) {
       throw new Error(`Error al subir documento: ${uploadError.message}`);
     }
 
-    // We'll set the permanent URL after inserting the record
+    const mimeForRow = normalizeRemisionDocumentMime(file.type, file.name);
 
-    // Insert document record into database
     const documentData = {
       remision_id: remisionId,
       file_name: fileName,
       original_name: file.name,
       file_path: fileName,
       file_size: file.size,
-      mime_type: file.type,
+      mime_type: mimeForRow,
       document_type: documentType,
       document_category: documentCategory,
-      uploaded_by: user.id
+      uploaded_by: user.id,
     };
 
     const { data: documentRecord, error: insertError } = await supabase
@@ -186,21 +356,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
-      // If database insert fails, clean up the uploaded file
-      await supabase.storage
-        .from('remision-documents')
-        .remove([fileName]);
-      
+      await supabase.storage.from('remision-documents').remove([fileName]);
+
       throw new Error(`Error al guardar información del documento: ${insertError.message}`);
     }
 
-    // Generate signed URL for the uploaded document (Supabase best practice)
     const { data: signedUrlData, error: signedUrlError } = await supabase.storage
       .from('remision-documents')
-      .createSignedUrl(fileName, 3600); // 1 hour expiry
+      .createSignedUrl(fileName, 3600);
 
     let documentUrl: string | null = null;
-    if (signedUrlError || !signedUrlData.signedUrl) {
+    if (signedUrlError || !signedUrlData?.signedUrl) {
       console.warn('Failed to create signed URL for uploaded document:', signedUrlError);
     } else {
       documentUrl = signedUrlData.signedUrl;
@@ -210,11 +376,10 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         ...documentRecord,
-        url: documentUrl
+        url: documentUrl,
       },
       message: 'Documento subido exitosamente',
     });
-
   } catch (error) {
     console.error('Error in remision documents POST:', error);
     const { status, message } = clientErrorFromCaughtError(error);

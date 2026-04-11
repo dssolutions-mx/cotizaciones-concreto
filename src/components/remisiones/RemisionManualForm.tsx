@@ -27,6 +27,7 @@ import {
   REMISION_DOCUMENT_MAX_MB,
   messageForRemisionDocumentUploadFailure,
 } from '@/lib/constants/remisionDocumentsUpload';
+import { uploadRemisionDocumentFromClient } from '@/lib/remisiones/uploadRemisionDocumentFromClient';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -260,6 +261,38 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     let batchOk = 0;
     let batchFail = 0;
 
+    let plantId: string | null = null;
+    const { data: orderRow } = await supabase
+      .from('orders')
+      .select('plant_id')
+      .eq('id', orderId)
+      .maybeSingle();
+    plantId = orderRow?.plant_id ?? null;
+    if (!plantId) {
+      const { data: remRow } = await supabase
+        .from('remisiones')
+        .select('plant_id')
+        .eq('id', remisionId)
+        .maybeSingle();
+      plantId = remRow?.plant_id ?? null;
+    }
+    if (!plantId) {
+      const msg = 'No se pudo determinar la planta del pedido para subir la evidencia.';
+      for (let i = 0; i < next.length; i++) {
+        if (next[i].status === 'uploaded') continue;
+        next[i] = { ...next[i], status: 'error', error: msg };
+        batchFail++;
+      }
+      setPendingFiles(next);
+      return {
+        allSucceeded: false,
+        attempted,
+        successCount: 0,
+        failCount: batchFail,
+        errors: [msg],
+      };
+    }
+
     for (let i = 0; i < next.length; i++) {
       if (next[i].status === 'uploaded') continue;
 
@@ -268,43 +301,17 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       );
 
       try {
-        const formData = new FormData();
-        formData.append('remision_id', remisionId);
-        formData.append('document_type', 'delivery_evidence');
-        formData.append('document_category', 'pumping_remision');
-        formData.append('file', next[i].file);
-
-        const response = await fetch('/api/remisiones/documents', {
-          method: 'POST',
-          body: formData,
+        const result = await uploadRemisionDocumentFromClient({
+          remisionId,
+          plantId,
+          file: next[i].file,
+          documentType: 'delivery_evidence',
+          documentCategory: 'pumping_remision',
         });
-
-        if (!response.ok) {
-          let message = messageForRemisionDocumentUploadFailure(response.status);
-          if (response.status !== 413) {
-            try {
-              const errorData = await response.json();
-              message = messageForRemisionDocumentUploadFailure(
-                response.status,
-                errorData.error as string | undefined
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          next[i] = { ...next[i], status: 'error', error: message };
-          batchFail++;
-          setPendingFiles((prev) =>
-            prev.map((file, index) => (index === i ? { ...next[i] } : file))
-          );
-          continue;
-        }
-
-        const result = await response.json();
         next[i] = {
           ...next[i],
           status: 'uploaded',
-          documentId: result.data.id,
+          documentId: result.id,
         };
         batchOk++;
         setPendingFiles((prev) =>
@@ -312,7 +319,10 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         );
       } catch (error) {
         console.error('Error uploading document:', error);
-        const message = error instanceof Error ? error.message : 'Error de conexión';
+        const message =
+          error instanceof Error
+            ? error.message
+            : messageForRemisionDocumentUploadFailure(0);
         next[i] = { ...next[i], status: 'error', error: message };
         batchFail++;
         setPendingFiles((prev) =>

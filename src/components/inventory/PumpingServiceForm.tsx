@@ -43,6 +43,7 @@ import {
   REMISION_DOCUMENT_MAX_MB,
   messageForRemisionDocumentUploadFailure,
 } from '@/lib/constants/remisionDocumentsUpload';
+import { uploadRemisionDocumentFromClient } from '@/lib/remisiones/uploadRemisionDocumentFromClient';
 
 // Plant interface for the form
 interface Plant {
@@ -346,44 +347,51 @@ export default function PumpingServiceForm() {
 
     setUploading(true);
     try {
+      let plantId = formData.plantId;
+      if (!plantId) {
+        const { data: remRow } = await supabase
+          .from('remisiones')
+          .select('plant_id')
+          .eq('id', remisionId)
+          .single();
+        plantId = remRow?.plant_id ?? '';
+      }
+      if (!plantId) {
+        const err = 'No se pudo determinar la planta para subir la evidencia.';
+        setPendingFiles((prev) =>
+          prev.map((f) =>
+            f.status === 'uploaded' ? f : { ...f, status: 'error' as const, error: err }
+          )
+        );
+        return {
+          allSucceeded: false,
+          attempted,
+          successCount: 0,
+          failCount: attempted,
+          errors: [err],
+        };
+      }
+
       const uploadPromises = initial.map(async (fileInfo) => {
         if (fileInfo.status === 'uploaded') {
           return fileInfo;
         }
         try {
-          const formData = new FormData();
-          formData.append('file', fileInfo.file);
-          formData.append('remision_id', remisionId);
-          formData.append('document_type', 'remision_proof');
-          formData.append('document_category', 'pumping_remision');
-
-          const response = await fetch('/api/remisiones/documents', {
-            method: 'POST',
-            body: formData,
+          const result = await uploadRemisionDocumentFromClient({
+            remisionId,
+            plantId,
+            file: fileInfo.file,
+            documentType: 'remision_proof',
+            documentCategory: 'pumping_remision',
           });
-
-          if (response.ok) {
-            const result = await response.json();
-            return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
-          }
-
-          let message = messageForRemisionDocumentUploadFailure(response.status);
-          if (response.status !== 413) {
-            try {
-              const body = await response.json();
-              message = messageForRemisionDocumentUploadFailure(
-                response.status,
-                body.error as string | undefined
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          console.error('Error uploading document:', response.status, message);
-          return { ...fileInfo, status: 'error' as const, error: message };
+          return { ...fileInfo, status: 'uploaded' as const, documentId: result.id };
         } catch (error) {
           console.error('Error uploading document:', error);
-          return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' };
+          const message =
+            error instanceof Error
+              ? error.message
+              : messageForRemisionDocumentUploadFailure(0);
+          return { ...fileInfo, status: 'error' as const, error: message };
         }
       });
 

@@ -454,7 +454,12 @@ export async function autoAllocateRemisionFIFO(
   const skipped: Array<{ remisionMaterialId: string; materialId: string; reason: string }> = [];
 
   if (lines.length === 0) {
-    await supabase.from('remisiones').update({ fifo_status: 'not_applicable' }).eq('id', remisionId);
+    await supabase.rpc('set_arkik_bulk_mode', { enabled: true });
+    try {
+      await supabase.from('remisiones').update({ fifo_status: 'not_applicable' }).eq('id', remisionId);
+    } finally {
+      await supabase.rpc('set_arkik_bulk_mode', { enabled: false });
+    }
     return {
       success: true,
       allocationsCreated: 0,
@@ -514,7 +519,12 @@ export async function autoAllocateRemisionFIFO(
     fifoStatus = 'allocated';
   }
 
-  await supabase.from('remisiones').update({ fifo_status: fifoStatus }).eq('id', remisionId);
+  await supabase.rpc('set_arkik_bulk_mode', { enabled: true });
+  try {
+    await supabase.from('remisiones').update({ fifo_status: fifoStatus }).eq('id', remisionId);
+  } finally {
+    await supabase.rpc('set_arkik_bulk_mode', { enabled: false });
+  }
 
   return {
     success: errors.length === 0,

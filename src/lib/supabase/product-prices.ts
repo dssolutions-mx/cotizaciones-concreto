@@ -314,7 +314,7 @@ export const productPriceService = {
           .from('master_recipes')
           .select('id, master_code, strength_fc, age_days, placement_type, max_aggregate_size, slump, plant_id')
           .eq('id', masterRecipeId)
-          .single();
+          .maybeSingle();
         
         if (error) {
           console.error(`[handleQuoteApproval] Error fetching master recipe ${masterRecipeId}:`, error);

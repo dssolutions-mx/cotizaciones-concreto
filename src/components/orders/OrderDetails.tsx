@@ -570,7 +570,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             id: p.id, 
             volume: p.volume,
             pump_volume: p.pump_volume,
-            recipe_id: p.recipe_id || masterId || null,
+            recipe_id: masterId ? null : (p.recipe_id || null),
             master_recipe_id: masterId,
             temp_recipe_code: p.product_type
           });
@@ -1568,7 +1568,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             id: p.id,
             volume: p.volume,
             pump_volume: p.pump_volume,
-            recipe_id: p.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || undefined
+            recipe_id: p.recipe_id || originalProduct?.recipe_id || undefined
           };
         });
 

@@ -18,6 +18,8 @@ interface OrderData {
   invoice_amount: number | null;
   previous_client_balance: number | null;
   requires_invoice: boolean;
+  effective_for_balance: boolean | null;
+  remision_count: number;
   plant?: {
     id: string;
     name: string;
@@ -52,6 +54,7 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
           final_amount,
           invoice_amount,
           previous_client_balance,
+          effective_for_balance,
           requires_invoice,
           plant:plant_id(
             id,
@@ -68,10 +71,18 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
         .eq('id', orderId)
         .single();
 
-      if (!error) {
-        setOrderData(data as OrderData);
+      const { count, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select('id', { count: 'exact', head: true })
+        .eq('order_id', orderId);
+
+      if (!error && !remisionesError && data) {
+        setOrderData({
+          ...(data as Omit<OrderData, 'remision_count'>),
+          remision_count: count ?? 0
+        });
       } else {
-        console.error("Error loading order data:", error);
+        console.error("Error loading order data:", error || remisionesError);
       }
 
       setLoading(false);
@@ -96,7 +107,7 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
     );
   }
 
-  const hasDeliveries = orderData.final_amount !== null;
+  const hasDeliveries = (orderData.remision_count ?? 0) > 0 || orderData.effective_for_balance === true;
   const preliminaryAmount = orderData.preliminary_amount ?? 0;
   const finalAmount = orderData.final_amount ?? 0;
   const invoiceAmount = orderData.invoice_amount ?? 0;
