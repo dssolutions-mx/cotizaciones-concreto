@@ -61,13 +61,18 @@ export default function PricesPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
-      <div className="flex items-center justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Gestión de Precios</h1>
-        {hasRole(['EXECUTIVE', 'ADMIN_OPERATIONS']) && (
-          <Button asChild variant="outline">
-            <Link href="/prices/list-prices?tab=workspace">Precios Ejecutivos</Link>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="default" className="bg-emerald-700 hover:bg-emerald-800">
+            <Link href="/prices/materials">Precios por mes (materiales)</Link>
           </Button>
-        )}
+          {hasRole(['EXECUTIVE', 'ADMIN_OPERATIONS']) && (
+            <Button asChild variant="outline">
+              <Link href="/prices/list-prices?tab=workspace">Precios Ejecutivos</Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}

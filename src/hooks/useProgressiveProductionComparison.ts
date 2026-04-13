@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { supabase } from '@/lib/supabase/client';
 import { getRemisionesAllPages } from '@/services/remisiones';
+import { getMaterialPriceMapForMaterials } from '@/services/prices';
 
 export interface PlantProductionData {
   plant_id: string;
@@ -186,7 +187,11 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
           }
 
           // Calculate materials costs/consumptions (chunked internally) - only for remisiones with materials
-          const materialCosts = await calculateMaterialCosts(remisionIdsWithMaterials, plant.id);
+          const materialCosts = await calculateMaterialCosts(
+            remisionIdsWithMaterials,
+            plant.id,
+            new Date(`${dateRange.end}T12:00:00`)
+          );
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
 
           const plantData: PlantProductionData = {
@@ -351,7 +356,11 @@ async function fetchPlantProductionData(
     const totalVolume = remisionesWithMaterialsList.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
 
     // Costs and consumptions - only for remisiones with materials
-    const materialCosts = await calculateMaterialCosts(remisionIdsWithMaterials, plantId);
+    const materialCosts = await calculateMaterialCosts(
+      remisionIdsWithMaterials,
+      plantId,
+      new Date(`${endDateStr}T12:00:00`)
+    );
 
     // Weighted metrics - only for remisiones with materials
     let fcPonderada = 0;
@@ -394,7 +403,7 @@ async function fetchPlantProductionData(
   }
 }
 
-async function calculateMaterialCosts(remisionIds: string[], plantId: string) {
+async function calculateMaterialCosts(remisionIds: string[], plantId: string, pricingAsOf: Date) {
   try {
     if (!remisionIds || remisionIds.length === 0) {
       return {
@@ -473,41 +482,8 @@ async function calculateMaterialCosts(remisionIds: string[], plantId: string) {
       }
     });
 
-    // Get current material prices using material_id
     const materialIds = Array.from(aggregatedByMaterial.keys());
-    const currentDate = format(new Date(), 'yyyy-MM-dd');
-
-    let materialPrices: any[] = [];
-    // Chunk the price lookup too, to avoid URL bloat when many materials
-    for (let i = 0; i < materialIds.length; i += chunkSize) {
-      const idsChunk = materialIds.slice(i, i + chunkSize);
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-        .in('material_id', idsChunk)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (plantId) {
-        pricesQuery = pricesQuery.eq('plant_id', plantId);
-      }
-
-      const { data: chunkPrices, error: chunkErr } = await pricesQuery;
-      if (chunkErr) {
-        console.error('Error fetching material prices chunk:', chunkErr);
-        continue;
-      }
-      if (chunkPrices) materialPrices.push(...chunkPrices);
-    }
-    // Note: errors are already logged per chunk
-
-    const priceMap = new Map<string, number>();
-    materialPrices?.forEach((mp: any) => {
-      if (!priceMap.has(mp.material_id)) {
-        priceMap.set(mp.material_id, Number(mp.price_per_unit) || 0);
-      }
-    });
+    const priceMap = await getMaterialPriceMapForMaterials(materialIds, plantId, pricingAsOf, chunkSize);
 
     // Calculate costs and categorize
     let totalCost = 0;

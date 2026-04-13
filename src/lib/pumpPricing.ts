@@ -57,6 +57,9 @@ export async function fetchApprovedPumpUnitPrice(
       .select(`
         pump_price,
         pump_service,
+        final_price,
+        recipe_id,
+        master_recipe_id,
         quotes!inner(
           id,
           client_id,
@@ -77,12 +80,35 @@ export async function fetchApprovedPumpUnitPrice(
     }
 
     if (concretePumpData && concretePumpData.length > 0) {
-      const sortedByDate = [...concretePumpData].sort((a, b) => {
-        const dateA = new Date((a as { quotes: { created_at: string } }).quotes.created_at).getTime();
-        const dateB = new Date((b as { quotes: { created_at: string } }).quotes.created_at).getTime();
-        return dateB - dateA;
-      });
-      pumpServiceData = [sortedByDate[0]];
+      type ConcreteRow = {
+        pump_price: number | string | null;
+        final_price?: number | string | null;
+        recipe_id?: string | null;
+        master_recipe_id?: string | null;
+        quotes: { created_at: string };
+      };
+      const isPlausiblePumpAddon = (row: ConcreteRow): boolean => {
+        const pp = row.pump_price != null ? Number(row.pump_price) : NaN;
+        if (!(pp > 0)) return false;
+        const hasConcrete =
+          row.master_recipe_id != null || row.recipe_id != null;
+        if (!hasConcrete) return true;
+        const fp = row.final_price != null ? Number(row.final_price) : NaN;
+        if (fp > 0 && pp >= fp) {
+          return false;
+        }
+        return true;
+      };
+
+      const plausible = (concretePumpData as ConcreteRow[]).filter(isPlausiblePumpAddon);
+      if (plausible.length > 0) {
+        const sortedByDate = [...plausible].sort((a, b) => {
+          const dateA = new Date(a.quotes.created_at).getTime();
+          const dateB = new Date(b.quotes.created_at).getTime();
+          return dateB - dateA;
+        });
+        pumpServiceData = [sortedByDate[0]] as typeof standalonePumpData;
+      }
     }
   }
 

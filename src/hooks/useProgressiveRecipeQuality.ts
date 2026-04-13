@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, endOfWeek, format, isAfter, startOfDay, startOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/supabase';
+import { getMaterialPricesCurrentByIdsInChunks } from '@/services/prices';
 
 // Use similar types as client analysis
 export interface RecipeQualityRemisionData {
@@ -421,17 +422,10 @@ export function useProgressiveRecipeQuality({
 
           const materialPriceMap = new Map<string, number>();
           if (materialIds.length > 0) {
-            const { data: prices } = await supabase
-              .from('material_prices')
-              .select('material_id, price_per_unit, plant_id')
-              .in('material_id', materialIds)
-              .eq('plant_id', plantId)
-              .lte('effective_date', new Date().toISOString())
-              .is('end_date', null)
-              .order('material_id');
-
-            (prices || []).forEach((p: any) => {
-              if (!materialPriceMap.has(p.material_id)) {
+            const asOfStr = format(slice.to, 'yyyy-MM-dd');
+            const rows = await getMaterialPricesCurrentByIdsInChunks(materialIds, plantId, 100, asOfStr);
+            rows.forEach((p: { material_id?: string; price_per_unit?: number }) => {
+              if (p.material_id && !materialPriceMap.has(p.material_id)) {
                 materialPriceMap.set(p.material_id, Number(p.price_per_unit) || 0);
               }
             });

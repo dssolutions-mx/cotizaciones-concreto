@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
+import { startOfMonthDate } from '@/lib/materialPricePeriod';
 
 interface MaterialPrice {
   id: string;
@@ -8,6 +9,7 @@ interface MaterialPrice {
   price_per_unit: number;
   effective_date: string;
   end_date?: string;
+  period_start?: string;
   plant_id?: string;
   created_by?: string;
 }
@@ -49,19 +51,36 @@ export function usePlantAwareMaterialPrices(options: UsePlantAwareMaterialPrices
         throw new Error(result.error.message || 'Error loading material prices');
       }
       
-      // Filter to keep only the latest price per material (where end_date is null)
-      const activePrices = result.data?.filter((price: MaterialPrice) => !price.end_date) || [];
-      
-      // Group by material_id (preferred) or material_type (fallback) and keep the latest one
-      const latestPricesMap = activePrices.reduce((acc: Record<string, MaterialPrice>, current: MaterialPrice) => {
-        // Use material_id if available, otherwise fall back to material_type
-        const key = (current as any).material_id || current.material_type;
-        const existing = acc[key];
-        if (!existing || new Date(current.effective_date) > new Date(existing.effective_date)) {
-          acc[key] = current;
-        }
-        return acc;
-      }, {});
+      const todayMonth = startOfMonthDate(new Date());
+      const rows = (result.data || []) as Array<
+        MaterialPrice & { material_id?: string; period_start?: string; effective_date?: string }
+      >;
+
+      // Monthly rows: latest period_start <= current month. Legacy rows without period_start: open end_date only.
+      const candidates = rows.filter((price) => {
+        const ps = price.period_start;
+        if (ps != null) return ps <= todayMonth;
+        return price.end_date == null;
+      });
+
+      const latestPricesMap = candidates.reduce(
+        (acc: Record<string, MaterialPrice & { material_id?: string }>, current) => {
+          const key = current.material_id || current.material_type;
+          const existing = acc[key];
+          const curPs = current.period_start || '';
+          const exPs = existing ? (existing as { period_start?: string }).period_start || '' : '';
+          const curEff = current.effective_date || '';
+          const exEff = existing ? (existing as { effective_date?: string }).effective_date || '' : '';
+          const pickCurrent =
+            !existing ||
+            (curPs && exPs && curPs > exPs) ||
+            (!curPs && !exPs && curEff > exEff) ||
+            (curPs && !exPs);
+          if (pickCurrent) acc[key] = current;
+          return acc;
+        },
+        {}
+      );
       
       setMaterialPrices(Object.values(latestPricesMap));
     } catch (err) {

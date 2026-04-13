@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { startOfMonthDate } from '@/lib/materialPricePeriod';
 import { FIFOAllocationResult, FIFOAllocationRequest, MaterialConsumptionAllocation } from '@/types/fifo';
 
 /**
@@ -140,14 +141,16 @@ export class FIFOPricingService {
       };
     }
 
-    // Pre-fetch material_prices once (fallback when entry has no landed_unit_price or unit_price)
+    const consumptionCap = startOfMonthDate(
+      new Date(String(consumptionDate).includes('T') ? consumptionDate : `${consumptionDate}T12:00:00`)
+    );
     const { data: materialPricesData } = await supabase
       .from('material_prices')
-      .select('price_per_unit, effective_date, end_date')
+      .select('price_per_unit, period_start, effective_date, end_date')
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
-      .lte('effective_date', consumptionDate)
-      .order('effective_date', { ascending: false });
+      .lte('period_start', consumptionCap)
+      .order('period_start', { ascending: false });
     const materialPrices = materialPricesData || [];
 
     // Allocate consumption across layers (FIFO)
@@ -177,10 +180,7 @@ export class FIFOPricingService {
                       (entry.unit_price ? Number(entry.unit_price) : null);
       
       if (!unitPrice) {
-        // Fallback to pre-fetched material_prices (in-memory lookup — no extra DB round-trip)
-        const fallbackPrice = materialPrices.find(p =>
-          (!p.end_date || p.end_date >= consumptionDate)
-        );
+        const fallbackPrice = materialPrices[0];
         unitPrice = fallbackPrice?.price_per_unit ? Number(fallbackPrice.price_per_unit) : 0;
       }
 

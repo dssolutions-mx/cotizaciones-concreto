@@ -13,6 +13,7 @@ import NearbyDeliveriesPanel from '@/components/orders/NearbyDeliveriesPanel';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { cn } from '@/lib/utils';
+import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
 import { ChevronRight, ChevronLeft, CheckCircle2, Circle, MapPin } from 'lucide-react';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
@@ -1010,105 +1011,16 @@ export default function ScheduleOrderForm({
     const loadPumpServicePricing = async () => {
       try {
         console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
-        
-        // PRIORITY 1: Look for standalone pumping services first (product_id IS NOT NULL, recipe_id IS NULL, master_recipe_id IS NULL)
-        let { data: standalonePumpData, error: standalonePumpError } = await supabase
-          .from('quote_details')
-          .select(`
-            pump_price,
-            pump_service,
-            product_id,
-            recipe_id,
-            master_recipe_id,
-            quotes!inner(
-              id,
-              client_id,
-              construction_site,
-              status,
-              created_at
-            )
-          `)
-          .eq('pump_service', true)
-          .eq('quotes.client_id', selectedClientId)
-          .eq('quotes.construction_site', selectedConstructionSite.name)
-          .eq('quotes.status', 'APPROVED')
-          .not('product_id', 'is', null)
-          .is('recipe_id', null)
-          .is('master_recipe_id', null)
-          .order('created_at', { ascending: false, foreignTable: 'quotes' });
-          
-        if (standalonePumpError) {
-          console.error("Error fetching standalone pump service pricing:", standalonePumpError);
-        } else if (standalonePumpData && standalonePumpData.length > 0) {
-          // Sort by quote created_at to ensure we get the truly most recent
-          const sortedByDate = standalonePumpData.sort((a: any, b: any) => {
-            const dateA = new Date(a.quotes.created_at).getTime();
-            const dateB = new Date(b.quotes.created_at).getTime();
-            return dateB - dateA; // Descending order (newest first)
-          });
-          
-          // Take only the first (most recent) one
-          standalonePumpData = [sortedByDate[0]];
-          console.log(`Found ${standalonePumpData.length} standalone pumping records, using most recent from quote created at: ${sortedByDate[0].quotes.created_at}`);
-        }
-        
-        // PRIORITY 2: If no standalone pumping found, fall back to concrete products with pump service
-        let pumpServiceData = standalonePumpData;
-        if ((!standalonePumpData || standalonePumpData.length === 0) && !standalonePumpError) {
-          console.log('No standalone pumping services found, checking concrete products with pump service...');
-          const { data: concretePumpData, error: concretePumpError } = await supabase
-            .from('quote_details')
-            .select(`
-              pump_price,
-              pump_service,
-              quotes!inner(
-                id,
-                client_id,
-                construction_site,
-                status,
-                created_at
-              )
-            `)
-            .eq('pump_service', true)
-            .eq('quotes.client_id', selectedClientId)
-            .eq('quotes.construction_site', selectedConstructionSite.name)
-            .eq('quotes.status', 'APPROVED')
-            .order('created_at', { ascending: false, foreignTable: 'quotes' });
-            
-          if (concretePumpError) {
-            console.error("Error fetching concrete pump service pricing:", concretePumpError);
-          } else if (concretePumpData && concretePumpData.length > 0) {
-            // Sort by quote created_at to ensure we get the truly most recent
-            // (Multiple quote_details can exist per quote, so we need to sort in JS)
-            const sortedByDate = concretePumpData.sort((a: any, b: any) => {
-              const dateA = new Date(a.quotes.created_at).getTime();
-              const dateB = new Date(b.quotes.created_at).getTime();
-              return dateB - dateA; // Descending order (newest first)
-            });
-            
-            // Take only the first (most recent) one
-            pumpServiceData = [sortedByDate[0]];
-            console.log(`Sorted ${concretePumpData.length} pump service records, using most recent from quote created at: ${sortedByDate[0].quotes.created_at}`);
-          }
-        }
-        
-        console.log('Pump service data fetched:', pumpServiceData);
-
-        // Use the most recent quote_detail with pump_service=true
-        if (pumpServiceData && pumpServiceData.length > 0) {
-          const firstDetailWithPrice = pumpServiceData.find((d: any) => d && d.pump_price !== null);
-          if (firstDetailWithPrice) {
-            const priceNumber = Number(firstDetailWithPrice.pump_price);
-            setPumpPrice(priceNumber);
-            console.log(`Found pump service price: $${priceNumber} for client + site combination (${standalonePumpData && standalonePumpData.length > 0 ? 'standalone' : 'concrete with pump'})`);
-          } else {
-            console.log('Pump service details found but without price. Allowing manual entry.');
-            setPumpPrice(0);
-          }
+        const priceNumber = await fetchApprovedPumpUnitPrice(
+          supabase,
+          selectedClientId,
+          selectedConstructionSite.name
+        );
+        if (priceNumber > 0) {
+          setPumpPrice(priceNumber);
+          console.log(`Found pump service price: $${priceNumber} for client + site combination`);
         } else {
-          // Fallback: Allow manual entry for cases where no pump pricing is found
           console.log('No pump service pricing found in approved quotes for this client + site combination');
-          console.log('Setting to 0 to allow manual entry.');
           setPumpPrice(0);
         }
       } catch (err) {

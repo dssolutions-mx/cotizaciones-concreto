@@ -99,7 +99,12 @@ export function useProductionDataV2(plantId: string | null | undefined, startDat
           const meta = await getMaterialsMetaByIdsInChunks(matIds, 50);
           const metaMap = new Map<string, any>();
           meta.forEach((m: any) => metaMap.set(m.id, m));
-          const priceRows = await getMaterialPricesCurrentByIdsInChunks(matIds, plantId || undefined, 50);
+          const priceRows = await getMaterialPricesCurrentByIdsInChunks(
+            matIds,
+            plantId || undefined,
+            50,
+            format(endDate, 'yyyy-MM-dd')
+          );
           const priceMap = new Map<string, number>();
           priceRows.forEach((pr: any) => { if (!priceMap.has(pr.material_id)) priceMap.set(pr.material_id, Number(pr.price_per_unit) || 0); });
 

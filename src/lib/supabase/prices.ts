@@ -1,5 +1,6 @@
 import { supabase } from './client';
 import { handleError } from '@/utils/errorHandler';
+import { addMonths, startOfMonthDate } from '@/lib/materialPricePeriod';
 
 export const priceService = {
   // Precios de materiales
@@ -13,66 +14,149 @@ export const priceService = {
     plant_id?: string;
     created_by?: string;
   }) {
-    // Cerrar precio actual para esta planta
-    const updateConditions: any = { end_date: null };
-    
-    // Use material_id if available, otherwise fall back to material_type
-    if (priceData.material_id) {
-      updateConditions.material_id = priceData.material_id;
-    } else if (priceData.materialType) {
+    const periodStart = startOfMonthDate(new Date(priceData.effectiveDate + 'T12:00:00'));
+
+    // UUID + plant: monthly upsert (historical pricing)
+    if (priceData.material_id && priceData.plant_id) {
+      return priceService.saveMaterialPriceForPeriod({
+        material_id: priceData.material_id,
+        plant_id: priceData.plant_id,
+        period_start: periodStart,
+        price_per_unit: priceData.pricePerUnit,
+        material_type: priceData.materialType || 'MATERIAL',
+        effective_date: priceData.effectiveDate,
+        created_by: priceData.created_by,
+      });
+    }
+
+    // Legacy: material_type only — close open rows and insert
+    const updateConditions: Record<string, unknown> = { end_date: null };
+    if (priceData.materialType) {
       updateConditions.material_type = priceData.materialType;
     }
-    
-    // Apply plant filtering for closing existing prices
     if (priceData.plant_id) {
       updateConditions.plant_id = priceData.plant_id;
     }
-    
+
     await supabase
       .from('material_prices')
       .update({ end_date: new Date().toISOString() })
       .match(updateConditions);
 
-    // Insertar nuevo precio
-    const insertData: any = {
+    const insertData: Record<string, unknown> = {
       price_per_unit: priceData.pricePerUnit,
       effective_date: priceData.effectiveDate,
-      material_type: priceData.materialType || 'MATERIAL' // Keep for backward compatibility
+      period_start: periodStart,
+      material_type: priceData.materialType || 'MATERIAL',
     };
-    
-    // Enable new columns now that migration is applied
-    if (priceData.material_id) {
-      insertData.material_id = priceData.material_id;
-    }
-    if (priceData.plant_id) {
-      insertData.plant_id = priceData.plant_id;
-    }
-    if (priceData.created_by) {
-      insertData.created_by = priceData.created_by;
-    }
-    
-    console.log('Inserting material price with data:', insertData);
-    console.log('Data types:', {
-      material_id: typeof insertData.material_id,
-      plant_id: typeof insertData.plant_id,
-      created_by: typeof insertData.created_by,
-      price_per_unit: typeof insertData.price_per_unit
-    });
-    
-    const result = await supabase
+    if (priceData.plant_id) insertData.plant_id = priceData.plant_id;
+    if (priceData.created_by) insertData.created_by = priceData.created_by;
+
+    return await supabase.from('material_prices').insert(insertData).select();
+  },
+
+  /** Upsert one material price for a calendar month (plant + material). */
+  async saveMaterialPriceForPeriod(data: {
+    material_id: string;
+    plant_id: string;
+    period_start: string;
+    price_per_unit: number;
+    material_type: string;
+    effective_date: string;
+    created_by?: string;
+    updated_by?: string;
+  }) {
+    const row: Record<string, unknown> = {
+      material_id: data.material_id,
+      plant_id: data.plant_id,
+      period_start: data.period_start,
+      price_per_unit: data.price_per_unit,
+      material_type: data.material_type,
+      effective_date: data.effective_date,
+    };
+    if (data.created_by) row.created_by = data.created_by;
+    if (data.updated_by) row.updated_by = data.updated_by;
+
+    return await supabase
       .from('material_prices')
-      .insert(insertData)
+      .upsert(row, { onConflict: 'material_id,plant_id,period_start' })
       .select();
-    
-    console.log('Insert result:', result);
-    
-    if (result.error) {
-      console.error('Supabase insert error:', result.error);
-      console.error('Error details:', result.error.details);
-      console.error('Error hint:', result.error.hint);
+  },
+
+  async getMaterialPricesForPeriod(plantId: string, periodStart: string) {
+    return await supabase
+      .from('material_prices')
+      .select('*')
+      .eq('plant_id', plantId)
+      .eq('period_start', periodStart)
+      .order('material_id');
+  },
+
+  async getMaterialPriceHistory(materialId: string, plantId: string) {
+    return await supabase
+      .from('material_prices')
+      .select('*')
+      .eq('material_id', materialId)
+      .eq('plant_id', plantId)
+      .order('period_start', { ascending: true });
+  },
+
+  /** All dated prices for a plant (for admin grids / sparklines). */
+  async getMaterialPricesForPlantAllPeriods(plantId: string) {
+    return await supabase
+      .from('material_prices')
+      .select('*')
+      .eq('plant_id', plantId)
+      .not('material_id', 'is', null)
+      .order('period_start', { ascending: true });
+  },
+
+  /** Copy all prices for a plant from one month to another (upsert target month). */
+  async copyPricesForward(params: {
+    plant_id: string;
+    from_period_start: string;
+    to_period_start: string;
+    created_by?: string;
+  }) {
+    const { data: rows, error: fetchError } = await supabase
+      .from('material_prices')
+      .select('material_id, plant_id, price_per_unit, material_type')
+      .eq('plant_id', params.plant_id)
+      .eq('period_start', params.from_period_start)
+      .not('material_id', 'is', null);
+
+    if (fetchError) return { data: null, error: fetchError };
+
+    const upserts = (rows || [])
+      .filter((r) => r.material_id)
+      .map((r) => ({
+        material_id: r.material_id as string,
+        plant_id: params.plant_id,
+        period_start: params.to_period_start,
+        price_per_unit: r.price_per_unit,
+        material_type: r.material_type || 'MATERIAL',
+        effective_date: params.to_period_start,
+        ...(params.created_by ? { created_by: params.created_by } : {}),
+      }));
+
+    if (upserts.length === 0) {
+      return { data: [] as unknown[], error: null };
     }
-    
-    return result;
+
+    return await supabase
+      .from('material_prices')
+      .upsert(upserts, { onConflict: 'material_id,plant_id,period_start' })
+      .select();
+  },
+
+  /** Next month string yyyy-MM-01 after period_start. */
+  nextPeriodStart(periodStart: string) {
+    return addMonths(periodStart, 1);
+  },
+
+  /** Refresh vw_plant_financial_analysis (requires DB function; may take a while). */
+  async refreshPlantFinancialAnalysisMv() {
+    return await supabase.rpc('refresh_plant_financial_analysis_mv');
   },
 
   // Gastos administrativos
@@ -177,19 +261,19 @@ export const priceService = {
     data: Map<string, number>;
     error: Error | null;
   }> {
+    const todayMonth = startOfMonthDate(new Date());
     const { data: rows, error } = await supabase
       .from('material_prices')
-      .select('material_id, price_per_unit, effective_date')
+      .select('material_id, price_per_unit, effective_date, period_start, plant_id')
       .eq('plant_id', plantId)
       .not('material_id', 'is', null)
-      .is('end_date', null)
-      .order('effective_date', { ascending: false });
+      .lte('period_start', todayMonth)
+      .order('period_start', { ascending: false });
 
     if (error) {
       return { data: new Map(), error };
     }
 
-    // Dedupe by material_id — keep first (latest) per material
     const priceMap = new Map<string, number>();
     for (const row of rows || []) {
       if (row.material_id && !priceMap.has(row.material_id)) {

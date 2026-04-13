@@ -105,7 +105,7 @@ export class PlantAwareDataService {
     let query = supabase
       .from('material_prices')
       .select('*')
-      .order('effective_date', { ascending: false });
+      .order('period_start', { ascending: false });
 
     // Apply plant filtering
     if (plantIds && plantIds.length > 0) {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, endOfWeek, format, isAfter, startOfDay, startOfWeek } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/supabase';
+import { getMaterialPricesCurrentByIdsInChunks } from '@/services/prices';
 
 type Granularity = 'week' | 'month';
 
@@ -171,20 +172,14 @@ export function useProgressiveRecipeAnalysis(args: UseProgressiveRecipeAnalysisA
           const priceMap = new Map<string, number>();
           if (materialIds.length > 0) {
             const priceChunks = chunk(materialIds, 100);
+            const asOfStr = format(slice.to, 'yyyy-MM-dd');
             for (const pc of priceChunks) {
               if (abortRef.current.aborted || abortRef.current.token !== token) return;
-              // Try material_prices with current date filter
-              const { data: prices, error: priceErr } = await supabase
-                .from('material_prices')
-                .select('material_id, price_per_unit, plant_id')
-                .in('material_id', pc)
-                .lte('effective_date', new Date().toISOString())
-                .is('end_date', null)
-                .order('material_id');
-              if (priceErr) continue;
-              (prices || []).forEach((p: any) => {
-                // Prefer plant-specific price if available; first write wins
-                if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
+              const rows = await getMaterialPricesCurrentByIdsInChunks(pc, plantId || undefined, 100, asOfStr);
+              rows.forEach((p: { material_id?: string; price_per_unit?: number }) => {
+                if (p.material_id && !priceMap.has(p.material_id)) {
+                  priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
+                }
               });
             }
           }

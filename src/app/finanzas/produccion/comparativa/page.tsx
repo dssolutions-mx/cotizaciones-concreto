@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from '@/lib/supabase';
+import { getMaterialPriceMapForMaterials } from '@/services/prices';
 import { formatCurrency } from '@/lib/utils';
 import { BarChart3, TrendingUp, Package, DollarSign, ArrowRight, Eye } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -171,7 +172,12 @@ export default function ComparativaProduccion() {
       const remisionIds = remisiones.map(r => r.id);
 
       // Fetch material costs for these remisiones
-      const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume);
+      const materialCosts = await calculateMaterialCosts(
+        remisionIds,
+        totalVolume,
+        plantId,
+        formattedEndDate
+      );
 
       return {
         plant_id: plantId,
@@ -192,7 +198,12 @@ export default function ComparativaProduccion() {
   };
 
   // Calculate material costs for remisiones
-  const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number) => {
+  const calculateMaterialCosts = async (
+    remisionIds: string[],
+    totalVolume: number,
+    plantId: string,
+    endDateStr: string
+  ) => {
     try {
       if (!remisionIds || remisionIds.length === 0) {
         return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
@@ -248,27 +259,13 @@ export default function ComparativaProduccion() {
 
       if (aggregated.size === 0) return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
 
-      // 3) Fetch prices per material_id (chunked)
       const materialIds = Array.from(aggregated.keys());
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      const priceMap = new Map<string, number>();
-      for (let i = 0; i < materialIds.length; i += chunkSize) {
-        const idsChunk = materialIds.slice(i, i + chunkSize);
-        const { data: chunkPrices, error: priceErr } = await supabase
-          .from('material_prices')
-          .select('material_id, price_per_unit, effective_date, end_date')
-          .in('material_id', idsChunk)
-          .lte('effective_date', currentDate)
-          .or(`end_date.is.null,end_date.gte.${currentDate}`)
-          .order('effective_date', { ascending: false });
-        if (priceErr) {
-          console.error('Error fetching material prices chunk:', priceErr);
-          continue;
-        }
-        chunkPrices?.forEach((p: any) => {
-          if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
-        });
-      }
+      const priceMap = await getMaterialPriceMapForMaterials(
+        materialIds,
+        plantId,
+        new Date(`${endDateStr}T12:00:00`),
+        chunkSize
+      );
 
       // 4) Compute totals and cement breakdown
       let totalCost = 0;

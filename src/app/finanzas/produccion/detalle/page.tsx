@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from '@/lib/supabase';
+import { getMaterialPriceMapForMaterials } from '@/services/prices';
 import { useProgressiveProductionDetails } from '@/hooks/useProgressiveProductionDetails';
 import { formatCurrency } from '@/lib/utils';
 import { useCementTrend } from '@/hooks/useCementTrend';
@@ -304,22 +305,9 @@ export default function ProduccionDashboard() {
 
       if (materialesResults.length === 0) return null;
 
-      // Get material price
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      let priceQuery = supabase
-        .from('material_prices')
-        .select('price_per_unit, effective_date, end_date, plant_id')
-        .eq('material_id', materialId)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        priceQuery = priceQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: priceData, error: priceError } = await priceQuery;
-      const materialPrice = priceData && priceData.length > 0 ? priceData[0].price_per_unit : 0;
+      const asOf = endDate ?? new Date();
+      const priceMapOne = await getMaterialPriceMapForMaterials([materialId], currentPlant?.id, asOf, 5);
+      const materialPrice = priceMapOne.get(materialId) ?? 0;
 
       // Aggregate consumption by recipe/strength
       const consumptionByRecipe = new Map<string, {
@@ -503,29 +491,9 @@ export default function ProduccionDashboard() {
         if (data) materialesResults.push(...data);
       }
 
-      // Get material prices
       const materialIds = Array.from(new Set(materialesResults.map((m: any) => m.material_id)));
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: prices } = await pricesQuery;
-      const priceMap = new Map();
-      prices?.forEach((p: any) => {
-        if (!priceMap.has(p.material_id)) {
-          priceMap.set(p.material_id, p.price_per_unit);
-        }
-      });
+      const priceAsOf = endDate ?? new Date();
+      const priceMap = await getMaterialPriceMapForMaterials(materialIds, currentPlant?.id, priceAsOf, 50);
 
       // Aggregate by material
       const materialSummary = new Map<string, any>();
@@ -624,22 +592,10 @@ export default function ProduccionDashboard() {
           .in('remision_id', chunk);
 
         if (materials) {
-          const ids = Array.from(new Set(materials.map((m: any) => m.material_id))).filter(Boolean);
-          const today = format(new Date(), 'yyyy-MM-dd');
-          const priceMap = new Map<string, number>();
-          for (let j = 0; j < ids.length; j += 10) {
-            const idsChunk = ids.slice(j, j + 10);
-            const { data: prices } = await supabase
-              .from('material_prices')
-              .select('material_id, price_per_unit, effective_date, end_date')
-              .in('material_id', idsChunk)
-              .lte('effective_date', today)
-              .or(`end_date.is.null,end_date.gte.${today}`)
-              .order('effective_date', { ascending: false });
-            prices?.forEach((p: any) => {
-              if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
-            });
-          }
+          const ids = Array.from(new Set(materials.map((m: any) => m.material_id))).filter(Boolean) as string[];
+          const histAsOf = new Date(startDate);
+          histAsOf.setDate(histAsOf.getDate() - 1);
+          const priceMap = await getMaterialPriceMapForMaterials(ids, currentPlant?.id, histAsOf, 10);
           materials.forEach((m: any) => {
             const price = Number(priceMap.get(m.material_id)) || 0;
             previousTotalCost += (Number(m.cantidad_real) || 0) * price;
@@ -1376,32 +1332,9 @@ export default function ProduccionDashboard() {
       });
       console.log(`Identified ${problematicRemisiones.length} problematic remisiones (${problematicRemisiones.filter(r => r.issue_type === 'no_materials').length} with no materials, ${problematicRemisiones.filter(r => r.issue_type === 'few_materials').length} with < 3 materials)`);
 
-      // 3. Fetch all material prices
       const materialIds = Array.from(new Set(materiales.map((m: any) => m.material_id)));
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: materialPrices, error: pricesError } = await pricesQuery;
-      if (pricesError) throw pricesError;
-
-      // 4. Create price lookup map
-      const priceMap = new Map();
-      materialPrices?.forEach((mp: any) => {
-        if (!priceMap.has(mp.material_id)) {
-          priceMap.set(mp.material_id, mp.price_per_unit);
-        }
-      });
+      const priceAsOfInv = endDate ?? new Date();
+      const priceMap = await getMaterialPriceMapForMaterials(materialIds, currentPlant?.id, priceAsOfInv, 50);
 
       // 5. Process recipe consumption data
       const recipeConsumption = new Map<string, RecipeConsumptionData>();
