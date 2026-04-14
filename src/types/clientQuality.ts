@@ -62,6 +62,9 @@ export interface ClientQualityRemisionData {
         porcentajeCumplimiento: number;
         isEdadGarantia: boolean;
         isEnsayoFueraTiempo: boolean;
+        /** DB: corrected strength (specimen factor applied). */
+        resistenciaCorregida?: number | null;
+        factorCorreccion?: number | null;
         // Client-side adjusted fields (optional)
         resistenciaCalculadaAjustada?: number;
         porcentajeCumplimientoAjustado?: number;

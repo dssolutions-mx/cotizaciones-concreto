@@ -26,12 +26,21 @@ interface ClientSelectorProps {
   selectedClientId: string;
   onClientSelect: (clientId: string) => void;
   className?: string;
+  /** Field label above combobox */
+  label?: string;
+  /** Clients that cannot be selected (e.g. primary client when comparing) */
+  excludeClientIds?: string[];
+  /** Hide footer “selected” row and client count hint */
+  compact?: boolean;
 }
 
 export function ClientSelector({
   selectedClientId,
   onClientSelect,
-  className
+  className,
+  label = 'Seleccionar Cliente',
+  excludeClientIds = [],
+  compact = false,
 }: ClientSelectorProps) {
   const [open, setOpen] = useState(false);
   const [clients, setClients] = useState<ClientInfo[]>([]);
@@ -115,7 +124,10 @@ export function ClientSelector({
       .trim();
 
   const safeSearch = normalize(searchValue || '');
+  const exclude = new Set(excludeClientIds.filter(Boolean));
+
   const filteredClients = clients
+    .filter((client) => !exclude.has(client.id))
     .filter(client => !onlyWithQualityData || !!client.hasQualityData)
     .filter(client => {
       if (!safeSearch) return true;
@@ -127,8 +139,8 @@ export function ClientSelector({
 
   return (
     <div className={cn("flex flex-col space-y-2", className)}>
-      <label className="text-sm font-medium text-gray-700">
-        Seleccionar Cliente
+           <label className="text-sm font-medium text-gray-700">
+        {label}
       </label>
 
       <Popover open={open} onOpenChange={setOpen}>
@@ -193,6 +205,7 @@ export function ClientSelector({
                     key={client.id}
                     value={`${client.business_name} ${client.client_code} ${client.rfc || ''}`}
                     onSelect={() => {
+                      if (exclude.has(client.id)) return;
                       onClientSelect(client.id === selectedClientId ? '' : client.id);
                       setOpen(false);
                     }}
@@ -225,7 +238,7 @@ export function ClientSelector({
         </PopoverContent>
       </Popover>
 
-      {selectedClient && (
+      {!compact && selectedClient && (
         <div className="flex items-center justify-between text-sm text-gray-600 bg-gray-50 p-2 rounded">
           <span>Cliente seleccionado:</span>
           <Button
@@ -239,9 +252,11 @@ export function ClientSelector({
         </div>
       )}
 
-      <div className="text-xs text-gray-500">
-        {clients.length} clientes con datos de calidad disponibles
-      </div>
+      {!compact && (
+        <div className="text-xs text-gray-500">
+          {clients.length} clientes con datos de calidad disponibles
+        </div>
+      )}
     </div>
   );
 }

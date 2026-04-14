@@ -13,6 +13,7 @@ export async function fetchEnsayoById(id: string) {
       .from('ensayos')
       .select(`
         *,
+        specimen_type_spec:specimen_type_spec_id (*),
         muestra:muestra_id (
           *,
           muestreo:muestreo_id (
@@ -199,6 +200,33 @@ export async function createEnsayo(data: {
     handleError(error, 'createEnsayo');
     throw new Error('Error al crear ensayo');
   }
+}
+
+export async function updateEnsayoById(
+  id: string,
+  patch: {
+    factor_correccion?: number;
+    specimen_type_spec_id?: string | null;
+    observaciones?: string | null;
+  }
+) {
+  const response = await fetch(`/api/quality/ensayos/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) {
+    let msg = 'Error al actualizar ensayo';
+    try {
+      const j = await response.json();
+      if (j?.error) msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  const { ensayo } = await response.json();
+  return ensayo;
 }
 
 

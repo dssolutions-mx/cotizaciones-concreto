@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { subMonths } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
-import { AlertTriangle, AlertCircle } from 'lucide-react';
+import { AlertTriangle, AlertCircle, ChevronDown } from 'lucide-react';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -14,9 +14,10 @@ import { useQualityFilters } from '@/hooks/useQualityFilters';
 import { useAdvancedMetrics } from '@/hooks/useAdvancedMetrics';
 
 import { QualityDashboardFilters } from '@/components/quality/QualityDashboardFilters';
-import { QualityMetricsCards } from '@/components/quality/QualityMetricsCards';
 import { QualityChartSection } from '@/components/quality/QualityChartSection';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
+import { QualityReportShell, QualityKPIStrip, type QualityKPIItem } from '@/components/quality/reporting';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
@@ -109,7 +110,6 @@ export function QualityDashboardContent({ mode = 'standalone' }: QualityDashboar
     datosGrafico,
     loading,
     error,
-    loadDashboardData,
     handleCheckDatabaseContent,
     retryLoadData,
   } = useQualityDashboard({
@@ -126,7 +126,7 @@ export function QualityDashboardContent({ mode = 'standalone' }: QualityDashboar
     incluirEnsayosFueraTiempo,
   });
 
-  const { advancedMetrics, calculating } = useAdvancedMetrics(datosGrafico);
+  const { advancedMetrics } = useAdvancedMetrics(datosGrafico);
 
   const [unfilteredChartData, setUnfilteredChartData] = useState<DatoGraficoResistencia[]>([]);
 
@@ -264,6 +264,66 @@ export function QualityDashboardContent({ mode = 'standalone' }: QualityDashboar
 
   const hasAccess = profile && canViewQualityDashboardUi(profile.role);
 
+  const eficiencia =
+    typeof advancedMetrics.eficiencia === 'number' && !isNaN(advancedMetrics.eficiencia)
+      ? advancedMetrics.eficiencia
+      : metricas.eficiencia;
+  const rendimientoVolumetrico =
+    typeof advancedMetrics.rendimientoVolumetrico === 'number' && !isNaN(advancedMetrics.rendimientoVolumetrico)
+      ? advancedMetrics.rendimientoVolumetrico
+      : metricas.rendimientoVolumetrico;
+
+  const kpiItems: QualityKPIItem[] = useMemo(() => {
+    if (loading) return [];
+    return [
+      {
+        id: 'cumplimiento',
+        label: 'Cumplimiento prom.',
+        value: `${(metricas.porcentajeResistenciaGarantia ?? 0).toFixed(2)}%`,
+        sublabel: 'vs. resistencia garantía',
+      },
+      {
+        id: 'resistencia',
+        label: 'Resistencia prom.',
+        value: `${(metricas.resistenciaPromedio ?? 0).toFixed(2)}`,
+        sublabel: 'kg/cm²',
+      },
+      {
+        id: 'especificacion',
+        label: 'En especificación',
+        value:
+          metricas.numeroMuestras > 0
+            ? `${metricas.muestrasEnCumplimiento} / ${metricas.numeroMuestras}`
+            : '—',
+        sublabel: 'muestreos ≥100%',
+      },
+      {
+        id: 'cv',
+        label: 'Coef. variación',
+        value: `${(metricas.coeficienteVariacion ?? 0).toFixed(2)}%`,
+        hint: 'Uniformidad del concreto en el período filtrado.',
+      },
+      {
+        id: 'total',
+        label: 'Muestreos',
+        value: String(metricas.numeroMuestras ?? 0),
+        sublabel: 'con ensayo',
+      },
+    ];
+  }, [loading, metricas]);
+
+  const dateActions = (
+    <div className="flex flex-wrap items-center gap-3">
+      <span className="text-xs font-medium text-stone-600 whitespace-nowrap">Período</span>
+      <DatePickerWithRange value={dateRange} onChange={handleDateRangeChange} />
+      {process.env.NODE_ENV === 'development' && (
+        <Button variant="secondary" size="sm" onClick={handleCheckDatabaseContent}>
+          Check DB Data
+        </Button>
+      )}
+    </div>
+  );
+
   if (!hasAccess) {
     return (
       <div className={embedded ? 'py-4' : 'container mx-auto py-16 px-4'}>
@@ -278,127 +338,136 @@ export function QualityDashboardContent({ mode = 'standalone' }: QualityDashboar
             <AlertTriangle className="h-6 w-6 text-yellow-600 shrink-0" />
             <h2 className="text-lg font-semibold text-yellow-800">Acceso Restringido</h2>
           </div>
-          <p className="text-sm text-yellow-800">
-            No tienes permiso para acceder al panel de control de calidad.
-          </p>
+          <p className="text-sm text-yellow-800">No tienes permiso para acceder al panel de control de calidad.</p>
         </div>
       </div>
     );
   }
 
-  const outerClass = embedded ? '' : 'min-h-screen';
-  const innerClass = embedded ? 'px-0 py-1' : 'container mx-auto px-4 md:px-6 py-6 md:py-8';
+  const filtersBlock = (
+    <QualityDashboardFilters
+      clients={clients}
+      constructionSites={constructionSites}
+      recipes={recipes}
+      plants={plants}
+      availableAges={availableAgesFromChart}
+      fcValues={fcValues}
+      specimenTypes={specimenTypes}
+      selectedClient={selectedClient}
+      selectedConstructionSite={selectedConstructionSite}
+      selectedRecipe={selectedRecipe}
+      selectedPlant={selectedPlant}
+      selectedClasificacion={selectedClasificacion}
+      selectedSpecimenType={selectedSpecimenType}
+      selectedFcValue={selectedFcValue}
+      selectedAge={selectedAge}
+      soloEdadGarantia={soloEdadGarantia}
+      incluirEnsayosFueraTiempo={incluirEnsayosFueraTiempo}
+      openClient={openClient}
+      openSite={openSite}
+      openRecipe={openRecipe}
+      openPlant={openPlant}
+      openFcValue={openFcValue}
+      openAge={openAge}
+      setSelectedClient={setSelectedClient}
+      setSelectedConstructionSite={setSelectedConstructionSite}
+      setSelectedRecipe={setSelectedRecipe}
+      setSelectedPlant={setSelectedPlant}
+      setSelectedClasificacion={setSelectedClasificacion}
+      setSelectedSpecimenType={setSelectedSpecimenType}
+      setSelectedFcValue={setSelectedFcValue}
+      setSelectedAge={setSelectedAge}
+      setSoloEdadGarantia={setSoloEdadGarantia}
+      setIncluirEnsayosFueraTiempo={setIncluirEnsayosFueraTiempo}
+      setOpenClient={setOpenClient}
+      setOpenSite={setOpenSite}
+      setOpenRecipe={setOpenRecipe}
+      setOpenPlant={setOpenPlant}
+      setOpenFcValue={setOpenFcValue}
+      setOpenAge={setOpenAge}
+      getFilteredConstructionSites={getFilteredConstructionSites}
+      resetAllFilters={resetAllFilters}
+    />
+  );
+
+  const mainBody = (
+    <>
+      {filtersBlock}
+      {error ? (
+        <Alert variant="destructive" className="mb-8">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error al cargar datos</AlertTitle>
+          <AlertDescription className="mt-2">{error}</AlertDescription>
+          <Button className="mt-4" variant="secondary" size="sm" onClick={retryLoadData}>
+            Reintentar
+          </Button>
+        </Alert>
+      ) : (
+        <div className="space-y-6">
+          <QualityKPIStrip items={kpiItems} loading={loading} />
+
+          <Collapsible className="rounded-lg border border-stone-200 bg-white shadow-sm">
+            <CollapsibleTrigger className="group flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-stone-800 hover:bg-stone-50">
+              Más métricas operativas
+              <ChevronDown className="h-4 w-4 shrink-0 text-stone-500 transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t border-stone-100 px-4 py-3">
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+                <div>
+                  <dt className="text-stone-500">Eficiencia</dt>
+                  <dd className="font-semibold tabular-nums text-stone-900">
+                    {eficiencia != null && !isNaN(eficiencia) ? eficiencia.toFixed(3) : '—'}
+                  </dd>
+                  <dd className="text-xs text-stone-500">kg/cm² por kg cemento (derivado del gráfico si aplica)</dd>
+                </div>
+                <div>
+                  <dt className="text-stone-500">Rendimiento volumétrico</dt>
+                  <dd className="font-semibold tabular-nums text-stone-900">
+                    {rendimientoVolumetrico != null && !isNaN(rendimientoVolumetrico)
+                      ? `${rendimientoVolumetrico.toFixed(2)}%`
+                      : '—'}
+                  </dd>
+                  <dd className="text-xs text-stone-500">Volumen real vs registrado</dd>
+                </div>
+                {selectedFcValue !== 'all' && (
+                  <div>
+                    <dt className="text-stone-500">Desviación estándar</dt>
+                    <dd className="font-semibold tabular-nums text-stone-900">
+                      {(metricas.desviacionEstandar ?? 0).toFixed(2)}
+                    </dd>
+                    <dd className="text-xs text-stone-500">Variabilidad con FC filtrado</dd>
+                  </div>
+                )}
+              </dl>
+            </CollapsibleContent>
+          </Collapsible>
+
+          <QualityChartSection
+            datosGrafico={datosGrafico}
+            loading={loading}
+            soloEdadGarantia={soloEdadGarantia}
+            constructionSites={constructionSites}
+          />
+        </div>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-4 py-1">{mainBody}</div>;
+  }
 
   return (
-    <div className={outerClass}>
-      <div className={innerClass}>
-        {!embedded && (
-          <div className="mb-4">
-            <QualityBreadcrumb
-              hubName="Controles"
-              hubHref="/quality/controles"
-              items={[{ label: 'Dashboard' }]}
-            />
-          </div>
-        )}
-        <div className={embedded ? 'mb-4' : 'mb-8'}>
-          {!embedded && (
-            <div className="mb-6">
-              <h1 className="text-title-1 font-bold text-slate-900 mb-2">Control de Calidad</h1>
-              <p className="text-body text-slate-600">Métricas y análisis de resistencia de concreto</p>
-            </div>
-          )}
-
-          <div className="glass-thick rounded-xl p-4 border border-slate-200">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="flex items-center gap-3 flex-1">
-                <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
-                  Período de Muestreo
-                </span>
-                <DatePickerWithRange value={dateRange} onChange={handleDateRangeChange} />
-              </div>
-
-              {process.env.NODE_ENV === 'development' && (
-                <Button variant="secondary" size="sm" onClick={handleCheckDatabaseContent}>
-                  Check DB Data
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <QualityDashboardFilters
-          clients={clients}
-          constructionSites={constructionSites}
-          recipes={recipes}
-          plants={plants}
-          availableAges={availableAgesFromChart}
-          fcValues={fcValues}
-          specimenTypes={specimenTypes}
-          selectedClient={selectedClient}
-          selectedConstructionSite={selectedConstructionSite}
-          selectedRecipe={selectedRecipe}
-          selectedPlant={selectedPlant}
-          selectedClasificacion={selectedClasificacion}
-          selectedSpecimenType={selectedSpecimenType}
-          selectedFcValue={selectedFcValue}
-          selectedAge={selectedAge}
-          soloEdadGarantia={soloEdadGarantia}
-          incluirEnsayosFueraTiempo={incluirEnsayosFueraTiempo}
-          openClient={openClient}
-          openSite={openSite}
-          openRecipe={openRecipe}
-          openPlant={openPlant}
-          openFcValue={openFcValue}
-          openAge={openAge}
-          setSelectedClient={setSelectedClient}
-          setSelectedConstructionSite={setSelectedConstructionSite}
-          setSelectedRecipe={setSelectedRecipe}
-          setSelectedPlant={setSelectedPlant}
-          setSelectedClasificacion={setSelectedClasificacion}
-          setSelectedSpecimenType={setSelectedSpecimenType}
-          setSelectedFcValue={setSelectedFcValue}
-          setSelectedAge={setSelectedAge}
-          setSoloEdadGarantia={setSoloEdadGarantia}
-          setIncluirEnsayosFueraTiempo={setIncluirEnsayosFueraTiempo}
-          setOpenClient={setOpenClient}
-          setOpenSite={setOpenSite}
-          setOpenRecipe={setOpenRecipe}
-          setOpenPlant={setOpenPlant}
-          setOpenFcValue={setOpenFcValue}
-          setOpenAge={setOpenAge}
-          getFilteredConstructionSites={getFilteredConstructionSites}
-          resetAllFilters={resetAllFilters}
-        />
-
-        {error ? (
-          <Alert variant="destructive" className="mb-8">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Error al cargar datos</AlertTitle>
-            <AlertDescription className="mt-2">{error}</AlertDescription>
-            <Button className="mt-4" variant="secondary" size="sm" onClick={retryLoadData}>
-              Reintentar
-            </Button>
-          </Alert>
-        ) : (
-          <div className="space-y-6">
-            <QualityMetricsCards
-              metrics={metricas}
-              loading={loading}
-              eficienciaOverride={advancedMetrics.eficiencia}
-              rendimientoVolumetricoOverride={advancedMetrics.rendimientoVolumetrico}
-              showStdDev={selectedFcValue !== 'all'}
-            />
-
-            <QualityChartSection
-              datosGrafico={datosGrafico}
-              loading={loading}
-              soloEdadGarantia={soloEdadGarantia}
-              constructionSites={constructionSites}
-            />
-          </div>
-        )}
-      </div>
-    </div>
+    <QualityReportShell
+      warmCanvas
+      headerTop={
+        <QualityBreadcrumb hubName="Controles" hubHref="/quality/controles" items={[{ label: 'Dashboard' }]} />
+      }
+      title="Control de calidad"
+      subtitle="Métricas y análisis de resistencia de concreto"
+      actions={dateActions}
+    >
+      {mainBody}
+    </QualityReportShell>
   );
 }

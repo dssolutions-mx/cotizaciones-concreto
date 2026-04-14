@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { format, subMonths } from 'date-fns';
 import type { DateRange } from "react-day-picker";
 import { fetchMetricasCalidad } from '@/services/qualityMetricsService';
-import { ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
 import { fetchDatosGraficoResistencia } from '@/services/qualityChartService';
 import { checkDatabaseContent } from '@/services/qualityUtilsService';
 import { supabase } from '@/lib/supabase';
@@ -147,11 +146,6 @@ export function useQualityDashboard({
         }
 
         if (metricasData) {
-          // Apply display-only factor to API KPIs for consistency with portal
-          const f = ENSAYO_ADJUSTMENT_FACTOR;
-          metricasData.resistenciaPromedio = (metricasData.resistenciaPromedio || 0) * f;
-          metricasData.porcentajeResistenciaGarantia = (metricasData.porcentajeResistenciaGarantia || 0) * f;
-          
           // PERFORMANCE FIX: Removed N+1 query pattern that called calcular_metricas_muestreo
           // for each individual muestreo (causing 400+ RPC calls per dashboard load).
           // The fetchMetricasCalidad RPC already provides aggregated metrics.
@@ -181,9 +175,6 @@ export function useQualityDashboard({
         );
 
         if (metricasData) {
-          const f = ENSAYO_ADJUSTMENT_FACTOR;
-          metricasData.resistenciaPromedio = (metricasData.resistenciaPromedio || 0) * f;
-          metricasData.porcentajeResistenciaGarantia = (metricasData.porcentajeResistenciaGarantia || 0) * f;
           setMetricas(metricasData);
         } else {
           // If all fails, set zeros

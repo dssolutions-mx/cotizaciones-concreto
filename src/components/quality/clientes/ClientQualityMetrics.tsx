@@ -101,7 +101,7 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
       </Card>
 
       {/* Main Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {/* Volume Card */}
         <Card>
           <CardContent className="p-6">
@@ -168,6 +168,24 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
           </CardContent>
         </Card>
 
+        {/* Coefficient of variation (global) */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">CV (global)</p>
+                <p className="text-2xl font-bold text-amber-700">
+                  {formatNumber(summary.averages.coefficientVariation ?? 0)}%
+                </p>
+              </div>
+              <BarChart3 className="h-8 w-8 text-amber-700" />
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              Entre promedios por muestreo (edad garantía)
+            </div>
+          </CardContent>
+        </Card>
+
         {/* On-Time Testing Card */}
         <Card>
           <CardContent className="p-6">
@@ -188,7 +206,7 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
       </div>
 
       {/* Additional Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Sampling Metrics */}
         <Card>
           <CardContent className="p-4">

@@ -6,7 +6,13 @@ import { List, BarChart3, Download, FileSpreadsheet } from 'lucide-react';
 import MuestreoCard from './MuestreoCard';
 import { QualityChartSection } from '@/components/quality/QualityChartSection';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { hasEnsayos, calculateDailyAverage, processMuestreosForChart, adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
+import {
+  hasEnsayos,
+  calculateDailyAverage,
+  processMuestreosForChart,
+  resolveEnsayoResistenciaReportada,
+  resolveEnsayoPorcentajeCumplimiento,
+} from '@/lib/qualityHelpers';
 import type { DatoGraficoResistencia } from '@/types/quality';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
@@ -30,8 +36,8 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
       // Build adjusted ensayo fields per muestreo using recipe f'c
       const adjustedMuestras = (muestreo.muestras || []).map(m => {
         const adjEnsayos = (m.ensayos || []).map(e => {
-          const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
-          const compAdj = recomputeEnsayoCompliance(resAdj, remision.recipeFc || 0);
+          const resAdj = resolveEnsayoResistenciaReportada(e);
+          const compAdj = resolveEnsayoPorcentajeCumplimiento(e, remision.recipeFc || 0);
           return {
             ...e,
             resistenciaCalculadaAjustada: resAdj,

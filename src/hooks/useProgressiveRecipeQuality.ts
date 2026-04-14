@@ -5,6 +5,7 @@ import { addDays, endOfWeek, format, isAfter, startOfDay, startOfWeek } from 'da
 import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/supabase';
 import { getMaterialPricesCurrentByIdsInChunks } from '@/services/prices';
+import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 
 // Use similar types as client analysis
 export interface RecipeQualityRemisionData {
@@ -55,6 +56,8 @@ export interface RecipeQualityRemisionData {
         fechaEnsayo: string;
         cargaKg: number;
         resistenciaCalculada: number;
+        resistenciaCorregida?: number | null;
+        factorCorreccion?: number | null;
         porcentajeCumplimiento: number;
         isEdadGarantia: boolean;
         isEnsayoFueraTiempo: boolean;
@@ -352,6 +355,8 @@ export function useProgressiveRecipeQuality({
                     fecha_ensayo,
                     carga_kg,
                     resistencia_calculada,
+                    resistencia_corregida,
+                    factor_correccion,
                     porcentaje_cumplimiento,
                     is_edad_garantia,
                     is_ensayo_fuera_tiempo
@@ -487,6 +492,8 @@ export function useProgressiveRecipeQuality({
                   fechaEnsayo: e.fecha_ensayo,
                   cargaKg: Number(e.carga_kg) || 0,
                   resistenciaCalculada: Number(e.resistencia_calculada) || 0,
+                  resistenciaCorregida: e.resistencia_corregida ?? null,
+                  factorCorreccion: e.factor_correccion ?? null,
                   porcentajeCumplimiento: Number(e.porcentaje_cumplimiento) || 0,
                   isEdadGarantia: Boolean(e.is_edad_garantia),
                   isEnsayoFueraTiempo: Boolean(e.is_ensayo_fuera_tiempo)
@@ -510,12 +517,12 @@ export function useProgressiveRecipeQuality({
             // Calculate average resistance and compliance status
             const validEnsayos = muestreos.flatMap(m => 
               m.muestras.flatMap(s => 
-                s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && e.resistenciaCalculada > 0)
+                s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && resolveEnsayoResistenciaReportada(e) > 0)
               )
             );
 
             const avgResistencia = validEnsayos.length > 0 
-              ? validEnsayos.reduce((sum, e) => sum + e.resistenciaCalculada, 0) / validEnsayos.length
+              ? validEnsayos.reduce((sum, e) => sum + resolveEnsayoResistenciaReportada(e), 0) / validEnsayos.length
               : undefined;
 
             const avgCompliance = validEnsayos.length > 0
@@ -612,13 +619,13 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
   );
   
   const ensayosEdadGarantia = allEnsayos.filter(e => 
-    e.isEdadGarantia && !e.isEnsayoFueraTiempo && e.resistenciaCalculada > 0
+    e.isEdadGarantia && !e.isEnsayoFueraTiempo && resolveEnsayoResistenciaReportada(e) > 0
   );
 
   const remisionesConDatosCalidad = remisiones.filter(r => 
     r.muestreos.some(m => 
       m.muestras.some(s => 
-        s.ensayos.some(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && e.resistenciaCalculada > 0)
+        s.ensayos.some(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && resolveEnsayoResistenciaReportada(e) > 0)
       )
     )
   ).length;
@@ -629,7 +636,7 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     : 0;
 
   const avgResistencia = ensayosEdadGarantia.length > 0
-    ? ensayosEdadGarantia.reduce((sum, e) => sum + e.resistenciaCalculada, 0) / ensayosEdadGarantia.length
+    ? ensayosEdadGarantia.reduce((sum, e) => sum + resolveEnsayoResistenciaReportada(e), 0) / ensayosEdadGarantia.length
     : 0;
 
   const avgMasaUnitaria = remisiones.reduce((sum, r) => {
@@ -718,11 +725,11 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
           const ensayos = (muestra.ensayos || []).filter(ensayo =>
             ensayo.isEdadGarantia &&
             !ensayo.isEnsayoFueraTiempo &&
-            (ensayo.resistenciaCalculada || 0) > 0
+            resolveEnsayoResistenciaReportada(ensayo) > 0
           );
           ensayos.forEach(ensayo => {
             validEnsayosDelMuestreo.push({
-              resistencia: ensayo.resistenciaCalculada,
+              resistencia: resolveEnsayoResistenciaReportada(ensayo),
               cumplimiento: ensayo.porcentajeCumplimiento || 0
             });
           });
@@ -763,7 +770,7 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     const groupsInTargetWeighted = totalCount > 0 ? (groupStats.reduce((s, g) => s + (g.cv <= 10 ? g.count : 0), 0) / totalCount * 100) : 0;
 
     // Global statistics (all ensayos) for display
-    const resistencias = ensayosEdadGarantia.map(e => e.resistenciaCalculada);
+    const resistencias = ensayosEdadGarantia.map(e => resolveEnsayoResistenciaReportada(e));
     const mean = resistencias.reduce((sum, val) => sum + val, 0) / resistencias.length;
     // Use sample variance (n-1)
     const variance = resistencias.length > 1

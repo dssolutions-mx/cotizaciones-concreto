@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Card,
   CardContent,
@@ -9,24 +9,15 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   TrendingUp,
   TrendingDown,
   Minus,
   Activity,
-  Settings2,
 } from 'lucide-react';
-import { MuestraWithRelations } from '@/types/quality';
-import { cn, createSafeDate } from '@/lib/utils';
-import { qualityHubOutlineNeutralClass, qualityHubPrimaryButtonClass } from '@/components/quality/qualityHubUi';
+import type { Ensayo, MuestraWithRelations } from '@/types/quality';
+import { createSafeDate } from '@/lib/utils';
+import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 
 interface AgeGroup {
   ageDays: number;
@@ -103,11 +94,6 @@ export default function ResistanceEvolutionTimeline({
   strengthFc,
   displayNameById,
 }: ResistanceEvolutionTimelineProps) {
-  const [factorActive, setFactorActive] = useState(false);
-  const [factorValue, setFactorValue] = useState(0.92);
-
-  const applyFactor = (val: number) => factorActive ? val * factorValue : val;
-
   const ageGroups: AgeGroup[] = React.useMemo(() => {
     const groupMap = new Map<number, AgeGroup['specimens']>();
 
@@ -117,7 +103,7 @@ export default function ResistanceEvolutionTimeline({
       for (const ensayo of muestra.ensayos) {
         if (ensayo.resistencia_calculada == null) continue;
 
-        const fechaRef = (ensayo as any).fecha_ensayo_ts || ensayo.fecha_ensayo;
+        const fechaRef = (ensayo as Ensayo & { fecha_ensayo_ts?: string }).fecha_ensayo_ts || ensayo.fecha_ensayo;
         if (!fechaRef) continue;
 
         const ageDays = computeAgeDays(fechaMuestreo, fechaRef);
@@ -127,7 +113,7 @@ export default function ResistanceEvolutionTimeline({
         existing.push({
           id: muestra.id,
           displayName: displayNameById.get(muestra.id) || muestra.identificacion,
-          resistencia: ensayo.resistencia_calculada,
+          resistencia: resolveEnsayoResistenciaReportada(ensayo as Ensayo),
           cumplimiento: ensayo.porcentaje_cumplimiento ?? 0,
           isGarantia: !!(muestra.is_edad_garantia || ensayo.is_edad_garantia),
         });
@@ -154,74 +140,15 @@ export default function ResistanceEvolutionTimeline({
   return (
     <Card className="mb-6 border border-stone-200/90 bg-white shadow-sm ring-1 ring-stone-950/[0.02]">
       <CardHeader className="pb-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Activity className="h-5 w-5 text-stone-600" />
-              Evolución de Resistencia
-              {factorActive && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-sky-50 text-sky-800 border-sky-200 font-normal">
-                  Factor ×{factorValue}
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Resistencia a compresión por edad de ensayo
-              {strengthFc ? ` — f'c = ${strengthFc} kg/cm²` : ''}
-            </CardDescription>
-          </div>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant={factorActive ? 'primary' : 'outline'}
-                size="sm"
-                className={cn(
-                  'h-8 gap-1.5',
-                  factorActive ? qualityHubPrimaryButtonClass : qualityHubOutlineNeutralClass
-                )}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                Factor
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64" align="end">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Factor de Corrección</Label>
-                  <Button
-                    variant={factorActive ? 'destructive' : 'primary'}
-                    size="sm"
-                    className={cn(
-                      'h-7 text-xs px-2.5',
-                      !factorActive && qualityHubPrimaryButtonClass
-                    )}
-                    onClick={() => setFactorActive(!factorActive)}
-                  >
-                    {factorActive ? 'Desactivar' : 'Activar'}
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="timeline-factor" className="text-xs text-stone-500 whitespace-nowrap">
-                    Valor:
-                  </Label>
-                  <Input
-                    id="timeline-factor"
-                    type="number"
-                    step="0.01"
-                    min="0.5"
-                    max="1.5"
-                    value={factorValue}
-                    onChange={(e) => setFactorValue(parseFloat(e.target.value) || 0.92)}
-                    className="h-8 w-20 text-center"
-                  />
-                </div>
-                <p className="text-[11px] text-stone-400">
-                  Multiplica la resistencia y el % de cumplimiento por el factor indicado.
-                </p>
-              </div>
-            </PopoverContent>
-          </Popover>
+        <div>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <Activity className="h-5 w-5 text-stone-600" />
+            Evolución de Resistencia
+          </CardTitle>
+          <CardDescription className="mt-1">
+            Resistencia corregida (factor de probeta aplicado en base de datos) por edad de ensayo
+            {strengthFc ? ` — f'c = ${strengthFc} kg/cm²` : ''}
+          </CardDescription>
         </div>
       </CardHeader>
       <CardContent>
@@ -245,16 +172,16 @@ export default function ResistanceEvolutionTimeline({
                   </div>
 
                   {/* Resistance value card */}
-                  <div className={`rounded-lg border p-3 w-full ${complianceColor(applyFactor(group.avgCumplimiento))}`}>
+                  <div className={`rounded-lg border p-3 w-full ${complianceColor(group.avgCumplimiento)}`}>
                     <div className="text-center">
                       <div className="text-xl font-bold leading-tight">
-                        {applyFactor(group.avgResistencia).toFixed(0)}
+                        {group.avgResistencia.toFixed(0)}
                       </div>
                       <div className="text-[11px] opacity-70 mb-1.5">kg/cm²</div>
                       <div className="flex items-center justify-center gap-1.5">
-                        <div className={`h-1.5 w-1.5 rounded-full ${complianceDotColor(applyFactor(group.avgCumplimiento))}`} />
+                        <div className={`h-1.5 w-1.5 rounded-full ${complianceDotColor(group.avgCumplimiento)}`} />
                         <span className="text-sm font-semibold">
-                          {applyFactor(group.avgCumplimiento).toFixed(0)}%
+                          {group.avgCumplimiento.toFixed(0)}%
                         </span>
                       </div>
                     </div>
@@ -267,7 +194,7 @@ export default function ResistanceEvolutionTimeline({
                         <div key={`${sp.id}-${spIdx}`} className="flex items-center justify-between text-[10px] text-stone-500 px-1">
                           <span className="truncate max-w-[80px]">{sp.displayName}</span>
                           <span className="font-medium text-stone-700">
-                            {applyFactor(sp.resistencia).toFixed(0)} kg/cm²
+                            {sp.resistencia.toFixed(0)} kg/cm²
                           </span>
                         </div>
                       ))}
@@ -286,8 +213,8 @@ export default function ResistanceEvolutionTimeline({
                   <div className="flex items-center self-center pt-4 mx-1">
                     <div className="w-6 h-px bg-stone-300" />
                     <TrendArrow
-                      prev={applyFactor(group.avgResistencia)}
-                      next={applyFactor(ageGroups[idx + 1].avgResistencia)}
+                      prev={group.avgResistencia}
+                      next={ageGroups[idx + 1].avgResistencia}
                     />
                     <div className="w-6 h-px bg-stone-300" />
                   </div>

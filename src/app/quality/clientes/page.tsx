@@ -1,18 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { format, subMonths } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { DateRange } from "react-day-picker";
-import { Loader2, TrendingUp, BarChart3, Target, Users } from 'lucide-react';
+import { Loader2, BarChart3, Target, Users } from 'lucide-react';
 
 // UI Components
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Custom Components
@@ -22,9 +20,13 @@ import ClientMuestreosTable from '@/components/quality/clientes/ClientMuestreosT
 const ClientMuestreosCharts = dynamic(() => import('@/components/quality/clientes/ClientMuestreosCharts'), { ssr: false });
 import ClientQualityAnalysis from '@/components/quality/clientes/ClientQualityAnalysis';
 import { ClientSelector } from '@/components/quality/clientes/ClientSelector';
+import { ClientRecipePerformanceTable } from '@/components/quality/clientes/ClientRecipePerformanceTable';
+import { ClientCvByRecipeTable } from '@/components/quality/clientes/ClientCvByRecipeTable';
+import { ClientComparisonScorecard } from '@/components/quality/clientes/ClientComparisonScorecard';
+import { ClientSpcChart } from '@/components/quality/clientes/ClientSpcChart';
+import { QualityReportShell } from '@/components/quality/reporting';
 
 // Services and Types
-import { ClientQualityService } from '@/services/clientQualityService';
 import { useProgressiveClientQuality } from '@/hooks/useProgressiveClientQuality';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
@@ -36,6 +38,7 @@ export default function ClientQualityAnalysisPage() {
 
   // State for data
   const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [compareClientId, setCompareClientId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date(2025, 1, 1),
     to: new Date()
@@ -53,41 +56,24 @@ export default function ClientQualityAnalysisPage() {
     options: { newestFirst: true }
   });
 
-  // Load client quality data
-  const loadClientQualityData = useCallback(async () => {
-    if (!selectedClientId || !dateRange?.from || !dateRange?.to) {
-      setQualityData(null);
-      setSummary(null);
-      return;
-    }
-    // Fallback: keep legacy trigger to allow manual refresh if desired
-    setLoading(true);
-    setError(null);
-    try {
-      const fromDate = format(dateRange.from, 'yyyy-MM-dd');
-      const toDate = format(dateRange.to, 'yyyy-MM-dd');
-      const result = await ClientQualityService.getClientQualityData(
-        selectedClientId,
-        fromDate,
-        toDate
-      );
-      setQualityData(result.data);
-      setSummary(result.summary);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar datos de calidad del cliente');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedClientId, dateRange]);
+  const {
+    data: compareProgData,
+    summary: compareProgSummary,
+    loading: compareProgLoading,
+    error: compareProgError,
+  } = useProgressiveClientQuality({
+    clientId: compareClientId || undefined,
+    fromDate: dateRange && dateRange.from ? dateRange.from : undefined,
+    toDate: dateRange && dateRange.to ? dateRange.to : undefined,
+    options: { newestFirst: true }
+  });
 
-  // Load data when client or date range changes
   // Bind progressive results to local state for rendering
   useEffect(() => {
     if (progError) setError(progError);
-    if (!progError && progLoading) setError(null);
+    else setError(null);
     if (progData) setQualityData(progData);
     if (progSummary) setSummary(progSummary);
-    // Mirror loading state from progressive loader
     setLoading(progLoading);
   }, [progData, progSummary, progLoading, progError]);
 
@@ -97,6 +83,16 @@ export default function ClientQualityAnalysisPage() {
     setQualityData(null);
     setSummary(null);
   }, [selectedClientId, dateRange?.from, dateRange?.to]);
+
+  useEffect(() => {
+    setCompareClientId('');
+  }, [selectedClientId]);
+
+  useEffect(() => {
+    if (compareClientId && selectedClientId && compareClientId === selectedClientId) {
+      setCompareClientId('');
+    }
+  }, [compareClientId, selectedClientId]);
 
   // Handle date range changes
   const handleDateRangeChange = (range: DateRange | undefined) => {
@@ -139,39 +135,35 @@ export default function ClientQualityAnalysisPage() {
     );
   }
 
-  return (
-    <div className="container mx-auto p-4 md:p-6">
-      {/* Header Section */}
-      <div className="mb-6">
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gray-900 mb-2">
-          Análisis de Calidad por Cliente
-        </h1>
-        <p className="text-gray-500 mb-4">
-          Métricas completas de rendimiento y calidad del concreto entregado a cada cliente
-        </p>
-
-        {/* Filters Section */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-4">
-          {/* Client Selector */}
-          <div className="flex-1">
-            <ClientSelector
-              selectedClientId={selectedClientId}
-              onClientSelect={handleClientSelect}
-            />
-          </div>
-
-          {/* Date Range Picker */}
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
-              Período de Análisis:
-            </span>
-            <DatePickerWithRange
-              value={dateRange}
-              onChange={handleDateRangeChange}
-            />
-          </div>
-        </div>
+  const filtersBlock = (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+      <div className="min-w-0 flex-1">
+        <ClientSelector selectedClientId={selectedClientId} onClientSelect={handleClientSelect} />
       </div>
+      <div className="min-w-0 flex-1">
+        <ClientSelector
+          label="Comparar con (opcional)"
+          selectedClientId={compareClientId}
+          onClientSelect={setCompareClientId}
+          excludeClientIds={selectedClientId ? [selectedClientId] : []}
+          compact
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-stone-700">Período</span>
+        <DatePickerWithRange value={dateRange} onChange={handleDateRangeChange} />
+      </div>
+    </div>
+  );
+
+  return (
+    <QualityReportShell
+      warmCanvas
+      title="Análisis de Calidad por Cliente"
+      subtitle="Métricas de rendimiento y variabilidad del concreto entregado por cliente"
+      filters={filtersBlock}
+      contentClassName="pb-10"
+    >
 
       {/* Error Handling */}
       {error && (
@@ -202,7 +194,7 @@ export default function ClientQualityAnalysisPage() {
 
       {/* No Client Selected */}
       {!selectedClientId && !loading && (
-        <Card className="mb-6">
+        <Card className="mb-6 border-stone-200 bg-white">
           <CardContent className="text-center py-12">
             <Users className="h-12 w-12 mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -270,6 +262,20 @@ export default function ClientQualityAnalysisPage() {
       {/* Quality Analysis Content */}
       {selectedClientId && qualityData && summary && !loading && (
         <div className="space-y-6">
+          <ClientComparisonScorecard
+            primaryLabel={qualityData.clientInfo?.business_name || summary.clientInfo?.business_name || 'Cliente principal'}
+            primarySummary={summary}
+            compareLabel={compareProgData?.clientInfo?.business_name || compareProgSummary?.clientInfo?.business_name || 'Cliente de comparación'}
+            compareSummary={compareClientId ? compareProgSummary : null}
+            compareLoading={!!compareClientId && compareProgLoading}
+            onClearCompare={compareClientId ? () => setCompareClientId('') : undefined}
+          />
+
+          {compareProgError && compareClientId && (
+            <Alert variant="destructive">
+              <AlertDescription>Error al cargar cliente de comparación: {compareProgError}</AlertDescription>
+            </Alert>
+          )}
 
           {/* Detailed Analysis Tabs */}
           <Tabs defaultValue="overview" className="w-full">
@@ -295,6 +301,12 @@ export default function ClientQualityAnalysisPage() {
             <TabsContent value="overview" className="space-y-6">
               {/* KPIs */}
               <ClientQualityMetrics summary={summary} />
+
+              <ClientSpcChart data={qualityData} />
+
+              <ClientRecipePerformanceTable data={qualityData} summary={summary} />
+
+              <ClientCvByRecipeTable rows={summary.averages.cvByRecipe || []} />
 
               {/* Main Charts removed: deprecated summary cards */}
             </TabsContent>
@@ -327,7 +339,7 @@ export default function ClientQualityAnalysisPage() {
 
       {/* No Data State */}
       {selectedClientId && !qualityData && !loading && !error && (
-        <Card className="mb-6">
+        <Card className="mb-6 border-stone-200 bg-white">
           <CardContent className="text-center py-12">
             <BarChart3 className="h-12 w-12 mx-auto text-gray-400 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
@@ -339,6 +351,6 @@ export default function ClientQualityAnalysisPage() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </QualityReportShell>
   );
 }

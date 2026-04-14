@@ -1,5 +1,5 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useMemo } from 'react';
+import { QualityFilterBar, ActiveFilters, type ActiveFilterChip } from '@/components/quality/reporting';
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -118,21 +118,115 @@ export function QualityDashboardFilters({
     soloEdadGarantia ||
     incluirEnsayosFueraTiempo;
 
-  return (
-    <>
-      {/* Filter Bar */}
-      <Card className="mb-6 glass-thick rounded-xl border border-slate-200">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-title-2 font-semibold text-slate-900">Filtros de Análisis</CardTitle>
-        </CardHeader>
-        <CardContent>
+  const activeChips: ActiveFilterChip[] = useMemo(() => {
+    const chips: ActiveFilterChip[] = [];
+    if (selectedClient !== 'all') {
+      chips.push({
+        id: 'client',
+        label: `Cliente: ${clients.find(c => c.id === selectedClient)?.business_name || selectedClient}`,
+        onRemove: () => setSelectedClient('all'),
+      });
+    }
+    if (selectedConstructionSite !== 'all') {
+      chips.push({
+        id: 'site',
+        label: `Obra: ${getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || selectedConstructionSite}`,
+        onRemove: () => setSelectedConstructionSite('all'),
+      });
+    }
+    if (selectedRecipe !== 'all') {
+      chips.push({
+        id: 'recipe',
+        label: `Receta: ${selectedRecipe}`,
+        onRemove: () => setSelectedRecipe('all'),
+      });
+    }
+    if (selectedPlant !== 'all') {
+      chips.push({
+        id: 'plant',
+        label: `Planta: ${selectedPlant}`,
+        onRemove: () => setSelectedPlant('all'),
+      });
+    }
+    if (selectedClasificacion !== 'all') {
+      chips.push({
+        id: 'class',
+        label: `Clasificación: ${selectedClasificacion}`,
+        onRemove: () => setSelectedClasificacion('all'),
+      });
+    }
+    if (selectedSpecimenType !== 'all') {
+      chips.push({
+        id: 'specimen',
+        label: `Probeta: ${selectedSpecimenType}`,
+        onRemove: () => setSelectedSpecimenType('all'),
+      });
+    }
+    if (selectedFcValue !== 'all') {
+      chips.push({
+        id: 'fc',
+        label: `Resistencia: ${fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm²`}`,
+        onRemove: () => setSelectedFcValue('all'),
+      });
+    }
+    if (selectedAge !== 'all') {
+      chips.push({
+        id: 'age',
+        label: `Edad: ${availableAges.find(a => a.value === selectedAge)?.label || selectedAge}`,
+        onRemove: () => setSelectedAge('all'),
+      });
+    }
+    if (soloEdadGarantia) {
+      chips.push({
+        id: 'solo-garantia',
+        label: 'Solo edad garantía',
+        onRemove: () => setSoloEdadGarantia(false),
+        tone: 'muted',
+      });
+    }
+    if (incluirEnsayosFueraTiempo) {
+      chips.push({
+        id: 'fuera-tiempo',
+        label: 'Incluye ensayos fuera de tiempo',
+        onRemove: () => setIncluirEnsayosFueraTiempo(false),
+        tone: 'muted',
+      });
+    }
+    return chips;
+  }, [
+    selectedClient,
+    selectedConstructionSite,
+    selectedRecipe,
+    selectedPlant,
+    selectedClasificacion,
+    selectedSpecimenType,
+    selectedFcValue,
+    selectedAge,
+    soloEdadGarantia,
+    incluirEnsayosFueraTiempo,
+    clients,
+    fcValues,
+    availableAges,
+    setSelectedClient,
+    setSelectedConstructionSite,
+    setSelectedRecipe,
+    setSelectedPlant,
+    setSelectedClasificacion,
+    setSelectedSpecimenType,
+    setSelectedFcValue,
+    setSelectedAge,
+    setSoloEdadGarantia,
+    setIncluirEnsayosFueraTiempo,
+  ]);
+
+  const primaryFilters = (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Client Filter */}
             <div className="space-y-2">
               <Label className="text-footnote font-medium text-slate-700">Cliente</Label>
               <Popover open={openClient} onOpenChange={setOpenClient}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -161,7 +255,7 @@ export function QualityDashboardFilters({
               <Label className="text-footnote font-medium text-slate-700">Obra</Label>
               <Popover open={openSite} onOpenChange={setOpenSite}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -190,7 +284,7 @@ export function QualityDashboardFilters({
               <Label className="text-footnote font-medium text-slate-700">Receta</Label>
               <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -219,7 +313,7 @@ export function QualityDashboardFilters({
               <Label className="text-footnote font-medium text-slate-700">Planta</Label>
               <Popover open={openPlant} onOpenChange={setOpenPlant}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedPlant === 'all' ? 'Todas las plantas' : selectedPlant}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -243,15 +337,17 @@ export function QualityDashboardFilters({
               </Popover>
             </div>
           </div>
+  );
 
-          {/* Second Row of Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
+  const secondaryFilters = (
+ <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Strength Filter */}
             <div className="space-y-2">
               <Label className="text-footnote font-medium text-slate-700">Resistencia</Label>
               <Popover open={openFcValue} onOpenChange={setOpenFcValue}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedFcValue === 'all'
                       ? 'Todas las resistencias'
                       : (fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`)}
@@ -288,7 +384,7 @@ export function QualityDashboardFilters({
                   variant={selectedClasificacion === 'FC' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}
-                  className="flex-1 glass-thin rounded-xl hover:glass-interactive"
+                  className="flex-1 border-stone-200 bg-white"
                 >
                   FC
                 </Button>
@@ -296,7 +392,7 @@ export function QualityDashboardFilters({
                   variant={selectedClasificacion === 'MR' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}
-                  className="flex-1 glass-thin rounded-xl hover:glass-interactive"
+                  className="flex-1 border-stone-200 bg-white"
                 >
                   MR
                 </Button>
@@ -307,7 +403,7 @@ export function QualityDashboardFilters({
             <div className="space-y-2">
               <Label className="text-footnote font-medium text-slate-700">Tipo Probeta</Label>
               <Select value={selectedSpecimenType} onValueChange={(value: any) => setSelectedSpecimenType(value)}>
-                <SelectTrigger className="w-full glass-thin rounded-xl">
+                <SelectTrigger className="w-full border-stone-200 bg-white">
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -326,7 +422,7 @@ export function QualityDashboardFilters({
               <Label className="text-footnote font-medium text-slate-700">Edad Garantía</Label>
               <Popover open={openAge} onOpenChange={setOpenAge}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
+                  <Button variant="outline" size="sm" className="justify-between w-full border-stone-200 bg-white">
                     {selectedAge === 'all' ? 'Todas las edades' : (availableAges.find(a => a.value === selectedAge)?.label || selectedAge)}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -407,115 +503,24 @@ export function QualityDashboardFilters({
                 variant="outline"
                 size="sm"
                 onClick={resetAllFilters}
-                className="w-full glass-thin rounded-xl hover:glass-interactive"
+                className="w-full border-stone-200 bg-white"
                 disabled={!hasActiveFilters}
               >
                 Limpiar Filtros
               </Button>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          </>
+  );
 
-      {/* Active Filters Display */}
-      {hasActiveFilters && (
-        <div className="mb-6 flex flex-wrap gap-2">
-          {selectedClient !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemBlue">
-              <span>Cliente: {clients.find(c => c.id === selectedClient)?.business_name || selectedClient}</span>
-              <button
-                className="hover:opacity-70 rounded-full p-1 transition-opacity"
-                onClick={() => setSelectedClient('all')}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {selectedConstructionSite !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemGreen">
-              <span>Obra: {getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || selectedConstructionSite}</span>
-              <button
-                className="hover:opacity-70 rounded-full p-1 transition-opacity"
-                onClick={() => setSelectedConstructionSite('all')}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {selectedRecipe !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-purple-600">
-              <span>Receta: {selectedRecipe}</span>
-              <button
-                className="hover:opacity-70 rounded-full p-1 transition-opacity"
-                onClick={() => setSelectedRecipe('all')}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {selectedPlant !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-cyan-600">
-              <span>Planta: {selectedPlant}</span>
-              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedPlant('all')}>×</button>
-            </div>
-          )}
-
-          {selectedClasificacion !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemRed">
-              <span>Clasificación: {selectedClasificacion}</span>
-              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedClasificacion('all')}>×</button>
-            </div>
-          )}
-
-          {selectedSpecimenType !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemGreen">
-              <span>Probeta: {selectedSpecimenType}</span>
-              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedSpecimenType('all')}>×</button>
-            </div>
-          )}
-
-          {selectedFcValue !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
-              <span>Resistencia: {fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`}</span>
-              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedFcValue('all')}>×</button>
-            </div>
-          )}
-
-          {selectedAge !== 'all' && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-indigo-600">
-              <span>Edad: {availableAges.find(a => a.value === selectedAge)?.label || selectedAge}</span>
-              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedAge('all')}>×</button>
-            </div>
-          )}
-
-          {soloEdadGarantia && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
-              <span>Solo edad garantía</span>
-              <button
-                className="hover:opacity-70 rounded-full p-1 transition-opacity"
-                onClick={() => setSoloEdadGarantia(false)}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {incluirEnsayosFueraTiempo && (
-            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
-              <span>Incluye ensayos fuera de tiempo</span>
-              <button
-                className="hover:opacity-70 rounded-full p-1 transition-opacity"
-                onClick={() => setIncluirEnsayosFueraTiempo(false)}
-              >
-                ×
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </>
+  return (
+    <div className="mb-6">
+      <QualityFilterBar
+        title="Filtros de análisis"
+        primary={primaryFilters}
+        secondary={secondaryFilters}
+        activeChips={hasActiveFilters ? <ActiveFilters chips={activeChips} /> : undefined}
+      />
+    </div>
   );
 }

@@ -93,13 +93,16 @@ export async function fetchMetricasCalidad(
           const porcentajeResistenciaGarantia = Number(rpcData.avg_compliance || 0);
           const coeficienteVariacion = Number(rpcData.cv || 0);
 
+          const muestreoPassRate =
+            numeroMuestras > 0 ? (muestrasEnCumplimiento / numeroMuestras) * 100 : 0;
           const metrics: MetricasCalidad = {
             numeroMuestras,
             muestrasEnCumplimiento,
             resistenciaPromedio: Number(resistenciaPromedio.toFixed(2)),
             desviacionEstandar: Number(desviacionEstandar.toFixed(2)),
             porcentajeResistenciaGarantia: Number(porcentajeResistenciaGarantia.toFixed(2)),
-            eficiencia: 0,
+            // RPC no incluye rendimiento volumetrico; eficiencia = % muestreos en cumplimiento (prom. >= 100%)
+            eficiencia: Number(muestreoPassRate.toFixed(2)),
             rendimientoVolumetrico: 0,
             coeficienteVariacion: Number(coeficienteVariacion.toFixed(2))
           };
@@ -623,14 +626,17 @@ function calculateQualityMetrics(data: any[], formattedFechaDesde?: string, form
     coeficienteVariacion: Number(coeficienteVariacion.toFixed(2))
   });
 
+  const muestreoPassRate =
+    numeroMuestras > 0 ? (muestrasEnCumplimiento / numeroMuestras) * 100 : 0;
+
   return {
     numeroMuestras,
     muestrasEnCumplimiento,
     resistenciaPromedio: Number(resistenciaPromedio.toFixed(2)),
     desviacionEstandar: Number(desviacionEstandar.toFixed(2)),
     porcentajeResistenciaGarantia: Number(porcentajeResistenciaGarantia.toFixed(2)),
-    eficiencia: 0, // Will be calculated separately
-    rendimientoVolumetrico: 0, // Will be calculated separately
+    eficiencia: Number(muestreoPassRate.toFixed(2)),
+    rendimientoVolumetrico: 0,
     coeficienteVariacion: Number(coeficienteVariacion.toFixed(2))
   };
 }

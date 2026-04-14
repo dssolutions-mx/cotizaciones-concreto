@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, endOfWeek, format, isAfter, startOfDay, startOfWeek } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import type { ClientQualityData, ClientQualityRemisionData, ClientQualitySummary } from '@/types/clientQuality';
-import { adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
+import { resolveEnsayoResistenciaReportada, resolveEnsayoPorcentajeCumplimiento } from '@/lib/qualityHelpers';
+import {
+  avg,
+  buildCvByRecipe,
+  coefficientVariationFromValues,
+  muestreoAvgResistenciasForRemisiones,
+} from '@/lib/clientQualityCv';
 
 interface Options {
   newestFirst?: boolean;
@@ -105,6 +111,11 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
         };
 
         let firstChunk = true;
+        let resolvedClientInfo: { id: string; business_name: string; client_code: string } = {
+          id: clientId,
+          business_name: '',
+          client_code: '',
+        };
 
         for (const slice of slices) {
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
@@ -135,7 +146,8 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
                 construction_site,
                 clients(
                   id,
-                  business_name
+                  business_name,
+                  client_code
                 )
               ),
               muestreos(
@@ -157,6 +169,8 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
                     fecha_ensayo,
                     carga_kg,
                     resistencia_calculada,
+                    resistencia_corregida,
+                    factor_correccion,
                     porcentaje_cumplimiento,
                     is_edad_garantia,
                     is_ensayo_fuera_tiempo
@@ -183,6 +197,14 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
           }
 
           (sliceRems || []).forEach((r: any) => {
+            const cl = r.orders?.clients;
+            if (cl?.id && (cl.business_name || cl.client_code)) {
+              resolvedClientInfo = {
+                id: cl.id,
+                business_name: cl.business_name || resolvedClientInfo.business_name,
+                client_code: cl.client_code || resolvedClientInfo.client_code,
+              };
+            }
             const muestreos = r.muestreos || [];
             const allEnsayos = muestreos.flatMap((muestreo: any) =>
               muestreo.muestras?.flatMap((muestra: any) => muestra.ensayos || []) || []
@@ -241,6 +263,8 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
                     fechaEnsayo: e.fecha_ensayo,
                     cargaKg: e.carga_kg,
                     resistenciaCalculada: e.resistencia_calculada || 0,
+                    resistenciaCorregida: e.resistencia_corregida ?? null,
+                    factorCorreccion: e.factor_correccion ?? null,
                     porcentajeCumplimiento: e.porcentaje_cumplimiento || 0,
                     isEdadGarantia: e.is_edad_garantia || false,
                     isEnsayoFueraTiempo: e.is_ensayo_fuera_tiempo || false
@@ -250,9 +274,9 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
               complianceStatus: validEnsayos.length > 0
                 ? (avg(validEnsayos.map((x: any) => x.porcentaje_cumplimiento || 0)) >= 95 ? 'compliant' : (avg(validEnsayos.map((x: any) => x.porcentaje_cumplimiento || 0)) >= 80 ? 'pending' : 'non_compliant'))
                 : 'pending',
-              avgResistencia: validEnsayos.length > 0 ? avg(validEnsayos.map((x: any) => x.resistencia_calculada || 0)) : 0,
-              minResistencia: validEnsayos.length > 0 ? Math.min(...validEnsayos.map((x: any) => x.resistencia_calculada || 0)) : 0,
-              maxResistencia: validEnsayos.length > 0 ? Math.max(...validEnsayos.map((x: any) => x.resistencia_calculada || 0)) : 0
+              avgResistencia: validEnsayos.length > 0 ? avg(validEnsayos.map((x: any) => resolveEnsayoResistenciaReportada(x))) : 0,
+              minResistencia: validEnsayos.length > 0 ? Math.min(...validEnsayos.map((x: any) => resolveEnsayoResistenciaReportada(x))) : 0,
+              maxResistencia: validEnsayos.length > 0 ? Math.max(...validEnsayos.map((x: any) => resolveEnsayoResistenciaReportada(x))) : 0
             };
 
             accMap.set(String(r.id), mapped);
@@ -261,6 +285,12 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
           // Build arrays and aggregates from accumulator
           const accRemisiones = Array.from(accMap.values()).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
           const builtSummary = buildSummary({ clientId, fromDate, toDate, remisiones: accRemisiones });
+          if (resolvedClientInfo.business_name || resolvedClientInfo.client_code) {
+            builtSummary.clientInfo = {
+              ...builtSummary.clientInfo,
+              ...resolvedClientInfo,
+            };
+          }
           const monthlyStats = buildMonthlyStats(accRemisiones);
           const qualityByRecipe = buildQualityByRecipe(accRemisiones);
           const qualityByConstructionSite = buildQualityByConstructionSite(accRemisiones);
@@ -301,8 +331,6 @@ export function useProgressiveClientQuality({ clientId, fromDate, toDate, option
   return { data, summary, loading, streaming, progress, error };
 }
 
-function avg(arr: number[]) { return arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : 0; }
-
 function buildSummary(params: { clientId: string; fromDate: Date; toDate: Date; remisiones: ClientQualityRemisionData[] }): ClientQualitySummary {
   const { clientId, fromDate, toDate, remisiones } = params;
   const remisionesWithMuestreos = remisiones.filter(r => r.muestreos && r.muestreos.length > 0).length;
@@ -319,12 +347,12 @@ function buildSummary(params: { clientId: string; fromDate: Date; toDate: Date; 
     r.muestreos.forEach(m => m.muestras.forEach(s => s.ensayos
       .filter(e => e.isEdadGarantia === true && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined)
       .forEach(e => {
-        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        const resAdj = resolveEnsayoResistenciaReportada(e);
         if (resAdj > 0) {
           totalResAdj += resAdj;
           countResAdj += 1;
         }
-        const compAdj = recomputeEnsayoCompliance(resAdj, fc);
+        const compAdj = resolveEnsayoPorcentajeCumplimiento(e, fc);
         if (compAdj > 0) {
           totalCompAdj += compAdj;
           countCompAdj += 1;
@@ -359,7 +387,9 @@ function buildSummary(params: { clientId: string; fromDate: Date; toDate: Date; 
     rendimientoVolumetrico: (() => {
       const vals = remisiones.filter(r => (r.rendimientoVolumetrico || 0) > 0).map(r => r.rendimientoVolumetrico || 0);
       return vals.length ? avg(vals) : 0;
-    })()
+    })(),
+    coefficientVariation: coefficientVariationFromValues(muestreoAvgResistenciasForRemisiones(remisiones)),
+    cvByRecipe: buildCvByRecipe(remisiones),
   };
 
   const performance = {
@@ -408,8 +438,9 @@ function buildMonthlyStats(remisiones: ClientQualityRemisionData[]) {
         const valid = s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined);
         data.ensayos += valid.length;
         valid.forEach(e => {
-          if (e.resistenciaCalculada > 0) {
-            data.totalResistencia += e.resistenciaCalculada;
+          const r = resolveEnsayoResistenciaReportada(e);
+          if (r > 0) {
+            data.totalResistencia += r;
             data.resistenciaCount += 1;
           }
           if ((e.porcentajeCumplimiento || 0) >= 100) data.compliantTests += 1;
@@ -450,10 +481,9 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
       const valid = s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined);
       d.totalTests += valid.length;
       valid.forEach(e => {
-        // Adjust resistance and compliance client-side
-        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        const resAdj = resolveEnsayoResistenciaReportada(e);
         if (resAdj > 0) { d.totalResistencia += resAdj; d.resistenciaCount += 1; }
-        const compAdj = recomputeEnsayoCompliance(resAdj, r.recipeFc || 0);
+        const compAdj = resolveEnsayoPorcentajeCumplimiento(e, r.recipeFc || 0);
         if ((compAdj || 0) >= 100) d.compliantTests += 1;
         d.totalCompliance += compAdj || 0;
       });
@@ -492,9 +522,9 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
       const valid = s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined);
       d.totalTests += valid.length;
       valid.forEach(e => {
-        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        const resAdj = resolveEnsayoResistenciaReportada(e);
         if (resAdj > 0) { d.totalResistencia += resAdj; d.resistenciaCount += 1; }
-        const compAdj = recomputeEnsayoCompliance(resAdj, r.recipeFc || 0);
+        const compAdj = resolveEnsayoPorcentajeCumplimiento(e, r.recipeFc || 0);
         if ((compAdj || 0) >= 100) d.compliantTests += 1;
         d.totalCompliance += compAdj || 0;
       });

@@ -4,7 +4,12 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, BarChart2, PieChart, Target, Shield, Award, CheckCircle2, ArrowUpRight, ArrowDownRight, Minus, Activity, Eye, TestTube } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { calculateQualityStats, getQualityTrend, ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
+import {
+  calculateQualityStats,
+  getQualityTrend,
+  resolveEnsayoResistenciaReportada,
+  resolveEnsayoPorcentajeCumplimiento,
+} from '@/lib/qualityHelpers';
 
 interface QualityAnalysisProps {
   data: ClientQualityData;
@@ -14,9 +19,7 @@ interface QualityAnalysisProps {
 export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
   const stats = calculateQualityStats(data);
   const trend = getQualityTrend(data);
-  const factor = ENSAYO_ADJUSTMENT_FACTOR;
-  // Match dashboard calculation: multiply by factor to show adjusted compliance
-  const adjustedCompliance = (summary.averages.complianceRate || 0) * factor;
+  const displayCompliance = summary.averages.complianceRate || 0;
 
   // Calculate monthly trends
   const monthlyTrends = useMemo(() => {
@@ -91,14 +94,11 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
 
       // Calculate adjusted values (matching dashboard calculation)
       validEnsayos.forEach(e => {
-        const adjustedResistance = (e.resistenciaCalculada || 0) * factor;
-        const adjustedCompliance = adjustedResistance > 0 && recipe.recipeFc > 0
-          ? (adjustedResistance / recipe.recipeFc) * 100
-          : (e.porcentajeCumplimiento || 0) * factor;
-        
-        recipe.totalResistance += adjustedResistance;
+        const resRep = resolveEnsayoResistenciaReportada(e);
+        const comp = resolveEnsayoPorcentajeCumplimiento(e, recipe.recipeFc || 0);
+        recipe.totalResistance += resRep;
         recipe.resistanceCount += 1;
-        recipe.totalCompliance += adjustedCompliance;
+        recipe.totalCompliance += comp;
         recipe.complianceCount += 1;
       });
     });
@@ -114,25 +114,24 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
       .filter(r => r.complianceCount > 0 && r.avgResistance > 0)
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
-  }, [data.remisiones, factor]);
+  }, [data.remisiones]);
 
   // Calculate quality assurance level (confidence/assurance instead of risk)
   const qualityAssuranceLevel = useMemo(() => {
     let confidenceScore = 0;
     
-    // Compliance contributes to confidence (using adjustedCompliance to match dashboard)
-    if (adjustedCompliance >= 100) confidenceScore += 3;
-    else if (adjustedCompliance >= 95) confidenceScore += 2;
-    else if (adjustedCompliance >= 90) confidenceScore += 1;
+    // Compliance contributes to confidence
+    if (displayCompliance >= 100) confidenceScore += 3;
+    else if (displayCompliance >= 95) confidenceScore += 2;
+    else if (displayCompliance >= 90) confidenceScore += 1;
 
     // Consistency (lower CV = higher confidence)
     if (summary.averages.coefficientVariation <= 10) confidenceScore += 3;
     else if (summary.averages.coefficientVariation <= 15) confidenceScore += 2;
     else if (summary.averages.coefficientVariation <= 20) confidenceScore += 1;
 
-    // Test compliance rate - use adjustedCompliance to match dashboard
-    if (adjustedCompliance >= 95) confidenceScore += 2;
-    else if (adjustedCompliance >= 90) confidenceScore += 1;
+    if (displayCompliance >= 95) confidenceScore += 2;
+    else if (displayCompliance >= 90) confidenceScore += 1;
 
     if (confidenceScore >= 7) return { 
       level: 'Excelente', 
@@ -158,7 +157,7 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
       bg: 'bg-systemOrange/20',
       description: 'Calidad confiable'
     };
-  }, [adjustedCompliance, summary, stats]);
+  }, [displayCompliance, summary, stats]);
 
   // Calculate testing coverage metrics based on orders and cubic meters frequency
   const testingMetrics = useMemo(() => {
@@ -221,8 +220,8 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
       ordersSampledPct,
       avgTestsPerRemision,
       totalTests: stats.totalTests,
-      // Use adjustedCompliance to match dashboard (multiplied by factor)
-      compliantRate: adjustedCompliance
+      // DB-backed compliance (corrected resistance + age rules)
+      compliantRate: displayCompliance
     };
   }, [data, summary, stats]);
 
@@ -342,30 +341,30 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
           </div>
           <div className="flex items-baseline gap-2 mb-2">
             <p className={`text-title-1 font-bold ${
-              adjustedCompliance >= 100 ? 'text-systemGreen' :
-              adjustedCompliance >= 95 ? 'text-systemBlue' :
-              adjustedCompliance >= 90 ? 'text-systemBlue' :
+              displayCompliance >= 100 ? 'text-systemGreen' :
+              displayCompliance >= 95 ? 'text-systemBlue' :
+              displayCompliance >= 90 ? 'text-systemBlue' :
               'text-systemOrange'
             }`}>
-              {adjustedCompliance.toFixed(1)}%
+              {displayCompliance.toFixed(1)}%
             </p>
             <span className="text-callout text-label-secondary">de especificación</span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-2">
             <div 
               className={`h-2 rounded-full transition-all ${
-                adjustedCompliance >= 100 ? 'bg-systemGreen' :
-                adjustedCompliance >= 95 ? 'bg-systemBlue' :
-                adjustedCompliance >= 90 ? 'bg-systemBlue' :
+                displayCompliance >= 100 ? 'bg-systemGreen' :
+                displayCompliance >= 95 ? 'bg-systemBlue' :
+                displayCompliance >= 90 ? 'bg-systemBlue' :
                 'bg-systemOrange'
               }`}
-              style={{ width: `${Math.min(adjustedCompliance, 100)}%` }}
+              style={{ width: `${Math.min(displayCompliance, 100)}%` }}
             />
           </div>
           <p className="text-footnote text-label-secondary">
-            {adjustedCompliance >= 100 
+            {displayCompliance >= 100 
               ? 'Excelencia: Cumplimiento total de especificaciones'
-              : adjustedCompliance >= 95
+              : displayCompliance >= 95
               ? 'Sobresaliente: Cumplimiento superior al estándar'
               : 'Cumplimiento dentro de parámetros establecidos'}
           </p>
@@ -546,9 +545,9 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
           </div>
 
           <div className={`p-4 rounded-2xl border ${
-            adjustedCompliance >= 95
+            displayCompliance >= 95
               ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
-              : adjustedCompliance >= 90
+              : displayCompliance >= 90
               ? 'bg-gradient-to-br from-systemBlue/20 to-systemBlue/5 border-systemBlue/20'
               : 'glass-thin border-white/10'
           }`}>
@@ -556,14 +555,14 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
               Confiabilidad de Ensayos
             </p>
             <p className={`text-title-2 font-bold ${
-              adjustedCompliance >= 95 ? 'text-systemGreen' : 
-              adjustedCompliance >= 90 ? 'text-systemBlue' :
+              displayCompliance >= 95 ? 'text-systemGreen' : 
+              displayCompliance >= 90 ? 'text-systemBlue' :
               'text-systemBlue'
             }`}>
-              {adjustedCompliance.toFixed(1)}%
+              {displayCompliance.toFixed(1)}%
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {adjustedCompliance >= 95 
+              {displayCompliance >= 95 
                 ? 'Excelencia en cumplimiento de especificaciones'
                 : 'Confiabilidad dentro de parámetros aceptables'}
             </p>
@@ -696,14 +695,14 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
               </span>
             </div>
             <p className={`text-title-2 font-bold ${
-              adjustedCompliance >= 95 ? 'text-systemGreen' : 
-              adjustedCompliance >= 90 ? 'text-systemBlue' :
+              displayCompliance >= 95 ? 'text-systemGreen' : 
+              displayCompliance >= 90 ? 'text-systemBlue' :
               'text-systemOrange'
             }`}>
-              {adjustedCompliance.toFixed(1)}%
+              {displayCompliance.toFixed(1)}%
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {adjustedCompliance >= 95 
+              {displayCompliance >= 95 
                 ? 'Excelencia en cumplimiento'
                 : 'Cumplimiento dentro de parámetros establecidos'}
             </p>
@@ -813,11 +812,11 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
             <div className="flex justify-between items-center pb-3 border-b border-white/10">
               <span className="text-callout text-label-secondary">Cumplimiento Promedio</span>
               <span className={`text-callout font-bold ${
-                adjustedCompliance >= 95 ? 'text-systemGreen' : 
-                adjustedCompliance >= 90 ? 'text-systemBlue' : 
+                displayCompliance >= 95 ? 'text-systemGreen' : 
+                displayCompliance >= 90 ? 'text-systemBlue' : 
                 'text-systemBlue'
               }`}>
-                {adjustedCompliance.toFixed(1)}%
+                {displayCompliance.toFixed(1)}%
               </span>
             </div>
 
@@ -870,7 +869,7 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
             <div className="flex justify-between items-center pb-3 border-b border-white/10">
               <span className="text-callout text-label-secondary">Resistencia Promedio</span>
               <span className="text-callout font-bold text-systemPurple">
-                {stats.avgResistance > 0 ? (stats.avgResistance * factor).toFixed(0) : '0'} kg/cm²
+                {stats.avgResistance > 0 ? stats.avgResistance.toFixed(0) : '0'} kg/cm²
               </span>
             </div>
 

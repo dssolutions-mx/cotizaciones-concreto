@@ -2,24 +2,66 @@
 
 import type { ClientQualityRemisionData, ClientQualityData } from '@/types/clientQuality';
 
-/**
- * Global ensayo adjustment factor. All ensayo resistances are multiplied by this
- * factor client-side and related compliance metrics are recomputed accordingly.
- * CV and rendimiento volumétrico remain unchanged.
- */
-export const ENSAYO_ADJUSTMENT_FACTOR = 0.92;
+/** Shape accepted from API (camelCase or snake_case). */
+export type EnsayoResistenciaFields = {
+  resistencia_calculada?: number | null;
+  resistenciaCalculada?: number | null;
+  resistencia_corregida?: number | null;
+  resistenciaCorregida?: number | null;
+  factor_correccion?: number | null;
+  factorCorreccion?: number | null;
+  porcentaje_cumplimiento?: number | null;
+  porcentajeCumplimiento?: number | null;
+};
 
 /**
- * Adjust an ensayo's calculated resistance by the global factor.
+ * Reported strength for an ensayo: prefer persisted `resistencia_corregida`, else raw × factor.
  */
-export function adjustEnsayoResistencia(resistenciaCalculada: number): number {
-  const value = Number(resistenciaCalculada) || 0;
-  if (value <= 0) return 0;
-  return value * ENSAYO_ADJUSTMENT_FACTOR;
+export function resolveEnsayoResistenciaReportada(e: EnsayoResistenciaFields): number {
+  const corrected = Number(e.resistencia_corregida ?? e.resistenciaCorregida);
+  if (Number.isFinite(corrected) && corrected > 0) {
+    return Math.round(corrected * 100) / 100;
+  }
+  const base = Number(e.resistencia_calculada ?? e.resistenciaCalculada) || 0;
+  if (base <= 0) return 0;
+  const f = Number(e.factor_correccion ?? e.factorCorreccion);
+  const factor = Number.isFinite(f) && f > 0 ? f : 1;
+  return Math.round(base * factor * 100) / 100;
 }
 
 /**
- * Recompute ensayo compliance based on adjusted resistance and recipe f'c.
+ * Compliance % from DB when present (already accounts for correction + age rules server-side).
+ * Otherwise linear vs f'c from reported resistance.
+ */
+export function resolveEnsayoPorcentajeCumplimiento(e: EnsayoResistenciaFields, recipeFc?: number): number {
+  const rawPct = e.porcentaje_cumplimiento ?? e.porcentajeCumplimiento;
+  if (rawPct != null && rawPct !== undefined && Number.isFinite(Number(rawPct))) {
+    return Number(rawPct);
+  }
+  const r = resolveEnsayoResistenciaReportada(e);
+  return recomputeEnsayoCompliance(r, recipeFc || 0);
+}
+
+/**
+ * @deprecated Use resolveEnsayoResistenciaReportada with the full ensayo object from the API.
+ * Passing only a number returns raw strength (no client-side factor).
+ */
+export function adjustEnsayoResistencia(
+  resistenciaCalculada: number,
+  ensayo?: EnsayoResistenciaFields
+): number {
+  if (ensayo) {
+    return resolveEnsayoResistenciaReportada({
+      ...ensayo,
+      resistenciaCalculada: resistenciaCalculada ?? ensayo.resistenciaCalculada,
+    });
+  }
+  const value = Number(resistenciaCalculada) || 0;
+  return value > 0 ? value : 0;
+}
+
+/**
+ * Linear compliance vs f'c (fallback when DB % is missing).
  */
 export function recomputeEnsayoCompliance(resistenciaAjustada: number, recipeFc: number): number {
   const fc = Number(recipeFc) || 0;
@@ -31,9 +73,7 @@ export function recomputeEnsayoCompliance(resistenciaAjustada: number, recipeFc:
 
 /**
  * Returns a shallow-cloned muestreo with adjusted ensayo fields and averages.
- * - Adds per-ensayo: resistenciaCalculadaAjustada, porcentajeCumplimientoAjustado
- * - Adds per-muestreo: avgResistanceAjustada, avgComplianceAjustado
- * Does not alter rendimientoVolumetrico or any CV-related data.
+ * Uses DB-corrected resistance and compliance when available.
  */
 export function mapMuestreoWithAdjustment(muestreo: any, recipeFc?: number) {
   const cloned = { ...muestreo };
@@ -42,8 +82,8 @@ export function mapMuestreoWithAdjustment(muestreo: any, recipeFc?: number) {
   let count = 0;
   cloned.muestras = (muestreo.muestras || []).map((m: any) => {
     const ensayos = (m.ensayos || []).map((e: any) => {
-      const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
-      const compAdj = recomputeEnsayoCompliance(resAdj, recipeFc || 0);
+      const resAdj = resolveEnsayoResistenciaReportada(e);
+      const compAdj = resolveEnsayoPorcentajeCumplimiento(e, recipeFc || 0);
       if (resAdj > 0) {
         sumRes += resAdj;
         count += 1;
@@ -228,9 +268,8 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
         mu.ensayos.forEach((e: any) => {
           // Include all ensayos at edad_garantia, regardless of timing
           if (e.isEdadGarantia && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined) {
-            // Use adjusted compliance for charts
-            const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
-            const compAdj = recomputeEnsayoCompliance(resAdj, recipeFc);
+            const resAdj = resolveEnsayoResistenciaReportada(e);
+            const compAdj = resolveEnsayoPorcentajeCumplimiento(e, recipeFc);
             acc[date].compliances.push(compAdj);
             
             // Also collect resistance and target for tooltip
@@ -366,8 +405,8 @@ export function calculateQualityStats(data: ClientQualityData) {
     };
   }
   
-  const compliances = allEnsayos.map(e => e.porcentajeCumplimiento);
-  const resistances = allEnsayos.map(e => e.resistenciaCalculada);
+  const compliances = allEnsayos.map(e => resolveEnsayoPorcentajeCumplimiento(e, 0));
+  const resistances = allEnsayos.map(e => resolveEnsayoResistenciaReportada(e));
   
   const avgCompliance = compliances.reduce((sum, c) => sum + c, 0) / compliances.length;
   const avgResistance = resistances.reduce((sum, r) => sum + r, 0) / resistances.length;

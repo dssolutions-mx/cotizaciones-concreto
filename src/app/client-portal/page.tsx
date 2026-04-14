@@ -24,7 +24,6 @@ import { PermissionGate } from '@/components/client-portal/shared/PermissionGate
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
 
 // Helper to parse date string (YYYY-MM-DD) without timezone conversion
 const parseLocalDate = (dateString: string): Date => {
@@ -212,7 +211,7 @@ export default function ClientPortalDashboard() {
               >
                 <MetricCard
                   title="Calidad Promedio"
-                  value={`${(((metrics?.qualityScore || 0) * ENSAYO_ADJUSTMENT_FACTOR)).toFixed(2)}%`}
+                  value={`${(metrics?.qualityScore || 0).toFixed(2)}%`}
                   subtitle="Cumplimiento"
                   icon={<CheckCircle className="w-6 h-6" />}
                   color="blue"

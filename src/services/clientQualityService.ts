@@ -7,6 +7,7 @@ import type {
   ClientQualityApiResponse,
   ClientInfo
 } from '@/types/clientQuality';
+import { buildCvByRecipe, coefficientVariationFromValues, muestreoAvgResistenciasForRemisiones } from '@/lib/clientQualityCv';
 
 // Main service class for client quality analysis
 export class ClientQualityService {
@@ -150,6 +151,8 @@ export class ClientQualityService {
                   fecha_ensayo,
                   carga_kg,
                   resistencia_calculada,
+                  resistencia_corregida,
+                  factor_correccion,
                   porcentaje_cumplimiento,
                   is_edad_garantia,
                   is_ensayo_fuera_tiempo
@@ -265,6 +268,8 @@ export class ClientQualityService {
                 fechaEnsayo: ensayo.fecha_ensayo,
                 cargaKg: ensayo.carga_kg,
                 resistenciaCalculada: ensayo.resistencia_calculada || 0,
+                resistenciaCorregida: ensayo.resistencia_corregida ?? null,
+                factorCorreccion: ensayo.factor_correccion ?? null,
                 porcentajeCumplimiento: ensayo.porcentaje_cumplimiento || 0,
                 isEdadGarantia: ensayo.is_edad_garantia || false,
                 isEnsayoFueraTiempo: ensayo.is_ensayo_fuera_tiempo || false
@@ -637,7 +642,9 @@ export class ClientQualityService {
         rendimientoVolumetrico: remisiones
           .filter((r: any) => r.rendimientoVolumetrico && r.rendimientoVolumetrico > 0)
           .reduce((sum: number, r: any) => sum + (r.rendimientoVolumetrico || 0), 0) / 
-          remisiones.filter((r: any) => r.rendimientoVolumetrico && r.rendimientoVolumetrico > 0).length || 0
+          remisiones.filter((r: any) => r.rendimientoVolumetrico && r.rendimientoVolumetrico > 0).length || 0,
+        coefficientVariation: coefficientVariationFromValues(muestreoAvgResistenciasForRemisiones(remisiones)),
+        cvByRecipe: buildCvByRecipe(remisiones),
       };
 
       // Calculate performance metrics

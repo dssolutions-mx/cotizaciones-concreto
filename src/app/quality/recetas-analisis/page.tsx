@@ -38,6 +38,10 @@ import { RecipeAdvancedMetrics } from '@/components/quality/recipes/RecipeAdvanc
 import { RecipeQualityCharts } from '@/components/quality/recipes/RecipeQualityCharts';
 import { VariantsComparisonTable } from '@/components/quality/recipes/VariantsComparisonTable';
 import RecipeMuestreosCharts from '@/components/quality/recipes/RecipeMuestreosCharts';
+import { RecipeMaterialConsumptionChart } from '@/components/quality/recipes/RecipeMaterialConsumptionChart';
+import { RecipeCostTrendChart } from '@/components/quality/recipes/RecipeCostTrendChart';
+import { RecipeYieldScatter } from '@/components/quality/recipes/RecipeYieldScatter';
+import { RecipeYieldHistogram } from '@/components/quality/recipes/RecipeYieldHistogram';
 
 export default function RecipeAnalysisPage() {
   const { profile } = useAuthBridge();
@@ -300,7 +304,7 @@ export default function RecipeAnalysisPage() {
 
           {/* Tabs for different views */}
           <Tabs defaultValue="metrics" className="w-full">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="flex w-full flex-wrap gap-1 h-auto min-h-10">
               <TabsTrigger value="metrics" className="flex items-center gap-2">
                 <Target className="h-4 w-4" />
                 Métricas Clave
@@ -308,6 +312,10 @@ export default function RecipeAnalysisPage() {
               <TabsTrigger value="variants" className="flex items-center gap-2">
                 <FlaskConical className="h-4 w-4" />
                 Variantes
+              </TabsTrigger>
+              <TabsTrigger value="inteligencia" className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Consumo / Costos
               </TabsTrigger>
               <TabsTrigger value="statistical" className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" />
@@ -332,6 +340,20 @@ export default function RecipeAnalysisPage() {
                 remisiones={data.remisiones}
                 targetStrength={summary.recipeInfo.strength_fc}
               />
+            </TabsContent>
+
+            <TabsContent value="inteligencia" className="space-y-6">
+              <div className="grid gap-6 lg:grid-cols-1">
+                <RecipeMaterialConsumptionChart remisiones={data.remisiones} />
+                <div className="grid gap-6 md:grid-cols-2">
+                  <RecipeCostTrendChart remisiones={data.remisiones} />
+                  <RecipeYieldScatter
+                    remisiones={data.remisiones}
+                    targetStrength={summary.recipeInfo.strength_fc}
+                  />
+                </div>
+                <RecipeYieldHistogram remisiones={data.remisiones} />
+              </div>
             </TabsContent>
 
             <TabsContent value="statistical" className="space-y-6">

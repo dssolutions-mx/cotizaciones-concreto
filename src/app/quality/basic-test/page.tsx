@@ -2,8 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import dynamic from 'next/dynamic'; // Import dynamic
-import { ApexOptions } from 'apexcharts'; // Import ApexOptions
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Loader2 } from 'lucide-react';
@@ -40,8 +38,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import RemisionesProduccionTab from '@/components/remisiones/RemisionesProduccionTab';
 
-// Dynamically import Chart
-const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+} from 'recharts';
 
 // Define a type for the expected structure of server metrics
 interface ServerMetricsData {
@@ -606,57 +612,9 @@ export default function QualityBasicTestPage() {
     return `${numValue.toFixed(decimals)}${suffix}`;
   };
 
-  // Revert Chart Options back to using datetime axis
-  const chartOptions: ApexOptions = {
-    chart: {
-      type: 'scatter',
-      zoom: { enabled: true },
-      toolbar: { show: true }
-    },
-    xaxis: {
-      type: 'datetime', // Use datetime axis type
-      labels: {
-        datetimeUTC: false, // Display dates in local time usually preferred
-        rotate: -45,
-        rotateAlways: false,
-        format: 'dd MMM' // Specify default datetime format
-      }
-    },
-    yaxis: {
-      min: 0,
-      // Adjust max calculation based on the original data structure [timestamp, value]
-      max: chartData.length > 0 ? Math.max(110, ...chartData.map(d => d[1])) + 10 : 110,
-      tickAmount: 5,
-      title: { text: 'Porcentaje de Cumplimiento (%)' },
-      labels: {
-        formatter: (value: number) => `${value.toFixed(2)}%`
-      }
-    },
-    colors: ['#3EB56D'],
-    markers: {
-      size: 5
-    },
-    tooltip: {
-      // Adjust tooltip for datetime axis
-      x: {
-        format: 'dd MMM yyyy' // Format date in tooltip
-      },
-      y: {
-        formatter: (value: number) => `${value.toFixed(2)}%`
-      }
-    },
-    annotations: {
-      yaxis: [{
-        y: 100,
-        borderColor: '#FF4560',
-        label: {
-          borderColor: '#FF4560',
-          style: { color: '#fff', background: '#FF4560' },
-          text: '100% Cumplimiento'
-        }
-      }]
-    }
-  };
+  const scatterRechartsData = chartData.map(([ts, y]) => ({ x: ts, y }));
+  const yMax =
+    chartData.length > 0 ? Math.max(110, ...chartData.map((d) => d[1])) + 10 : 110;
 
   // Component for displaying individual muestreo metrics
   const IndividualMetricsTable = ({ metrics }: { metrics: MuestreoMetrics[] }) => {
@@ -971,13 +929,33 @@ export default function QualityBasicTestPage() {
         </CardHeader>
         <CardContent>
               {typeof window !== 'undefined' && chartData.length > 0 ? (
-                <Chart 
-                  key={JSON.stringify(chartData)} 
-                  options={chartOptions}
-                  series={[{ name: 'Cumplimiento', data: chartData }]}
-                  type="scatter"
-                  height={350}
-                />
+                <div className="h-[350px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart margin={{ top: 12, right: 12, left: 12, bottom: 12 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis
+                        type="number"
+                        dataKey="x"
+                        domain={['dataMin', 'dataMax']}
+                        tickFormatter={(v) => format(new Date(v), 'dd MMM')}
+                        name="Fecha"
+                      />
+                      <YAxis
+                        type="number"
+                        dataKey="y"
+                        domain={[0, yMax]}
+                        tickFormatter={(v) => `${v}%`}
+                        name="Cumplimiento"
+                      />
+                      <Tooltip
+                        formatter={(value: number) => [`${value.toFixed(2)}%`, 'Cumplimiento']}
+                        labelFormatter={(v) => format(new Date(v as number), 'dd MMM yyyy')}
+                      />
+                      <ReferenceLine y={100} stroke="#FF4560" label={{ value: '100%', fill: '#FF4560' }} />
+                      <Scatter name="Cumplimiento" data={scatterRechartsData} fill="#3EB56D" />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="text-center text-gray-500 py-8 h-[350px] flex items-center justify-center">
                   {loading ? ( 

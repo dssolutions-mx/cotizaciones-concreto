@@ -11,7 +11,7 @@ import { DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CvDetailsModal from '@/components/client-portal/quality/CvDetailsModal';
 import { Target, Award, TrendingUp, Activity } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { processVolumetricTrend, processResistanceTrend, ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
+import { processVolumetricTrend, processResistanceTrend, resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 import { QualityChartSection } from '@/components/quality/QualityChartSection';
 import type { DatoGraficoResistencia } from '@/types/quality';
 
@@ -23,9 +23,8 @@ interface QualitySummaryProps {
 export function QualitySummary({ data, summary }: QualitySummaryProps) {
   const volumetricData = processVolumetricTrend(data);
   const resistanceData = processResistanceTrend(data);
-  const factor = ENSAYO_ADJUSTMENT_FACTOR;
-  const adjustedCompliance = (summary.averages.complianceRate || 0) * factor;
-  const adjustedResistencia = (summary.averages.resistencia || 0) * factor;
+  const displayCompliance = summary.averages.complianceRate || 0;
+  const displayResistencia = summary.averages.resistencia || 0;
 
   // Helper to get CV color based on value
   const getCVColor = (cv: number) => {
@@ -126,7 +125,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               edadOriginal: valorEdad, // REQUIRED for QualityChartSection grouping
               unidadEdad: unidadEdad, // REQUIRED for QualityChartSection grouping
               fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
-              resistencia_calculada: ensayo.resistenciaCalculada,
+              resistencia_calculada: resolveEnsayoResistenciaReportada(ensayo),
               muestra: { muestreo, muestra, ensayo, remision }
             } as DatoGraficoResistencia;
           })
@@ -154,17 +153,17 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
         
         <QualityMetricCard
           title="Cumplimiento"
-          value={`${adjustedCompliance.toFixed(1)}%`}
+          value={`${displayCompliance.toFixed(1)}%`}
           subtitle={`${summary.totals.ensayosEdadGarantia} ensayos válidos`}
           icon={<Award className="w-6 h-6" />}
-          trend={adjustedCompliance >= 95 ? 'up' : adjustedCompliance >= 85 ? 'neutral' : 'down'}
+          trend={displayCompliance >= 95 ? 'up' : displayCompliance >= 85 ? 'neutral' : 'down'}
           color="success"
           delay={0.1}
         />
         
         <QualityMetricCard
           title="Resistencia Promedio"
-          value={`${adjustedResistencia.toFixed(0)} kg/cm²`}
+          value={`${displayResistencia.toFixed(0)} kg/cm²`}
           subtitle="En edad de garantía"
           icon={<TrendingUp className="w-6 h-6" />}
           color="warning"

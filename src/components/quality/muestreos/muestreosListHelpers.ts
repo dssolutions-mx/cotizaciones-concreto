@@ -1,6 +1,5 @@
-import type { MuestreoWithRelations, MuestraWithRelations } from '@/types/quality'
-
-export const FACTOR_RESISTENCIA = 0.92
+import type { MuestreoWithRelations, MuestraWithRelations, Ensayo } from '@/types/quality'
+import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers'
 
 export function getConstructionSite(muestreo: MuestreoWithRelations): string {
   const o = muestreo.remision?.orders ?? muestreo.remision?.order
@@ -33,12 +32,14 @@ export function calcularResistencia(muestreo: MuestreoWithRelations): {
 
   if (garantiaEnsayadas.length > 0) {
     const resistencias = garantiaEnsayadas.flatMap((m) =>
-      (m.ensayos || []).map((e) => e.resistencia_calculada).filter((v): v is number => v != null)
+      (m.ensayos || [])
+        .map((e) => resolveEnsayoResistenciaReportada(e as Ensayo))
+        .filter((v) => v > 0)
     )
     if (resistencias.length === 0) return { valorNum: null, edadDias: null }
     const promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length
     const edad = calcEdad(garantiaEnsayadas[0])
-    return { valorNum: Math.round(promedio * FACTOR_RESISTENCIA), edadDias: edad }
+    return { valorNum: Math.round(promedio), edadDias: edad }
   }
 
   const fechasSorted = [...muestrasEnsayadas].sort(
@@ -48,12 +49,14 @@ export function calcularResistencia(muestreo: MuestreoWithRelations): {
   const fechaMasReciente = fechasSorted[0].fecha_programada_ensayo
   const muestrasEdadReciente = fechasSorted.filter((m) => m.fecha_programada_ensayo === fechaMasReciente)
   const resistencias = muestrasEdadReciente.flatMap((m) =>
-    (m.ensayos || []).map((e) => e.resistencia_calculada).filter((v): v is number => v != null)
+    (m.ensayos || [])
+      .map((e) => resolveEnsayoResistenciaReportada(e as Ensayo))
+      .filter((v) => v > 0)
   )
   if (resistencias.length === 0) return { valorNum: null, edadDias: null }
   const promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length
   const edad = calcEdad(muestrasEdadReciente[0])
-  return { valorNum: Math.round(promedio * FACTOR_RESISTENCIA), edadDias: edad }
+  return { valorNum: Math.round(promedio), edadDias: edad }
 }
 
 export type ResistanceCompliance = 'none' | 'pass' | 'warn' | 'fail'

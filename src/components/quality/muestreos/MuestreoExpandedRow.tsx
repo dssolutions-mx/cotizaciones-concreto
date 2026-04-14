@@ -7,6 +7,7 @@ import { TableCell, TableRow } from '@/components/ui/table'
 import { Circle, Square, RectangleHorizontal, Star, ExternalLink } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import type { Ensayo, MuestreoWithRelations, MuestraWithRelations } from '@/types/quality'
+import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers'
 import {
   computeResistanceCompliance,
   resistanceComplianceClass,
@@ -62,11 +63,11 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                       new Date(b.fecha_ensayo).getTime() - new Date(a.fecha_ensayo).getTime()
                   )[0]
                 : undefined
-            const resistencia = ensayo?.resistencia_calculada
+            const resistencia = ensayo ? resolveEnsayoResistenciaReportada(ensayo as Ensayo) : null
             const pct = ensayo?.porcentaje_cumplimiento
             const compliance =
               resistencia != null && fc != null && fc > 0
-                ? computeResistanceCompliance(Math.round(resistencia * 0.92), fc)
+                ? computeResistanceCompliance(Math.round(resistencia), fc)
                 : ('none' as const)
 
             const ensayoViewId = primaryEnsayoIdForView(m)
@@ -119,7 +120,7 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                         resistanceComplianceClass(compliance)
                       )}
                     >
-                      {Math.round(resistencia * 0.92)} / {fc ?? '—'} kg/cm²
+                      {Math.round(resistencia ?? 0)} / {fc ?? '—'} kg/cm²
                     </span>
                     {pct != null && (
                       <div className="text-[10px] text-stone-500">{pct.toFixed(0)}% cumpl.</div>
@@ -210,9 +211,8 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                   (a, b) =>
                     new Date(b.fecha_ensayo).getTime() - new Date(a.fecha_ensayo).getTime()
                 )[0]
-                const raw = latest?.resistencia_calculada
-                if (raw == null) return null
-                const adj = Math.round(raw * 0.92)
+                const adj = latest ? Math.round(resolveEnsayoResistenciaReportada(latest as Ensayo)) : null
+                if (adj == null || adj <= 0) return null
                 const pct = Math.min(100, Math.round((adj / fc) * 100))
                 const barColor =
                   adj >= fc ? 'bg-emerald-500' : adj >= fc * 0.85 ? 'bg-amber-500' : 'bg-red-500'

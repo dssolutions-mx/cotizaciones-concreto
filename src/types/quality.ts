@@ -105,6 +105,19 @@ export interface Muestra {
   updated_at?: string;
 }
 
+/** Configurable correction factors by specimen type + dimension (see specimen_type_specs). */
+export interface SpecimenTypeSpec {
+  id: string;
+  tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
+  dimension_key: string;
+  dimension_label: string;
+  correction_factor: number;
+  is_default: boolean;
+  description?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // Ensayo type
 export interface Ensayo {
   id: string;
@@ -114,8 +127,14 @@ export interface Ensayo {
   carga_kg: number;
   resistencia_calculada: number;
   porcentaje_cumplimiento: number;
+  /** Correction factor applied for this ensayo (DB / override). */
+  factor_correccion?: number | null;
+  /** resistencia_calculada × factor_correccion (official reported strength). */
+  resistencia_corregida?: number | null;
+  specimen_type_spec_id?: string | null;
   tiempo_desde_carga?: string; // Calculated time since load (when remision data is available)
   observaciones?: string;
+  plant_id?: string | null;
   // Timestamp fields
   fecha_ensayo_ts?: string; // Precise timestamp of the test
   event_timezone?: string; // Timezone information
@@ -131,7 +150,9 @@ export interface Ensayo {
 export interface Evidencia {
   id: string;
   ensayo_id: string;
-  path: string;
+  /** Storage path (bucket-relative). */
+  path?: string;
+  archivo_url?: string;
   nombre_archivo: string;
   tipo_archivo: string;
   tamano_kb: number;
@@ -249,6 +270,7 @@ export interface MuestraWithRelations extends Muestra {
 export interface EnsayoWithRelations extends Ensayo {
   muestra?: MuestraWithRelations;
   evidencias?: Evidencia[];
+  specimen_type_spec?: SpecimenTypeSpec | null;
 }
 
 // Dashboard metrics type

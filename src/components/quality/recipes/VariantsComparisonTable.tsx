@@ -20,6 +20,7 @@ interface VariantMetrics {
   avgResistance: number;
   cv: number;
   avgYield: number;
+  avgCementKgPerM3: number;
   avgCostPerM3: number;
   qualityLevel: string;
 }
@@ -130,6 +131,16 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
       });
       const avgCostPerM3 = totalVolumeForCost > 0 ? totalCostWeighted / totalVolumeForCost : 0;
 
+      let totalCementWeighted = 0;
+      let totalVolCement = 0;
+      variantRemisiones.forEach((r) => {
+        if (r.cementKgPerM3 && r.cementKgPerM3 > 0 && r.volume > 0) {
+          totalCementWeighted += r.cementKgPerM3 * r.volume;
+          totalVolCement += r.volume;
+        }
+      });
+      const avgCementKgPerM3 = totalVolCement > 0 ? totalCementWeighted / totalVolCement : 0;
+
       // Quality classification
       let qualityLevel = 'Mejorable';
       if (avgCompliance >= 100 && cv <= 8 && avgYield >= 99) qualityLevel = 'Excelente';
@@ -149,6 +160,7 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
         avgResistance,
         cv,
         avgYield,
+        avgCementKgPerM3,
         avgCostPerM3,
         qualityLevel
       });
@@ -221,6 +233,7 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
                 <th className="text-right py-3 pr-4 font-semibold text-gray-700">Cumpl.</th>
                 <th className="text-right py-3 pr-4 font-semibold text-gray-700">CV</th>
                 <th className="text-right py-3 pr-4 font-semibold text-gray-700">Rendimiento</th>
+                <th className="text-right py-3 pr-4 font-semibold text-gray-700">Cemento kg/m³</th>
                 <th className="text-right py-3 pr-4 font-semibold text-gray-700">Costo/m³</th>
                 <th className="text-center py-3 pr-4 font-semibold text-gray-700">Calidad</th>
               </tr>
@@ -281,6 +294,9 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
                     {formatNumber(variant.avgYield, 1)}%
                   </td>
                   <td className="text-right py-3 pr-4">
+                    {variant.avgCementKgPerM3 > 0 ? formatNumber(variant.avgCementKgPerM3, 1) : '—'}
+                  </td>
+                  <td className="text-right py-3 pr-4">
                     {formatCurrency(variant.avgCostPerM3)}
                   </td>
                   <td className="text-center py-3 pr-4">
@@ -324,6 +340,13 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
                     variantMetrics.reduce((sum, v) => sum + v.avgYield, 0) / variantMetrics.length,
                     1
                   )}%
+                </td>
+                <td className="text-right py-3 pr-4">
+                  {formatNumber(
+                    variantMetrics.reduce((sum, v) => sum + v.avgCementKgPerM3 * v.totalVolume, 0) /
+                      variantMetrics.reduce((sum, v) => sum + v.totalVolume, 0),
+                    1
+                  )}
                 </td>
                 <td className="text-right py-3 pr-4">
                   {formatCurrency(
