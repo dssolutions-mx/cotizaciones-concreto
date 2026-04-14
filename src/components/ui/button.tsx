@@ -1,14 +1,13 @@
 'use client'
 
 import * as React from "react"
-import { motion } from "framer-motion"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap font-medium transition-all duration-200 enabled:hover:scale-[1.02] enabled:active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
@@ -55,15 +54,8 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, fullWidth = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
-    // Framer Motion's motion.div can render different wrapper nodes on server vs first client paint,
-    // which triggers hydration mismatches. Match SSR + hydration with a static wrapper, then enable motion.
-    const [motionReady, setMotionReady] = React.useState(false)
-    React.useEffect(() => {
-      setMotionReady(true)
-    }, [])
 
-    const wrapperClass = cn(fullWidth && "w-full")
-    const inner = (
+    return (
       <Comp
         className={cn(buttonVariants({ variant, size }), fullWidth && "w-full", className)}
         ref={ref}
@@ -92,20 +84,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           </span>
         ) : children}
       </Comp>
-    )
-
-    if (!motionReady) {
-      return <div className={wrapperClass}>{inner}</div>
-    }
-
-    return (
-      <motion.div
-        whileHover={{ scale: disabled || loading ? 1 : 1.02 }}
-        whileTap={{ scale: disabled || loading ? 1 : 0.98 }}
-        className={wrapperClass}
-      >
-        {inner}
-      </motion.div>
     )
   }
 )

@@ -19,10 +19,12 @@ import { Copy, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function MaterialPriceManager() {
-  const { profile, hasRole } = useAuthBridge();
+  const { profile, hasRole, isLoading: authLoading } = useAuthBridge();
   const { currentPlant } = usePlantContext();
 
-  const canEdit = hasRole(['PLANT_MANAGER', 'EXECUTIVE']);
+  // hasRole() reads persisted profile on the client before isInitialized flips true, while SSR
+  // always sees profile null — gate on auth ready so the first paint matches server HTML.
+  const canEdit = !authLoading && hasRole(['PLANT_MANAGER', 'EXECUTIVE']);
 
   const [plantId, setPlantId] = useState<string | null>(currentPlant?.id ?? null);
   const [businessUnitId, setBusinessUnitId] = useState<string | null>(currentPlant?.business_unit_id ?? null);
@@ -193,7 +195,7 @@ export function MaterialPriceManager() {
               Copiar desde mes anterior
             </Button>
           )}
-          {hasRole(['EXECUTIVE']) && (
+          {!authLoading && hasRole(['EXECUTIVE']) && (
             <Button
               type="button"
               variant="outline"
