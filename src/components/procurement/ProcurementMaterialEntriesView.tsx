@@ -49,6 +49,7 @@ import ReviewedEntriesForAccountingTable from '@/components/procurement/Reviewed
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { reviewedEntriesToExcelRows } from '@/lib/procurement/reviewedEntriesAccountingExport'
 import {
   formatReceivedQuantity,
@@ -252,6 +253,7 @@ export default function ProcurementMaterialEntriesView({
   isFocused = false,
   onToggleFocusMode,
 }: Props) {
+  const { isInitialized: authInitialized } = useAuthSelectors()
   const router = useRouter()
   const searchParams = useSearchParams()
   const poIdFromUrl = searchParams.get('po_id') || undefined
@@ -459,11 +461,13 @@ export default function ProcurementMaterialEntriesView({
     }
   }, [canReviewPricing, pendingLoading, pendingEntries, searchParams, replaceQuery, poIdFromUrl, entryIdFromUrl])
 
+  // Wait for auth: before profile loads, canReviewPricing is false and would wrongly strip ?entradas_view=precios|revisadas.
   useEffect(() => {
+    if (!authInitialized) return
     if ((entradasView === 'precios' || entradasView === 'revisadas') && !canReviewPricing) {
       replaceQuery({ entradas_view: null })
     }
-  }, [entradasView, canReviewPricing, replaceQuery])
+  }, [authInitialized, entradasView, canReviewPricing, replaceQuery])
 
   const buildReviewedFetchParams = useCallback(
     (offset: number, limit: number) => {

@@ -22,13 +22,15 @@ export default function FinanzasLayout({
 
     // Redirect if no finance permissions
     if (!isLoading && profile) {
-      const canAccessFinanzas = 
-        profile.role === "EXECUTIVE" || 
-        profile.role === "PLANT_MANAGER" || 
+      const canAccessFinanzas =
+        profile.role === "EXECUTIVE" ||
+        profile.role === "PLANT_MANAGER" ||
         profile.role === "CREDIT_VALIDATOR" ||
         profile.role === "SALES_AGENT" ||
-        profile.role === "ADMIN_OPERATIONS";
-      
+        profile.role === "ADMIN_OPERATIONS" ||
+        profile.role === "ADMINISTRATIVE" ||
+        profile.role === "ADMIN";
+
       if (!canAccessFinanzas) {
         router.push("/dashboard");
       }

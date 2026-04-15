@@ -6,7 +6,12 @@ import {
   MaterialEntryInputSchema,
   UpdateMaterialEntrySchema 
 } from '@/lib/validations/inventory';
-import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
+import {
+  hasInventoryStandardAccess,
+  isGlobalInventoryRole,
+  canCompleteEntryPricingReview,
+  canAccessAllInventoryPlants,
+} from '@/lib/auth/inventoryRoles';
 import { resolveVolumetricWeightKgPerM3 } from '@/lib/inventory/volumetricWeight';
 
 /** Merge document_count per entry from inventory_documents (type entry). */
@@ -174,9 +179,8 @@ export async function GET(request: NextRequest) {
     // Handle plant filtering based on user role
     let plantFilter: string[] | undefined;
     
-    if (profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS') {
-      console.log('User is EXECUTIVE or ADMIN_OPERATIONS - no plant filtering');
-      // Executive and Admin Operations users can see all entries
+    if (canAccessAllInventoryPlants(profile.role)) {
+      console.log('User is cross-plant inventory role - no plant filtering');
     } else if (profile.plant_id) {
       console.log('User has plant_id - filtering by plant:', profile.plant_id);
       // Plant users can only see entries from their plant
@@ -202,15 +206,13 @@ export async function GET(request: NextRequest) {
 
     // Workspace plant from query (PlantContext): narrow to one plant when the user may access it
     if (queryParams.plant_id) {
-      const isGlobalInventoryRole =
-        profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
       const inAllowedPlantList =
         !!plantFilter &&
         plantFilter.length > 0 &&
         plantFilter.includes(queryParams.plant_id);
       const matchesProfilePlant = profile.plant_id === queryParams.plant_id;
 
-      if (!isGlobalInventoryRole && !inAllowedPlantList && !matchesProfilePlant) {
+      if (!canAccessAllInventoryPlants(profile.role) && !inAllowedPlantList && !matchesProfilePlant) {
         return NextResponse.json(
           { error: 'Sin acceso a la planta indicada' },
           { status: 403 }
@@ -432,8 +434,8 @@ export async function POST(request: NextRequest) {
     // Check plant access permissions
     let hasPlantAccess = false;
     
-    if (userProfile.role === 'EXECUTIVE' || userProfile.role === 'ADMIN_OPERATIONS') {
-      hasPlantAccess = true; // Executives and Admin Operations can access all plants
+    if (canAccessAllInventoryPlants(userProfile.role)) {
+      hasPlantAccess = true;
     } else if (userProfile.plant_id === targetPlantId) {
       hasPlantAccess = true; // User can access their assigned plant
     } else if (userProfile.business_unit_id) {
@@ -895,8 +897,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (currentEntry.pricing_status === 'reviewed') {
-      const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
-      if (!elevated) {
+      if (!canCompleteEntryPricingReview(profile.role)) {
         return NextResponse.json(
           {
             success: false,
@@ -1041,7 +1042,7 @@ export async function PUT(request: NextRequest) {
 
       // Enforce price lock by default for materials (services handled elsewhere)
       if (!poItem.is_service) {
-        const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
+        const elevated = canCompleteEntryPricingReview(profile.role);
         if (!elevated || updateData.unit_price === undefined) {
           updatePayload.unit_price = Number(poItem.unit_price);
         }
@@ -1148,7 +1149,7 @@ export async function PUT(request: NextRequest) {
         updateData.fleet_cost !== undefined ||
         updateData.fleet_po_item_id !== undefined ||
         updateData.po_item_id !== undefined) &&
-      (profile.role === 'ADMIN_OPERATIONS' || profile.role === 'EXECUTIVE')
+      canCompleteEntryPricingReview(profile.role)
     ) {
       updatePayload.pricing_status = 'reviewed';
       updatePayload.reviewed_by = user.id;
@@ -1162,8 +1163,7 @@ export async function PUT(request: NextRequest) {
       .update(updatePayload)
       .eq('id', id);
 
-    // Apply plant filtering unless user is EXECUTIVE or ADMIN_OPERATIONS
-    if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS') {
+    if (!canAccessAllInventoryPlants(profile.role)) {
       if (profile.plant_id) {
         updateQuery = updateQuery.eq('plant_id', profile.plant_id);
       } else {

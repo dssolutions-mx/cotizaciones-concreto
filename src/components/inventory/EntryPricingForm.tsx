@@ -27,6 +27,7 @@ import {
 } from '@/lib/inventory/entryReceivedDisplay'
 import SupplierPaymentTermsQuickSheet from '@/components/inventory/SupplierPaymentTermsQuickSheet'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
 import {
   PAYMENT_TERMS_LABELS,
   addCalendarDaysToIsoDate,
@@ -163,8 +164,7 @@ function uomLabel(u: string | null | undefined) {
 
 export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO, embedded = false }: EntryPricingFormProps) {
   const { profile } = useAuthSelectors()
-  const canEditSupplierPaymentTerms =
-    profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
+  const canEditSupplierPaymentTerms = canCompleteEntryPricingReview(profile?.role)
   const [supplierTermsSheetOpen, setSupplierTermsSheetOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [apiWarnings, setApiWarnings] = useState<string[]>([])

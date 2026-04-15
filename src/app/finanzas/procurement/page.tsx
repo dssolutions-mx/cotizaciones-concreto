@@ -49,6 +49,7 @@ import ProcurementFlowNav from '@/components/procurement/ProcurementFlowNav'
 import PricingReviewQueue from '@/components/procurement/PricingReviewQueue'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { cn } from '@/lib/utils'
+import { canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import ActivityFeed, { type ActivityFeedItem } from '@/components/procurement/ActivityFeed'
 import InventoryAlertPanel from '@/components/procurement/InventoryAlertPanel'
@@ -107,6 +108,7 @@ export default function ProcurementWorkspacePage() {
   const [suppliersSubTab, setSuppliersSubTab] = useState<'analisis' | 'gestion'>('analisis')
 
   const canCreatePO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
+  const canReviewPricing = canCompleteEntryPricingReview(profile?.role)
 
   const plantList = useMemo(
     () => (availablePlants?.length ? availablePlants : currentPlant ? [currentPlant] : []),
@@ -116,7 +118,10 @@ export default function ProcurementWorkspacePage() {
   const handleTabChange = (value: string) => {
     const v = value as TabKey
     setActiveTab(v)
-    router.replace(`?tab=${v}`, { scroll: false })
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('tab', v)
+    const q = p.toString()
+    router.replace(q ? `?${q}` : '?', { scroll: false })
   }
 
   const loadDashboard = useCallback(async () => {
@@ -484,7 +489,7 @@ export default function ProcurementWorkspacePage() {
         <TabsContent value="entradas" className="flex-1 min-h-0 mt-0">
           <ProcurementMaterialEntriesView
             workspacePlantId={workspacePlantId}
-            canReviewPricing={canCreatePO}
+            canReviewPricing={canReviewPricing}
             onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
             isFocused={entriesFocusMode}
             onToggleFocusMode={() => setEntriesFocusMode((f) => !f)}
