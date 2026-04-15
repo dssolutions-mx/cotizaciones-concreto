@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ExternalLink, Eye, FileText, Loader2, Paperclip } from 'lucide-react'
+import { AlertTriangle, Download, ExternalLink, Eye, FileText, Loader2, Paperclip } from 'lucide-react'
 import { InventoryDocument } from '@/types/inventory'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -191,14 +191,26 @@ export default function EntryEvidencePanel({
                 </div>
               </div>
               {doc.url ? (
-                <button
-                  type="button"
-                  onClick={() => setPreviewDoc(doc)}
-                  className="inline-flex items-center gap-1 shrink-0 rounded-md bg-sky-800 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-900"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  Ver
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewDoc(doc)}
+                    className="inline-flex items-center gap-1 rounded-md bg-sky-800 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-900"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Ver
+                  </button>
+                  <a
+                    href={doc.url}
+                    download={doc.original_name || doc.file_name || 'documento'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-800 hover:bg-stone-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Descargar
+                  </a>
+                </div>
               ) : (
                 <span className="text-xs text-stone-400">Sin enlace</span>
               )}

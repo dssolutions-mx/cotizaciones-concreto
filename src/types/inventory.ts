@@ -66,6 +66,12 @@ export interface MaterialEntry {
     last_name: string;
     email: string;
   };
+  reviewed_by_user?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  } | null;
   /** Joined for list APIs (procurement / OC context) */
   po?: { id: string; po_number: string | null } | null;
   fleet_po?: { id: string; po_number: string | null } | null;

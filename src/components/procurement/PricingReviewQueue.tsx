@@ -83,6 +83,19 @@ export default function PricingReviewQueue({
           </Link>
         </CardContent>
       )}
+      {pendingCount != null && pendingCount === 0 && (
+        <CardContent className="pt-0">
+          <Link
+            href={procurementEntriesUrl({
+              plantId: workspacePlantId || undefined,
+              entradasRevisadas: true,
+            })}
+            className="text-xs text-sky-800 hover:underline font-medium inline-block"
+          >
+            Ver entradas ya revisadas →
+          </Link>
+        </CardContent>
+      )}
     </Card>
   )
 }

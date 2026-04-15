@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Calendar as CalendarIcon,
+  ClipboardCheck,
   DollarSign,
   Factory,
   List,
@@ -44,7 +45,11 @@ import EntryPricingReviewList from '@/components/inventory/EntryPricingReviewLis
 import EntryPricingForm from '@/components/inventory/EntryPricingForm'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
+import ReviewedEntriesForAccountingTable from '@/components/procurement/ReviewedEntriesForAccountingTable'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { reviewedEntriesToExcelRows } from '@/lib/procurement/reviewedEntriesAccountingExport'
 import {
   formatReceivedQuantity,
   formatReceptionAssignedDay,
@@ -252,13 +257,25 @@ export default function ProcurementMaterialEntriesView({
   const poIdFromUrl = searchParams.get('po_id') || undefined
   const entryIdFromUrl = searchParams.get('entry_id') || undefined
   const plantIdFromUrl = searchParams.get('plant_id') || undefined
-  const entradasView = searchParams.get('entradas_view') === 'precios' ? 'precios' : 'list'
+  const entradasViewRaw = searchParams.get('entradas_view')
+  const entradasView =
+    entradasViewRaw === 'precios'
+      ? 'precios'
+      : entradasViewRaw === 'revisadas'
+        ? 'revisadas'
+        : 'list'
 
   const effectivePlantId = plantIdFromUrl || workspacePlantId || undefined
 
   const defaultRange = { from: subDays(new Date(), 6), to: new Date() }
   const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(defaultRange)
   const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last7days')
+  const [reviewedDateRange, setReviewedDateRange] = useState<{
+    from: Date | undefined
+    to: Date | undefined
+  }>(defaultRange)
+  const [reviewedPreset, setReviewedPreset] = useState<DateRangePreset>('last7days')
+  const [reviewedFilterByReception, setReviewedFilterByReception] = useState(false)
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [pricingSheetEntry, setPricingSheetEntry] = useState<MaterialEntry | null>(null)
@@ -272,6 +289,13 @@ export default function ProcurementMaterialEntriesView({
   const [pendingLoading, setPendingLoading] = useState(true)
   const [selectedQueueEntryId, setSelectedQueueEntryId] = useState<string | null>(null)
 
+  const [reviewedEntries, setReviewedEntries] = useState<MaterialEntry[]>([])
+  const [reviewedLoading, setReviewedLoading] = useState(false)
+  const [reviewedHasMore, setReviewedHasMore] = useState(false)
+  const [reviewedListOffset, setReviewedListOffset] = useState(0)
+  const [reviewedExporting, setReviewedExporting] = useState(false)
+  const [reviewedReloadNonce, setReviewedReloadNonce] = useState(0)
+
   const selectedQueueEntry = useMemo(
     () => pendingEntries.find((e) => e.id === selectedQueueEntryId) || null,
     [pendingEntries, selectedQueueEntryId]
@@ -282,12 +306,18 @@ export default function ProcurementMaterialEntriesView({
     [entries]
   )
 
+  const listForDeepLink = useMemo(
+    () => (entradasView === 'revisadas' ? reviewedEntries : entries),
+    [entradasView, reviewedEntries, entries]
+  )
+  const deepLinkScrollLoading = entradasView === 'revisadas' ? reviewedLoading : loading
+
   const replaceQuery = useCallback(
     (next: {
       po_id?: string | null
       entry_id?: string | null
       plant_id?: string | null
-      entradas_view?: 'list' | 'precios' | null
+      entradas_view?: 'list' | 'precios' | 'revisadas' | null
     }) => {
       const p = new URLSearchParams(searchParams.toString())
       p.set('tab', 'entradas')
@@ -305,6 +335,7 @@ export default function ProcurementMaterialEntriesView({
       }
       if (next.entradas_view !== undefined) {
         if (next.entradas_view === 'precios') p.set('entradas_view', 'precios')
+        else if (next.entradas_view === 'revisadas') p.set('entradas_view', 'revisadas')
         else p.delete('entradas_view')
       }
       router.replace(`?${p.toString()}`, { scroll: false })
@@ -313,8 +344,10 @@ export default function ProcurementMaterialEntriesView({
   )
 
   const setEntradasView = useCallback(
-    (v: 'list' | 'precios') => {
-      replaceQuery({ entradas_view: v === 'precios' ? 'precios' : null })
+    (v: 'list' | 'precios' | 'revisadas') => {
+      replaceQuery({
+        entradas_view: v === 'list' ? null : v,
+      })
     },
     [replaceQuery]
   )
@@ -427,40 +460,195 @@ export default function ProcurementMaterialEntriesView({
   }, [canReviewPricing, pendingLoading, pendingEntries, searchParams, replaceQuery, poIdFromUrl, entryIdFromUrl])
 
   useEffect(() => {
-    if (entradasView === 'precios' && !canReviewPricing) {
+    if ((entradasView === 'precios' || entradasView === 'revisadas') && !canReviewPricing) {
       replaceQuery({ entradas_view: null })
     }
   }, [entradasView, canReviewPricing, replaceQuery])
 
+  const buildReviewedFetchParams = useCallback(
+    (offset: number, limit: number) => {
+      const params = new URLSearchParams({
+        pricing_status: 'reviewed',
+        limit: String(limit),
+        offset: String(offset),
+        include: 'document_counts',
+      })
+      if (effectivePlantId) params.set('plant_id', effectivePlantId)
+      if (poIdFromUrl) params.set('po_id', poIdFromUrl)
+      if (reviewedDateRange.from && reviewedDateRange.to) {
+        if (reviewedFilterByReception) {
+          params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
+          params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
+        } else {
+          params.set('reviewed_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
+          params.set('reviewed_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
+        }
+      }
+      return params
+    },
+    [
+      effectivePlantId,
+      poIdFromUrl,
+      reviewedDateRange.from,
+      reviewedDateRange.to,
+      reviewedFilterByReception,
+    ]
+  )
+
+  useEffect(() => {
+    if (!canReviewPricing || entradasView !== 'revisadas') return
+    if (!reviewedDateRange.from || !reviewedDateRange.to) return
+    let cancelled = false
+    setReviewedLoading(true)
+    ;(async () => {
+      try {
+        const params = buildReviewedFetchParams(0, 100)
+        const res = await fetch(`/api/inventory/entries?${params}`)
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j.error || 'Error al cargar entradas revisadas')
+        }
+        const data = await res.json()
+        if (cancelled) return
+        const batch: MaterialEntry[] = data.entries || []
+        setReviewedEntries(batch)
+        setReviewedListOffset(batch.length)
+        setReviewedHasMore(!!data.pagination?.hasMore)
+      } catch (e) {
+        if (!cancelled) {
+          console.error(e)
+          toast.error(e instanceof Error ? e.message : 'Error al cargar entradas revisadas')
+          setReviewedEntries([])
+          setReviewedListOffset(0)
+          setReviewedHasMore(false)
+        }
+      } finally {
+        if (!cancelled) setReviewedLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    canReviewPricing,
+    entradasView,
+    buildReviewedFetchParams,
+    reviewedDateRange.from,
+    reviewedDateRange.to,
+    reviewedFilterByReception,
+    reviewedReloadNonce,
+  ])
+
+  const loadMoreReviewed = useCallback(async () => {
+    if (!reviewedDateRange.from || !reviewedDateRange.to || reviewedLoading || !reviewedHasMore) return
+    setReviewedLoading(true)
+    try {
+      const params = buildReviewedFetchParams(reviewedListOffset, 100)
+      const res = await fetch(`/api/inventory/entries?${params}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Error al cargar más')
+      }
+      const data = await res.json()
+      const batch: MaterialEntry[] = data.entries || []
+      setReviewedEntries((prev) => [...prev, ...batch])
+      setReviewedListOffset((o) => o + batch.length)
+      setReviewedHasMore(!!data.pagination?.hasMore)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al cargar más')
+    } finally {
+      setReviewedLoading(false)
+    }
+  }, [
+    buildReviewedFetchParams,
+    reviewedDateRange.from,
+    reviewedDateRange.to,
+    reviewedHasMore,
+    reviewedListOffset,
+    reviewedLoading,
+  ])
+
+  const exportReviewedExcel = useCallback(async () => {
+    if (!reviewedDateRange.from || !reviewedDateRange.to) return
+    setReviewedExporting(true)
+    try {
+      const limit = 500
+      let offset = 0
+      const all: MaterialEntry[] = []
+      while (true) {
+        const params = buildReviewedFetchParams(offset, limit)
+        const res = await fetch(`/api/inventory/entries?${params}`)
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j.error || 'Error al exportar')
+        }
+        const data = await res.json()
+        const batch: MaterialEntry[] = data.entries || []
+        all.push(...batch)
+        if (!data.pagination?.hasMore || batch.length === 0) break
+        offset += batch.length
+        if (all.length > 5000) {
+          toast.message('Se exportaron como máximo 5000 filas; acote el rango si necesita el resto.')
+          break
+        }
+      }
+      const rows = reviewedEntriesToExcelRows(all)
+      const XLSX = await import('xlsx')
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Entradas_revisadas')
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      const rf = format(reviewedDateRange.from, 'yyyy-MM-dd')
+      const rt = format(reviewedDateRange.to, 'yyyy-MM-dd')
+      a.download = `entradas_revisadas_${rf}_${rt}.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success(`Listo: ${all.length} fila${all.length !== 1 ? 's' : ''} en Excel`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al generar Excel')
+    } finally {
+      setReviewedExporting(false)
+    }
+  }, [buildReviewedFetchParams, reviewedDateRange.from, reviewedDateRange.to])
+
   // Deep-link: scroll to entry + auto-open inspection
   useEffect(() => {
-    if (loading || !entryIdFromUrl) return
+    if (deepLinkScrollLoading || !entryIdFromUrl) return
     const t = window.setTimeout(() => {
       const el = document.getElementById(`proc-entry-row-${entryIdFromUrl}`)
       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 120)
     return () => window.clearTimeout(t)
-  }, [loading, entryIdFromUrl, entries])
+  }, [deepLinkScrollLoading, entryIdFromUrl, listForDeepLink])
 
   useEffect(() => {
     if (!entryIdFromUrl) inspectionAutoOpenedForEntryRef.current = null
   }, [entryIdFromUrl])
 
   useEffect(() => {
-    if (loading || !entryIdFromUrl) return
+    if (deepLinkScrollLoading || !entryIdFromUrl) return
     if (inspectionAutoOpenedForEntryRef.current === entryIdFromUrl) return
-    const row = entries.find((x) => x.id === entryIdFromUrl)
+    const row = listForDeepLink.find((x) => x.id === entryIdFromUrl)
     if (row) {
       setInspectionEntry(row)
       inspectionAutoOpenedForEntryRef.current = entryIdFromUrl
     }
-  }, [loading, entryIdFromUrl, entries])
+  }, [deepLinkScrollLoading, entryIdFromUrl, listForDeepLink])
 
   useEffect(() => {
     if (!inspectionEntry) return
-    const updated = entries.find((x) => x.id === inspectionEntry.id)
+    const updated =
+      entries.find((x) => x.id === inspectionEntry.id) ||
+      reviewedEntries.find((x) => x.id === inspectionEntry.id)
     if (updated) setInspectionEntry(updated)
-  }, [entries, inspectionEntry?.id])
+  }, [entries, reviewedEntries, inspectionEntry?.id])
 
   // ── Auto-advance after pricing success ──
   const handleQueuePricingSuccess = useCallback(() => {
@@ -472,6 +660,7 @@ export default function ProcurementMaterialEntriesView({
 
     void fetchPendingEntries()
     void fetchEntries()
+    setReviewedReloadNonce((n) => n + 1)
     onPricingSuccess?.()
 
     if (nextEntry) {
@@ -505,6 +694,37 @@ export default function ProcurementMaterialEntriesView({
     }
   }
 
+  const handleReviewedPresetSelect = (preset: DateRangePreset, range: { from: Date; to: Date }) => {
+    setReviewedPreset(preset)
+    setReviewedDateRange(range)
+  }
+
+  const handleReviewedDateRangeChange = (range: { from?: Date; to?: Date } | undefined) => {
+    const normalised = { from: range?.from, to: range?.to }
+    setReviewedDateRange(normalised)
+    if (normalised.from && normalised.to) {
+      const presets: DateRangePreset[] = [
+        'today',
+        'yesterday',
+        'last7days',
+        'last30days',
+        'thisWeek',
+        'thisMonth',
+      ]
+      for (const preset of presets) {
+        const pr = getDateRangeForPreset(preset)
+        if (
+          format(normalised.from, 'yyyy-MM-dd') === format(pr.from, 'yyyy-MM-dd') &&
+          format(normalised.to, 'yyyy-MM-dd') === format(pr.to, 'yyyy-MM-dd')
+        ) {
+          setReviewedPreset(preset)
+          return
+        }
+      }
+      setReviewedPreset('custom')
+    }
+  }
+
   const mxn = useMemo(
     () => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }),
     []
@@ -514,7 +734,11 @@ export default function ProcurementMaterialEntriesView({
     <div className={cn("h-full flex flex-col", isFocused && "p-3 md:p-4 gap-0")}>
       {/* ─── Compact header: title + sub-tabs ─── */}
       {canReviewPricing ? (
-        <Tabs value={entradasView} onValueChange={(v) => setEntradasView(v as 'list' | 'precios')} className="flex-1 min-h-0 flex flex-col">
+        <Tabs
+          value={entradasView}
+          onValueChange={(v) => setEntradasView(v as 'list' | 'precios' | 'revisadas')}
+          className="flex-1 min-h-0 flex flex-col"
+        >
           <div className="flex items-center justify-between px-4 py-3 bg-white rounded-t-lg border border-stone-200">
             <h2 className="text-base font-semibold text-stone-900 flex items-center gap-2">
               <Package className="h-4.5 w-4.5 text-amber-700" />
@@ -533,6 +757,13 @@ export default function ProcurementMaterialEntriesView({
                     {pendingEntries.length}
                   </Badge>
                 )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="revisadas"
+                className="gap-1.5 text-xs data-[state=active]:bg-stone-900 data-[state=active]:text-white px-3 py-1.5"
+              >
+                <ClipboardCheck className="h-3.5 w-3.5" />
+                Revisadas
               </TabsTrigger>
               <TabsTrigger
                 value="list"
@@ -615,11 +846,90 @@ export default function ProcurementMaterialEntriesView({
             </div>
           </TabsContent>
 
+          {/* ─── Reviewed (accounting) ─── */}
+          <TabsContent value="revisadas" className="mt-0 flex-1 min-h-0 flex flex-col">
+            <div className="border border-t-0 border-stone-200 bg-white rounded-b-lg flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="shrink-0 flex flex-col gap-3 px-4 py-2.5 border-b border-stone-100">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+                  <DateRangePresets
+                    selectedPreset={reviewedPreset}
+                    onPresetSelect={handleReviewedPresetSelect}
+                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          'w-full lg:w-[280px] justify-start text-left font-normal',
+                          !reviewedDateRange.from && 'text-muted-foreground'
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {reviewedDateRange.from ? (
+                          reviewedDateRange.to ? (
+                            <>
+                              {reviewedFilterByReception ? 'Recepción: ' : 'Revisadas: '}
+                              {format(reviewedDateRange.from, 'dd MMM', { locale: es })} -{' '}
+                              {format(reviewedDateRange.to, 'dd MMM yyyy', { locale: es })}
+                            </>
+                          ) : (
+                            format(reviewedDateRange.from, 'dd MMM yyyy', { locale: es })
+                          )
+                        ) : (
+                          'Rango de fechas'
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="end">
+                      <CalendarComponent
+                        initialFocus
+                        mode="range"
+                        defaultMonth={reviewedDateRange.from}
+                        selected={reviewedDateRange}
+                        onSelect={handleReviewedDateRangeChange}
+                        numberOfMonths={2}
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="reviewed-filter-reception"
+                    checked={reviewedFilterByReception}
+                    onCheckedChange={setReviewedFilterByReception}
+                  />
+                  <Label
+                    htmlFor="reviewed-filter-reception"
+                    className="text-xs text-stone-600 cursor-pointer font-normal leading-snug"
+                  >
+                    Filtrar por fecha de recepción (en lugar de fecha de revisión)
+                  </Label>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-2 pb-2">
+                <ReviewedEntriesForAccountingTable
+                  entries={reviewedEntries}
+                  entryIdFromUrl={entryIdFromUrl}
+                  effectivePlantId={effectivePlantId}
+                  mxn={mxn}
+                  loading={reviewedLoading}
+                  exporting={reviewedExporting}
+                  hasMore={reviewedHasMore}
+                  onLoadMore={() => void loadMoreReviewed()}
+                  onExportExcel={() => void exportReviewedExcel()}
+                  onInspect={setInspectionEntry}
+                  onEditPricing={setPricingSheetEntry}
+                />
+              </div>
+            </div>
+          </TabsContent>
+
           {/* ─── History Table ─── */}
-          <TabsContent value="list" className="mt-0">
-            <div className="border border-t-0 border-stone-200 bg-white rounded-b-lg">
+          <TabsContent value="list" className="mt-0 flex-1 min-h-0 flex flex-col">
+            <div className="border border-t-0 border-stone-200 bg-white rounded-b-lg flex flex-col flex-1 min-h-0 overflow-hidden">
               {/* Date controls toolbar */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 px-4 py-2.5 border-b border-stone-100">
+              <div className="shrink-0 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 px-4 py-2.5 border-b border-stone-100">
                 <DateRangePresets selectedPreset={selectedPreset} onPresetSelect={handlePresetSelect} />
                 <Popover>
                   <PopoverTrigger asChild>
@@ -659,7 +969,7 @@ export default function ProcurementMaterialEntriesView({
                 </Popover>
               </div>
               {/* Table */}
-              <div className="overflow-x-auto">
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto">
                 {loading ? (
                   <div className="py-12 text-center text-stone-500 text-sm">Cargando entradas…</div>
                 ) : entries.length === 0 ? (
@@ -772,6 +1082,7 @@ export default function ProcurementMaterialEntriesView({
                     setPricingSheetEntry(null)
                     void fetchEntries()
                     void fetchPendingEntries()
+                    setReviewedReloadNonce((n) => n + 1)
                     onPricingSuccess?.()
                   }}
                 />

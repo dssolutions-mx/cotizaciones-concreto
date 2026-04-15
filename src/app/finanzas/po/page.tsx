@@ -72,6 +72,23 @@ const ALERT_STATUS_PO_LABELS: Record<string, string> = {
   cancelled: 'Cancelada',
 }
 
+function isM3Uom(uom: string | null | undefined): boolean {
+  const u = (uom || '').toLowerCase().trim()
+  return u === 'm3' || u === 'm³'
+}
+
+/** Short label for qty columns; expands m³ for clarity in OC views */
+function uomQtyLabel(uom: string | null | undefined): string {
+  if (isM3Uom(uom)) return 'm³'
+  return uom || 'und'
+}
+
+/** Longer UoM hint (e.g. volumetric orders) */
+function uomDetailLine(uom: string | null | undefined): string | null {
+  if (isM3Uom(uom)) return 'Volumen en metros cúbicos (m³)'
+  return null
+}
+
 function PODetailPanel({
   po, items, summary, batchSummary, linkedAlerts, alertsLoading,
   payablesCount, mxn, canEdit, onEdit, onDelete, onClose,
@@ -302,26 +319,67 @@ function PODetailPanel({
                 const orderedQty = Number(item.qty_ordered) || 0
                 const receivedQty = Number(item.qty_received ?? item.qty_received_kg ?? item.qty_received_native ?? 0) || 0
                 const itemProgress = orderedQty > 0 ? Math.min((receivedQty / orderedQty) * 100, 100) : 0
-                const lineTotal = orderedQty * Number(item.unit_price || 0)
+                const unitPrice = Number(item.unit_price || 0)
+                const lineTotal = orderedQty * unitPrice
                 const isItemOverdue = item.required_by && new Date(item.required_by + 'T00:00:00') < new Date()
+                const matSupplierName = item.material_supplier?.name as string | undefined
+                const volKg = item.volumetric_weight_kg_per_m3 != null ? Number(item.volumetric_weight_kg_per_m3) : null
+                const title = item.is_service
+                  ? (item.service_description || 'Servicio de flota')
+                  : (item.material?.material_name || item.material?.material_code || 'Material')
+                const uomLong = uomDetailLine(item.uom)
                 return (
                   <div key={item.id} className="rounded-lg border border-border/50 px-3 py-2.5 bg-muted/10">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex gap-2 min-w-0 flex-1">
                         {item.is_service
-                          ? <Truck className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                          : <Package className="h-3.5 w-3.5 text-green-600 shrink-0" />}
-                        <span className="text-xs font-medium truncate">
-                          {item.is_service
-                            ? (item.service_description || 'Servicio de Flota')
-                            : (item.material?.material_name || item.material?.material_code || 'Material')}
-                        </span>
+                          ? <Truck className="h-3.5 w-3.5 text-blue-600 shrink-0 mt-0.5" />
+                          : <Package className="h-3.5 w-3.5 text-green-600 shrink-0 mt-0.5" />}
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <div className="text-sm font-semibold text-foreground leading-snug break-words">
+                            {title}
+                          </div>
+                          {item.is_service && matSupplierName && (
+                            <div className="text-[11px] text-muted-foreground">
+                              <span className="font-medium text-stone-600">Proveedor de material: </span>
+                              {matSupplierName}
+                            </div>
+                          )}
+                          {!item.is_service && isM3Uom(item.uom) && (
+                            <div className="text-[11px] text-muted-foreground space-y-0.5">
+                              <div>{uomLong}</div>
+                              {volKg != null && !Number.isNaN(volKg) && (
+                                <div>
+                                  Referencia pactada: <span className="tabular-nums font-medium text-stone-700">{volKg.toLocaleString('es-MX')} kg/m³</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-xs font-bold tabular-nums shrink-0">{mxn.format(lineTotal)}</span>
+                      <div className="text-right shrink-0 space-y-0.5">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Precio unit.
+                        </div>
+                        <div className="text-base font-bold tabular-nums text-foreground leading-tight">
+                          {mxn.format(unitPrice)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          por {uomQtyLabel(item.uom)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground tabular-nums pt-1 border-t border-border/40 mt-1">
+                          Subtotal {mxn.format(lineTotal)}
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                    <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
                       <span className="tabular-nums">
-                        {orderedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {item.uom || 'und'}
+                        <span className="font-medium text-stone-700">Ordenado:</span>{' '}
+                        {orderedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uomQtyLabel(item.uom)}
+                      </span>
+                      <span className="tabular-nums">
+                        · <span className="font-medium text-stone-700">Recibido:</span>{' '}
+                        {receivedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uomQtyLabel(item.uom)}
                       </span>
                       <span className={`rounded-full px-1.5 py-0.5 font-semibold text-[10px] ${STATUS_COLORS[item.status] || 'bg-muted text-muted-foreground border border-border'}`}>
                         {STATUS_LABELS[item.status] || item.status}
@@ -1130,8 +1188,8 @@ export default function PurchaseOrdersPage() {
                               </div>
                             </div>
                             <div>
-                              <span className="text-xs text-muted-foreground">Total OC</span>
-                              <div className="font-semibold font-mono tabular-nums text-foreground">
+                              <span className="text-xs text-muted-foreground">Total OC (referencia)</span>
+                              <div className="font-medium text-sm font-mono tabular-nums text-muted-foreground">
                                 {mxn.format(batchSummaries[po.id]?.total_ordered_value ?? 0)}
                               </div>
                             </div>
@@ -1274,7 +1332,7 @@ export default function PurchaseOrdersPage() {
                                   </span>
                                 )}
                               </span>
-                              <span className="font-semibold tabular-num text-foreground">
+                              <span className="tabular-num text-foreground/80 text-xs">
                                 Total PO: {mxn.format(items.reduce((s: number, it: any) => s + Number(it.qty_ordered || 0) * Number(it.unit_price || 0), 0))}
                               </span>
                               {poSummaries[po.id] && (
@@ -1311,49 +1369,71 @@ export default function PurchaseOrdersPage() {
                               const receivedQty = Number(item.qty_received ?? item.qty_received_kg ?? item.qty_received_native ?? 0) || 0
                               const progress = orderedQty > 0 ? Math.min((receivedQty / orderedQty) * 100, 100) : 0
                               const isOverdue = item.required_by && new Date(item.required_by + 'T00:00:00') < new Date()
+                              const unitPrice = Number(item.unit_price || 0)
+                              const lineTotal = orderedQty * unitPrice
+                              const matSupplierName = item.material_supplier?.name as string | undefined
+                              const volKg = item.volumetric_weight_kg_per_m3 != null ? Number(item.volumetric_weight_kg_per_m3) : null
+                              const title = item.is_service
+                                ? (item.service_description || 'Servicio de flota')
+                                : (item.material?.material_name || item.material?.material_code || 'Material')
 
                               return (
                                 <div key={item.id} className="bg-card border border-border/60 rounded-xl p-3">
                                   <div className="flex items-start justify-between gap-4">
                                     <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                      <div className="flex items-start gap-2 mb-2 flex-wrap">
                                         {item.is_service
-                                          ? <Truck className="h-4 w-4 text-blue-600 shrink-0" />
-                                          : <Package className="h-4 w-4 text-green-600 shrink-0" />}
-                                        <span className="font-medium truncate">
-                                          {item.is_service
-                                            ? (item.service_description || 'Servicio de Flota')
-                                            : (item.material?.material_name || item.material?.material_code || 'Material')}
-                                        </span>
-                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_COLORS[item.status] || 'bg-muted text-muted-foreground border border-border'}`}>
+                                          ? <Truck className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                                          : <Package className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />}
+                                        <div className="min-w-0 flex-1 space-y-1">
+                                          <div className="font-semibold text-base text-foreground leading-snug break-words">
+                                            {title}
+                                          </div>
+                                          {item.is_service && matSupplierName && (
+                                            <div className="text-xs text-muted-foreground">
+                                              <span className="font-medium text-stone-600">Proveedor de material: </span>
+                                              {matSupplierName}
+                                            </div>
+                                          )}
+                                          {!item.is_service && isM3Uom(item.uom) && (
+                                            <div className="text-xs text-muted-foreground space-y-0.5">
+                                              <div>{uomDetailLine(item.uom)}</div>
+                                              {volKg != null && !Number.isNaN(volKg) && (
+                                                <div>
+                                                  Referencia pactada:{' '}
+                                                  <span className="tabular-nums font-medium text-stone-700">
+                                                    {volKg.toLocaleString('es-MX')} kg/m³
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0 ${STATUS_COLORS[item.status] || 'bg-muted text-muted-foreground border border-border'}`}>
                                           {STATUS_LABELS[item.status] || item.status}
                                         </span>
                                         {isOverdue && (item.status === 'open' || item.status === 'partial') && (
-                                          <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                                          <span className="flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium shrink-0">
                                             <AlertTriangle className="h-3 w-3" />
                                             Requerido vencido
                                           </span>
                                         )}
                                       </div>
-                                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                      <div className="grid grid-cols-2 gap-3 text-sm">
                                         <div>
                                           <div className="text-xs text-muted-foreground">Ordenado</div>
-                                          <div className="font-semibold">
-                                            {orderedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {item.uom || 'und'}
+                                          <div className="font-semibold tabular-nums">
+                                            {orderedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uomQtyLabel(item.uom)}
                                           </div>
                                         </div>
                                         <div>
                                           <div className="text-xs text-muted-foreground">Recibido</div>
-                                          <div className="font-semibold">
-                                            {receivedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {item.uom || 'und'}
+                                          <div className="font-semibold tabular-nums">
+                                            {receivedQty.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uomQtyLabel(item.uom)}
                                           </div>
                                         </div>
-                                        <div>
-                                          <div className="text-xs text-muted-foreground">Precio Unit.</div>
-                                          <div className="font-semibold">{mxn.format(item.unit_price)}</div>
-                                        </div>
                                         {item.required_by && (
-                                          <div>
+                                          <div className="col-span-2">
                                             <div className="text-xs text-muted-foreground">Requerido antes de</div>
                                             <div className={`font-semibold text-sm ${isOverdue ? 'text-red-600' : ''}`}>
                                               {format(new Date(item.required_by + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
@@ -1376,10 +1456,18 @@ export default function PurchaseOrdersPage() {
                                         </div>
                                       )}
                                     </div>
-                                    <div className="text-right shrink-0">
-                                      <div className="text-xs text-muted-foreground">Total</div>
-                                      <div className="text-lg font-bold tabular-num">
-                                        {mxn.format(Number(item.qty_ordered || 0) * Number(item.unit_price || 0))}
+                                    <div className="text-right shrink-0 space-y-1">
+                                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                        Precio unit.
+                                      </div>
+                                      <div className="text-xl font-bold tabular-nums text-foreground">
+                                        {mxn.format(unitPrice)}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        por {uomQtyLabel(item.uom)}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground tabular-nums pt-1 border-t border-border/50">
+                                        Subtotal {mxn.format(lineTotal)}
                                       </div>
                                     </div>
                                   </div>

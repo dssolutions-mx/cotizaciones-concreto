@@ -65,6 +65,8 @@ export function procurementEntriesUrl(opts: {
   pricingReview?: boolean
   /** Entradas → sub-vista Revisión de precios (flujo principal de revisión en compras) */
   entradasPrecios?: boolean
+  /** Entradas → sub-vista Entradas ya revisadas (contabilidad / export) */
+  entradasRevisadas?: boolean
 } = {}) {
   const params = new URLSearchParams()
   if (opts.pricingReview) {
@@ -73,6 +75,7 @@ export function procurementEntriesUrl(opts: {
   } else {
     params.set('tab', 'entradas')
     if (opts.entradasPrecios) params.set('entradas_view', 'precios')
+    else if (opts.entradasRevisadas) params.set('entradas_view', 'revisadas')
   }
   if (opts.plantId) params.set('plant_id', opts.plantId)
   if (opts.poId) params.set('po_id', opts.poId)

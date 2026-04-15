@@ -94,6 +94,9 @@ export async function GET(request: NextRequest) {
       date: searchParams.get('date') || undefined,
       date_from: searchParams.get('date_from') || undefined,
       date_to: searchParams.get('date_to') || undefined,
+      /** Inclusive UTC day bounds for accounting “revisadas en período” (YYYY-MM-DD). */
+      reviewed_from: searchParams.get('reviewed_from') || undefined,
+      reviewed_to: searchParams.get('reviewed_to') || undefined,
       material_id: searchParams.get('material_id') || undefined,
       pricing_status: searchParams.get('pricing_status') || undefined,
       po_id: searchParams.get('po_id') || undefined,
@@ -150,6 +153,12 @@ export async function GET(request: NextRequest) {
           bulk_density_kg_per_m3
         ),
         entered_by_user:user_profiles!entered_by (
+          id,
+          first_name,
+          last_name,
+          email
+        ),
+        reviewed_by_user:user_profiles!reviewed_by (
           id,
           first_name,
           last_name,
@@ -237,8 +246,25 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Handle date filtering - prefer range when provided, fallback to single date, then to today
-    if (queryParams.date_from && queryParams.date_to) {
+    const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+    const hasReviewedDateRange =
+      !!queryParams.reviewed_from &&
+      !!queryParams.reviewed_to &&
+      isoDay.test(queryParams.reviewed_from) &&
+      isoDay.test(queryParams.reviewed_to);
+
+    // Date filtering: reviewed_at range (UTC day bounds) OR entry_date (existing behavior)
+    if (hasReviewedDateRange) {
+      console.log(
+        'Filtering by reviewed_at range (UTC):',
+        queryParams.reviewed_from,
+        'to',
+        queryParams.reviewed_to
+      );
+      query = query
+        .gte('reviewed_at', `${queryParams.reviewed_from}T00:00:00.000Z`)
+        .lte('reviewed_at', `${queryParams.reviewed_to}T23:59:59.999Z`);
+    } else if (queryParams.date_from && queryParams.date_to) {
       console.log('Filtering by date range:', queryParams.date_from, 'to', queryParams.date_to);
       query = query.gte('entry_date', queryParams.date_from).lte('entry_date', queryParams.date_to);
     } else if (queryParams.date) {
@@ -270,11 +296,18 @@ export async function GET(request: NextRequest) {
 
     console.log('About to execute query...');
 
-    // Get material entries with pagination
-    const { data: entries, error: entriesError } = await query
-      .order('entry_date', { ascending: false })
-      .order('entry_time', { ascending: false })
-      .range(parseInt(queryParams.offset), parseInt(queryParams.offset) + parseInt(queryParams.limit) - 1);
+    // Get material entries with pagination (newest reviewed first when using reviewed_at filter)
+    const orderedQuery = hasReviewedDateRange
+      ? query
+          .order('reviewed_at', { ascending: false })
+          .order('entry_date', { ascending: false })
+          .order('entry_time', { ascending: false })
+      : query.order('entry_date', { ascending: false }).order('entry_time', { ascending: false });
+
+    const { data: entries, error: entriesError } = await orderedQuery.range(
+      parseInt(queryParams.offset),
+      parseInt(queryParams.offset) + parseInt(queryParams.limit) - 1
+    );
 
     console.log('Query executed. Entries:', entries?.length || 0, 'Error:', entriesError);
 

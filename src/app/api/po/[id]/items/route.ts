@@ -28,7 +28,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const { data, error } = await supabase
     .from('purchase_order_items')
-    .select('*, material:materials!material_id (id, material_name, material_code)')
+    .select(
+      '*, material:materials!material_id (id, material_name, material_code), material_supplier:suppliers!material_supplier_id (id, name)'
+    )
     .eq('po_id', id)
     .order('created_at', { ascending: true });
   if (error) return NextResponse.json({ error: 'Failed to fetch PO items' }, { status: 500 });
