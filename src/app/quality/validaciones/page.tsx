@@ -216,6 +216,11 @@ export default function ValidacionesHub() {
             description: 'Catálogo de materiales aprobados y sus propiedades técnicas',
             href: '/quality/materials',
           },
+          {
+            title: 'Proveedores',
+            description: 'Alta y consulta de proveedores de materiales (número, planta, datos base)',
+            href: '/quality/suppliers',
+          },
         ]}
       />
 

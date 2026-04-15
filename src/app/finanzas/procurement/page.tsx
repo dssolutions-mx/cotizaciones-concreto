@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -80,6 +80,7 @@ type TabKey = (typeof TAB_KEYS)[number]
 
 export default function ProcurementWorkspacePage() {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const { availablePlants, currentPlant } = usePlantContext()
   const { profile } = useAuthSelectors()
@@ -110,6 +111,19 @@ export default function ProcurementWorkspacePage() {
   const canCreatePO = profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
   const canReviewPricing = canCompleteEntryPricingReview(profile?.role)
 
+  const showSupplierGestionTabs =
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'PLANT_MANAGER' ||
+    profile?.role === 'ADMIN_OPERATIONS'
+
+  const canCreateSupplierInProcurement =
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'PLANT_MANAGER' ||
+    profile?.role === 'ADMIN_OPERATIONS'
+
+  const canEditSupplierPaymentTerms =
+    profile?.role === 'EXECUTIVE' || profile?.role === 'ADMIN_OPERATIONS'
+
   const plantList = useMemo(
     () => (availablePlants?.length ? availablePlants : currentPlant ? [currentPlant] : []),
     [availablePlants, currentPlant]
@@ -121,7 +135,8 @@ export default function ProcurementWorkspacePage() {
     const p = new URLSearchParams(searchParams.toString())
     p.set('tab', v)
     const q = p.toString()
-    router.replace(q ? `?${q}` : '?', { scroll: false })
+    const path = pathname || '/finanzas/procurement'
+    router.replace(q ? `${path}?${q}` : `${path}?`, { scroll: false })
   }
 
   const loadDashboard = useCallback(async () => {
@@ -503,7 +518,7 @@ export default function ProcurementWorkspacePage() {
         </TabsContent>
 
         <TabsContent value="suppliers" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          {canCreatePO ? (
+          {showSupplierGestionTabs ? (
             <Tabs
               value={suppliersSubTab}
               onValueChange={(v) => setSuppliersSubTab(v as 'analisis' | 'gestion')}
@@ -533,7 +548,12 @@ export default function ProcurementWorkspacePage() {
                 </div>
               </TabsContent>
               <TabsContent value="gestion" className="mt-0">
-                <SupplierManagementPanel workspacePlantId={workspacePlantId} />
+                <SupplierManagementPanel
+                  workspacePlantId={workspacePlantId}
+                  plantOptions={plantList.map((p) => ({ id: p.id, code: p.code, name: p.name }))}
+                  canCreateSupplier={canCreateSupplierInProcurement}
+                  canEditPaymentTerms={canEditSupplierPaymentTerms}
+                />
               </TabsContent>
             </Tabs>
           ) : (

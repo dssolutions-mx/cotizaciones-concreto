@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -21,7 +22,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { toast } from 'sonner'
-import { Building2, Clock, Search, Settings2 } from 'lucide-react'
+import { Building2, Clock, Plus, Search, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   PAYMENT_TERMS_PRESET_DAYS,
@@ -37,11 +38,27 @@ type SupplierRow = {
   default_payment_terms_days: number | null
 }
 
-type Props = {
-  workspacePlantId: string
+export type SupplierPlantOption = {
+  id: string
+  code?: string
+  name: string
 }
 
-export default function SupplierManagementPanel({ workspacePlantId }: Props) {
+type Props = {
+  workspacePlantId: string
+  plantOptions?: SupplierPlantOption[]
+  /** Roles: EXECUTIVE, PLANT_MANAGER, ADMIN_OPERATIONS (must match POST /api/suppliers) */
+  canCreateSupplier?: boolean
+  /** Roles: EXECUTIVE, ADMIN_OPERATIONS (must match PATCH /api/suppliers/[id]) */
+  canEditPaymentTerms?: boolean
+}
+
+export default function SupplierManagementPanel({
+  workspacePlantId,
+  plantOptions = [],
+  canCreateSupplier = false,
+  canEditPaymentTerms = true,
+}: Props) {
   const [loading, setLoading] = useState(true)
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([])
   const [search, setSearch] = useState('')
@@ -50,6 +67,17 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
   const [presetValue, setPresetValue] = useState<string>('unset')
   const [customDays, setCustomDays] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createProviderNumber, setCreateProviderNumber] = useState('')
+  const [createLetter, setCreateLetter] = useState('')
+  const [createInternalCode, setCreateInternalCode] = useState('')
+  const [createPlantId, setCreatePlantId] = useState('')
+  const [createActive, setCreateActive] = useState(true)
+  const [createPresetTerms, setCreatePresetTerms] = useState<string>('30')
+  const [createCustomDays, setCreateCustomDays] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -71,6 +99,33 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
   useEffect(() => {
     void load()
   }, [load])
+
+  const plantLabel = useCallback(
+    (id: string) => {
+      const p = plantOptions.find((x) => x.id === id)
+      if (!p) return id
+      return p.code ? `${p.code} · ${p.name}` : p.name
+    },
+    [plantOptions]
+  )
+
+  const resetCreateForm = useCallback(() => {
+    const defaultPlant =
+      workspacePlantId || (plantOptions.length === 1 ? plantOptions[0].id : '')
+    setCreateName('')
+    setCreateProviderNumber('')
+    setCreateLetter('')
+    setCreateInternalCode('')
+    setCreatePlantId(defaultPlant)
+    setCreateActive(true)
+    setCreatePresetTerms('30')
+    setCreateCustomDays('')
+  }, [workspacePlantId, plantOptions])
+
+  const openCreate = () => {
+    resetCreateForm()
+    setCreateOpen(true)
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -145,30 +200,259 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
     }
   }
 
+  const saveCreate = async () => {
+    const name = createName.trim()
+    if (!name) {
+      toast.error('Ingrese el nombre del proveedor')
+      return
+    }
+    const n = parseInt(createProviderNumber, 10)
+    if (!Number.isInteger(n) || n < 1 || n > 99) {
+      toast.error('El número de proveedor debe ser un entero entre 1 y 99')
+      return
+    }
+    if (!createPlantId) {
+      toast.error('Seleccione la planta del proveedor')
+      return
+    }
+
+    let default_payment_terms_days: number | null = 30
+    if (createPresetTerms === 'unset') {
+      default_payment_terms_days = null
+    } else if (createPresetTerms === 'custom') {
+      const d = parseInt(createCustomDays, 10)
+      if (Number.isNaN(d) || d < 0 || d > 365) {
+        toast.error('Plazo: ingrese días entre 0 y 365')
+        return
+      }
+      default_payment_terms_days = d
+    } else {
+      default_payment_terms_days = parseInt(createPresetTerms, 10)
+    }
+
+    const dup = suppliers.some(
+      (s) => s.provider_number === n && s.plant_id === createPlantId
+    )
+    if (dup) {
+      toast.error(`Ya hay un proveedor con el número ${n} en ${plantLabel(createPlantId)}`)
+      return
+    }
+
+    const letter = createLetter.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
+
+    setCreateSaving(true)
+    try {
+      const res = await fetch('/api/suppliers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          provider_number: n,
+          plant_id: createPlantId,
+          provider_letter: letter || undefined,
+          internal_code: createInternalCode.trim() || undefined,
+          is_active: createActive,
+          default_payment_terms_days,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(typeof data.error === 'string' ? data.error : 'No se pudo crear el proveedor')
+        return
+      }
+      toast.success('Proveedor creado')
+      setCreateOpen(false)
+      await load()
+    } catch {
+      toast.error('Error al crear el proveedor')
+    } finally {
+      setCreateSaving(false)
+    }
+  }
+
   if (!workspacePlantId) {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900">
-        <p className="font-medium flex items-center gap-2">
-          <Building2 className="h-4 w-4 shrink-0" />
-          Seleccione una planta en el filtro superior para gestionar plazos de pago por proveedor.
-        </p>
+      <div className="space-y-4 p-4 md:p-6">
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900">
+          <p className="font-medium flex items-center gap-2">
+            <Building2 className="h-4 w-4 shrink-0" />
+            Seleccione una planta en el filtro superior para ver y gestionar proveedores de esa planta.
+          </p>
+        </div>
+        {canCreateSupplier && plantOptions.length > 0 ? (
+          <div className="rounded-lg border border-stone-200 bg-white p-4">
+            <p className="text-sm text-stone-700 mb-3">
+              O bien cree un proveedor eligiendo la planta en el formulario (útil cuando el filtro está en{' '}
+              <span className="font-medium">Todas las plantas</span>).
+            </p>
+            <Button
+              type="button"
+              className="bg-stone-900 text-white hover:bg-stone-800"
+              onClick={openCreate}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nuevo proveedor
+            </Button>
+          </div>
+        ) : null}
+
+        <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+          <SheetContent className="sm:max-w-md border-stone-200 bg-white overflow-y-auto">
+            <SheetHeader>
+              <SheetTitle className="text-stone-900">Nuevo proveedor</SheetTitle>
+              <SheetDescription>
+                Datos base del proveedor. El plazo predeterminado aplica al calcular vencimientos en entradas.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-6 space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="create_plant_all">Planta *</Label>
+                <Select value={createPlantId || undefined} onValueChange={setCreatePlantId}>
+                  <SelectTrigger id="create_plant_all" className="border-stone-300">
+                    <SelectValue placeholder="Seleccione planta…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plantOptions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.code ? `${p.code} — ${p.name}` : p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create_name">Nombre *</Label>
+                <Input
+                  id="create_name"
+                  className="border-stone-300"
+                  value={createName}
+                  onChange={(e) => setCreateName(e.target.value)}
+                  placeholder="Razón social o nombre comercial"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="create_num">No. proveedor *</Label>
+                  <Input
+                    id="create_num"
+                    type="number"
+                    min={1}
+                    max={99}
+                    className="border-stone-300 tabular-nums"
+                    value={createProviderNumber}
+                    onChange={(e) => setCreateProviderNumber(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="create_letter">Letra</Label>
+                  <Input
+                    id="create_letter"
+                    maxLength={1}
+                    className="border-stone-300 uppercase"
+                    value={createLetter}
+                    onChange={(e) =>
+                      setCreateLetter(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create_internal">Código interno</Label>
+                <Input
+                  id="create_internal"
+                  className="border-stone-300"
+                  value={createInternalCode}
+                  onChange={(e) => setCreateInternalCode(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2">
+                <Label htmlFor="create_active" className="text-sm font-normal cursor-pointer">
+                  Proveedor activo
+                </Label>
+                <Switch id="create_active" checked={createActive} onCheckedChange={setCreateActive} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create_terms">Plazo de pago predeterminado</Label>
+                <Select value={createPresetTerms} onValueChange={setCreatePresetTerms}>
+                  <SelectTrigger id="create_terms" className="border-stone-300">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unset">Sin configurar</SelectItem>
+                    {PAYMENT_TERMS_PRESET_DAYS.map((d) => (
+                      <SelectItem key={d} value={String(d)}>
+                        {formatPaymentTermsLabel(d)}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom">Otro (días personalizado)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {createPresetTerms === 'custom' && (
+                <div className="space-y-2">
+                  <Label htmlFor="create_custom_days">Días</Label>
+                  <Input
+                    id="create_custom_days"
+                    type="number"
+                    min={0}
+                    max={365}
+                    className="border-stone-300 tabular-nums"
+                    value={createCustomDays}
+                    onChange={(e) => setCreateCustomDays(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
+                  />
+                </div>
+              )}
+            </div>
+            <SheetFooter className="mt-8 gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-stone-300"
+                onClick={() => setCreateOpen(false)}
+                disabled={createSaving}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                className="bg-stone-900 text-white hover:bg-stone-800"
+                onClick={() => void saveCreate()}
+                disabled={createSaving}
+              >
+                {createSaving ? 'Guardando…' : 'Crear proveedor'}
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
       </div>
     )
   }
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-stone-900 flex items-center gap-2">
             <Settings2 className="h-5 w-5 text-stone-600" />
             Gestión de proveedores
           </h2>
           <p className="text-sm text-stone-600 mt-1 max-w-xl">
-            Defina el plazo de pago predeterminado por proveedor. Al revisar entradas, la fecha de vencimiento se
-            calculará como fecha de entrada + estos días (puede ajustarse en cada entrada).
+            Alta de proveedores y plazo de pago predeterminado. Al revisar entradas, la fecha de vencimiento se calcula
+            como fecha de entrada + estos días (ajustable en cada entrada).
           </p>
         </div>
+        {canCreateSupplier ? (
+          <Button
+            type="button"
+            className="shrink-0 bg-stone-900 text-white hover:bg-stone-800 shadow-sm"
+            onClick={openCreate}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo proveedor
+          </Button>
+        ) : null}
       </div>
 
       <div className="relative max-w-md">
@@ -236,15 +520,19 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
                       </Badge>
                     </td>
                     <td className="py-2.5 px-3">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => openEdit(s)}
-                      >
-                        Editar plazo
-                      </Button>
+                      {canEditPaymentTerms ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={() => openEdit(s)}
+                        >
+                          Editar plazo
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] text-stone-400">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -252,8 +540,21 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
             </table>
           </div>
           {filtered.length === 0 && (
-            <div className="px-3 py-8 text-center text-stone-500 text-sm">
-              {search ? 'Sin resultados para la búsqueda.' : 'No hay proveedores en esta planta.'}
+            <div className="px-3 py-10 text-center space-y-3">
+              <p className="text-stone-500 text-sm">
+                {search ? 'Sin resultados para la búsqueda.' : 'No hay proveedores en esta planta.'}
+              </p>
+              {canCreateSupplier && !search ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-stone-300"
+                  onClick={openCreate}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Crear el primero
+                </Button>
+              ) : null}
             </div>
           )}
         </div>
@@ -326,6 +627,123 @@ export default function SupplierManagementPanel({ workspacePlantId }: Props) {
               disabled={saving}
             >
               {saving ? 'Guardando…' : 'Guardar'}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+        <SheetContent className="sm:max-w-md border-stone-200 bg-white overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle className="text-stone-900">Nuevo proveedor</SheetTitle>
+            <SheetDescription>
+              Planta: <span className="font-medium text-stone-800">{plantLabel(workspacePlantId)}</span>. Podrá
+              editar el plazo de pago después de crear el registro{canEditPaymentTerms ? '' : ' (solo ejecutivos u operaciones)'}.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="create_name_ctx">Nombre *</Label>
+              <Input
+                id="create_name_ctx"
+                className="border-stone-300"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Razón social o nombre comercial"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="create_num_ctx">No. proveedor *</Label>
+                <Input
+                  id="create_num_ctx"
+                  type="number"
+                  min={1}
+                  max={99}
+                  className="border-stone-300 tabular-nums"
+                  value={createProviderNumber}
+                  onChange={(e) => setCreateProviderNumber(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="create_letter_ctx">Letra</Label>
+                <Input
+                  id="create_letter_ctx"
+                  maxLength={1}
+                  className="border-stone-300 uppercase"
+                  value={createLetter}
+                  onChange={(e) =>
+                    setCreateLetter(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create_internal_ctx">Código interno</Label>
+              <Input
+                id="create_internal_ctx"
+                className="border-stone-300"
+                value={createInternalCode}
+                onChange={(e) => setCreateInternalCode(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2">
+              <Label htmlFor="create_active_ctx" className="text-sm font-normal cursor-pointer">
+                Proveedor activo
+              </Label>
+              <Switch id="create_active_ctx" checked={createActive} onCheckedChange={setCreateActive} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create_terms_ctx">Plazo de pago predeterminado</Label>
+              <Select value={createPresetTerms} onValueChange={setCreatePresetTerms}>
+                <SelectTrigger id="create_terms_ctx" className="border-stone-300">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unset">Sin configurar</SelectItem>
+                  {PAYMENT_TERMS_PRESET_DAYS.map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {formatPaymentTermsLabel(d)}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">Otro (días personalizado)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {createPresetTerms === 'custom' && (
+              <div className="space-y-2">
+                <Label htmlFor="create_custom_days_ctx">Días</Label>
+                <Input
+                  id="create_custom_days_ctx"
+                  type="number"
+                  min={0}
+                  max={365}
+                  className="border-stone-300 tabular-nums"
+                  value={createCustomDays}
+                  onChange={(e) => setCreateCustomDays(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
+                />
+              </div>
+            )}
+          </div>
+          <SheetFooter className="mt-8 gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              className="border-stone-300"
+              onClick={() => setCreateOpen(false)}
+              disabled={createSaving}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="bg-stone-900 text-white hover:bg-stone-800"
+              onClick={() => void saveCreate()}
+              disabled={createSaving}
+            >
+              {createSaving ? 'Guardando…' : 'Crear proveedor'}
             </Button>
           </SheetFooter>
         </SheetContent>

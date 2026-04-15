@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles';
+import { canCompleteEntryPricingReview, inventoryRoleKey } from '@/lib/auth/inventoryRoles';
 
 export type ActionQueueTask = {
   id: string;
@@ -44,13 +44,14 @@ export async function GET(request: NextRequest) {
       'ADMINISTRATIVE',
       'ADMIN',
     ];
-    if (!allowed.includes(profile.role)) {
+    const roleKey = inventoryRoleKey(profile.role);
+    if (!roleKey || !allowed.includes(roleKey)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
     let plantId = searchParams.get('plant_id') || undefined;
-    if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
+    if (roleKey === 'PLANT_MANAGER' && profile.plant_id) {
       plantId = profile.plant_id;
     }
 
@@ -117,7 +118,7 @@ export async function GET(request: NextRequest) {
     if (plantId) entryQuery = entryQuery.eq('plant_id', plantId);
     const { count: pricingPendingCount } = await entryQuery;
     const pc = pricingPendingCount ?? 0;
-    if (pc > 0 && canCompleteEntryPricingReview(profile.role)) {
+    if (pc > 0 && canCompleteEntryPricingReview(roleKey)) {
       tasks.push({
         id: 'entries_pricing_pending',
         severity: 'warning',

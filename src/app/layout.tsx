@@ -366,6 +366,13 @@ const QUALITY_SECTIONS: QualitySection[] = [
       { title: 'Investigación', href: '/quality/validaciones/investigacion', IconComponent: Lightbulb, comingSoon: true, subGroup: 'I+D' },
       { title: 'Caracterizaciones', href: '/quality/caracterizacion-materiales', IconComponent: FlaskConical, subGroup: 'Nuevos Materiales' },
       { title: 'Materiales', href: '/quality/materials', IconComponent: Package, subGroup: 'Nuevos Materiales' },
+      {
+        title: 'Proveedores',
+        href: '/quality/suppliers',
+        IconComponent: Truck,
+        subGroup: 'Nuevos Materiales',
+        excludeRestrictedPlants: true,
+      },
       { title: 'Curvas de Abrams', href: '/quality/curvas-abrams', IconComponent: TrendingUp, subGroup: 'Evaluar Mezcla' },
     ],
   },

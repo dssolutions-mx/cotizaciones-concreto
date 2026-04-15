@@ -36,6 +36,27 @@ import SupplierSelect from '@/components/inventory/SupplierSelect'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import { format, isToday, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { kgToMetricTons, KG_PER_METRIC_TON } from '@/lib/inventory/massUnits'
+
+function scaleKgFromEntryForm(opts: {
+  materialPoLine: { is_service?: boolean; uom?: string | null; material?: { density_kg_per_l?: number | null } } | null | undefined
+  receivedQtyEntered: number
+  formDataQuantityReceived: number
+}): number {
+  const { materialPoLine, receivedQtyEntered, formDataQuantityReceived } = opts
+  if (materialPoLine && !materialPoLine.is_service) {
+    if (materialPoLine.uom === 'l') {
+      const density = Number(materialPoLine.material?.density_kg_per_l) || 0
+      if (!density) return 0
+      return (receivedQtyEntered || 0) * density
+    }
+    if (materialPoLine.uom === 'm3') {
+      return receivedQtyEntered || 0
+    }
+    return receivedQtyEntered > 0 ? receivedQtyEntered : formDataQuantityReceived
+  }
+  return receivedQtyEntered > 0 ? receivedQtyEntered : formDataQuantityReceived
+}
 
 /** Dosificador: vincular recepciones a solicitudes con OC; la OC se surte de forma acumulativa (no “en una sola entrada”). */
 const DOSIFICADOR_FULFILLMENT_STATUSES = new Set<MaterialAlert['status']>(['po_linked', 'delivery_scheduled'])
@@ -215,6 +236,30 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       null
     )
   }, [dosificadorReceiptContext, formData.material_id])
+
+  const materialPoLineForScale = useMemo(
+    () => (selectedPoItemId ? poItems.find((it) => it.id === selectedPoItemId) : null),
+    [selectedPoItemId, poItems]
+  )
+
+  const scaleKgPreview = useMemo(
+    () =>
+      scaleKgFromEntryForm({
+        materialPoLine: materialPoLineForScale,
+        receivedQtyEntered,
+        formDataQuantityReceived: formData.quantity_received,
+      }),
+    [materialPoLineForScale, receivedQtyEntered, formData.quantity_received]
+  )
+
+  useEffect(() => {
+    if (!selectedFleetPoItemId || fleetPoItems.length === 0) return
+    const fi = fleetPoItems.find((it) => it.id === selectedFleetPoItemId)
+    if (!fi || fi.uom !== 'tons') return
+    if (scaleKgPreview > 0) {
+      setFleetQtyEntered(kgToMetricTons(scaleKgPreview))
+    }
+  }, [selectedFleetPoItemId, fleetPoItems, scaleKgPreview])
 
   const dosificadorSummaryMaterialName = useMemo(() => {
     const fromSel = selectedFulfillmentAlert?.material?.material_name
@@ -814,21 +859,44 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             setLoading(false)
             return
           }
-          
-          if (!fleetQtyEntered || fleetQtyEntered <= 0) {
-            toast.error('Ingrese cantidad del servicio de flota')
-            setLoading(false)
-            return
+
+          const fleetIsTons = fleetItem.uom === 'tons'
+          let fleetQtyForPayload = fleetQtyEntered
+
+          if (fleetIsTons) {
+            const capKg =
+              Number(fleetItem.remainingKg ?? 0) ||
+              (Number(fleetItem.qty_remaining) || 0) * KG_PER_METRIC_TON
+            if (scaleKg > capKg + 1e-6) {
+              toast.error(
+                `El peso en báscula excede el saldo del flete (${capKg.toLocaleString('es-MX')} kg restantes, OC en toneladas)`
+              )
+              setLoading(false)
+              return
+            }
+            fleetQtyForPayload = kgToMetricTons(scaleKg)
+            if (!(fleetQtyForPayload > 0)) {
+              toast.error('Indique el peso en báscula (kg) para registrar las toneladas del flete')
+              setLoading(false)
+              return
+            }
+          } else {
+            if (!fleetQtyEntered || fleetQtyEntered <= 0) {
+              toast.error('Ingrese cantidad del servicio de flota')
+              setLoading(false)
+              return
+            }
+            const remaining = Number(fleetItem.qty_remaining) || 0
+            if (fleetQtyEntered > remaining + 1e-6) {
+              toast.error(`La cantidad excede el saldo disponible del PO de flota (${remaining.toLocaleString('es-MX')} ${fleetItem.uom})`)
+              setLoading(false)
+              return
+            }
           }
-          const remaining = Number(fleetItem.qty_remaining) || 0
-          if (fleetQtyEntered > remaining + 1e-6) {
-            toast.error(`La cantidad excede el saldo disponible del PO de flota (${remaining.toLocaleString('es-MX')} ${fleetItem.uom})`)
-            setLoading(false)
-            return
-          }
+
           requestBody.fleet_po_id = fleetItem.po?.id
           requestBody.fleet_po_item_id = selectedFleetPoItemId
-          requestBody.fleet_qty_entered = fleetQtyEntered
+          requestBody.fleet_qty_entered = fleetQtyForPayload
           requestBody.fleet_uom = fleetItem.uom
         }
       }
@@ -2253,6 +2321,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             min="0"
                             placeholder="Cantidad"
                             value={fleetQtyEntered || ''}
+                            readOnly={
+                              fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom === 'tons'
+                            }
                             onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
                             className="max-w-xs"
                           />
@@ -2260,7 +2331,17 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom || ''}
                           </span>
                         </div>
-                        <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
+                        {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom === 'tons' ? (
+                          <p className="text-xs text-stone-600">
+                            OC en toneladas métricas: se toma el peso báscula de la mercancía (kg) y se convierte a t
+                            (÷ {KG_PER_METRIC_TON}).{' '}
+                            {scaleKgPreview > 0
+                              ? `Vista previa: ${scaleKgPreview.toLocaleString('es-MX')} kg → ${kgToMetricTons(scaleKgPreview).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} t.`
+                              : 'Capture primero el peso recibido arriba.'}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
+                        )}
                       </div>
                     )}
                   </div>

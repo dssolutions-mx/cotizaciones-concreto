@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -253,8 +253,9 @@ export default function ProcurementMaterialEntriesView({
   isFocused = false,
   onToggleFocusMode,
 }: Props) {
-  const { isInitialized: authInitialized } = useAuthSelectors()
+  const { isInitialized: authInitialized, profile: authProfile } = useAuthSelectors()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const poIdFromUrl = searchParams.get('po_id') || undefined
   const entryIdFromUrl = searchParams.get('entry_id') || undefined
@@ -340,9 +341,10 @@ export default function ProcurementMaterialEntriesView({
         else if (next.entradas_view === 'revisadas') p.set('entradas_view', 'revisadas')
         else p.delete('entradas_view')
       }
-      router.replace(`?${p.toString()}`, { scroll: false })
+      const path = pathname || '/finanzas/procurement'
+      router.replace(`${path}?${p.toString()}`, { scroll: false })
     },
-    [router, searchParams]
+    [router, pathname, searchParams]
   )
 
   const setEntradasView = useCallback(
@@ -461,13 +463,13 @@ export default function ProcurementMaterialEntriesView({
     }
   }, [canReviewPricing, pendingLoading, pendingEntries, searchParams, replaceQuery, poIdFromUrl, entryIdFromUrl])
 
-  // Wait for auth: before profile loads, canReviewPricing is false and would wrongly strip ?entradas_view=precios|revisadas.
+  // Wait until we know the user's role: canReviewPricing is false while profile is still rehydrating/null.
   useEffect(() => {
-    if (!authInitialized) return
+    if (!authInitialized || !authProfile) return
     if ((entradasView === 'precios' || entradasView === 'revisadas') && !canReviewPricing) {
       replaceQuery({ entradas_view: null })
     }
-  }, [authInitialized, entradasView, canReviewPricing, replaceQuery])
+  }, [authInitialized, authProfile, entradasView, canReviewPricing, replaceQuery])
 
   const buildReviewedFetchParams = useCallback(
     (offset: number, limit: number) => {

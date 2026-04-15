@@ -33,6 +33,7 @@ import {
   addCalendarDaysToIsoDate,
   formatPaymentTermsLabel,
 } from '@/lib/procurement/paymentTermsLabels'
+import { KG_PER_METRIC_TON } from '@/lib/inventory/massUnits'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -300,8 +301,21 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         }
       : null
 
-  const resolvedFleetQty =
-    hasFleetPoLink ? Number(entry.fleet_qty_entered ?? 0) : Number(fleetQtyEnteredLink || 0)
+  const resolvedFleetQty = useMemo(() => {
+    const lineUom = resolvedFleetLineForCalc?.uom
+    if (lineUom === 'tons') {
+      const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+      if (kg > 0) return kg / KG_PER_METRIC_TON
+    }
+    return hasFleetPoLink ? Number(entry.fleet_qty_entered ?? 0) : Number(fleetQtyEnteredLink || 0)
+  }, [
+    resolvedFleetLineForCalc?.uom,
+    entry.received_qty_kg,
+    entry.quantity_received,
+    entry.fleet_qty_entered,
+    fleetQtyEnteredLink,
+    hasFleetPoLink,
+  ])
 
   const qtyForMaterialCost = useMemo(() => {
     const uom = resolvedMaterialLineForCalc?.uom
@@ -614,6 +628,12 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     }
   }, [fleetPoSearchItems, pendingAutoSelectFleetPoId])
 
+  useEffect(() => {
+    if (hasFleetPoLink || !selectedFleetSearchItem || selectedFleetSearchItem.uom !== 'tons') return
+    const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+    if (kg > 0) setFleetQtyEnteredLink(kg / KG_PER_METRIC_TON)
+  }, [hasFleetPoLink, selectedFleetSearchItem, entry.received_qty_kg, entry.quantity_received])
+
   // After "Crear nueva OC" (material), select the new PO line once search results include it
   useEffect(() => {
     if (!pendingAutoSelectMaterialPoId || materialPoSearchItems.length === 0) return
@@ -658,11 +678,26 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       toast.error('Fecha de vencimiento (material) es requerida cuando hay remisión/factura'); return
     }
 
-    const linkingFleetFromSearch = !hasFleetPoLink && Boolean(selectedFleetSearchItemId && selectedFleetSearchItem && fleetQtyEnteredLink > 0)
+    const fleetTonsFromEntryKg =
+      selectedFleetSearchItem?.uom === 'tons' &&
+      Number(entry.received_qty_kg ?? entry.quantity_received ?? 0) > 0
+    const linkingFleetFromSearch = !hasFleetPoLink && Boolean(
+      selectedFleetSearchItemId && selectedFleetSearchItem && (fleetQtyEnteredLink > 0 || fleetTonsFromEntryKg)
+    )
     const linkingMaterialFromSearch = !hasMaterialPoLink && Boolean(selectedMaterialSearchItemId && selectedMaterialSearchItem)
 
-    if (selectedFleetSearchItemId && (!selectedFleetSearchItem || fleetQtyEnteredLink <= 0)) {
-      toast.error('Indique la cantidad de servicio (flota) mayor a cero'); return
+    if (selectedFleetSearchItemId && !selectedFleetSearchItem) {
+      toast.error('Seleccione una línea de flota válida')
+      return
+    }
+    if (
+      selectedFleetSearchItemId &&
+      selectedFleetSearchItem &&
+      !fleetTonsFromEntryKg &&
+      fleetQtyEnteredLink <= 0
+    ) {
+      toast.error('Indique la cantidad de servicio (flota) mayor a cero')
+      return
     }
 
     const effectiveFleetSupplierId = formData.fleet_supplier_id || fleetPoHeaderSupplierId || fleetSearchHeaderSupplierId || entry.fleet_supplier_id || ''
@@ -702,8 +737,12 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         }
         updatePayload.fleet_po_id = fleetPoId
         updatePayload.fleet_po_item_id = selectedFleetSearchItem!.id
-        updatePayload.fleet_qty_entered = fleetQtyEnteredLink
-        updatePayload.fleet_uom = mapFleetUom(selectedFleetSearchItem!.uom)
+        const uomRaw = selectedFleetSearchItem!.uom
+        updatePayload.fleet_qty_entered =
+          uomRaw === 'tons'
+            ? Number(entry.received_qty_kg ?? entry.quantity_received ?? 0) / KG_PER_METRIC_TON
+            : fleetQtyEnteredLink
+        updatePayload.fleet_uom = mapFleetUom(uomRaw)
       }
       if (linkingMaterialFromSearch && selectedMaterialSearchItem) {
         updatePayload.po_item_id = selectedMaterialSearchItem.id

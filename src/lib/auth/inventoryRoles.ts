@@ -17,6 +17,17 @@ export const INVENTORY_STANDARD_ROLES = [
 
 export type InventoryStandardRole = (typeof INVENTORY_STANDARD_ROLES)[number]
 
+/** Postgres / JSON sometimes returns enums in different casing; normalize before comparing. */
+function normalizeRoleKey(role: string): string {
+  return role.trim().toUpperCase().replace(/\s+/g, '_')
+}
+
+/** For server routes: compare `user_profiles.role` to UPPER_SNAKE allowlists. */
+export function inventoryRoleKey(role: string | null | undefined): string | null {
+  if (!role || typeof role !== 'string') return null
+  return normalizeRoleKey(role)
+}
+
 /** Roles that may mark material entry pricing as reviewed (must match PUT /api/inventory/entries). */
 export const ENTRY_PRICING_REVIEW_ROLES = [
   'EXECUTIVE',
@@ -26,8 +37,8 @@ export const ENTRY_PRICING_REVIEW_ROLES = [
 ] as const
 
 export function canCompleteEntryPricingReview(role: string | undefined): boolean {
-  if (!role) return false
-  return (ENTRY_PRICING_REVIEW_ROLES as readonly string[]).includes(role)
+  if (!role || typeof role !== 'string') return false
+  return (ENTRY_PRICING_REVIEW_ROLES as readonly string[]).includes(normalizeRoleKey(role))
 }
 
 /** Same roles as pricing review: list/update entries without plant filter and pick workspace plant in compras. */
@@ -37,16 +48,18 @@ export function canAccessAllInventoryPlants(role: string | undefined): boolean {
 
 /** Roles that may scope by query param plant_id (cross-plant read) when profile.plant_id is null */
 export function isGlobalInventoryRole(role: string | undefined): boolean {
+  if (!role || typeof role !== 'string') return false
+  const r = normalizeRoleKey(role)
   return (
-    role === 'EXECUTIVE' ||
-    role === 'ADMIN_OPERATIONS' ||
-    role === 'CREDIT_VALIDATOR' ||
-    role === 'ADMINISTRATIVE' ||
-    role === 'ADMIN'
+    r === 'EXECUTIVE' ||
+    r === 'ADMIN_OPERATIONS' ||
+    r === 'CREDIT_VALIDATOR' ||
+    r === 'ADMINISTRATIVE' ||
+    r === 'ADMIN'
   )
 }
 
 export function hasInventoryStandardAccess(role: string | undefined): boolean {
-  if (!role) return false
-  return (INVENTORY_STANDARD_ROLES as readonly string[]).includes(role)
+  if (!role || typeof role !== 'string') return false
+  return (INVENTORY_STANDARD_ROLES as readonly string[]).includes(normalizeRoleKey(role))
 }

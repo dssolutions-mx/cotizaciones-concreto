@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { KG_PER_METRIC_TON } from '@/lib/inventory/massUnits';
 
 export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseClient();
@@ -129,6 +130,16 @@ export async function GET(request: NextRequest) {
         const storedKg = Number((it as { qty_received_kg?: number | null }).qty_received_kg ?? 0) || 0;
         receivedKg = storedKg > 0 ? storedKg : receivedNative * (volW > 0 ? volW : 0);
       }
+      const remainingKg = Math.max(orderedKg - receivedKg, 0);
+      return { ...it, orderedKg, receivedKg, remainingKg, qty_remaining: remaining };
+    }
+
+    // Servicio flota en toneladas métricas: OC en t, báscula/recepción material en kg
+    if (it.is_service && it.uom === 'tons') {
+      const orderedKg = ordered * KG_PER_METRIC_TON;
+      const storedKg = Number((it as { qty_received_kg?: number | null }).qty_received_kg ?? 0) || 0;
+      const receivedKg =
+        storedKg > 0 ? storedKg : receivedNative * KG_PER_METRIC_TON;
       const remainingKg = Math.max(orderedKg - receivedKg, 0);
       return { ...it, orderedKg, receivedKg, remainingKg, qty_remaining: remaining };
     }

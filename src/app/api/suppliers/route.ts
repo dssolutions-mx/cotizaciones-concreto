@@ -80,27 +80,59 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to create suppliers
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER'];
+    // Check if user has permission to create suppliers (includes procurement operators)
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
     const body = await request.json();
-    
+
     // Validate required fields
-    if (!body.name || !body.provider_number || !body.plant_id) {
+    if (!body.name || body.provider_number === undefined || body.provider_number === null || !body.plant_id) {
       return NextResponse.json({ error: 'Missing required fields: name, provider_number, plant_id' }, { status: 400 });
     }
+
+    const providerNum = Number(body.provider_number);
+    if (!Number.isInteger(providerNum) || providerNum < 1 || providerNum > 99) {
+      return NextResponse.json({ error: 'provider_number must be an integer from 1 to 99' }, { status: 400 });
+    }
+
+    let terms: number | null
+    if (body.default_payment_terms_days === undefined) {
+      terms = 30
+    } else if (body.default_payment_terms_days === null) {
+      terms = null
+    } else {
+      terms = Number(body.default_payment_terms_days)
+      if (Number.isNaN(terms) || terms < 0 || terms > 365) {
+        return NextResponse.json({ error: 'default_payment_terms_days must be between 0 and 365' }, { status: 400 })
+      }
+    }
+
+    const letterRaw = body.provider_letter != null && String(body.provider_letter).trim() !== ''
+      ? String(body.provider_letter).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
+      : null;
+
+    const internalCode =
+      body.internal_code != null && String(body.internal_code).trim() !== ''
+        ? String(body.internal_code).trim()
+        : null;
 
     // Create supplier (default payment terms: Net 30 unless specified)
     const { data: supplier, error } = await supabase
       .from('suppliers')
-      .insert([{
-        ...body,
-        is_active: true,
-        default_payment_terms_days: body.default_payment_terms_days ?? 30,
-      }])
+      .insert([
+        {
+          name: String(body.name).trim(),
+          provider_number: providerNum,
+          plant_id: body.plant_id,
+          provider_letter: letterRaw,
+          internal_code: internalCode,
+          is_active: body.is_active !== false,
+          default_payment_terms_days: terms,
+        },
+      ])
       .select()
       .single();
 
@@ -111,7 +143,7 @@ export async function POST(request: NextRequest) {
       if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
         // Try to extract provider number from error message
         const providerNumberMatch = error.message?.match(/provider_number[^=]*=\((\d+)\)/i);
-        const providerNumber = providerNumberMatch ? providerNumberMatch[1] : body.provider_number;
+        const providerNumber = providerNumberMatch ? providerNumberMatch[1] : String(providerNum);
         
         const errorMessage = providerNumber 
           ? `Ya existe un proveedor con el número ${providerNumber}${body.plant_id ? ' en esta planta' : ''}.`
@@ -124,7 +156,7 @@ export async function POST(request: NextRequest) {
       if (error.code === '23514' || error.message?.includes('check constraint')) {
         if (error.message?.includes('suppliers_provider_number_check')) {
           // Mostrar el mensaje real de PostgreSQL para identificar la restricción exacta
-          const errorMessage = `El número de proveedor ${body.provider_number} no cumple con las restricciones de la base de datos. ${error.message || 'Por favor verifica el número e intenta de nuevo.'}`;
+          const errorMessage = `El número de proveedor ${providerNum} no cumple con las restricciones de la base de datos. ${error.message || 'Por favor verifica el número e intenta de nuevo.'}`;
           return NextResponse.json({ error: errorMessage }, { status: 400 });
         }
         return NextResponse.json({ 

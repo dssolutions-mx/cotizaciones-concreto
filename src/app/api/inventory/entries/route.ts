@@ -13,6 +13,7 @@ import {
   canAccessAllInventoryPlants,
 } from '@/lib/auth/inventoryRoles';
 import { resolveVolumetricWeightKgPerM3 } from '@/lib/inventory/volumetricWeight';
+import { kgToMetricTons, KG_PER_METRIC_TON } from '@/lib/inventory/massUnits';
 
 /** Merge document_count per entry from inventory_documents (type entry). */
 async function attachEntryDocumentCounts(
@@ -646,6 +647,37 @@ export async function POST(request: NextRequest) {
             ? (validatedData as { received_qty_kg?: number }).received_qty_kg!
             : validatedData.quantity_received;
 
+    /** OC flota en ton (métricas): báscula = kg → t para almacenar y avanzar la línea de servicio */
+    let fleetTonsFromScale: number | null = null;
+    if (validatedData.fleet_po_item_id) {
+      const { data: fleetLinePre } = await supabase
+        .from('purchase_order_items')
+        .select('uom, is_service, qty_ordered, qty_received, qty_received_kg')
+        .eq('id', validatedData.fleet_po_item_id)
+        .single();
+      if (fleetLinePre?.is_service && fleetLinePre.uom === 'tons') {
+        const scaleKg = Number(validatedData.quantity_received);
+        fleetTonsFromScale = kgToMetricTons(scaleKg);
+        const ordered = Number(fleetLinePre.qty_ordered) || 0;
+        const already = Number(fleetLinePre.qty_received) || 0;
+        const orderedKg = ordered * KG_PER_METRIC_TON;
+        const recvKg =
+          Number(fleetLinePre.qty_received_kg) > 0
+            ? Number(fleetLinePre.qty_received_kg)
+            : already * KG_PER_METRIC_TON;
+        if (scaleKg > orderedKg - recvKg + 1e-6) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                'El peso en báscula excede el saldo disponible del flete en kg (OC en toneladas métricas).',
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Create material entry (optional immediate PO linkage on create)
     const entryData = {
       entry_number: entryNumber,
@@ -681,8 +713,14 @@ export async function POST(request: NextRequest) {
       // Fleet PO linkage
       fleet_po_id: validatedData.fleet_po_id || null,
       fleet_po_item_id: validatedData.fleet_po_item_id || null,
-      fleet_qty_entered: validatedData.fleet_qty_entered || null,
-      fleet_uom: validatedData.fleet_uom || null,
+      fleet_qty_entered:
+        fleetTonsFromScale != null && fleetTonsFromScale > 0
+          ? fleetTonsFromScale
+          : validatedData.fleet_qty_entered || null,
+      fleet_uom:
+        fleetTonsFromScale != null && fleetTonsFromScale > 0
+          ? 'tons'
+          : validatedData.fleet_uom || null,
       fleet_supplier_id: validatedData.fleet_supplier_id || null,
       fleet_invoice: validatedData.fleet_invoice?.trim() || null,
     };
@@ -733,11 +771,14 @@ export async function POST(request: NextRequest) {
       }
 
       const fleetItemId = validatedData.fleet_po_item_id;
-      const fleetQty = validatedData.fleet_qty_entered;
+      const fleetQty =
+        fleetTonsFromScale != null && fleetTonsFromScale > 0
+          ? fleetTonsFromScale
+          : validatedData.fleet_qty_entered;
       if (fleetItemId && fleetQty != null && Number(fleetQty) > 0) {
         const { data: fleetItemRow } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_ordered')
+          .select('qty_received, qty_received_kg, qty_ordered, uom')
           .eq('id', fleetItemId)
           .single();
         if (fleetItemRow) {
@@ -747,9 +788,17 @@ export async function POST(request: NextRequest) {
           const orderedNative = Number(fleetItemRow.qty_ordered || 0);
           let newStatus = 'partial';
           if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const fleetUpd: Record<string, unknown> = {
+            qty_received: currentNative,
+            status: newStatus,
+          };
+          if (fleetItemRow.uom === 'tons') {
+            fleetUpd.qty_received_kg =
+              Number(fleetItemRow.qty_received_kg ?? 0) + Number(validatedData.quantity_received);
+          }
           const { error: updFleetErr } = await supabase
             .from('purchase_order_items')
-            .update({ qty_received: currentNative, status: newStatus })
+            .update(fleetUpd)
             .eq('id', fleetItemId);
           if (updFleetErr) console.error('POST entry: avance PO flota:', updFleetErr);
         }
@@ -1064,18 +1113,14 @@ export async function PUT(request: NextRequest) {
 
     // Fleet PO: validate new link (pricing review) and compute delta for PO line recepciones
     let __fleet_po_link_delta_native = 0;
-    if (
-      updateData.fleet_po_item_id &&
-      updateData.fleet_qty_entered != null &&
-      Number(updateData.fleet_qty_entered) > 0 &&
-      !currentEntry.fleet_po_item_id
-    ) {
+    let __fleet_po_link_delta_kg = 0;
+    if (updateData.fleet_po_item_id && !currentEntry.fleet_po_item_id) {
       // Do not embed `po` here — PostgREST can fail the whole row when the embed join is ambiguous
       // or misconfigured, even when the line exists (same issue as /api/po/items/search).
       const { data: fleetPoLine, error: fleetLineErr } = await supabase
         .from('purchase_order_items')
         .select(
-          'id, is_service, material_supplier_id, qty_received, qty_ordered, po_id'
+          'id, is_service, material_supplier_id, qty_received, qty_received_kg, qty_ordered, po_id, uom'
         )
         .eq('id', updateData.fleet_po_item_id)
         .single();
@@ -1129,7 +1174,40 @@ export async function PUT(request: NextRequest) {
           { status: 400 }
         );
       }
-      const qtyIn = Number(updateData.fleet_qty_entered);
+
+      const lineUom = fleetPoLine.uom as string | null;
+      let qtyIn: number;
+      if (lineUom === 'tons') {
+        const kgEntry = Number(
+          currentEntry.received_qty_kg ?? currentEntry.quantity_received ?? 0
+        );
+        qtyIn = kgToMetricTons(kgEntry);
+        if (!(qtyIn > 0)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                'La línea de flota está en toneladas: la entrada debe tener peso en báscula (kg) para calcular las toneladas.',
+            },
+            { status: 400 }
+          );
+        }
+        updatePayload.fleet_qty_entered = qtyIn;
+        updatePayload.fleet_uom = 'tons';
+        __fleet_po_link_delta_kg = kgEntry;
+      } else {
+        if (updateData.fleet_qty_entered == null || Number(updateData.fleet_qty_entered) <= 0) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'Indique la cantidad de servicio de flota (UoM de la línea) mayor a cero',
+            },
+            { status: 400 }
+          );
+        }
+        qtyIn = Number(updateData.fleet_qty_entered);
+      }
+
       const already = Number(fleetPoLine.qty_received ?? 0);
       const ordered = Number(fleetPoLine.qty_ordered || 0);
       if (qtyIn > ordered - already + 1e-6) {
@@ -1137,6 +1215,22 @@ export async function PUT(request: NextRequest) {
           { success: false, error: 'La cantidad de flota excede el saldo disponible en la línea de OC' },
           { status: 400 }
         );
+      }
+      if (lineUom === 'tons') {
+        const orderedKg = ordered * KG_PER_METRIC_TON;
+        const recvKg =
+          Number(fleetPoLine.qty_received_kg ?? 0) > 0
+            ? Number(fleetPoLine.qty_received_kg)
+            : already * KG_PER_METRIC_TON;
+        if (__fleet_po_link_delta_kg > orderedKg - recvKg + 1e-6) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'El peso en báscula excede el saldo del flete en kg equivalente (toneladas × 1000)',
+            },
+            { status: 400 }
+          );
+        }
       }
       __fleet_po_link_delta_native = qtyIn;
     }
@@ -1223,7 +1317,7 @@ export async function PUT(request: NextRequest) {
       if (__fleet_po_link_delta_native > 0 && result.fleet_po_item_id) {
         const { data: fleetItemRow } = await supabase
           .from('purchase_order_items')
-          .select('qty_received, qty_ordered')
+          .select('qty_received, qty_received_kg, qty_ordered, uom')
           .eq('id', result.fleet_po_item_id)
           .single();
         if (fleetItemRow) {
@@ -1233,9 +1327,17 @@ export async function PUT(request: NextRequest) {
           const orderedNative = Number(fleetItemRow.qty_ordered || 0);
           let newStatus = 'partial';
           if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+          const fleetUpd: Record<string, unknown> = {
+            qty_received: currentNative,
+            status: newStatus,
+          };
+          if (__fleet_po_link_delta_kg > 0 && fleetItemRow.uom === 'tons') {
+            fleetUpd.qty_received_kg =
+              Number(fleetItemRow.qty_received_kg ?? 0) + __fleet_po_link_delta_kg;
+          }
           const { error: updFleetErr } = await supabase
             .from('purchase_order_items')
-            .update({ qty_received: currentNative, status: newStatus })
+            .update(fleetUpd)
             .eq('id', result.fleet_po_item_id);
           if (updFleetErr) console.error('PUT entry: avance PO flota:', updFleetErr);
         }
@@ -1560,11 +1662,12 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    let fleetPoPatch: { id: string; qty_received: number; status: string } | null = null;
+    let fleetPoPatch: { id: string; qty_received: number; status: string; qty_received_kg?: number } | null =
+      null;
     if (entry.fleet_po_item_id && entry.fleet_qty_entered != null && Number(entry.fleet_qty_entered) > 0) {
       const { data: fleetItemRow } = await supabase
         .from('purchase_order_items')
-        .select('qty_received, qty_ordered')
+        .select('qty_received, qty_received_kg, qty_ordered, uom')
         .eq('id', entry.fleet_po_item_id)
         .single();
       if (fleetItemRow) {
@@ -1576,6 +1679,17 @@ export async function DELETE(request: NextRequest) {
         if (newNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
         else if (newNative > 1e-6) newStatus = 'partial';
         fleetPoPatch = { id: entry.fleet_po_item_id, qty_received: newNative, status: newStatus };
+        if (fleetItemRow.uom === 'tons') {
+          const deltaKg = Number(
+            (entry as { received_qty_kg?: number | null }).received_qty_kg ??
+              (entry as { quantity_received?: number }).quantity_received ??
+              0
+          );
+          if (deltaKg > 0) {
+            const newKg = Math.max(0, Number(fleetItemRow.qty_received_kg ?? 0) - deltaKg);
+            fleetPoPatch.qty_received_kg = newKg;
+          }
+        }
       }
     }
 
