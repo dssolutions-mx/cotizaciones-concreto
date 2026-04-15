@@ -89,9 +89,31 @@ function uomDetailLine(uom: string | null | undefined): string | null {
   return null
 }
 
+/** MXN formatter that preserves fractional precision for unit prices (up to 20 decimals). */
+function createMxnPriceFormatter() {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 20,
+  })
+}
+
+/** Mirrors `PoLinePreview` from GET /api/po/batch-summary (client-safe duplicate). */
+type PoLinePreview = {
+  title: string
+  unit_price: number
+  uom: string | null
+  qty_ordered: number
+  is_service: boolean
+  material_supplier_name: string | null
+  is_m3: boolean
+  volumetric_kg_per_m3: number | null
+}
+
 function PODetailPanel({
   po, items, summary, batchSummary, linkedAlerts, alertsLoading,
-  payablesCount, mxn, canEdit, onEdit, onDelete, onClose,
+  payablesCount, mxn, mxnPrice, canEdit, onEdit, onDelete, onClose,
 }: {
   po: any
   items: any[]
@@ -101,6 +123,7 @@ function PODetailPanel({
   alertsLoading: boolean
   payablesCount?: number
   mxn: Intl.NumberFormat
+  mxnPrice: Intl.NumberFormat
   canEdit: boolean
   onEdit: () => void
   onDelete: () => void
@@ -362,13 +385,13 @@ function PODetailPanel({
                           Precio unit.
                         </div>
                         <div className="text-base font-bold tabular-nums text-foreground leading-tight">
-                          {mxn.format(unitPrice)}
+                          {mxnPrice.format(unitPrice)}
                         </div>
                         <div className="text-[10px] text-muted-foreground">
                           por {uomQtyLabel(item.uom)}
                         </div>
                         <div className="text-[10px] text-muted-foreground tabular-nums pt-1 border-t border-border/40 mt-1">
-                          Subtotal {mxn.format(lineTotal)}
+                          Subtotal {mxnPrice.format(lineTotal)}
                         </div>
                       </div>
                     </div>
@@ -596,9 +619,12 @@ export default function PurchaseOrdersPage() {
     Record<string, { total_ordered_value: number; total_received_value: number; net_line_value: number }>
   >({})
   const [alertCounts, setAlertCounts] = useState<Record<string, number>>({})
+  const [linePreviewsByPo, setLinePreviewsByPo] = useState<Record<string, PoLinePreview[]>>({})
+  const [linePreviewOverflowByPo, setLinePreviewOverflowByPo] = useState<Record<string, number>>({})
   const [detailPoId, setDetailPoId] = useState<string | null>(null)
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
+  const mxnPrice = useMemo(() => createMxnPriceFormatter(), [])
 
   const hasActiveFilters = plant || supplier || (status && status !== 'all') || (paymentTerms && paymentTerms !== 'all') || dateFrom || dateTo || poSearch
 
@@ -647,13 +673,19 @@ export default function PurchaseOrdersPage() {
           const bsJson = await bs.json()
           setBatchSummaries(bsJson.summaries || {})
           setAlertCounts(bsJson.alert_counts || {})
+          setLinePreviewsByPo(bsJson.line_previews || {})
+          setLinePreviewOverflowByPo(bsJson.line_preview_overflow || {})
         } catch {
           setBatchSummaries({})
           setAlertCounts({})
+          setLinePreviewsByPo({})
+          setLinePreviewOverflowByPo({})
         }
       } else {
         setBatchSummaries({})
         setAlertCounts({})
+        setLinePreviewsByPo({})
+        setLinePreviewOverflowByPo({})
       }
 
       if (poIdFromUrl && rows.length > 0) {
@@ -1219,6 +1251,87 @@ export default function PurchaseOrdersPage() {
                               </div>
                             )}
                           </div>
+
+                          {((linePreviewsByPo[po.id]?.length ?? 0) > 0 || (linePreviewOverflowByPo[po.id] ?? 0) > 0) && (
+                            <div className="mt-3 pt-3 border-t border-border/50 space-y-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                Vista rápida
+                              </div>
+                              <div className="space-y-2">
+                                {(linePreviewsByPo[po.id] ?? []).map((line, idx) => (
+                                  <div
+                                    key={`${po.id}-${idx}`}
+                                    className="rounded-md bg-muted/20 border border-border/40 px-2.5 py-2 text-xs"
+                                  >
+                                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                                      <div className="min-w-0 flex-1 flex items-start gap-1.5">
+                                        {line.is_service ? (
+                                          <Truck className="h-3.5 w-3.5 text-blue-600 shrink-0 mt-0.5" />
+                                        ) : (
+                                          <Package className="h-3.5 w-3.5 text-green-600 shrink-0 mt-0.5" />
+                                        )}
+                                        <div className="min-w-0">
+                                          <div className="font-semibold text-stone-900 leading-snug break-words">
+                                            {line.title}
+                                          </div>
+                                          {line.is_service && line.material_supplier_name && (
+                                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                                              <span className="font-medium text-stone-600">Proveedor de material:</span>{' '}
+                                              {line.material_supplier_name}
+                                            </div>
+                                          )}
+                                          {!line.is_service && line.is_m3 && (
+                                            <div className="text-[11px] text-muted-foreground mt-0.5 space-y-0.5">
+                                              <div>{uomDetailLine(line.uom ?? undefined)}</div>
+                                              <div className="tabular-nums">
+                                                {line.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2 })}{' '}
+                                                {uomQtyLabel(line.uom)}
+                                                {line.volumetric_kg_per_m3 != null && (
+                                                  <span className="text-stone-500">
+                                                    {' '}
+                                                    · ref. {line.volumetric_kg_per_m3.toLocaleString('es-MX')} kg/m³
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                          P. unit.
+                                        </div>
+                                        <div className="font-bold tabular-nums text-sm text-foreground">
+                                          {mxnPrice.format(line.unit_price)}
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground">
+                                          por {uomQtyLabel(line.uom)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {line.is_service && (
+                                      <div className="mt-1 text-[11px] text-muted-foreground tabular-nums pl-5">
+                                        {line.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2 })}{' '}
+                                        {uomQtyLabel(line.uom)} ordenados
+                                      </div>
+                                    )}
+                                    {!line.is_service && !line.is_m3 && (
+                                      <div className="mt-1 text-[11px] text-muted-foreground tabular-nums pl-5">
+                                        {line.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2 })}{' '}
+                                        {uomQtyLabel(line.uom)} ordenados
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              {(linePreviewOverflowByPo[po.id] ?? 0) > 0 && (
+                                <p className="text-[11px] text-muted-foreground">
+                                  + {linePreviewOverflowByPo[po.id]}{' '}
+                                  {linePreviewOverflowByPo[po.id] === 1 ? 'línea más' : 'líneas más'}
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex gap-1 shrink-0">
@@ -1461,13 +1574,13 @@ export default function PurchaseOrdersPage() {
                                         Precio unit.
                                       </div>
                                       <div className="text-xl font-bold tabular-nums text-foreground">
-                                        {mxn.format(unitPrice)}
+                                        {mxnPrice.format(unitPrice)}
                                       </div>
                                       <div className="text-xs text-muted-foreground">
                                         por {uomQtyLabel(item.uom)}
                                       </div>
                                       <div className="text-xs text-muted-foreground tabular-nums pt-1 border-t border-border/50">
-                                        Subtotal {mxn.format(lineTotal)}
+                                        Subtotal {mxnPrice.format(lineTotal)}
                                       </div>
                                     </div>
                                   </div>
@@ -1534,6 +1647,7 @@ export default function PurchaseOrdersPage() {
                   alertsLoading={linkedAlertsLoading[detailPoId] ?? false}
                   payablesCount={relatedPayablesCount[detailPoId]}
                   mxn={mxn}
+                  mxnPrice={mxnPrice}
                   canEdit={canCreateOrEditPO}
                   onEdit={() => { setSelectedPoId(detailPoId); setEditOpen(true) }}
                   onDelete={() => {
