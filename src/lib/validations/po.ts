@@ -59,15 +59,23 @@ export const POItemInputSchema = z.object({
     } else {
       const ok = MaterialUomSchema.safeParse(data.uom).success;
       if (!ok) return false;
-      // If m3, volumetric weight may be provided (optional) but must be positive if present
-      if (data.uom === 'm3' && data.volumetric_weight_kg_per_m3 !== undefined) {
-        return data.volumetric_weight_kg_per_m3 > 0;
-      }
       return true;
     }
   },
   {
-    message: 'UoM inválido o peso volumétrico inválido (m3 requiere valor positivo si se envía)',
+    message: 'UoM inválido',
+  }
+).refine(
+  (data) => {
+    if (data.is_service || data.uom !== 'm3') return true;
+    return (
+      data.volumetric_weight_kg_per_m3 != null &&
+      data.volumetric_weight_kg_per_m3 > 0
+    );
+  },
+  {
+    message: 'Líneas en m³ requieren peso volumétrico acordado (kg/m³)',
+    path: ['volumetric_weight_kg_per_m3'],
   }
 ).refine(
   (data) => {

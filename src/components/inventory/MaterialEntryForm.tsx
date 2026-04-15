@@ -96,6 +96,9 @@ type DosificadorReceiptItem = {
   qty_ordered: number
   qty_received: number
   qty_remaining: number
+  /** Saldo en kg cuando uom=m3 (OC comercial en m³) */
+  remaining_kg?: number
+  volumetric_weight_kg_per_m3?: number | null
   status: string
 }
 
@@ -544,9 +547,9 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       setAutoFilledFromPO(prev => ({ ...prev, supplier: true }))
     }
 
-    // Auto-fill UoM
+    // Auto-fill UoM (m³ OC: captura siempre en kg en báscula; el servidor deriva m³)
     if (poItem.uom && ['kg', 'l', 'm3'].includes(poItem.uom)) {
-      setReceivedUom(poItem.uom as 'kg' | 'l' | 'm3')
+      setReceivedUom(poItem.uom === 'm3' ? 'kg' : (poItem.uom as 'kg' | 'l' | 'm3'))
       setAutoFilledFromPO(prev => ({ ...prev, uom: true }))
     }
 
@@ -556,8 +559,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       setAutoFilledFromPO(prev => ({ ...prev, volumetricWeight: true }))
     }
 
-    // Pre-fill quantity with remaining quantity (as suggestion)
-    const remaining = poItem.qty_remaining_native ?? poItem.remainingKg ?? poItem.qty_remaining ?? 0
+    // Pre-fill quantity: m³ OC → sugerir saldo en kg (báscula); resto en UoM nativa
+    const remaining =
+      poItem.uom === 'm3'
+        ? Number(poItem.remainingKg ?? 0) || 0
+        : Number(poItem.qty_remaining_native ?? poItem.remainingKg ?? poItem.qty_remaining ?? 0) || 0
     if (remaining > 0) {
       setReceivedQtyEntered(remaining)
     }
@@ -690,7 +696,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     console.log('Form submission - currentPlant:', currentPlant);
     console.log('Form submission - formData:', formData);
     
-    if (!formData.material_id || formData.quantity_received <= 0) {
+    if (!formData.material_id) {
       toast.error('Por favor complete todos los campos requeridos')
       return
     }
@@ -717,8 +723,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     
     setLoading(true)
     try {
-      const requestBody: any = {
+      const poLine = selectedPoItemId ? poItems.find(it => it.id === selectedPoItemId) : null
+      let scaleKg = formData.quantity_received
+      if (poLine && !poLine.is_service) {
+        if (poLine.uom === 'l') {
+          const density = Number(poLine.material?.density_kg_per_l) || 0
+          if (!density) {
+            toast.error('Material sin densidad configurada para convertir litros a kg')
+            setLoading(false)
+            return
+          }
+          scaleKg = (receivedQtyEntered || 0) * density
+        } else if (poLine.uom === 'm3') {
+          scaleKg = receivedQtyEntered || 0
+        } else {
+          scaleKg = receivedQtyEntered > 0 ? receivedQtyEntered : formData.quantity_received
+        }
+      }
+
+      if (!formData.material_id || scaleKg <= 0) {
+        toast.error('Por favor complete todos los campos requeridos')
+        setLoading(false)
+        return
+      }
+
+      const requestBody: Record<string, unknown> = {
         ...formData,
+        quantity_received: scaleKg,
         plant_id: plantId,
         inventory_before: currentInventory || 0
       };
@@ -732,30 +763,21 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             return
           }
           
-          // Validate against remaining kg
-          let enteredKg = formData.quantity_received
-          if (receivedUom === 'l') {
-            const density = Number(item?.material?.density_kg_per_l) || 0
-            if (!density) {
-              toast.error('Material sin densidad configurada para convertir litros a kg')
-              setLoading(false)
-              return
-            }
-            enteredKg = (receivedQtyEntered || 0) * density
-          } else if (receivedQtyEntered > 0) {
-            enteredKg = receivedQtyEntered
-          }
-          if (enteredKg > (Number(item.remainingKg) || 0) + 1e-6) {
+          if (scaleKg > (Number(item.remainingKg) || 0) + 1e-6) {
             toast.error('La cantidad excede el saldo disponible del PO')
             setLoading(false)
             return
           }
-          // Apply PO linkage and kg quantity
+          // Apply PO linkage; cantidad siempre en kg para inventario (m³ se deriva en servidor)
           requestBody.po_item_id = selectedPoItemId
           requestBody.po_id = item?.po?.id
-          requestBody.received_uom = receivedUom
-          requestBody.received_qty_entered = receivedQtyEntered || formData.quantity_received
-          requestBody.quantity_received = enteredKg // store entries in kg
+          if (item.uom === 'm3') {
+            requestBody.received_uom = 'kg'
+            requestBody.received_qty_entered = scaleKg
+          } else {
+            requestBody.received_uom = receivedUom
+            requestBody.received_qty_entered = receivedQtyEntered || scaleKg
+          }
         }
       }
       
@@ -1012,81 +1034,95 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   const it = poItems.find(p => p.id === selectedPoItemId)
                   const isM3 = it && !it.is_service && it.uom === 'm3'
                   const isL = it && !it.is_service && it.uom === 'l'
-                  const effectiveUom: 'kg' | 'l' | 'm3' = isM3 ? 'm3' : (isL ? 'l' : 'kg')
+                  const volW =
+                    Number(it?.volumetric_weight_kg_per_m3) ||
+                    Number((it?.material as { bulk_density_kg_per_m3?: number } | undefined)?.bulk_density_kg_per_m3) ||
+                    0
+                  const previewM3 =
+                    isM3 && volW > 0 && receivedQtyEntered > 0 ? receivedQtyEntered / volW : null
                   return (
                     <>
                       <div className="flex items-center gap-2">
-                        <Label>Cantidad Ingresada *</Label>
+                        <Label>
+                          {isM3 ? 'Peso báscula (kg) *' : isL ? 'Volumen (L) *' : 'Cantidad (kg) *'}
+                        </Label>
                         {autoFilledFromPO.uom && (
                           <Badge variant="secondary" className="text-xs">
                             <CheckCircle2 className="h-3 w-3 mr-1" />
-                            UoM desde PO
+                            {isM3 ? 'OC en m³ · entrada en kg' : 'UoM desde PO'}
                           </Badge>
                         )}
                       </div>
-                      <div className="flex gap-2">
-                        <select
-                          className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm"
-                          value={effectiveUom}
-                          onChange={(e) => {
-                            setReceivedUom(e.target.value as any)
-                            if (autoFilledFromPO.uom) {
-                              setAutoFilledFromPO(prev => ({ ...prev, uom: false }))
-                            }
-                          }}
-                          disabled={isM3}
-                        >
-                          <option value="kg">kg</option>
-                          <option value="l">l</option>
-                          <option value="m3">m3</option>
-                        </select>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          placeholder="0.00"
-                          value={receivedQtyEntered || ''}
-                          onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
-                          required
-                          className={receivedQtyEntered > 0 ? 'bg-stone-50' : ''}
-                        />
-                      </div>
-                      {isM3 && (
-                        <div className="mt-2">
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs text-stone-600">Peso volumétrico (kg/m³)</Label>
-                            {autoFilledFromPO.volumetricWeight && (
-                              <Badge variant="secondary" className="text-xs">
-                                <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Desde PO
-                              </Badge>
-                            )}
-                          </div>
-                          <Input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={volumetricWeight || ''}
+                      {!isM3 && (
+                        <div className="flex gap-2">
+                          <select
+                            className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm"
+                            value={isL ? 'l' : 'kg'}
                             onChange={(e) => {
-                              setVolumetricWeight(parseFloat(e.target.value) || undefined)
-                              if (autoFilledFromPO.volumetricWeight) {
-                                setAutoFilledFromPO(prev => ({ ...prev, volumetricWeight: false }))
+                              setReceivedUom(e.target.value as 'kg' | 'l' | 'm3')
+                              if (autoFilledFromPO.uom) {
+                                setAutoFilledFromPO(prev => ({ ...prev, uom: false }))
                               }
                             }}
-                            placeholder="Ej. 1400"
-                            className={volumetricWeight ? 'bg-stone-50' : ''}
+                          >
+                            <option value="kg">kg</option>
+                            <option value="l">l</option>
+                          </select>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={receivedQtyEntered || ''}
+                            onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                            required
+                            className={receivedQtyEntered > 0 ? 'bg-stone-50' : ''}
                           />
-                          <p className="text-xs text-stone-500 mt-1">
-                            {autoFilledFromPO.volumetricWeight 
-                              ? 'Peso volumétrico definido en el PO'
-                              : 'Si el PO o un acuerdo de proveedor define el valor, se usará automáticamente. Proporcione uno solo si no está definido.'}
-                          </p>
+                        </div>
+                      )}
+                      {isM3 && (
+                        <div className="space-y-2">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={receivedQtyEntered || ''}
+                            onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                            required
+                            className={receivedQtyEntered > 0 ? 'bg-stone-50' : ''}
+                          />
+                          {volW > 0 && (
+                            <p className="text-xs text-stone-600">
+                              Densidad acordada en OC:{' '}
+                              <span className="font-medium tabular-nums">{volW.toLocaleString('es-MX')} kg/m³</span>
+                              {previewM3 != null && (
+                                <>
+                                  {' '}
+                                  → ≈{' '}
+                                  <span className="font-medium tabular-nums">
+                                    {previewM3.toLocaleString('es-MX', { maximumFractionDigits: 3 })} m³
+                                  </span>{' '}
+                                  contra la línea (comercial)
+                                </>
+                              )}
+                            </p>
+                          )}
+                          {volW <= 0 && (
+                            <p className="text-xs text-amber-700">
+                              La línea de OC no tiene peso volumétrico (kg/m³). Complételo en la OC antes de recepcionar.
+                            </p>
+                          )}
                         </div>
                       )}
                       <p className="text-xs text-stone-500">
-                        {receivedQtyEntered > 0 && it?.qty_remaining_native !== undefined && receivedQtyEntered <= it.qty_remaining_native
-                          ? `✓ Sugerido desde PO. Restante: ${it.qty_remaining_native.toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${effectiveUom}`
-                          : 'Ingrese en el UoM seleccionado; se validará contra el saldo del PO.'}
+                        {receivedQtyEntered > 0 &&
+                        it &&
+                        (isM3
+                          ? Number(it.remainingKg) > 0 && receivedQtyEntered <= Number(it.remainingKg)
+                          : it.qty_remaining_native !== undefined && receivedQtyEntered <= it.qty_remaining_native)
+                          ? `✓ Sugerido desde PO. Saldo: ${isM3 ? `${Number(it.remainingKg).toLocaleString('es-MX')} kg` : `${Number(it.qty_remaining_native).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${isL ? 'L' : 'kg'}`}`
+                          : 'Se validará contra el saldo del PO (en kg para líneas m³).'}
                       </p>
                     </>
                   )
@@ -1545,8 +1581,25 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       kg (referencia)
                     </Badge>
                   )}
+                  {dosificadorPoLineForMaterial && dosificadorPoLineForMaterial.uom === 'm3' && (
+                    <Badge variant="outline" className="text-[10px] border-sky-300 bg-white text-sky-950">
+                      Saldo por recibir (báscula):{' '}
+                      {(dosificadorPoLineForMaterial.remaining_kg ?? 0).toLocaleString('es-MX', {
+                        maximumFractionDigits: 0,
+                      })}{' '}
+                      kg · OC{' '}
+                      {dosificadorPoLineForMaterial.qty_remaining.toLocaleString('es-MX', {
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      m³
+                      {dosificadorPoLineForMaterial.volumetric_weight_kg_per_m3
+                        ? ` · ${Number(dosificadorPoLineForMaterial.volumetric_weight_kg_per_m3).toLocaleString('es-MX')} kg/m³`
+                        : ''}
+                    </Badge>
+                  )}
                   {dosificadorPoLineForMaterial &&
                     dosificadorPoLineForMaterial.uom !== 'kg' &&
+                    dosificadorPoLineForMaterial.uom !== 'm3' &&
                     dosificadorPoLineForMaterial.qty_remaining > 0 && (
                       <span className="text-xs text-stone-600">
                         Saldo por recibir en OC:{' '}

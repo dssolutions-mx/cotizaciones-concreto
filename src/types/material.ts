@@ -6,6 +6,8 @@ export interface Material {
   subcategory?: string;
   unit_of_measure: string;
   density?: number;
+  /** kg/m³ fallback when PO line has no agreed volumetric weight */
+  bulk_density_kg_per_m3?: number | null;
   specific_gravity?: number;
   absorption_rate?: number;
   fineness_modulus?: number;

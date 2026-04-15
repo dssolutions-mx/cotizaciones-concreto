@@ -67,8 +67,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     qty_ordered: payload.qty_ordered,
     unit_price: payload.unit_price,
     required_by: payload.required_by ?? null,
+    qty_received_native: 0,
+    qty_received_kg: 0,
   };
-  if (!payload.is_service && payload.uom === 'm3' && payload.volumetric_weight_kg_per_m3 !== undefined) {
+  if (!payload.is_service && payload.uom === 'm3') {
     insertPayload.volumetric_weight_kg_per_m3 = payload.volumetric_weight_kg_per_m3;
   }
   // Add material_supplier_id for fleet/service items

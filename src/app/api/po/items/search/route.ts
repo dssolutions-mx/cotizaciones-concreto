@@ -75,7 +75,12 @@ export async function GET(request: NextRequest) {
   ];
   const matById = new Map<
     string,
-    { id: string; material_name?: string | null; density_kg_per_l?: number | null; bulk_density_kg_per_m3?: number | null }
+    {
+      id: string;
+      material_name?: string | null;
+      density_kg_per_l?: number | null;
+      bulk_density_kg_per_m3?: number | null;
+    }
   >();
   if (materialIds.length > 0) {
     const { data: mats } = await supabase
@@ -99,26 +104,37 @@ export async function GET(request: NextRequest) {
   }
 
   // Compute remaining quantity server-side for convenience
-  const items = rows.map((it: any) => {
+  const items = rows.map((it: Record<string, unknown> & { uom?: string | null; is_service?: boolean }) => {
     const ordered = Number(it.qty_ordered) || 0;
-    const received = Number(it.qty_received) || 0;
-    const remaining = Math.max(ordered - received, 0);
-    
-    // For materials: also compute in kg if needed for display
+    const receivedNative = Number(it.qty_received ?? (it as { qty_received_native?: number }).qty_received_native ?? 0) || 0;
+    const remaining = Math.max(ordered - receivedNative, 0);
+
+    // For materials: also compute in kg (báscula) for validation against weighed receipts
     if (!it.is_service) {
       let orderedKg = ordered;
+      let receivedKg = receivedNative;
       if (it.uom === 'l') {
-        const density = Number(it.material?.density_kg_per_l) || 0;
-        if (density) orderedKg *= density;
+        const density = Number((it.material as { density_kg_per_l?: number | null } | null)?.density_kg_per_l) || 0;
+        if (density) {
+          orderedKg = ordered * density;
+          receivedKg = receivedNative * density;
+        }
+      } else if (it.uom === 'm3') {
+        const lineVol = Number((it as { volumetric_weight_kg_per_m3?: number | null }).volumetric_weight_kg_per_m3) || 0;
+        const matBulk = Number((it.material as { bulk_density_kg_per_m3?: number | null } | null)?.bulk_density_kg_per_m3) || 0;
+        const volW = lineVol > 0 ? lineVol : matBulk;
+        if (volW > 0) {
+          orderedKg = ordered * volW;
+        }
+        const storedKg = Number((it as { qty_received_kg?: number | null }).qty_received_kg ?? 0) || 0;
+        receivedKg = storedKg > 0 ? storedKg : receivedNative * (volW > 0 ? volW : 0);
       }
-      const receivedKg = received; // already in kg for materials
       const remainingKg = Math.max(orderedKg - receivedKg, 0);
       return { ...it, orderedKg, receivedKg, remainingKg, qty_remaining: remaining };
     }
-    
-    // For services: use native UoM (trips, tons, etc.)
+
     return { ...it, qty_remaining: remaining };
-  }).filter((it: any) => (it.qty_remaining || it.remainingKg || 0) > 0);
+  }).filter((it: { qty_remaining?: number; remainingKg?: number }) => (Number(it.qty_remaining) || Number(it.remainingKg) || 0) > 0);
 
   return NextResponse.json({ items });
 }

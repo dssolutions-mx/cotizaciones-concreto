@@ -86,9 +86,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         uom,
         qty_ordered,
         qty_received,
+        qty_received_kg,
+        volumetric_weight_kg_per_m3,
         status,
         is_service,
-        material:materials!material_id ( id, material_name )
+        material:materials!material_id ( id, material_name, bulk_density_kg_per_m3 )
       `
       )
       .eq('po_id', poId)
@@ -106,19 +108,35 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const supplier = Array.isArray(po.supplier) ? po.supplier[0] : po.supplier;
 
-    const items = (rawItems || []).map((row: any) => {
+    const items = (rawItems || []).map((row: Record<string, unknown>) => {
       const ordered = Number(row.qty_ordered) || 0;
       const received = Number(row.qty_received) || 0;
       const remaining = Math.max(ordered - received, 0);
       const mat = Array.isArray(row.material) ? row.material[0] : row.material;
+      const matRow = mat as { material_name?: string; bulk_density_kg_per_m3?: number | null } | undefined;
+      const uom = (row.uom as string) || 'kg';
+      const lineVol =
+        Number(row.volumetric_weight_kg_per_m3) || Number(matRow?.bulk_density_kg_per_m3) || 0;
+      const storedRecvKg = Number(row.qty_received_kg) || 0;
+      let remaining_kg: number | undefined;
+      if (uom === 'm3' && lineVol > 0) {
+        const orderedKg = ordered * lineVol;
+        const recvKg = storedRecvKg > 0 ? storedRecvKg : received * lineVol;
+        remaining_kg = Math.max(orderedKg - recvKg, 0);
+      } else if (uom === 'kg') {
+        remaining_kg = remaining;
+      }
       return {
         id: row.id as string,
         material_id: row.material_id as string | null,
-        material_name: (mat?.material_name as string) || 'Material',
-        uom: (row.uom as string) || 'kg',
+        material_name: (matRow?.material_name as string) || 'Material',
+        uom,
         qty_ordered: ordered,
         qty_received: received,
         qty_remaining: remaining,
+        remaining_kg,
+        volumetric_weight_kg_per_m3:
+          row.volumetric_weight_kg_per_m3 != null ? Number(row.volumetric_weight_kg_per_m3) : null,
         status: row.status as string,
       };
     });

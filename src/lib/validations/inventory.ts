@@ -33,6 +33,8 @@ const BaseMaterialEntryInputSchema = z.object({
   po_item_id: optionalUuidField('ID de ítem de PO debe ser un UUID válido'),
   received_uom: MaterialUomSchema.optional(),
   received_qty_entered: z.number().positive('Cantidad ingresada debe ser positiva').optional(),
+  /** kg desde báscula (útil en PUT al vincular línea m³) */
+  received_qty_kg: z.number().nonnegative().optional(),
   volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(), // used only when received_uom='m3' and no PO/agreement/default
   // Fleet Purchase Order linkage
   fleet_po_id: optionalUuidField('ID de PO de flota debe ser un UUID válido'),

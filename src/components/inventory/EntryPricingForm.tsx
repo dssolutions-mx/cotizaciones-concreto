@@ -51,9 +51,18 @@ function buildPrefillFromMaterialEntry(
   const rawUom = entry.received_uom
   const quantityUom: 'kg' | 'l' | 'm3' = rawUom === 'l' || rawUom === 'm3' ? rawUom : 'kg'
   let suggestedQty = 1
-  if (quantityUom === 'l' || quantityUom === 'm3') {
+  if (quantityUom === 'l') {
     const n = Number(entry.received_qty_entered ?? entry.quantity_received ?? 0)
     suggestedQty = Number.isFinite(n) && n > 0 ? n : 1
+  } else if (quantityUom === 'm3') {
+    const m3Direct = Number(entry.received_qty_entered ?? 0)
+    if (entry.received_uom === 'm3' && Number.isFinite(m3Direct) && m3Direct > 0) {
+      suggestedQty = m3Direct
+    } else {
+      const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+      const vol = Number(entry.volumetric_weight_kg_per_m3 ?? 0)
+      suggestedQty = vol > 0 && kg > 0 ? kg / vol : 1
+    }
   } else {
     const n = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
     suggestedQty = Number.isFinite(n) && n > 0 ? n : 1
@@ -64,6 +73,16 @@ function buildPrefillFromMaterialEntry(
     materialId: entry.material_id,
     suggestedQty,
     quantityUom,
+    volumetricWeightKgPerM3:
+      quantityUom === 'm3'
+        ? Number(entry.volumetric_weight_kg_per_m3) > 0
+          ? Number(entry.volumetric_weight_kg_per_m3)
+          : (() => {
+              const bulk = Number(entry.material?.bulk_density_kg_per_m3) || Number(entry.material?.density) || 0
+              const u = (entry.material?.unit_of_measure || '').toLowerCase().replace(/³/g, '3')
+              return bulk > 0 && u.includes('kg/m') ? bulk : undefined
+            })()
+        : undefined,
     notesHint: `Creada desde revisión de precios · entrada ${entry.entry_number || entry.id.slice(0, 8)}`,
   }
 }
@@ -93,6 +112,7 @@ type PoLineItem = {
   qty_ordered: number | null
   qty_received?: number | null
   qty_received_native?: number | null
+  volumetric_weight_kg_per_m3?: number | null
   is_service: boolean
 }
 
@@ -264,6 +284,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
           id: selectedMaterialSearchItem.id, uom: selectedMaterialSearchItem.uom,
           unit_price: selectedMaterialSearchItem.unit_price, qty_ordered: selectedMaterialSearchItem.qty_ordered,
           qty_received: selectedMaterialSearchItem.qty_received, qty_received_native: selectedMaterialSearchItem.qty_received_native,
+          volumetric_weight_kg_per_m3: (selectedMaterialSearchItem as { volumetric_weight_kg_per_m3?: number | null }).volumetric_weight_kg_per_m3,
           is_service: false,
         }
       : null
@@ -284,8 +305,20 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   const qtyForMaterialCost = useMemo(() => {
     const uom = resolvedMaterialLineForCalc?.uom
-    if (uom === 'm3' || uom === 'l') {
+    if (uom === 'l') {
       return Number(entry.received_qty_entered ?? entry.quantity_received ?? 0)
+    }
+    if (uom === 'm3') {
+      const m3Stored = Number(entry.received_qty_entered ?? 0)
+      if (entry.received_uom === 'm3' && Number.isFinite(m3Stored) && m3Stored > 0) {
+        return m3Stored
+      }
+      const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+      const vol =
+        Number(resolvedMaterialLineForCalc?.volumetric_weight_kg_per_m3) ||
+        Number(entry.volumetric_weight_kg_per_m3 ?? 0)
+      if (vol > 0 && kg > 0) return kg / vol
+      return Number.isFinite(m3Stored) && m3Stored > 0 ? m3Stored : 0
     }
     return Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
   }, [entry, resolvedMaterialLineForCalc])
@@ -452,7 +485,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         if (!itemsRes.ok) { if (!cancelled) setMaterialPoItem(null); return }
         const data = await itemsRes.json()
         const items: PoLineItem[] = data.items || []
-        const line = items.find((i) => i.id === entry.po_item_id) || null
+        const line = (items.find((i) => i.id === entry.po_item_id) || null) as PoLineItem | null
         if (!cancelled) setMaterialPoItem(line)
       } catch { if (!cancelled) { setMaterialPoItem(null); setMaterialPoHeader(null) } }
       finally { if (!cancelled) setMaterialPoLoading(false) }
@@ -819,6 +852,36 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             </AlertDescription>
           </Alert>
         )}
+
+        {(resolvedMaterialLineForCalc?.uom === 'm3' || entry.received_uom === 'm3') &&
+          (() => {
+            const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
+            const volW =
+              Number(entry.volumetric_weight_kg_per_m3) ||
+              Number(resolvedMaterialLineForCalc?.volumetric_weight_kg_per_m3) ||
+              null
+            const m3 =
+              entry.received_uom === 'm3' && Number(entry.received_qty_entered ?? 0) > 0
+                ? Number(entry.received_qty_entered)
+                : volW && kg > 0
+                  ? kg / volW
+                  : null
+            if (!kg || !volW || m3 == null || !Number.isFinite(m3)) return null
+            return (
+              <Alert className="border-sky-200 bg-sky-50/80 text-sky-950 [&>svg]:text-sky-700">
+                <FileText className="h-4 w-4" />
+                <AlertTitle>Recepción m³ (OC comercial)</AlertTitle>
+                <AlertDescription className="text-sm mt-1">
+                  <span className="tabular-nums font-medium">{kg.toLocaleString('es-MX')} kg</span> en báscula ÷{' '}
+                  <span className="tabular-nums font-medium">{volW.toLocaleString('es-MX')} kg/m³</span> (acordado) ≈{' '}
+                  <span className="tabular-nums font-medium">
+                    {m3.toLocaleString('es-MX', { maximumFractionDigits: 3 })} m³
+                  </span>{' '}
+                  para totalizar a precio / m³.
+                </AlertDescription>
+              </Alert>
+            )
+          })()}
 
         {/* ─── 1. Supplier (only if missing) ─── */}
         {!entry.supplier_id && (

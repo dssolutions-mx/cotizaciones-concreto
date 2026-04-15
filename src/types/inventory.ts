@@ -57,6 +57,8 @@ export interface MaterialEntry {
     material_name: string;
     category: string;
     unit_of_measure: string;
+    density?: number | null;
+    bulk_density_kg_per_m3?: number | null;
   };
   entered_by_user?: {
     id: string;

@@ -58,6 +58,8 @@ export type PrefillFromMaterialEntry = {
   materialId: string
   suggestedQty: number
   quantityUom: 'kg' | 'l' | 'm3'
+  /** kg/m³ para prellenar líneas en m³ (revisión de precios) */
+  volumetricWeightKgPerM3?: number
   /** Notas del encabezado (trazabilidad) */
   notesHint?: string
 }
@@ -187,6 +189,9 @@ export default function CreatePOModal({
         qty_ordered: qty,
         unit_price: 0,
         total: 0,
+        ...(uom === 'm3' && prefillFromMaterialEntry.volumetricWeightKgPerM3
+          ? { volumetric_weight_kg_per_m3: prefillFromMaterialEntry.volumetricWeightKgPerM3 }
+          : {}),
       },
     ])
     setStep('header')

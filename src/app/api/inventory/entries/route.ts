@@ -7,6 +7,7 @@ import {
   UpdateMaterialEntrySchema 
 } from '@/lib/validations/inventory';
 import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
+import { resolveVolumetricWeightKgPerM3 } from '@/lib/inventory/volumetricWeight';
 
 /** Merge document_count per entry from inventory_documents (type entry). */
 async function attachEntryDocumentCounts(
@@ -144,7 +145,9 @@ export async function GET(request: NextRequest) {
           id,
           material_name,
           category,
-          unit_of_measure
+          unit_of_measure,
+          density,
+          bulk_density_kg_per_m3
         ),
         entered_by_user:user_profiles!entered_by (
           id,
@@ -538,13 +541,75 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    /** m³ OC: báscula envía kg; derivamos m³ con densidad acordada en la línea */
+    let m3Receipt:
+      | {
+          received_uom: 'm3';
+          received_qty_entered: number;
+          received_qty_kg: number;
+          volumetric_weight_kg_per_m3: number;
+          volumetric_weight_source: string;
+        }
+      | null = null;
+
+    if (effectivePoItemId) {
+      const { data: poItemForCreate } = await supabase
+        .from('purchase_order_items')
+        .select(
+          'uom, is_service, volumetric_weight_kg_per_m3, material_id, po:purchase_orders!po_id(supplier_id)'
+        )
+        .eq('id', effectivePoItemId)
+        .single();
+
+      if (poItemForCreate && !poItemForCreate.is_service && poItemForCreate.uom === 'm3') {
+        const { data: matForCreate } = await supabase
+          .from('materials')
+          .select('bulk_density_kg_per_m3')
+          .eq('id', validatedData.material_id)
+          .single();
+
+        const poEmb = poItemForCreate as {
+          po?: { supplier_id?: string };
+          volumetric_weight_kg_per_m3?: number | null;
+          material_id?: string | null;
+        };
+        const resolved = await resolveVolumetricWeightKgPerM3(supabase, {
+          poItemVolumetricKgPerM3: poItemForCreate.volumetric_weight_kg_per_m3,
+          supplierId: poEmb.po?.supplier_id,
+          materialId: poItemForCreate.material_id,
+          materialBulkDensityKgPerM3: matForCreate?.bulk_density_kg_per_m3 ?? null,
+          entryOverride: validatedData.volumetric_weight_kg_per_m3 ?? null,
+        });
+        if (!resolved) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                'Se requiere peso volumétrico (kg/m³) en la línea de OC, acuerdo de proveedor o material para recepciones en m³',
+            },
+            { status: 400 }
+          );
+        }
+        const kgFromScale = validatedData.quantity_received;
+        m3Receipt = {
+          received_uom: 'm3',
+          received_qty_entered: kgFromScale / resolved.volW,
+          received_qty_kg: kgFromScale,
+          volumetric_weight_kg_per_m3: resolved.volW,
+          volumetric_weight_source: resolved.volSource,
+        };
+      }
+    }
+
     // Calculate received quantity in kg for FIFO tracking
     const receivedQtyKg =
-      validatedData.received_uom === 'l' && validatedData.received_qty_entered
-        ? null // liters pass-through; not converting
-        : effectivePoItemId && (validatedData as { received_qty_kg?: number }).received_qty_kg
-          ? (validatedData as { received_qty_kg?: number }).received_qty_kg!
-          : validatedData.quantity_received;
+      m3Receipt != null
+        ? m3Receipt.received_qty_kg
+        : validatedData.received_uom === 'l' && validatedData.received_qty_entered
+          ? null // liters pass-through; not converting
+          : effectivePoItemId && (validatedData as { received_qty_kg?: number }).received_qty_kg
+            ? (validatedData as { received_qty_kg?: number }).received_qty_kg!
+            : validatedData.quantity_received;
 
     // Create material entry (optional immediate PO linkage on create)
     const entryData = {
@@ -557,10 +622,21 @@ export async function POST(request: NextRequest) {
       quantity_received: validatedData.quantity_received,
       po_id: effectivePoId,
       po_item_id: effectivePoItemId,
-      received_uom: validatedData.received_uom || (effectivePoItemId ? 'kg' : null),
+      received_uom:
+        m3Receipt?.received_uom ??
+        validatedData.received_uom ??
+        (effectivePoItemId ? 'kg' : null),
       received_qty_entered:
-        validatedData.received_qty_entered || (effectivePoItemId ? validatedData.quantity_received : null),
+        m3Receipt?.received_qty_entered ??
+        validatedData.received_qty_entered ??
+        (effectivePoItemId ? validatedData.quantity_received : null),
       received_qty_kg: receivedQtyKg,
+      ...(m3Receipt
+        ? {
+            volumetric_weight_kg_per_m3: m3Receipt.volumetric_weight_kg_per_m3,
+            volumetric_weight_source: m3Receipt.volumetric_weight_source,
+          }
+        : {}),
       remaining_quantity_kg: receivedQtyKg, // Initialize FIFO remaining quantity
       supplier_invoice: validatedData.supplier_invoice || null,
       inventory_before: inventoryBefore,
@@ -859,46 +935,40 @@ export async function PUT(request: NextRequest) {
         updatePayload.received_qty_entered = newReceivedNative;
         updatePayload.received_qty_kg = null; // no conversion for liters
       }
-      // m3: resolve volumetric weight and compute kg
+      // m3: báscula/inventario en kg; OC comercial en m³ — derivar m³ = kg / densidad acordada
       else if (!poItem.is_service && poItem.uom === 'm3') {
-        const enteredM3 = updateData.received_qty_entered ?? updateData.quantity_received ?? currentEntry.received_qty_entered ?? currentEntry.quantity_received ?? 0;
-        newReceivedNative = Number(enteredM3) || 0;
         nativeUom = 'm3';
-        // Resolve volumetric weight
-        let volW: number | null = poItem.volumetric_weight_kg_per_m3 ?? null;
-        let volSource: string | null = volW ? 'po_item' : null;
-        if (!volW) {
-          // Try supplier agreement
-          const supplierId = poItem.po.supplier_id;
-          const { data: agreement } = await supabase
-            .from('supplier_agreements')
-            .select('volumetric_weight_kg_per_m3')
-            .eq('supplier_id', supplierId)
-            .eq('is_service', false)
-            .eq('material_id', poItem.material_id)
-            .is('effective_to', null)
-            .limit(1)
-            .single();
-          if (agreement?.volumetric_weight_kg_per_m3) {
-            volW = Number(agreement.volumetric_weight_kg_per_m3);
-            volSource = 'supplier_agreement';
-          }
+        const resolved = await resolveVolumetricWeightKgPerM3(supabase, {
+          poItemVolumetricKgPerM3: poItem.volumetric_weight_kg_per_m3,
+          supplierId: poItem.po.supplier_id,
+          materialId: poItem.material_id,
+          materialBulkDensityKgPerM3: poItem.material?.bulk_density_kg_per_m3 ?? null,
+          entryOverride: updateData.volumetric_weight_kg_per_m3 ?? null,
+        });
+        if (!resolved) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                'Se requiere peso volumétrico (kg/m³) en la línea de OC, acuerdo de proveedor o material para recepciones en m³',
+            },
+            { status: 400 }
+          );
         }
-        if (!volW && poItem.material?.bulk_density_kg_per_m3) {
-          volW = Number(poItem.material.bulk_density_kg_per_m3);
-          volSource = 'material_default';
-        }
-        if (!volW && updateData.volumetric_weight_kg_per_m3) {
-          volW = Number(updateData.volumetric_weight_kg_per_m3);
-          volSource = 'entry';
-        }
-        if (!volW) {
-          return NextResponse.json({ success: false, error: 'Se requiere peso volumétrico (kg/m³) para convertir m³ a kg' }, { status: 400 });
-        }
-        newReceivedKg = newReceivedNative * volW;
+        const { volW, volSource } = resolved;
+        const kgEntered = Number(
+          updateData.received_qty_kg ??
+            updateData.quantity_received ??
+            currentEntry.received_qty_kg ??
+            currentEntry.quantity_received ??
+            0
+        );
+        newReceivedKg = kgEntered;
+        newReceivedNative = volW > 0 ? kgEntered / volW : 0;
         updatePayload.received_uom = 'm3';
         updatePayload.received_qty_entered = newReceivedNative;
         updatePayload.received_qty_kg = newReceivedKg;
+        updatePayload.quantity_received = newReceivedKg;
         updatePayload.volumetric_weight_kg_per_m3 = volW;
         updatePayload.volumetric_weight_source = volSource;
       }
@@ -937,12 +1007,13 @@ export async function PUT(request: NextRequest) {
 
       // Enforce price lock by default for materials (services handled elsewhere)
       if (!poItem.is_service) {
-        const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMINISTRATIVE';
+        const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS';
         if (!elevated || updateData.unit_price === undefined) {
           updatePayload.unit_price = Number(poItem.unit_price);
         }
-        if (updatePayload.unit_price !== undefined && (updateData.total_cost === undefined)) {
-          const qtyForCost = newReceivedNative; // cost based on native UoM price
+        if (updatePayload.unit_price !== undefined && updateData.total_cost === undefined) {
+          // Precio OC en UoM nativa (m³, kg, L)
+          const qtyForCost = newReceivedNative;
           updatePayload.total_cost = Number(updatePayload.unit_price) * qtyForCost;
         }
       }
