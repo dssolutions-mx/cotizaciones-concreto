@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POItemInputSchema } from '@/lib/validations/po';
 import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles';
@@ -51,8 +52,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS'];
   if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await request.json();
-  const payload = POItemInputSchema.parse({ ...body, po_id: id });
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Cuerpo JSON inválido' }, { status: 400 });
+  }
+
+  let payload: z.infer<typeof POItemInputSchema>;
+  try {
+    payload = POItemInputSchema.parse({ ...(body as object), po_id: id });
+  } catch (err: unknown) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Datos inválidos', details: err.flatten() }, { status: 400 });
+    }
+    throw err;
+  }
 
   if (!payload.is_service && !payload.uom) {
     return NextResponse.json({ error: 'UoM es requerido para materiales' }, { status: 400 });
@@ -115,7 +130,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .select('*')
     .single();
 
-  if (error) return NextResponse.json({ error: 'Failed to create PO item' }, { status: 500 });
+  if (error) {
+    console.error('PO item insert failed:', error.message, error);
+    return NextResponse.json(
+      { error: 'Failed to create PO item', details: error.message },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ item: data }, { status: 201 });
 }
 

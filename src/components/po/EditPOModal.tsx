@@ -225,6 +225,13 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
       toast.error('Precio no puede ser negativo')
       return
     }
+    if (!itemForm.is_service && itemForm.uom === 'm3') {
+      const v = itemForm.volumetric_weight_kg_per_m3
+      if (v == null || !(v > 0)) {
+        toast.error('Ingrese peso volumétrico acordado (kg/m³) para líneas en m³')
+        return
+      }
+    }
 
     if (editingItemId) {
       // Update existing
@@ -322,6 +329,9 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         if (item.required_by) {
           payload.required_by = item.required_by
         }
+        if (!item.is_service && item.uom === 'm3' && item.volumetric_weight_kg_per_m3 != null) {
+          payload.volumetric_weight_kg_per_m3 = item.volumetric_weight_kg_per_m3
+        }
 
         const res = await fetch(`/api/po/${poId}/items`, {
           method: 'POST',
@@ -330,8 +340,14 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
         })
 
         if (!res.ok) {
-          const errorData = await res.json()
-          throw new Error(errorData.error || 'Failed to create item')
+          const errorData = await res.json().catch(() => ({} as { error?: string; details?: unknown }))
+          let msg = typeof errorData.error === 'string' ? errorData.error : 'Failed to create item'
+          const flat = errorData.details as { formErrors?: string[]; fieldErrors?: Record<string, string[]> } | undefined
+          const hint =
+            flat?.formErrors?.[0] ||
+            (flat?.fieldErrors && Object.values(flat.fieldErrors).flat().filter(Boolean)[0])
+          if (hint) msg = `${msg}: ${hint}`
+          throw new Error(msg)
         }
       }
 
@@ -729,7 +745,13 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                     <div className="mt-1.5">
                       <Select
                         value={itemForm.uom || 'kg'}
-                        onValueChange={(v) => setItemForm(f => ({ ...f, uom: v as any }))}
+                        onValueChange={(v) =>
+                          setItemForm((f) => ({
+                            ...f,
+                            uom: v as POItem['uom'],
+                            volumetric_weight_kg_per_m3: v === 'm3' ? f.volumetric_weight_kg_per_m3 : undefined,
+                          }))
+                        }
                       >
                         <SelectTrigger className="text-base">
                           <SelectValue />
@@ -759,7 +781,10 @@ export default function EditPOModal({ open, onClose, onSuccess, poId, plantId }:
                           placeholder="Ej. 1400"
                           className="text-base"
                         />
-                        <p className="mt-1 text-xs text-gray-500">Si se define aquí, las entradas usarán este valor por defecto para convertir m³→kg. Litros no requieren conversión.</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          Densidad acordada con el proveedor (kg/m³). La báscula registra kg; el sistema convierte a m³ para la OC
+                          comercial (kg ÷ este valor).
+                        </p>
                       </div>
                     </div>
                   )}
