@@ -648,7 +648,8 @@ export async function POST(request: NextRequest) {
       fleet_po_item_id: validatedData.fleet_po_item_id || null,
       fleet_qty_entered: validatedData.fleet_qty_entered || null,
       fleet_uom: validatedData.fleet_uom || null,
-      fleet_supplier_id: validatedData.fleet_supplier_id || null
+      fleet_supplier_id: validatedData.fleet_supplier_id || null,
+      fleet_invoice: validatedData.fleet_invoice?.trim() || null,
     };
 
     console.log('Inserting entry data:', entryData);

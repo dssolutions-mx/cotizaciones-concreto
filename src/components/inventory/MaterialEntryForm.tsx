@@ -149,6 +149,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     supplier_id: '',
     supplier_invoice: '',
     fleet_supplier_id: '',
+    fleet_invoice: '',
     notes: '',
     entry_date: new Date().toISOString().split('T')[0]
   })
@@ -195,7 +196,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   /** supplier_id last applied from linked PO — ref avoids re-fetch loops in useEffect */
   const supplierAutoFromPoRef = useRef<string | null>(null)
   const [dosificadorSupplierOverride, setDosificadorSupplierOverride] = useState(false)
-  const [fleetPoHeader, setFleetPoHeader] = useState<{ po_number: string | null } | null>(null)
 
   const selectedFulfillmentAlert = useMemo(
     () => fulfillmentAlerts.find((a) => a.id === selectedFulfillmentAlertId),
@@ -230,6 +230,14 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
+
+  const dosificadorFleetIncomplete = Boolean(
+    isDosificador &&
+      (!formData.fleet_supplier_id || !String(formData.fleet_invoice || '').trim())
+  )
+  const dosificadorFleetUrgentHint = Boolean(
+    isDosificador && selectedFulfillmentAlert?.needs_fleet && dosificadorFleetIncomplete
+  )
 
   // Fetch existing documents when entry is created
   const fetchExistingDocuments = async (entryId: string) => {
@@ -280,11 +288,17 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     }
     
     urlAlertLock.current = false
-    setFormData(prev => ({ ...prev, material_id: materialId }))
+    setFormData((prev) => ({
+      ...prev,
+      material_id: materialId,
+      fleet_supplier_id: '',
+      fleet_invoice: '',
+    }))
+    setSelectedFleetPoItemId('')
+    setFleetQtyEntered(0)
     setFulfillmentAlerts([])
     setSelectedFulfillmentAlertId('')
     setEntrySuccessInfo(null)
-    setFleetPoHeader(null)
     supplierAutoFromPoRef.current = null
     setDosificadorReceiptContext(null)
     setDosificadorSupplierOverride(false)
@@ -368,9 +382,21 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   useEffect(() => {
     if (profile?.role === 'DOSIFICADOR') {
       setAdvancedPoOpen(false)
-      setFleetSectionOpen(false)
     }
   }, [profile?.role])
+
+  useEffect(() => {
+    setSelectedFleetPoItemId('')
+    setFleetQtyEntered(0)
+    if (isDosificador) {
+      setFormData((prev) => ({ ...prev, fleet_supplier_id: '', fleet_invoice: '' }))
+    }
+  }, [selectedFulfillmentAlertId, isDosificador])
+
+  useEffect(() => {
+    if (!isDosificador || !selectedFulfillmentAlert?.needs_fleet) return
+    setFleetSectionOpen(true)
+  }, [isDosificador, selectedFulfillmentAlert?.needs_fleet, selectedFulfillmentAlertId])
 
   useEffect(() => {
     if (!isDosificador) {
@@ -484,27 +510,6 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       urlAlertLock.current = true
     }
   }, [searchParams, fulfillmentAlerts, fulfillmentAlertsLoading])
-
-  useEffect(() => {
-    const fid = selectedFulfillmentAlert?.fleet_po_id
-    if (!isDosificador || !fid) {
-      setFleetPoHeader(null)
-      return
-    }
-    let cancelled = false
-    fetch(`/api/po/${fid}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (cancelled || !d?.purchase_order) return
-        setFleetPoHeader({ po_number: d.purchase_order.po_number ?? null })
-      })
-      .catch(() => {
-        if (!cancelled) setFleetPoHeader(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isDosificador, selectedFulfillmentAlert?.fleet_po_id])
 
   // Auto-fill form fields when PO item is selected
   useEffect(() => {
@@ -719,6 +724,17 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       return
     }
 
+    if (
+      isDosificador &&
+      selectedFulfillmentAlert?.needs_fleet &&
+      (!formData.fleet_supplier_id || !String(formData.fleet_invoice || '').trim())
+    ) {
+      const proceed = window.confirm(
+        'Esta solicitud indica flete aparte del material. ¿Continuar sin registrar transportista y remisión de flota?'
+      )
+      if (!proceed) return
+    }
+
     console.log('Submitting with plant_id:', plantId);
     
     setLoading(true)
@@ -752,7 +768,10 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         quantity_received: scaleKg,
         plant_id: plantId,
         inventory_before: currentInventory || 0
-      };
+      }
+      const fleetInv = String(formData.fleet_invoice || '').trim()
+      if (fleetInv) requestBody.fleet_invoice = fleetInv
+      else delete requestBody.fleet_invoice
       if (selectedPoItemId) {
         const item = poItems.find(it => it.id === selectedPoItemId)
         if (item) {
@@ -786,7 +805,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         requestBody.alert_id = selectedFulfillmentAlertId
       }
 
-      if (selectedFleetPoItemId) {
+      if (!isDosificador && selectedFleetPoItemId) {
         const fleetItem = fleetPoItems.find(it => it.id === selectedFleetPoItemId)
         if (fleetItem) {
           // Validate that fleet PO's material_supplier_id matches selected material supplier
@@ -848,6 +867,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           supplier_id: '',
           supplier_invoice: '',
           fleet_supplier_id: '',
+          fleet_invoice: '',
           notes: '',
           entry_date: new Date().toISOString().split('T')[0]
         })
@@ -941,19 +961,19 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       {isDosificador && selectedFulfillmentAlert?.needs_fleet && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 flex items-start gap-2">
           <Truck className="h-4 w-4 shrink-0 mt-0.5 text-amber-800" />
-          <div>
-            <p className="font-medium">Esta solicitud requiere flete independiente del proveedor de material.</p>
-            {selectedFulfillmentAlert.fleet_po_id && fleetPoHeader && (
-              <p className="text-xs text-amber-900 mt-1">
-                OC de flete vinculada:{' '}
-                <span className="font-mono">{fleetPoHeader.po_number || selectedFulfillmentAlert.fleet_po_id.slice(0, 8)}</span>
+          <div className="space-y-2">
+            <p className="font-medium leading-snug">
+              En esta solicitud suele haber <strong>camión o fletera aparte</strong> del proveedor del material.
+            </p>
+            <p className="text-xs text-amber-900/95 leading-relaxed">
+              En báscula: si quien entrega el camión te dio <strong>otra remisión o guía</strong> (no es la misma que la
+              mercancía), o la unidad es de una línea de transporte,               captura esos datos en la sección <strong>«Transporte»</strong> más adelante: quién transportó y el folio del
+              papel del <strong>viaje</strong>.
+            </p>
+            {dosificadorFleetIncomplete && (
+              <p className="text-xs font-medium text-amber-950 border-t border-amber-200/80 pt-2 mt-1">
+                Aún faltan transportista o remisión del flete — revísalo antes de guardar.
               </p>
-            )}
-            {selectedFulfillmentAlert.fleet_po_id && !fleetPoHeader && (
-              <p className="text-xs text-amber-800 mt-1">OC de flete registrada en la solicitud.</p>
-            )}
-            {!selectedFulfillmentAlert.fleet_po_id && (
-              <p className="text-xs text-amber-800 mt-1">El equipo de compras gestionará la OC de transporte.</p>
             )}
           </div>
         </div>
@@ -1310,6 +1330,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             <Badge variant="outline" className="text-[10px] h-5 border-stone-200">
                               {ALERT_STATUS_SHORT[a.status] ?? a.status.replace(/_/g, ' ')}
                             </Badge>
+                            {a.needs_fleet && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] h-5 gap-0.5 border-amber-300 bg-amber-50/90 text-amber-950"
+                              >
+                                <Truck className="h-3 w-3" />
+                                Flete
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-sm font-semibold text-stone-900 mt-1">{matName}</p>
                           {a.physical_count_kg != null && a.physical_count_kg > 0 && (
@@ -1877,7 +1906,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             </CardTitle>
             <CardDescription>
               {isDosificador
-                ? 'Si la solicitud tiene OC, el proveedor y el material se confirman en la OC (arriba). Aquí: remisión y evidencia de esta recepción. “Corregir” solo si el proveedor físico no coincide.'
+                ? 'Remisión del proveedor del material. Si hubo camión de otra línea, también el bloque Transporte más abajo. “Corregir” solo si quien entregó no coincide con la OC.'
                 : 'Datos del proveedor y documentación'}
             </CardDescription>
           </CardHeader>
@@ -2054,106 +2083,191 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               )}
             </div>
           </div>
+
+          {isDosificador && (
+            <div className="flex gap-2.5 rounded-lg border border-stone-200 bg-[#f8f7f5] px-3 py-2.5 text-xs text-stone-800">
+              <Truck className="h-4 w-4 shrink-0 text-stone-500 mt-0.5" aria-hidden />
+              <p className="leading-relaxed">
+                <span className="font-semibold text-stone-900">Tip rápido:</span> si el material vino en{' '}
+                <strong>camión de una fletera</strong> o te dieron <strong>otra remisión</strong> que no es la del
+                proveedor del material, despliega <strong>Transporte</strong> abajo y captura transportista + folio del
+                viaje. Si todo vino con el mismo proveedor y un solo papel, no hace falta.
+              </p>
+            </div>
+          )}
           
-          {!isDosificador && (
           <Collapsible open={fleetSectionOpen} onOpenChange={setFleetSectionOpen} className="pt-2">
             <CollapsibleTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
-                className="w-full justify-between px-0 text-stone-700 hover:bg-transparent hover:text-stone-900"
+                className={cn(
+                  'w-full justify-between px-0 text-stone-700 hover:bg-transparent hover:text-stone-900',
+                  dosificadorFleetUrgentHint &&
+                    'rounded-md ring-2 ring-amber-300/70 ring-offset-2 ring-offset-[#fafaf9] px-1 -mx-1'
+                )}
               >
-                <span className="text-sm font-medium">Servicio de flota / transporte (opcional)</span>
+                <span className="text-sm font-medium flex items-center gap-2 flex-wrap text-left">
+                  {isDosificador ? (
+                    <>
+                      Transporte (camión / fletera)
+                      {dosificadorFleetUrgentHint ? (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] h-5 border-amber-400 text-amber-950 bg-amber-50 font-medium"
+                        >
+                          Falta anotar
+                        </Badge>
+                      ) : selectedFulfillmentAlert?.needs_fleet ? (
+                        <Badge variant="outline" className="text-[10px] h-5 border-stone-300 text-stone-700 bg-white">
+                          Suele aplicar
+                        </Badge>
+                      ) : (
+                        <span className="text-stone-500 font-normal text-xs">solo si hubo fletera u otro folio</span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Servicio de flota / transporte
+                      <span className="text-stone-500 font-normal">(opcional)</span>
+                    </>
+                  )}
+                </span>
                 <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', fleetSectionOpen && 'rotate-180')} />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-          <div className="pt-2 border-t border-stone-200">
-            <p className="text-xs text-stone-600 mb-3">
-              Vincule la recepción a una OC de transporte abierta. Puede elegir primero la OC (se rellena el transportista)
-              o filtrar por proveedor de flota.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {formData.supplier_id ? (
-                <div className="space-y-2 md:col-span-2">
-                  <Label>OC de flota / transporte (línea de servicio)</Label>
-                  <select
-                    className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
-                    value={selectedFleetPoItemId}
-                    onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
-                  >
-                    <option value="">Sin OC de flota</option>
-                    {fleetPoItems.length === 0 ? (
-                      <option disabled>No hay líneas de servicio abiertas para este material</option>
-                    ) : (
-                      fleetPoItems.map((it) => {
-                        const materialSupplierName = it.material_supplier?.name || 'Proveedor material'
-                        const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
-                        const carrier = it.po?.supplier?.name || 'Transportista'
-                        return (
-                          <option key={it.id} value={it.id}>
-                            {`OC ${poNum} · ${carrier} · ${it.service_description || 'Servicio'} · p. ${materialSupplierName} · Rest. ${(Number(it.qty_remaining) || 0).toLocaleString('es-MX')} ${it.uom}`}
-                          </option>
-                        )
-                      })
-                    )}
-                  </select>
-                  {fleetPoItems.length === 0 && (
-                    <p className="text-xs text-amber-700 mt-1">
-                      No hay OC de flota con saldo para el proveedor de material seleccionado
-                      {formData.fleet_supplier_id ? ' y el transportista indicado' : ''}. Cree una OC de servicio en
-                      compras o ajuste el filtro de transportista.
+              {isDosificador ? (
+                <div className="pt-2 border-t border-stone-200 space-y-4">
+                  <div className="rounded-md bg-stone-50/90 px-3 py-2.5 text-xs text-stone-700 space-y-2 leading-relaxed">
+                    <p>
+                      <span className="font-semibold text-stone-900">¿Qué va aquí?</span> Lo que consta en planta: la{' '}
+                      <strong>línea o nombre del transportista</strong> que trajo el camión y el{' '}
+                      <strong>número de remisión o guía</strong> del <strong>viaje</strong> (el papel del chofer o de la
+                      fletera).
                     </p>
-                  )}
+                    <p className="text-stone-600">
+                      No es la orden de compra de oficina: es lo que ves en la báscula cuando recibes. Si es el mismo
+                      proveedor del material y un solo documento, deja esto vacío.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="fleet_supplier_id_dos">¿Quién transportó? (transportista / fletera)</Label>
+                      <SupplierSelect
+                        value={formData.fleet_supplier_id || ''}
+                        onChange={(value: string) => {
+                          setFormData((prev) => ({ ...prev, fleet_supplier_id: value }))
+                        }}
+                        plantId={currentPlant?.id || profile?.plant_id || undefined}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="folio_remision_flete">Folio de remisión o guía del viaje</Label>
+                      <div className="relative">
+                        <Truck className="absolute left-3 top-3 h-4 w-4 text-stone-400" />
+                        <Input
+                          id="folio_remision_flete"
+                          value={formData.fleet_invoice || ''}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, fleet_invoice: e.target.value }))}
+                          className="pl-10"
+                          placeholder="Ej. folio que te entregaron en báscula"
+                          maxLength={100}
+                        />
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        El del <strong>camión / flete</strong>, no el de la remisión del proveedor del material (arriba).
+                      </p>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
-                  Seleccione primero el proveedor de material arriba para listar OC de flota vinculadas a esa compra.
-                </div>
-              )}
+                <div className="pt-2 border-t border-stone-200">
+                  <p className="text-xs text-stone-600 mb-3">
+                    Vincule la recepción a una OC de transporte abierta. Puede elegir primero la OC (se rellena el
+                    transportista) o filtrar por proveedor de flota.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {formData.supplier_id ? (
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>OC de flota / transporte (línea de servicio)</Label>
+                        <select
+                          className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                          value={selectedFleetPoItemId}
+                          onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
+                        >
+                          <option value="">Sin OC de flota</option>
+                          {fleetPoItems.length === 0 ? (
+                            <option disabled>No hay líneas de servicio abiertas para este material</option>
+                          ) : (
+                            fleetPoItems.map((it) => {
+                              const materialSupplierName = it.material_supplier?.name || 'Proveedor material'
+                              const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                              const carrier = it.po?.supplier?.name || 'Transportista'
+                              return (
+                                <option key={it.id} value={it.id}>
+                                  {`OC ${poNum} · ${carrier} · ${it.service_description || 'Servicio'} · p. ${materialSupplierName} · Rest. ${(Number(it.qty_remaining) || 0).toLocaleString('es-MX')} ${it.uom}`}
+                                </option>
+                              )
+                            })
+                          )}
+                        </select>
+                        {fleetPoItems.length === 0 && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            No hay OC de flota con saldo para el proveedor de material seleccionado
+                            {formData.fleet_supplier_id ? ' y el transportista indicado' : ''}. Cree una OC de servicio en
+                            compras o ajuste el filtro de transportista.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="md:col-span-2 rounded-md border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+                        Seleccione primero el proveedor de material arriba para listar OC de flota vinculadas a esa compra.
+                      </div>
+                    )}
 
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="fleet_supplier_id">Proveedor de flota (transportista)</Label>
-                <SupplierSelect
-                  value={formData.fleet_supplier_id || ''}
-                  onChange={(value: string) => {
-                    setFormData((prev) => ({ ...prev, fleet_supplier_id: value }))
-                    setSelectedFleetPoItemId('')
-                    setFleetQtyEntered(0)
-                  }}
-                  plantId={currentPlant?.id || profile?.plant_id || undefined}
-                />
-                <p className="text-xs text-stone-500">
-                  Opcional como filtro: al elegir transportista se acotan las OC de flota. Si elige una OC arriba, este
-                  campo se completa solo.
-                </p>
-              </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="fleet_supplier_id">Proveedor de flota (transportista)</Label>
+                      <SupplierSelect
+                        value={formData.fleet_supplier_id || ''}
+                        onChange={(value: string) => {
+                          setFormData((prev) => ({ ...prev, fleet_supplier_id: value }))
+                          setSelectedFleetPoItemId('')
+                          setFleetQtyEntered(0)
+                        }}
+                        plantId={currentPlant?.id || profile?.plant_id || undefined}
+                      />
+                      <p className="text-xs text-stone-500">
+                        Opcional como filtro: al elegir transportista se acotan las OC de flota. Si elige una OC arriba, este
+                        campo se completa solo.
+                      </p>
+                    </div>
 
-              {selectedFleetPoItemId && (
-                <div className="space-y-2 md:col-span-2">
-                  <Label>Cantidad de servicio (flota)</Label>
-                  <div className="flex gap-2 items-center">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="Cantidad"
-                      value={fleetQtyEntered || ''}
-                      onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
-                      className="max-w-xs"
-                    />
-                    <span className="text-sm text-stone-600">
-                      {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom || ''}
-                    </span>
+                    {selectedFleetPoItemId && (
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>Cantidad de servicio (flota)</Label>
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="Cantidad"
+                            value={fleetQtyEntered || ''}
+                            onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
+                            className="max-w-xs"
+                          />
+                          <span className="text-sm text-stone-600">
+                            {fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom || ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
+                      </div>
+                    )}
                   </div>
-                  <p className="text-xs text-stone-500">Ej.: viajes, toneladas, horas según la OC.</p>
                 </div>
               )}
-            </div>
-          </div>
             </CollapsibleContent>
           </Collapsible>
-          )}
         </CardContent>
       </Card>
       )}
@@ -2333,6 +2447,20 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 <span className="text-stone-500">Remisión: </span>
                 <span className="font-mono">{formData.supplier_invoice}</span>
               </p>
+              {(formData.fleet_supplier_id || String(formData.fleet_invoice || '').trim()) && (
+                <div className="pt-2 mt-2 border-t border-stone-200 space-y-1 text-xs">
+                  <p className="font-medium text-stone-700">Flota / transporte</p>
+                  {formData.fleet_supplier_id && (
+                    <p className="text-stone-600">Transportista seleccionado en el formulario.</p>
+                  )}
+                  {String(formData.fleet_invoice || '').trim() && (
+                    <p>
+                      <span className="text-stone-500">Remisión flota: </span>
+                      <span className="font-mono">{formData.fleet_invoice}</span>
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -2349,6 +2477,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               supplier_id: '',
               supplier_invoice: '',
               fleet_supplier_id: '',
+              fleet_invoice: '',
               notes: '',
               entry_date: new Date().toISOString().split('T')[0]
             })
