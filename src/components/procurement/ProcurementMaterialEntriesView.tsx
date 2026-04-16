@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import React, { useEffect, useState, useCallback, useMemo, useRef, startTransition } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { format, subDays } from 'date-fns'
@@ -323,7 +323,9 @@ export default function ProcurementMaterialEntriesView({
       plant_id?: string | null
       entradas_view?: 'list' | 'precios' | 'revisadas' | null
     }) => {
-      const p = new URLSearchParams(searchParams.toString())
+      const p = new URLSearchParams(
+        typeof window !== 'undefined' ? window.location.search : searchParams.toString()
+      )
       p.set('tab', 'entradas')
       if (next.plant_id !== undefined) {
         if (next.plant_id) p.set('plant_id', next.plant_id)
@@ -343,8 +345,12 @@ export default function ProcurementMaterialEntriesView({
         else if (next.entradas_view === 'list') p.set('entradas_view', 'list')
         else p.delete('entradas_view')
       }
-      const path = pathname || '/finanzas/procurement'
-      router.replace(`${path}?${p.toString()}`, { scroll: false })
+      const path =
+        typeof window !== 'undefined' ? window.location.pathname : pathname || '/finanzas/procurement'
+      const qs = p.toString()
+      startTransition(() => {
+        router.replace(qs ? `${path}?${qs}` : `${path}?`, { scroll: false })
+      })
     },
     [router, pathname, searchParams]
   )
@@ -744,6 +750,7 @@ export default function ProcurementMaterialEntriesView({
         <Tabs
           value={entradasView}
           onValueChange={(v) => setEntradasView(v as 'list' | 'precios' | 'revisadas')}
+          activationMode="manual"
           className="flex-1 min-h-0 flex flex-col"
         >
           <div className="flex items-center justify-between px-4 py-3 bg-white rounded-t-lg border border-stone-200">

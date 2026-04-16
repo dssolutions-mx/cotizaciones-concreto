@@ -50,7 +50,7 @@ import { toast } from "sonner";
 import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
-import { Pencil, Trash2, Plus, X, Save, Map, CreditCard, MapPin, ExternalLink, ChevronDown } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Save, Map, CreditCard, MapPin, ExternalLink, ChevronDown, RefreshCw } from "lucide-react";
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
@@ -564,9 +564,55 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 }
 
 // Componente para mostrar balance del cliente (Refactored with Shadcn Card)
-function ClientBalanceSummary({ clientId, balances }: { clientId: string; balances: ClientBalance[] }) {
+function ClientBalanceSummary({
+  clientId,
+  balances,
+  sites,
+  onBalancesRefresh,
+}: {
+  clientId: string;
+  balances: ClientBalance[];
+  sites: ConstructionSite[];
+  onBalancesRefresh: () => Promise<void>;
+}) {
+  const [recalculatingBalances, setRecalculatingBalances] = useState(false);
   const generalBalance = balances.find(balance => balance.construction_site === null);
   const siteBalances = balances.filter(balance => balance.construction_site !== null);
+
+  const siteNamesForRecalc = useMemo(() => {
+    const fromBalances = balances
+      .map((b) => b.construction_site)
+      .filter((s): s is string => s != null && s !== '');
+    const fromSites = sites.map((s) => s.name).filter(Boolean);
+    return Array.from(new Set([...fromBalances, ...fromSites]));
+  }, [balances, sites]);
+
+  const handleRecalculateBalances = async () => {
+    setRecalculatingBalances(true);
+    try {
+      for (const siteName of siteNamesForRecalc) {
+        const { error } = await supabase.rpc('update_client_balance', {
+          p_client_id: clientId,
+          p_site_name: siteName,
+        });
+        if (error) throw error;
+      }
+      const { error: generalErr } = await supabase.rpc('update_client_balance', {
+        p_client_id: clientId,
+        p_site_name: null,
+      });
+      if (generalErr) throw generalErr;
+      toast.success('Saldos recalculados desde órdenes, pagos y ajustes.');
+      await onBalancesRefresh();
+    } catch (e) {
+      console.error('Error recalculating client balances:', e);
+      toast.error(
+        e instanceof Error ? e.message : 'No se pudieron recalcular los saldos.'
+      );
+    } finally {
+      setRecalculatingBalances(false);
+    }
+  };
 
   // Format balance helper
   const formatBal = (amount: number | undefined) => {
@@ -584,7 +630,25 @@ function ClientBalanceSummary({ clientId, balances }: { clientId: string; balanc
             </CardDescription>
           )}
         </div>
-        <ExportClientResearchButton clientId={clientId} />
+        <div className="flex flex-col gap-2 items-stretch sm:items-end shrink-0">
+          <RoleProtectedButton
+            allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR', 'SALES_AGENT']}
+            asChild
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="whitespace-nowrap"
+              disabled={recalculatingBalances}
+              onClick={handleRecalculateBalances}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${recalculatingBalances ? 'animate-spin' : ''}`} />
+              Recalcular saldos
+            </Button>
+          </RoleProtectedButton>
+          <ExportClientResearchButton clientId={clientId} />
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* General Balance */}
@@ -1885,6 +1949,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
     return generalBalance?.current_balance || 0;
   }, [balances]);
 
+  const refreshBalances = useCallback(async () => {
+    const fetchedBalances = await clientService.getClientBalances(clientId);
+    setBalances(fetchedBalances);
+  }, [clientId]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -2119,7 +2188,12 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
       <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         <div className="lg:col-span-1">
-          <ClientBalanceSummary clientId={clientId} balances={balances} />
+          <ClientBalanceSummary
+            clientId={clientId}
+            balances={balances}
+            sites={sites}
+            onBalancesRefresh={refreshBalances}
+          />
         </div>
 
         <div className="lg:col-span-2 xl:col-span-3 space-y-6">
