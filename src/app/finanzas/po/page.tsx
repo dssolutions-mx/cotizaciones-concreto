@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -18,6 +19,7 @@ import {
   Package, Truck, ChevronDown, ChevronUp, Edit2, ExternalLink,
   FileText, AlertTriangle, DollarSign, Clock, TrendingDown,
   ShoppingCart, Download, X, Search, CalendarDays, BookOpen, HelpCircle, Trash2,
+  RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -580,7 +582,10 @@ function POKPICards({
   )
 }
 
-export default function PurchaseOrdersPage() {
+export default function PurchaseOrdersPage({
+  embedded = false,
+  workspacePlantId,
+}: { embedded?: boolean; workspacePlantId?: string } = {}) {
   const searchParams = useSearchParams()
   const supplierIdFromUrl = searchParams.get('supplier_id') || undefined
   const poIdFromUrl = searchParams.get('po_id') || undefined
@@ -591,7 +596,23 @@ export default function PurchaseOrdersPage() {
 
   const [loading, setLoading] = useState(false)
   const [pos, setPos] = useState<any[]>([])
-  const [plant, setPlant] = useState<string>('')
+  const [plantState, setPlantState] = useState<string>('')
+  const plant = embedded ? (workspacePlantId ?? '') : plantState
+  const setPlant = useCallback((v: string) => { if (!embedded) setPlantState(v) }, [embedded])
+  const [showMetrics, setShowMetrics] = useState(false)
+  const metricsInitRef = useRef(false)
+  useEffect(() => {
+    if (!embedded || metricsInitRef.current) return
+    metricsInitRef.current = true
+    try {
+      const stored = localStorage.getItem('po_metrics_open')
+      if (stored === 'true') setShowMetrics(true)
+    } catch { /* ignore */ }
+  }, [embedded])
+  useEffect(() => {
+    if (!embedded) return
+    try { localStorage.setItem('po_metrics_open', String(showMetrics)) } catch { /* ignore */ }
+  }, [showMetrics, embedded])
   const [supplier, setSupplier] = useState<string>('')
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [status, setStatus] = useState<string>('all')
@@ -626,7 +647,17 @@ export default function PurchaseOrdersPage() {
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
   const mxnPrice = useMemo(() => createMxnPriceFormatter(), [])
 
-  const hasActiveFilters = plant || supplier || (status && status !== 'all') || (paymentTerms && paymentTerms !== 'all') || dateFrom || dateTo || poSearch
+  const pageMetrics = useMemo(() => {
+    let totalOrdered = 0, totalReceived = 0
+    for (const s of Object.values(batchSummaries)) {
+      totalOrdered += s.total_ordered_value
+      totalReceived += s.total_received_value
+    }
+    const activeCount = pos.filter(p => p.status === 'open' || p.status === 'partial').length
+    return { totalOrdered, totalReceived, activeCount }
+  }, [batchSummaries, pos])
+
+  const hasActiveFilters = (!embedded && !!plant) || !!supplier || (!!status && status !== 'all') || (!!paymentTerms && paymentTerms !== 'all') || !!dateFrom || !!dateTo || !!poSearch
 
   const fetchPOs = useCallback(async () => {
     setLoading(true)
@@ -772,7 +803,7 @@ export default function PurchaseOrdersPage() {
   }
 
   const clearFilters = () => {
-    setPlant('')
+    if (!embedded) setPlantState('')
     setSupplier('')
     setStatus('all')
     setPaymentTerms('all')
@@ -905,223 +936,342 @@ export default function PurchaseOrdersPage() {
       .then(data => setSuppliers(data.suppliers || []))
       .catch(() => setSuppliers([]))
     if (!plant && !supplierIdFromUrl) setSupplier('')
-  }, [plant, supplierIdFromUrl])
+  }, [plant, supplierIdFromUrl, workspacePlantId])
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Órdenes de Compra</h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestione pedidos a proveedores, materiales y servicios</p>
-          <Collapsible className="group mt-3 max-w-3xl">
-            <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-sky-800 hover:text-sky-950">
-              <HelpCircle className="h-4 w-4" />
-              ¿Qué es esta pantalla?
-              <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]:rotate-180" />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2 rounded-md border border-stone-200 bg-stone-50/80 px-3 py-3 text-sm text-stone-700 space-y-2">
-              <p>
-                Aquí se emiten y consultan las <strong className="font-medium text-stone-900">órdenes de compra (OC)</strong>.
-                Cada OC amarra precio y cantidades con el proveedor; las <strong className="font-medium text-stone-900">entradas de inventario</strong> registran lo recibido;
-                las facturas pasan a <strong className="font-medium text-stone-900">cuentas por pagar (CXP)</strong> y el pago se registra allí.
-              </p>
-              <p className="flex items-start gap-2 text-xs text-stone-600">
-                <BookOpen className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                <span>
-                  Referencia técnica (repositorio):{' '}
-                  <code className="rounded bg-stone-200/80 px-1 py-0.5 text-[11px]">docs/ERP_PROCUREMENT_SYSTEM_DATABASE_OVERVIEW.md</code>
-                  — incluye flujo de datos, tablas y créditos en líneas de OC.
-                </span>
-              </p>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={exportExcel} disabled={pos.length === 0} className="gap-2">
-            <Download className="h-4 w-4" />
-            Excel
-          </Button>
-          <Button variant="outline" size="sm" onClick={fetchPOs}>Actualizar</Button>
-          {canCreateOrEditPO && (
-            <Button
-              variant="primary"
-              size="sm"
-              className={cn(qualityHubPrimaryButtonClass, 'gap-0')}
-              onClick={() => setCreateOpen(true)}
-            >
-              <ShoppingCart className="h-4 w-4 mr-2" />
-              Nueva Orden
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* KPI cards */}
-      <POKPICards pos={pos} loading={loading} batchSummaries={batchSummaries} />
-
-      {/* Filters */}
-      <Card>
-        <CardHeader className="pb-3">
+    <div className={embedded ? "space-y-3" : "p-6 space-y-6"}>
+      {/* ── Standalone header (hidden when embedded) ── */}
+      {!embedded && (
+        <>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-base">Filtros</CardTitle>
-              <CardDescription>Planta, proveedor, estado, rango de fechas y número de orden</CardDescription>
+              <h1 className="text-2xl font-bold">Órdenes de Compra</h1>
+              <p className="text-sm text-muted-foreground mt-1">Gestione pedidos a proveedores, materiales y servicios</p>
+              <Collapsible className="group mt-3 max-w-3xl">
+                <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-sky-800 hover:text-sky-950">
+                  <HelpCircle className="h-4 w-4" />
+                  ¿Qué es esta pantalla?
+                  <ChevronDown className="h-4 w-4 transition-transform group-data-[state=open]:rotate-180" />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 rounded-md border border-stone-200 bg-stone-50/80 px-3 py-3 text-sm text-stone-700 space-y-2">
+                  <p>
+                    Aquí se emiten y consultan las <strong className="font-medium text-stone-900">órdenes de compra (OC)</strong>.
+                    Cada OC amarra precio y cantidades con el proveedor; las <strong className="font-medium text-stone-900">entradas de inventario</strong> registran lo recibido;
+                    las facturas pasan a <strong className="font-medium text-stone-900">cuentas por pagar (CXP)</strong> y el pago se registra allí.
+                  </p>
+                  <p className="flex items-start gap-2 text-xs text-stone-600">
+                    <BookOpen className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Referencia técnica (repositorio):{' '}
+                      <code className="rounded bg-stone-200/80 px-1 py-0.5 text-[11px]">docs/ERP_PROCUREMENT_SYSTEM_DATABASE_OVERVIEW.md</code>
+                      — incluye flujo de datos, tablas y créditos en líneas de OC.
+                    </span>
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground h-8">
-                <X className="h-3.5 w-3.5" />
-                Limpiar
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={exportExcel} disabled={pos.length === 0} className="gap-2">
+                <Download className="h-4 w-4" />
+                Excel
               </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3">
-            {/* PO search */}
-            <div className="xl:col-span-2">
-              <label className="text-xs text-muted-foreground">Buscar por No. Orden</label>
-              <div className="relative mt-1">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Ej. PO-2024-001"
-                  value={poSearch}
-                  onChange={e => setPoSearch(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-
-            {/* Plant */}
-            <div>
-              <label className="text-xs text-muted-foreground">Planta</label>
-              <Select value={plant || '_all'} onValueChange={v => setPlant(v === '_all' ? '' : v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_all">Todas las plantas</SelectItem>
-                  {availablePlants.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Supplier */}
-            <div>
-              <label className="text-xs text-muted-foreground">Proveedor</label>
-              <Select value={supplier || '_all'} onValueChange={v => setSupplier(v === '_all' ? '' : v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_all">Todos los proveedores</SelectItem>
-                  {suppliers.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Status */}
-            <div>
-              <label className="text-xs text-muted-foreground">Estado</label>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="active">Activas (abiertas + parciales)</SelectItem>
-                  <SelectItem value="open">Abierta</SelectItem>
-                  <SelectItem value="partial">Parcial</SelectItem>
-                  <SelectItem value="fulfilled">Completada</SelectItem>
-                  <SelectItem value="cancelled">Cancelada</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Payment terms */}
-            <div>
-              <label className="text-xs text-muted-foreground">Términos de pago</label>
-              <Select value={paymentTerms} onValueChange={setPaymentTerms}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {Object.entries(PAYMENT_TERMS_LABELS).map(([days, label]) => (
-                    <SelectItem key={days} value={days}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Date from */}
-            <div>
-              <label className="text-xs text-muted-foreground">Fecha desde</label>
-              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="mt-1" />
-            </div>
-
-            {/* Date to */}
-            <div>
-              <label className="text-xs text-muted-foreground">Fecha hasta</label>
-              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="mt-1" />
-            </div>
-          </div>
-
-          {/* Sort row */}
-          <div className="flex items-center gap-3 mt-3 pt-3 border-t">
-            <span className="text-xs text-muted-foreground shrink-0">Ordenar por:</span>
-            <div className="flex gap-2 flex-wrap">
-              {([
-                ['date_desc', 'Fecha reciente'],
-                ['date_asc', 'Fecha antigua'],
-                ['value_desc', 'Mayor valor'],
-              ] as const).map(([val, label]) => (
-                <button
-                  key={val}
-                  onClick={() => setSortBy(val)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    sortBy === val
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background border-border hover:bg-muted'
-                  }`}
+              <Button variant="outline" size="sm" onClick={fetchPOs}>Actualizar</Button>
+              {canCreateOrEditPO && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className={cn(qualityHubPrimaryButtonClass, 'gap-0')}
+                  onClick={() => setCreateOpen(true)}
                 >
-                  {label}
-                </button>
-              ))}
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  Nueva Orden
+                </Button>
+              )}
             </div>
           </div>
-        </CardContent>
-      </Card>
+          <POKPICards pos={pos} loading={loading} batchSummaries={batchSummaries} />
+          {/* Standalone full filters card */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Filtros</CardTitle>
+                  <CardDescription>Planta, proveedor, estado, rango de fechas y número de orden</CardDescription>
+                </div>
+                {hasActiveFilters && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-1 text-muted-foreground h-8">
+                    <X className="h-3.5 w-3.5" />
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3">
+                <div className="xl:col-span-2">
+                  <label className="text-xs text-muted-foreground">Buscar por No. Orden</label>
+                  <div className="relative mt-1">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Ej. PO-2024-001" value={poSearch} onChange={e => setPoSearch(e.target.value)} className="pl-9" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Planta</label>
+                  <Select value={plant || '_all'} onValueChange={v => setPlant(v === '_all' ? '' : v)}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Todas" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">Todas las plantas</SelectItem>
+                      {availablePlants.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Proveedor</label>
+                  <Select value={supplier || '_all'} onValueChange={v => setSupplier(v === '_all' ? '' : v)}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_all">Todos los proveedores</SelectItem>
+                      {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Estado</label>
+                  <Select value={status} onValueChange={setStatus}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="active">Activas (abiertas + parciales)</SelectItem>
+                      <SelectItem value="open">Abierta</SelectItem>
+                      <SelectItem value="partial">Parcial</SelectItem>
+                      <SelectItem value="fulfilled">Completada</SelectItem>
+                      <SelectItem value="cancelled">Cancelada</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Términos de pago</label>
+                  <Select value={paymentTerms} onValueChange={setPaymentTerms}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {Object.entries(PAYMENT_TERMS_LABELS).map(([days, label]) => <SelectItem key={days} value={days}>{label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Fecha desde</label>
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Fecha hasta</label>
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="mt-1" />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 mt-3 pt-3 border-t">
+                <span className="text-xs text-muted-foreground shrink-0">Ordenar por:</span>
+                <div className="flex gap-2 flex-wrap">
+                  {([['date_desc', 'Fecha reciente'], ['date_asc', 'Fecha antigua'], ['value_desc', 'Mayor valor']] as const).map(([val, label]) => (
+                    <button key={val} onClick={() => setSortBy(val)} className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${sortBy === val ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border hover:bg-muted'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
-      {/* PO List */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle>Listado de Órdenes</CardTitle>
-            {!loading && sortedPos.length > 0 && (
-              <span className="text-sm text-muted-foreground">
-                {page * pageSize + 1}–{page * pageSize + sortedPos.length} de {totalCount}
+      {/* ── Embedded compact toolbar ── */}
+      {embedded && (
+        <div className="space-y-2">
+          {/* Metrics strip */}
+          <div className="flex items-center justify-between border-b border-stone-100 pb-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-stone-600">
+              <span>
+                <span className="font-semibold text-stone-900 tabular-nums">{loading ? '…' : totalCount}</span>
+                <span className="ml-1 text-stone-400">órdenes</span>
               </span>
-            )}
+              <span className="text-stone-300 hidden sm:inline">·</span>
+              <span>
+                <span className="font-mono font-semibold text-stone-900 tabular-nums">{loading ? '…' : mxn.format(pageMetrics.totalOrdered)}</span>
+                <span className="ml-1 text-stone-400">ordenado</span>
+              </span>
+              <span className="text-stone-300 hidden sm:inline">·</span>
+              <span>
+                <span className="font-mono font-semibold text-green-700 tabular-nums">{loading ? '…' : mxn.format(pageMetrics.totalReceived)}</span>
+                <span className="ml-1 text-stone-400">recibido</span>
+              </span>
+              <span className="text-stone-300 hidden sm:inline">·</span>
+              <span>
+                <span className="font-semibold text-stone-900 tabular-nums">{loading ? '…' : pageMetrics.activeCount}</span>
+                <span className="ml-1 text-stone-400">activas</span>
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs text-stone-500 hover:text-stone-700 shrink-0"
+              onClick={() => setShowMetrics(m => !m)}
+            >
+              Métricas
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showMetrics && "rotate-180")} />
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent className={cn(detailPoId ? 'p-0 overflow-hidden' : undefined)}>
-          <div className={cn(detailPoId ? 'flex' : undefined)}>
-          <div className={cn(detailPoId ? 'flex-1 min-w-0 overflow-y-auto max-h-[65vh] px-6 pt-6 pb-4' : undefined)}>
-          {filterFromUrl === 'ready_close' && (
-            <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
-              Mostrando OC con recepción completa y estado aún abierto/parcial — listas para cerrar.
-            </p>
+
+          {/* Expandable KPI cards */}
+          {showMetrics && (
+            <div className="pb-1">
+              <POKPICards pos={pos} loading={loading} batchSummaries={batchSummaries} />
+            </div>
           )}
-          {filterFromUrl === 'stale_partial' && (
-            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-              Mostrando OC en estado parcial con más de 15 días desde la fecha de OC (revise entregas).
-            </p>
+
+          {/* Filter + actions toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Buscar OC…"
+                value={poSearch}
+                onChange={e => setPoSearch(e.target.value)}
+                className="pl-8 h-8 text-sm"
+              />
+            </div>
+            <Select value={supplier || '_all'} onValueChange={v => setSupplier(v === '_all' ? '' : v)}>
+              <SelectTrigger className="h-8 text-sm w-[140px]"><SelectValue placeholder="Proveedor" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all">Todos los proveedores</SelectItem>
+                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="h-8 text-sm w-[120px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Estado: Todos</SelectItem>
+                <SelectItem value="active">Activas</SelectItem>
+                <SelectItem value="open">Abierta</SelectItem>
+                <SelectItem value="partial">Parcial</SelectItem>
+                <SelectItem value="fulfilled">Completada</SelectItem>
+                <SelectItem value="cancelled">Cancelada</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={paymentTerms} onValueChange={setPaymentTerms}>
+              <SelectTrigger className="h-8 text-sm w-[130px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Términos: Todos</SelectItem>
+                {Object.entries(PAYMENT_TERMS_LABELS).map(([days, label]) => <SelectItem key={days} value={days}>{label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("h-8 gap-1.5 text-sm font-normal", (dateFrom || dateTo) && "border-sky-400 text-sky-800")}>
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {dateFrom || dateTo ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Rango'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3 space-y-2" align="start">
+                <div>
+                  <label className="text-xs text-muted-foreground">Desde</label>
+                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="mt-1 h-8 text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Hasta</label>
+                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="mt-1 h-8 text-sm" />
+                </div>
+                {(dateFrom || dateTo) && (
+                  <Button variant="ghost" size="sm" className="w-full h-7 text-xs text-muted-foreground" onClick={() => { setDateFrom(''); setDateTo('') }}>
+                    Limpiar rango
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+            <Select value={sortBy} onValueChange={v => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="h-8 text-sm w-[130px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date_desc">↓ Fecha reciente</SelectItem>
+                <SelectItem value="date_asc">↑ Fecha antigua</SelectItem>
+                <SelectItem value="value_desc">↓ Mayor valor</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="ml-auto flex items-center gap-1.5">
+              <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground" onClick={fetchPOs} title="Actualizar">
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={exportExcel} disabled={pos.length === 0}>
+                <Download className="h-3.5 w-3.5" />
+                Excel
+              </Button>
+              {canCreateOrEditPO && (
+                <Button size="sm" className={cn(qualityHubPrimaryButtonClass, "h-8")} onClick={() => setCreateOpen(true)}>
+                  <ShoppingCart className="h-3.5 w-3.5 mr-1.5" />
+                  Nueva Orden
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Active filter chips */}
+          {hasActiveFilters && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {supplier && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  {suppliers.find(s => s.id === supplier)?.name ?? 'Proveedor'}
+                  <button onClick={() => setSupplier('')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {status !== 'all' && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  {STATUS_LABELS[status] ?? status}
+                  <button onClick={() => setStatus('all')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {paymentTerms !== 'all' && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  {PAYMENT_TERMS_LABELS[Number(paymentTerms)] ?? paymentTerms}
+                  <button onClick={() => setPaymentTerms('all')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {dateFrom && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  Desde: {dateFrom}
+                  <button onClick={() => setDateFrom('')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {dateTo && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  Hasta: {dateTo}
+                  <button onClick={() => setDateTo('')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              {poSearch && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-xs text-stone-700">
+                  &ldquo;{poSearch}&rdquo;
+                  <button onClick={() => setPoSearch('')} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                </span>
+              )}
+              <button onClick={clearFilters} className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
+                Limpiar todo
+              </button>
+            </div>
           )}
+        </div>
+      )}
+
+      {/* PO List body — shared between embedded and standalone */}
+      {(() => {
+        const listBody = (
+          <>
+            {filterFromUrl === 'ready_close' && (
+              <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mb-3">
+                Mostrando OC con recepción completa y estado aún abierto/parcial — listas para cerrar.
+              </p>
+            )}
+            {filterFromUrl === 'stale_partial' && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                Mostrando OC en estado parcial con más de 15 días desde la fecha de OC (revise entregas).
+              </p>
+            )}
           {loading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-lg" />)}
@@ -1632,36 +1782,100 @@ export default function PurchaseOrdersPage() {
               </div>
             </div>
           )}
+          </>
+        )
+
+        const detailWrapper = (inner: React.ReactNode) => (
+          <div className={cn(detailPoId ? 'flex' : undefined)}>
+            <div className={cn(detailPoId ? 'flex-1 min-w-0 overflow-y-auto max-h-[65vh]' : undefined)}>
+              {inner}
+            </div>
+            {detailPoId && (() => {
+              const detailPo = pos.find(p => p.id === detailPoId)
+              if (!detailPo) return null
+              return (
+                <div className="hidden md:block">
+                  <PODetailPanel
+                    po={detailPo}
+                    items={poItems[detailPoId] || []}
+                    summary={poSummaries[detailPoId]}
+                    batchSummary={batchSummaries[detailPoId]}
+                    linkedAlerts={linkedAlertsByPo[detailPoId]}
+                    alertsLoading={linkedAlertsLoading[detailPoId] ?? false}
+                    payablesCount={relatedPayablesCount[detailPoId]}
+                    mxn={mxn}
+                    mxnPrice={mxnPrice}
+                    canEdit={canCreateOrEditPO}
+                    onEdit={() => { setSelectedPoId(detailPoId); setEditOpen(true) }}
+                    onDelete={() => {
+                      const p = pos.find(x => x.id === detailPoId)
+                      if (p) setDeleteTarget({ id: detailPoId, label: p.po_number || detailPoId.slice(0, 8) })
+                    }}
+                    onClose={() => setDetailPoId(null)}
+                  />
+                </div>
+              )
+            })()}
           </div>
-          {detailPoId && (() => {
-            const detailPo = pos.find(p => p.id === detailPoId)
-            if (!detailPo) return null
-            return (
-              <div className="hidden md:block">
-                <PODetailPanel
-                  po={detailPo}
-                  items={poItems[detailPoId] || []}
-                  summary={poSummaries[detailPoId]}
-                  batchSummary={batchSummaries[detailPoId]}
-                  linkedAlerts={linkedAlertsByPo[detailPoId]}
-                  alertsLoading={linkedAlertsLoading[detailPoId] ?? false}
-                  payablesCount={relatedPayablesCount[detailPoId]}
-                  mxn={mxn}
-                  mxnPrice={mxnPrice}
-                  canEdit={canCreateOrEditPO}
-                  onEdit={() => { setSelectedPoId(detailPoId); setEditOpen(true) }}
-                  onDelete={() => {
-                    const p = pos.find(x => x.id === detailPoId)
-                    if (p) setDeleteTarget({ id: detailPoId, label: p.po_number || detailPoId.slice(0, 8) })
-                  }}
-                  onClose={() => setDetailPoId(null)}
-                />
+        )
+
+        return embedded ? (
+          <div>
+            {!loading && sortedPos.length > 0 && (
+              <div className="text-xs text-muted-foreground mb-2">
+                {page * pageSize + 1}–{page * pageSize + sortedPos.length} de {totalCount}
               </div>
-            )
-          })()}
+            )}
+            {detailWrapper(listBody)}
           </div>
-        </CardContent>
-      </Card>
+        ) : (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle>Listado de Órdenes</CardTitle>
+                {!loading && sortedPos.length > 0 && (
+                  <span className="text-sm text-muted-foreground">
+                    {page * pageSize + 1}–{page * pageSize + sortedPos.length} de {totalCount}
+                  </span>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className={cn(detailPoId ? 'p-0 overflow-hidden' : undefined)}>
+              <div className={cn(detailPoId ? 'flex' : undefined)}>
+                <div className={cn(detailPoId ? 'flex-1 min-w-0 overflow-y-auto max-h-[65vh] px-6 pt-6 pb-4' : undefined)}>
+                  {listBody}
+                </div>
+                {detailPoId && (() => {
+                  const detailPo = pos.find(p => p.id === detailPoId)
+                  if (!detailPo) return null
+                  return (
+                    <div className="hidden md:block">
+                      <PODetailPanel
+                        po={detailPo}
+                        items={poItems[detailPoId] || []}
+                        summary={poSummaries[detailPoId]}
+                        batchSummary={batchSummaries[detailPoId]}
+                        linkedAlerts={linkedAlertsByPo[detailPoId]}
+                        alertsLoading={linkedAlertsLoading[detailPoId] ?? false}
+                        payablesCount={relatedPayablesCount[detailPoId]}
+                        mxn={mxn}
+                        mxnPrice={mxnPrice}
+                        canEdit={canCreateOrEditPO}
+                        onEdit={() => { setSelectedPoId(detailPoId); setEditOpen(true) }}
+                        onDelete={() => {
+                          const p = pos.find(x => x.id === detailPoId)
+                          if (p) setDeleteTarget({ id: detailPoId, label: p.po_number || detailPoId.slice(0, 8) })
+                        }}
+                        onClose={() => setDetailPoId(null)}
+                      />
+                    </div>
+                  )
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        )
+      })()}
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleteLoading && setDeleteTarget(null)}>
         <AlertDialogContent>

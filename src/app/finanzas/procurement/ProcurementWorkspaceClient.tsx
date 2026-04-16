@@ -39,6 +39,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import ProcurementHelpSheet from '@/components/procurement/ProcurementHelpSheet'
 import PurchaseOrdersPage from '@/app/finanzas/po/page'
 import CxpPage from '@/app/finanzas/cxp/page'
 import SupplierAnalysisPage from '@/app/finanzas/proveedores/analisis/page'
@@ -199,106 +200,10 @@ export default function ProcurementWorkspaceClient() {
     <div className={cn(
       entriesFocusMode && activeTab === 'entradas'
         ? "fixed inset-0 z-40 overflow-hidden flex flex-col bg-[#f5f3f0]"
-        : cn(
-            "p-4 md:p-6 max-w-[1600px] mx-auto",
-            activeTab === 'entradas'
-              ? "h-dvh overflow-hidden flex flex-col gap-4 md:gap-6"
-              : "space-y-6"
-          )
+        : activeTab === 'entradas'
+          ? "p-4 md:p-6 max-w-[1600px] mx-auto h-dvh overflow-hidden flex flex-col"
+          : "p-4 md:p-6 max-w-[1600px] mx-auto"
     )}>
-      {!entriesFocusMode && <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
-            Centro de compras e inventario
-          </h1>
-          <p className="text-sm text-stone-600 mt-1 max-w-2xl">
-            Un solo lugar para OC, proveedores, cuentas por pagar y seguimiento de alertas. El filtro de planta
-            aplica al resumen; use <strong className="font-medium text-stone-800">Todas las plantas</strong> para
-            ver la operación completa.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={workspacePlantId === '' ? 'all' : workspacePlantId} onValueChange={(v) => setWorkspacePlantId(v === 'all' ? '' : v)}>
-            <SelectTrigger className="w-[200px] border-stone-300 bg-white">
-              <SelectValue placeholder="Planta" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las plantas</SelectItem>
-              {plantList.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Input
-            type="month"
-            className="w-[160px] border-stone-300 bg-white"
-            value={periodMonth}
-            onChange={(e) => setPeriodMonth(e.target.value)}
-          />
-          {canCreatePO && (
-            <Button
-              type="button"
-              className="bg-sky-700 hover:bg-sky-800 text-white shadow-none"
-              onClick={() => setCreatePOOpen(true)}
-            >
-              <ShoppingCart className="h-4 w-4 mr-2" />
-              Nueva OC
-            </Button>
-          )}
-          <Button variant="outline" className="border-stone-300 bg-white" asChild>
-            <Link href="/finanzas">← Finanzas</Link>
-          </Button>
-        </div>
-      </div>}
-
-      {!entriesFocusMode && <ProcurementFlowNav plantId={workspacePlantId || undefined} />}
-
-      {activeTab !== 'entradas' && (
-        <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 rounded-full bg-sky-100 p-2 text-sky-800">
-              <Info className="h-4 w-4" aria-hidden />
-            </div>
-            <div className="min-w-0 space-y-2 text-sm text-stone-600">
-              <p className="font-medium text-stone-800">Coordinación del flujo de materiales</p>
-              <ol className="list-decimal list-inside space-y-1.5 text-stone-600">
-                <li>
-                  <span className="text-stone-700">Dosificador</span> confirma existencia física y pasa a validación.
-                </li>
-                <li>
-                  <span className="text-stone-700">Jefe de planta / unidad</span> valida, vincula OC existente o marca
-                  que hace falta una nueva.
-                </li>
-                <li>
-                  <span className="text-stone-700">Usted (operaciones)</span> crea o vincula la OC, programa la entrega y
-                  da seguimiento hasta el cierre en inventario.
-                </li>
-                <li>
-                  La entrada de material puede cerrar la alerta; puede abrirse desde Control de producción o al registrar
-                  la recepción.
-                </li>
-              </ol>
-              <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1 text-xs">
-                <Link
-                  href="/production-control"
-                  className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
-                >
-                  Control de producción <ExternalLink className="h-3 w-3" />
-                </Link>
-                <Link
-                  href="/production-control/alerts"
-                  className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
-                >
-                  Alertas (detalle) <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
@@ -307,43 +212,137 @@ export default function ProcurementWorkspaceClient() {
             ? "flex-1 min-h-0 flex flex-col"
             : activeTab === 'entradas'
               ? "flex-1 min-h-0 flex flex-col"
-              : "space-y-4"
+              : "flex flex-col"
         )}
       >
-        {!entriesFocusMode && <div className={cn("-mx-1 overflow-x-auto px-1 pb-0.5", activeTab === 'entradas' && "shrink-0 mb-4")}>
-        <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
-          <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <LayoutDashboard className="h-4 w-4" />
-            Resumen
-          </TabsTrigger>
-          <TabsTrigger value="inventario" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <Warehouse className="h-4 w-4" />
-            Inventario
-          </TabsTrigger>
-          <TabsTrigger value="consumos" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <Activity className="h-4 w-4" />
-            Consumos
-          </TabsTrigger>
-          <TabsTrigger value="po" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <Package className="h-4 w-4" />
-            Órdenes
-          </TabsTrigger>
-          <TabsTrigger value="entradas" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <ArrowDownToLine className="h-4 w-4" />
-            Entradas
-          </TabsTrigger>
-          <TabsTrigger value="cxp" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <CreditCard className="h-4 w-4" />
-            Por pagar
-          </TabsTrigger>
-          <TabsTrigger value="suppliers" className="gap-2 col-span-2 sm:col-span-1 lg:col-span-1 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
-            <BarChart3 className="h-4 w-4" />
-            Proveedores
-          </TabsTrigger>
-        </TabsList>
-        </div>}
+        {/* ── Sticky header: title + controls + tab bar ── */}
+        {!entriesFocusMode && (
+          <div className="sticky top-0 z-20 bg-[#f5f3f0]/95 backdrop-blur-sm -mx-4 md:-mx-6 px-4 md:px-6 pt-3 md:pt-4 pb-2 border-b border-stone-200/70 mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <h1 className="text-lg font-semibold tracking-tight text-stone-900">
+                Centro de compras e inventario
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={workspacePlantId === '' ? 'all' : workspacePlantId} onValueChange={(v) => setWorkspacePlantId(v === 'all' ? '' : v)}>
+                  <SelectTrigger className="w-[180px] h-8 text-sm border-stone-300 bg-white">
+                    <SelectValue placeholder="Planta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las plantas</SelectItem>
+                    {plantList.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {activeTab === 'resumen' && (
+                  <Input
+                    type="month"
+                    className="w-[140px] h-8 text-sm border-stone-300 bg-white"
+                    value={periodMonth}
+                    onChange={(e) => setPeriodMonth(e.target.value)}
+                  />
+                )}
+                {canCreatePO && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 bg-sky-700 hover:bg-sky-800 text-white shadow-none"
+                    onClick={() => setCreatePOOpen(true)}
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5 mr-1.5" />
+                    Nueva OC
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" className="h-8 border-stone-300 bg-white" asChild>
+                  <Link href="/finanzas">← Finanzas</Link>
+                </Button>
+                <ProcurementHelpSheet plantId={workspacePlantId || undefined} />
+              </div>
+            </div>
+            <div className={cn("-mx-1 overflow-x-auto px-1", activeTab === 'entradas' && "shrink-0")}>
+              <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
+                <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <LayoutDashboard className="h-4 w-4" />
+                  Resumen
+                </TabsTrigger>
+                <TabsTrigger value="inventario" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <Warehouse className="h-4 w-4" />
+                  Inventario
+                </TabsTrigger>
+                <TabsTrigger value="consumos" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <Activity className="h-4 w-4" />
+                  Consumos
+                </TabsTrigger>
+                <TabsTrigger value="po" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <Package className="h-4 w-4" />
+                  Órdenes
+                </TabsTrigger>
+                <TabsTrigger value="entradas" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <ArrowDownToLine className="h-4 w-4" />
+                  Entradas
+                </TabsTrigger>
+                <TabsTrigger value="cxp" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <CreditCard className="h-4 w-4" />
+                  Por pagar
+                </TabsTrigger>
+                <TabsTrigger value="suppliers" className="gap-2 col-span-2 sm:col-span-1 lg:col-span-1 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <BarChart3 className="h-4 w-4" />
+                  Proveedores
+                </TabsTrigger>
+              </TabsList>
+            </div>
+          </div>
+        )}
 
-        <TabsContent value="resumen" className="space-y-4">
+        {/* Resumen-only: flow nav + coordination callout */}
+        {!entriesFocusMode && activeTab === 'resumen' && (
+          <ProcurementFlowNav plantId={workspacePlantId || undefined} />
+        )}
+        {activeTab === 'resumen' && (
+          <div className="rounded-lg border border-stone-200 bg-[#faf9f7] p-4 md:p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-full bg-sky-100 p-2 text-sky-800">
+                <Info className="h-4 w-4" aria-hidden />
+              </div>
+              <div className="min-w-0 space-y-2 text-sm text-stone-600">
+                <p className="font-medium text-stone-800">Coordinación del flujo de materiales</p>
+                <ol className="list-decimal list-inside space-y-1.5 text-stone-600">
+                  <li>
+                    <span className="text-stone-700">Dosificador</span> confirma existencia física y pasa a validación.
+                  </li>
+                  <li>
+                    <span className="text-stone-700">Jefe de planta / unidad</span> valida, vincula OC existente o marca
+                    que hace falta una nueva.
+                  </li>
+                  <li>
+                    <span className="text-stone-700">Usted (operaciones)</span> crea o vincula la OC, programa la entrega y
+                    da seguimiento hasta el cierre en inventario.
+                  </li>
+                  <li>
+                    La entrada de material puede cerrar la alerta; puede abrirse desde Control de producción o al registrar
+                    la recepción.
+                  </li>
+                </ol>
+                <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1 text-xs">
+                  <Link
+                    href="/production-control"
+                    className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
+                  >
+                    Control de producción <ExternalLink className="h-3 w-3" />
+                  </Link>
+                  <Link
+                    href="/production-control/alerts"
+                    className="inline-flex items-center gap-1 text-sky-800 hover:text-sky-950 font-medium"
+                  >
+                    Alertas (detalle) <ChevronRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <TabsContent value="resumen" className="space-y-4 mt-0">
           <ActionCenter
             key={`${actionQueueKey}-${workspacePlantId || 'all'}`}
             plantId={workspacePlantId || undefined}
@@ -500,10 +499,8 @@ export default function ProcurementWorkspaceClient() {
           <DailyConsumptionsView workspacePlantId={workspacePlantId} />
         </TabsContent>
 
-        <TabsContent value="po" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          <div className="p-2 md:p-4">
-            <PurchaseOrdersPage />
-          </div>
+        <TabsContent value="po" className="mt-0">
+          <PurchaseOrdersPage embedded workspacePlantId={workspacePlantId || undefined} />
         </TabsContent>
 
         <TabsContent value="entradas" className="flex-1 min-h-0 mt-0">
