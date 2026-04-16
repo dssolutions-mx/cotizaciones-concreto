@@ -8,6 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
+import { getDefaultPathForRole } from '@/lib/auth/default-route';
 
 // Create a client component that uses useSearchParams
 function LoginForm() {
@@ -51,23 +52,7 @@ function LoginForm() {
         return;
       }
       
-      // Determine target based on role
-      let target = '/dashboard';
-
-      switch (profile.role) {
-        case 'EXTERNAL_CLIENT':
-          target = '/client-portal';
-          break;
-        case 'QUALITY_TEAM':
-          target = '/quality/muestreos';
-          break;
-        case 'LABORATORY':
-        case 'PLANT_MANAGER':
-          target = '/quality';
-          break;
-        default:
-          target = '/dashboard';
-      }
+      const target = getDefaultPathForRole(profile.role);
 
       console.log(`[Login] Redirecting authenticated ${profile.role} user to ${target}`);
       router.push(target);

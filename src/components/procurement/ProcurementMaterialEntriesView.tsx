@@ -261,6 +261,7 @@ export default function ProcurementMaterialEntriesView({
   const entryIdFromUrl = searchParams.get('entry_id') || undefined
   const plantIdFromUrl = searchParams.get('plant_id') || undefined
   const entradasViewRaw = searchParams.get('entradas_view')
+  // absent, entradas_view=list, or legacy/unknown values → Historial (list)
   const entradasView =
     entradasViewRaw === 'precios'
       ? 'precios'
@@ -339,6 +340,7 @@ export default function ProcurementMaterialEntriesView({
       if (next.entradas_view !== undefined) {
         if (next.entradas_view === 'precios') p.set('entradas_view', 'precios')
         else if (next.entradas_view === 'revisadas') p.set('entradas_view', 'revisadas')
+        else if (next.entradas_view === 'list') p.set('entradas_view', 'list')
         else p.delete('entradas_view')
       }
       const path = pathname || '/finanzas/procurement'
@@ -349,9 +351,8 @@ export default function ProcurementMaterialEntriesView({
 
   const setEntradasView = useCallback(
     (v: 'list' | 'precios' | 'revisadas') => {
-      replaceQuery({
-        entradas_view: v === 'list' ? null : v,
-      })
+      autoPreciosAppliedRef.current = true
+      replaceQuery({ entradas_view: v })
     },
     [replaceQuery]
   )

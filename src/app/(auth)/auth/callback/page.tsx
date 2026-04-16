@@ -4,6 +4,7 @@ import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Import the singleton instance instead of the createClient function
 import { supabase } from '@/lib/supabase';
+import { getDefaultPathForRole } from '@/lib/auth/default-route';
 
 // Component that uses useSearchParams
 function AuthCallbackHandler() {
@@ -27,18 +28,7 @@ function AuthCallbackHandler() {
         .single();
 
       const role = (profileData as any)?.role as string | undefined;
-
-      switch (role) {
-        case 'EXTERNAL_CLIENT':
-          return '/client-portal';
-        case 'QUALITY_TEAM':
-          return '/quality/muestreos';
-        case 'LABORATORY':
-        case 'PLANT_MANAGER':
-          return '/quality';
-        default:
-          return '/dashboard';
-      }
+      return getDefaultPathForRole(role);
     } catch (err) {
       console.error('Error getting redirect target:', err);
       return '/dashboard';

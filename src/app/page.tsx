@@ -1,22 +1,22 @@
-'use client';
+import { redirect } from 'next/navigation';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getDefaultPathForRole } from '@/lib/auth/default-route';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+export default async function Home() {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-export default function Home() {
-  const router = useRouter();
-  
-  useEffect(() => {
-    // Redirect to the existing landing page
-    router.replace('/landing');
-  }, [router]);
-  
-  return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="text-center">
-        <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-        <p className="mt-4 text-gray-600">Cargando...</p>
-      </div>
-    </div>
-  );
-} 
+  if (!user) {
+    redirect('/landing');
+  }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+  redirect(getDefaultPathForRole(profile?.role as string | undefined));
+}
