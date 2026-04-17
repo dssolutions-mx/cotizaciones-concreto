@@ -36,6 +36,7 @@ type SupplierRow = {
   plant_id: string
   is_active: boolean
   default_payment_terms_days: number | null
+  provider_letter?: string | null
 }
 
 export type SupplierPlantOption = {
@@ -127,6 +128,52 @@ export default function SupplierManagementPanel({
     setCreateOpen(true)
   }
 
+  const createNumberParseError = useMemo(() => {
+    const t = createProviderNumber.trim()
+    if (!t) return null
+    const n = parseInt(t, 10)
+    if (!Number.isInteger(n) || n < 1 || n > 99) {
+      return 'Debe ser un entero entre 1 y 99 (restricción de la base de datos).'
+    }
+    return null
+  }, [createProviderNumber])
+
+  const createDuplicateNumberError = useMemo(() => {
+    if (!createPlantId || createNumberParseError) return null
+    const n = parseInt(createProviderNumber, 10)
+    if (!Number.isInteger(n) || n < 1 || n > 99) return null
+    if (suppliers.some((s) => s.provider_number === n && s.plant_id === createPlantId)) {
+      return `Ya hay un proveedor con el número ${n} en ${plantLabel(createPlantId)}.`
+    }
+    return null
+  }, [createPlantId, createNumberParseError, createProviderNumber, plantLabel, suppliers])
+
+  const normalizedCreateLetter = useMemo(
+    () => createLetter.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1),
+    [createLetter]
+  )
+
+  const createDuplicateLetterError = useMemo(() => {
+    if (!normalizedCreateLetter || !createPlantId) return null
+    if (
+      suppliers.some(
+        (s) =>
+          s.plant_id === createPlantId &&
+          s.provider_letter &&
+          String(s.provider_letter).toUpperCase() === normalizedCreateLetter
+      )
+    ) {
+      return 'Esa letra ya está en uso en esta planta. Elija otra o deje el campo vacío.'
+    }
+    return null
+  }, [createPlantId, normalizedCreateLetter, suppliers])
+
+  const createFormHasBlockingErrors = !!(
+    createNumberParseError ||
+    createDuplicateNumberError ||
+    createDuplicateLetterError
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return suppliers
@@ -215,6 +262,10 @@ export default function SupplierManagementPanel({
       toast.error('Seleccione la planta del proveedor')
       return
     }
+    if (createNumberParseError || createDuplicateNumberError || createDuplicateLetterError) {
+      toast.error('Revise los campos marcados en rojo antes de guardar.')
+      return
+    }
 
     let default_payment_terms_days: number | null = 30
     if (createPresetTerms === 'unset') {
@@ -238,7 +289,20 @@ export default function SupplierManagementPanel({
       return
     }
 
-    const letter = createLetter.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
+    const letter = normalizedCreateLetter
+
+    if (
+      letter &&
+      suppliers.some(
+        (s) =>
+          s.plant_id === createPlantId &&
+          s.provider_letter &&
+          String(s.provider_letter).toUpperCase() === letter
+      )
+    ) {
+      toast.error('Esa letra ya está en uso en esta planta.')
+      return
+    }
 
     setCreateSaving(true)
     try {
@@ -338,23 +402,47 @@ export default function SupplierManagementPanel({
                     type="number"
                     min={1}
                     max={99}
-                    className="border-stone-300 tabular-nums"
+                    className={cn(
+                      'tabular-nums',
+                      createNumberParseError || createDuplicateNumberError
+                        ? 'border-red-400 focus-visible:ring-red-200'
+                        : 'border-stone-300'
+                    )}
                     value={createProviderNumber}
                     onChange={(e) => setCreateProviderNumber(e.target.value)}
                     onWheel={(e) => e.currentTarget.blur()}
+                    aria-invalid={!!(createNumberParseError || createDuplicateNumberError)}
                   />
+                  <p className="text-[11px] text-stone-500 leading-snug">
+                    Entero del 1 al 99. Debe ser único por planta.
+                  </p>
+                  {(createNumberParseError || createDuplicateNumberError) && (
+                    <p className="text-[11px] text-red-700">{createNumberParseError || createDuplicateNumberError}</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="create_letter">Letra</Label>
                   <Input
                     id="create_letter"
                     maxLength={1}
-                    className="border-stone-300 uppercase"
+                    className={cn(
+                      'uppercase',
+                      createDuplicateLetterError
+                        ? 'border-red-400 focus-visible:ring-red-200'
+                        : 'border-stone-300'
+                    )}
                     value={createLetter}
                     onChange={(e) =>
                       setCreateLetter(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))
                     }
+                    aria-invalid={!!createDuplicateLetterError}
                   />
+                  <p className="text-[11px] text-stone-500 leading-snug">
+                    Opcional. Una letra A–Z; si la usa, debe ser única por planta.
+                  </p>
+                  {createDuplicateLetterError && (
+                    <p className="text-[11px] text-red-700">{createDuplicateLetterError}</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
@@ -419,7 +507,7 @@ export default function SupplierManagementPanel({
                 type="button"
                 className="bg-stone-900 text-white hover:bg-stone-800"
                 onClick={() => void saveCreate()}
-                disabled={createSaving}
+                disabled={createSaving || createFormHasBlockingErrors}
               >
                 {createSaving ? 'Guardando…' : 'Crear proveedor'}
               </Button>
@@ -660,23 +748,47 @@ export default function SupplierManagementPanel({
                   type="number"
                   min={1}
                   max={99}
-                  className="border-stone-300 tabular-nums"
+                  className={cn(
+                    'tabular-nums',
+                    createNumberParseError || createDuplicateNumberError
+                      ? 'border-red-400 focus-visible:ring-red-200'
+                      : 'border-stone-300'
+                  )}
                   value={createProviderNumber}
                   onChange={(e) => setCreateProviderNumber(e.target.value)}
                   onWheel={(e) => e.currentTarget.blur()}
+                  aria-invalid={!!(createNumberParseError || createDuplicateNumberError)}
                 />
+                <p className="text-[11px] text-stone-500 leading-snug">
+                  Entero del 1 al 99. Debe ser único por planta.
+                </p>
+                {(createNumberParseError || createDuplicateNumberError) && (
+                  <p className="text-[11px] text-red-700">{createNumberParseError || createDuplicateNumberError}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="create_letter_ctx">Letra</Label>
                 <Input
                   id="create_letter_ctx"
                   maxLength={1}
-                  className="border-stone-300 uppercase"
+                  className={cn(
+                    'uppercase',
+                    createDuplicateLetterError
+                      ? 'border-red-400 focus-visible:ring-red-200'
+                      : 'border-stone-300'
+                  )}
                   value={createLetter}
                   onChange={(e) =>
                     setCreateLetter(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))
                   }
+                  aria-invalid={!!createDuplicateLetterError}
                 />
+                <p className="text-[11px] text-stone-500 leading-snug">
+                  Opcional. Una letra A–Z; si la usa, debe ser única por planta.
+                </p>
+                {createDuplicateLetterError && (
+                  <p className="text-[11px] text-red-700">{createDuplicateLetterError}</p>
+                )}
               </div>
             </div>
             <div className="space-y-2">
@@ -741,7 +853,7 @@ export default function SupplierManagementPanel({
               type="button"
               className="bg-stone-900 text-white hover:bg-stone-800"
               onClick={() => void saveCreate()}
-              disabled={createSaving}
+              disabled={createSaving || createFormHasBlockingErrors}
             >
               {createSaving ? 'Guardando…' : 'Crear proveedor'}
             </Button>

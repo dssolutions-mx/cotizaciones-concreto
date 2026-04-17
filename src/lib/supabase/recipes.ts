@@ -737,6 +737,10 @@ export const recipeService = {
 
   async createSupplier(supplier: { name: string; provider_number: number; plant_id?: string; is_active?: boolean; provider_letter?: string; internal_code?: string }) {
     try {
+      const providerLetterNormalized =
+        supplier.provider_letter != null && String(supplier.provider_letter).trim() !== ''
+          ? String(supplier.provider_letter).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1) || null
+          : null
       const { data, error } = await supabase
         .from('suppliers')
         .insert({
@@ -744,7 +748,7 @@ export const recipeService = {
           provider_number: supplier.provider_number,
           plant_id: supplier.plant_id || null,
           is_active: supplier.is_active ?? true,
-          provider_letter: supplier.provider_letter?.toUpperCase() || null,
+          provider_letter: providerLetterNormalized,
           internal_code: supplier.internal_code || null
         })
         .select('*')

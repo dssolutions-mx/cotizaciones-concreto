@@ -1,5 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import type { PostgrestError } from '@supabase/supabase-js';
+
+function normalizeProviderLetter(raw: unknown): string | null {
+  if (raw == null || String(raw).trim() === '') return null
+  const one = String(raw).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
+  return one || null
+}
+
+function uniqueViolationMessage(
+  error: PostgrestError,
+  plantId: string | undefined,
+  providerNum: number
+): string {
+  const msg = error.message ?? ''
+  if (
+    msg.includes('suppliers_unique_letter') ||
+    msg.includes('provider_letter') ||
+    msg.includes('suppliers_unique_letter_global') ||
+    msg.includes('suppliers_unique_letter_per_plant')
+  ) {
+    return plantId
+      ? 'Ya existe un proveedor con esa letra en esta planta. Use otra letra o déjela en blanco.'
+      : 'Ya existe un proveedor con esa letra. Use otra letra o déjela en blanco.'
+  }
+  if (
+    msg.includes('suppliers_unique_number') ||
+    msg.includes('provider_number') ||
+    msg.includes('suppliers_unique_number_global') ||
+    msg.includes('suppliers_unique_number_per_plant')
+  ) {
+    const providerNumberMatch = msg.match(/provider_number[^=]*=\((\d+)\)/i)
+    const n = providerNumberMatch ? providerNumberMatch[1] : String(providerNum)
+    return n
+      ? `Ya existe un proveedor con el número ${n}${plantId ? ' en esta planta' : ''}.`
+      : 'Ya existe un proveedor con ese número.'
+  }
+  return 'Ya existe un registro con esos datos (duplicado). Revise número y letra.'
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -110,17 +148,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const letterRaw = body.provider_letter != null && String(body.provider_letter).trim() !== ''
-      ? String(body.provider_letter).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1)
-      : null;
+    const letterRaw = normalizeProviderLetter(body.provider_letter)
 
     const internalCode =
       body.internal_code != null && String(body.internal_code).trim() !== ''
         ? String(body.internal_code).trim()
         : null;
 
-    // Create supplier (default payment terms: Net 30 unless specified)
-    const { data: supplier, error } = await supabase
+    let admin
+    try {
+      admin = createServiceClient()
+    } catch {
+      return NextResponse.json(
+        { error: 'Configuración del servidor incompleta (service role)' },
+        { status: 503 }
+      )
+    }
+
+    // RLS INSERT allows fewer roles than this API; use service role after app-level checks (same as PATCH suppliers/[id]).
+    const { data: supplier, error } = await admin
       .from('suppliers')
       .insert([
         {
@@ -141,14 +187,7 @@ export async function POST(request: NextRequest) {
       
       // Check for unique constraint violation (PostgreSQL error code 23505)
       if (error.code === '23505' || error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) {
-        // Try to extract provider number from error message
-        const providerNumberMatch = error.message?.match(/provider_number[^=]*=\((\d+)\)/i);
-        const providerNumber = providerNumberMatch ? providerNumberMatch[1] : String(providerNum);
-        
-        const errorMessage = providerNumber 
-          ? `Ya existe un proveedor con el número ${providerNumber}${body.plant_id ? ' en esta planta' : ''}.`
-          : 'Ya existe un proveedor con ese número.';
-        
+        const errorMessage = uniqueViolationMessage(error, body.plant_id, providerNum)
         return NextResponse.json({ error: errorMessage }, { status: 409 });
       }
       

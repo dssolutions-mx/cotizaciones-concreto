@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { X, Plus, Trash2, Edit2, Save, Package, Truck } from 'lucide-react'
 import { toast } from 'sonner'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
@@ -107,6 +108,8 @@ export default function CreatePOModal({
   const [items, setItems] = useState<POItem[]>([])
   const [editingItem, setEditingItem] = useState<POItem | null>(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false)
   
   // Item form
   const [itemForm, setItemForm] = useState<POItem>({
@@ -281,6 +284,8 @@ export default function CreatePOModal({
       setItems([])
       setEditingItem(null)
       setIsEditing(false)
+      setShowAddForm(false)
+      setDiscardConfirmOpen(false)
       mixedPoToastShownRef.current = false
       setFleetLineMix(null)
       resetItemForm()
@@ -462,6 +467,7 @@ export default function CreatePOModal({
 
     setItems([...items, newItem])
     resetItemForm()
+    setShowAddForm(false)
     toast.success('Ítem agregado')
   }
 
@@ -534,6 +540,7 @@ export default function CreatePOModal({
     setItems(items.map(it => it.tempId === editingItem.tempId ? updatedItem : it))
     setEditingItem(null)
     setIsEditing(false)
+    setShowAddForm(false)
     resetItemForm()
     toast.success('Ítem actualizado')
   }
@@ -546,11 +553,36 @@ export default function CreatePOModal({
     setUnitPriceInput(item.unit_price === 0 ? '' : String(item.unit_price))
     setQtyInput(item.qty_ordered === 0 ? '' : String(item.qty_ordered))
     setIsEditing(true)
+    setShowAddForm(true)
   }
 
   const handleDeleteItem = (tempId: string) => {
     setItems(items.filter(it => it.tempId !== tempId))
     toast.success('Ítem eliminado')
+  }
+
+  /** Inline-edit staged rows: mutate qty / unit_price / required_by, recompute total. */
+  const updateItem = (tempId: string, patch: Partial<POItem>) => {
+    setItems(prev => prev.map(it => {
+      if (it.tempId !== tempId) return it
+      const next = { ...it, ...patch }
+      next.total = (Number(next.qty_ordered) || 0) * (Number(next.unit_price) || 0)
+      return next
+    }))
+  }
+
+  const hasDirty = () => {
+    if (items.length > 0) return true
+    if (step === 'items' && supplierId) return true
+    return false
+  }
+
+  const tryClose = () => {
+    if (hasDirty()) {
+      setDiscardConfirmOpen(true)
+    } else {
+      onClose()
+    }
   }
 
   const handleSubmit = async () => {
@@ -692,19 +724,21 @@ export default function CreatePOModal({
   })()
   if (!open) return null
 
+  const addFormOpen = showAddForm || (step === 'items' && items.length === 0)
+
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 overflow-hidden">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden border border-stone-200">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
           <div>
-            <h2 className="text-2xl font-bold">Crear Orden de Compra</h2>
-            <p className="text-sm text-gray-500 mt-1">
+            <h2 className="text-xl font-semibold text-stone-900">Crear Orden de Compra</h2>
+            <p className="text-sm text-stone-500 mt-0.5">
               {step === 'header' ? 'Paso 1: Información General' : `Paso 2: Ítems del PO (${items.length} agregados)`}
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-6 w-6" />
+          <button onClick={tryClose} className="p-1 hover:bg-stone-100 rounded text-stone-400 hover:text-stone-600">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -718,7 +752,7 @@ export default function CreatePOModal({
               <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Planta</Label>
+                    <Label className="text-sm font-medium text-stone-700">Planta</Label>
                     <div className="mt-1.5">
                       <Select 
                         value={plantId} 
@@ -736,13 +770,13 @@ export default function CreatePOModal({
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-stone-500">
                         {defaultPlantId ? 'Predeterminado a la planta actual' : 'Seleccione una planta'}
                       </p>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Proveedor</Label>
+                    <Label className="text-sm font-medium text-stone-700">Proveedor</Label>
                     <div className="mt-1.5">
                       <SupplierSelect 
                         value={supplierId} 
@@ -755,7 +789,7 @@ export default function CreatePOModal({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Fecha de Orden</Label>
+                    <Label className="text-sm font-medium text-stone-700">Fecha de Orden</Label>
                     <div className="mt-1.5">
                       <Input
                         type="date"
@@ -766,7 +800,7 @@ export default function CreatePOModal({
                     </div>
                   </div>
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Días de Pago</Label>
+                    <Label className="text-sm font-medium text-stone-700">Días de Pago</Label>
                     <div className="mt-1.5">
                       <Select value={String(paymentTermsDays)} onValueChange={(v) => setPaymentTermsDays(parseInt(v, 10))}>
                         <SelectTrigger className="text-base">
@@ -784,7 +818,7 @@ export default function CreatePOModal({
                   </div>
                 </div>
                 <div>
-                  <Label className="text-sm font-medium text-gray-700">Notas Internas</Label>
+                  <Label className="text-sm font-medium text-stone-700">Notas Internas</Label>
                   <div className="mt-1.5">
                     <Textarea 
                       value={notes}
@@ -800,7 +834,7 @@ export default function CreatePOModal({
           )}
 
           {step === 'items' && (
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="rounded-md border border-amber-200/90 bg-amber-50/90 px-3 py-3 text-xs text-amber-950 space-y-2">
                 <p className="font-semibold">Precio en OC vs listas de precio</p>
                 <p>
@@ -811,101 +845,165 @@ export default function CreatePOModal({
                   <strong>Material</strong> consume inventario al recibir. <strong>Servicio (flota)</strong> cubre transporte u otros servicios sin material (por ejemplo viajes, toneladas).
                 </p>
               </div>
+
               {/* Items List */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Ítems del Pedido</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {items.length === 0 ? (
-                    <div className="text-center py-12 text-gray-500 max-w-md mx-auto">
-                      <Package className="h-12 w-12 mx-auto mb-3 text-gray-400" />
-                      <p className="font-medium text-gray-700 mb-2">Aún no hay ítems</p>
-                      <ol className="text-sm text-left list-decimal pl-5 space-y-1 text-gray-600">
-                        <li>Seleccione tipo: <strong>Material</strong> o <strong>Servicio</strong> (flota/transporte).</li>
-                        <li>Elija un material del catálogo o escriba la descripción del servicio.</li>
-                        <li>Indique cantidad, unidad de medida y precio unitario acordado.</li>
-                        <li>Use <strong>Agregar ítem</strong> y repita si necesita más líneas.</li>
-                      </ol>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {items.map((item, idx) => (
-                        <div key={item.tempId} className="flex items-center gap-4 p-3 border rounded-lg hover:bg-gray-50">
-                          <div className="flex-shrink-0 w-8 text-center font-semibold text-gray-500">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
-                            <div className="md:col-span-2">
-                              <div className="flex items-center gap-2">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-stone-700 uppercase tracking-wide">
+                    Ítems del pedido {items.length > 0 && <span className="text-stone-500 font-normal">({items.length})</span>}
+                  </h3>
+                  {items.length > 0 && !addFormOpen && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => { setIsEditing(false); setEditingItem(null); resetItemForm(); setShowAddForm(true) }}
+                      className="border-stone-300 text-stone-700 hover:bg-stone-100"
+                    >
+                      <Plus className="h-4 w-4 mr-1.5" />
+                      Agregar ítem
+                    </Button>
+                  )}
+                </div>
+
+                {items.length === 0 ? (
+                  <div className="text-center py-8 text-stone-500 max-w-md mx-auto border border-dashed border-stone-300 rounded-md bg-stone-50">
+                    <Package className="h-10 w-10 mx-auto mb-2 text-stone-400" />
+                    <p className="font-medium text-stone-700 mb-2">Aún no hay ítems</p>
+                    <ol className="text-xs text-left list-decimal pl-5 space-y-1 text-stone-600 px-6">
+                      <li>Seleccione tipo: <strong>Material</strong> o <strong>Servicio</strong> (flota/transporte).</li>
+                      <li>Elija un material del catálogo o escriba la descripción del servicio.</li>
+                      <li>Indique cantidad, unidad de medida y precio unitario acordado.</li>
+                    </ol>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {items.map((item) => {
+                      const qtyInvalid = item.qty_ordered <= 0
+                      const priceInvalid = item.unit_price < 0
+                      return (
+                        <div
+                          key={item.tempId}
+                          className="border border-stone-200 bg-stone-50 rounded-md p-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              {/* Row header */}
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
                                 {item.is_service ? (
-                                  <Truck className="h-4 w-4 text-blue-600" />
+                                  <>
+                                    <Truck className="h-4 w-4 text-blue-600 shrink-0" />
+                                    <span className="font-semibold text-sm text-stone-800">{item.material_name}</span>
+                                    <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">SERVICIO</span>
+                                  </>
                                 ) : (
-                                  <Package className="h-4 w-4 text-green-600" />
+                                  <>
+                                    <Package className="h-4 w-4 text-green-600 shrink-0" />
+                                    <span className="font-semibold text-sm text-stone-800">{item.material_name}</span>
+                                    <span className="text-xs bg-green-100 text-green-800 px-1.5 py-0.5 rounded">MATERIAL</span>
+                                  </>
                                 )}
+                              </div>
+
+                              {item.is_service && item.material_supplier_id && (
+                                <p className="text-xs text-blue-600 mb-2">
+                                  Para: {suppliers.find(s => s.id === item.material_supplier_id)?.name || 'Proveedor'}
+                                </p>
+                              )}
+
+                              {/* Inline edit fields */}
+                              <div className="grid grid-cols-3 gap-3 mt-2">
                                 <div>
-                                  <div className="font-medium text-sm">{item.material_name}</div>
-                                  <div className="text-xs text-gray-500">
-                                    {item.is_service ? 'Servicio' : `Material · ${item.uom?.toUpperCase()}`}
-                                  </div>
+                                  <Label className="text-xs text-stone-500 font-normal">Cantidad ({item.uom})</Label>
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={item.qty_ordered || ''}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0
+                                      updateItem(item.tempId, { qty_ordered: val })
+                                    }}
+                                    className={`text-sm mt-0.5 h-8 ${qtyInvalid ? 'border-red-400 focus-visible:ring-red-300' : ''}`}
+                                  />
+                                  {qtyInvalid && <p className="text-xs text-red-600 mt-0.5">Debe ser &gt; 0</p>}
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-stone-500 font-normal">Precio unitario (MXN)</Label>
+                                  <Input
+                                    type="number"
+                                    step="any"
+                                    min="0"
+                                    value={item.unit_price || ''}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0
+                                      updateItem(item.tempId, { unit_price: val })
+                                    }}
+                                    className={`text-sm mt-0.5 h-8 ${priceInvalid ? 'border-red-400 focus-visible:ring-red-300' : ''}`}
+                                  />
+                                  {priceInvalid && <p className="text-xs text-red-600 mt-0.5">No puede ser negativo</p>}
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-stone-500 font-normal">Requerido (opcional)</Label>
+                                  <Input
+                                    type="date"
+                                    value={item.required_by || ''}
+                                    onChange={(e) => updateItem(item.tempId, { required_by: e.target.value })}
+                                    className="text-sm mt-0.5 h-8"
+                                  />
                                 </div>
                               </div>
+
+                              {/* Live total */}
+                              <div className="mt-2 text-right text-sm">
+                                <span className="text-stone-500">Total: </span>
+                                <span className="font-semibold text-green-700">{mxn.format(item.total)}</span>
+                              </div>
                             </div>
-                            <div className="text-sm">
-                              <div className="text-gray-500 text-xs">Cantidad</div>
-                              <div className="font-semibold">{item.qty_ordered.toLocaleString('es-MX', { minimumFractionDigits: 2 })} {item.uom || 'unidad'}</div>
+
+                            {/* Row actions */}
+                            <div className="flex flex-col gap-1 shrink-0">
+                              <button
+                                onClick={() => handleEditItem(item)}
+                                className="p-2 hover:bg-white rounded text-stone-500 hover:text-stone-800"
+                                title="Editar material / UoM / tipo"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteItem(item.tempId)}
+                                className="p-2 hover:bg-white rounded text-red-500"
+                                title="Eliminar ítem"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
-                            <div className="text-sm">
-                              <div className="text-gray-500 text-xs">Precio Unit.</div>
-                              <div className="font-semibold">{mxn.format(item.unit_price)}</div>
-                            </div>
-                            <div className="text-sm">
-                              <div className="text-gray-500 text-xs">Total</div>
-                              <div className="font-bold">{mxn.format(item.total)}</div>
-                            </div>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleEditItem(item)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDeleteItem(item.tempId)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
                           </div>
                         </div>
-                      ))}
-                      <div className="flex justify-end pt-4 border-t mt-4">
-                        <div className="text-right">
-                          <div className="text-sm text-gray-500">Subtotal del PO</div>
-                          <div className="text-2xl font-bold">{mxn.format(subtotal)}</div>
-                          <div className="text-xs text-gray-500 mt-1">
-                            {items.length} {items.length === 1 ? 'ítem' : 'ítems'}
-                          </div>
-                        </div>
-                      </div>
+                      )
+                    })}
+
+                    <div className="flex items-center justify-between pt-3 mt-2 border-t border-stone-200 text-sm">
+                      <span className="text-stone-500">
+                        Subtotal · {items.length} {items.length === 1 ? 'ítem' : 'ítems'}
+                      </span>
+                      <span className="text-lg font-semibold text-stone-900 tabular-nums">{mxn.format(subtotal)}</span>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </div>
+                )}
+              </div>
 
               {/* Add/Edit Item Form */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>{isEditing ? 'Editar Ítem' : 'Agregar Ítem'}</CardTitle>
+              {addFormOpen && (
+              <Card className="border-stone-200">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold text-stone-700 uppercase tracking-wide">
+                    {isEditing ? 'Editar material / tipo' : 'Agregar ítem'}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
-                      <Label className="text-sm font-medium text-gray-700">Tipo de Ítem</Label>
+                      <Label className="text-sm font-medium text-stone-700">Tipo de Ítem</Label>
                       <div className="mt-1.5">
                         <Select 
                           value={itemForm.is_service ? 'service' : 'material'}
@@ -937,7 +1035,7 @@ export default function CreatePOModal({
                     {itemForm.is_service ? (
                       <>
                         <div className="md:col-span-2">
-                          <Label className="text-sm font-medium text-gray-700">Descripción del Servicio</Label>
+                          <Label className="text-sm font-medium text-stone-700">Descripción del Servicio</Label>
                           <div className="mt-1.5">
                             <Input
                               value={serviceDescription}
@@ -958,7 +1056,7 @@ export default function CreatePOModal({
                           </div>
                         </div>
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Unidad de Medida</Label>
+                          <Label className="text-sm font-medium text-stone-700">Unidad de Medida</Label>
                           <div className="mt-1.5">
                             <Select 
                               value={itemForm.uom || 'trips'}
@@ -979,7 +1077,7 @@ export default function CreatePOModal({
                         </div>
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">
+                          <Label className="text-sm font-medium text-stone-700">
                             Cantidad Ordenada ({itemForm.uom || 'viajes'})
                           </Label>
                           <div className="mt-1.5">
@@ -991,7 +1089,7 @@ export default function CreatePOModal({
                               className="text-base"
                             />
                             {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
+                              <p className="mt-1 text-xs text-stone-500">
                                 {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
                                 {itemForm.uom || 'viajes'}
                               </p>
@@ -1000,7 +1098,7 @@ export default function CreatePOModal({
                         </div>
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
+                          <Label className="text-sm font-medium text-stone-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
                               inputMode="decimal"
@@ -1010,13 +1108,13 @@ export default function CreatePOModal({
                               className="text-base"
                             />
                             {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
-                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
+                              <p className="mt-1 text-xs text-stone-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Fecha Límite de Entrega (Opcional)</Label>
+                          <Label className="text-sm font-medium text-stone-700">Fecha Límite de Entrega (Opcional)</Label>
                           <div className="mt-1.5">
                             <Input
                               type="date"
@@ -1028,7 +1126,7 @@ export default function CreatePOModal({
                         </div>
 
                         <div className="md:col-span-2">
-                          <Label className="text-sm font-medium text-gray-700">Proveedor de Material</Label>
+                          <Label className="text-sm font-medium text-stone-700">Proveedor de Material</Label>
                           <div className="mt-1.5">
                             <SupplierSelect
                               value={materialSupplierId}
@@ -1036,7 +1134,7 @@ export default function CreatePOModal({
                               plantId={plantId || undefined}
                               plantName={plantName}
                             />
-                            <p className="mt-1 text-xs text-gray-500">
+                            <p className="mt-1 text-xs text-stone-500">
                               Seleccione el proveedor de material para el cual este servicio de flota aplica
                             </p>
                           </div>
@@ -1045,7 +1143,7 @@ export default function CreatePOModal({
                     ) : (
                       <>
                         <div className="md:col-span-2">
-                          <Label className="text-sm font-medium text-gray-700">Material</Label>
+                          <Label className="text-sm font-medium text-stone-700">Material</Label>
                           <div className="mt-1.5">
                             <MaterialSelect
                               value={itemForm.material_id || ''}
@@ -1060,7 +1158,7 @@ export default function CreatePOModal({
                               supplierId={supplierId || undefined}
                             />
                             {supplierId && (
-                              <p className="mt-1 text-xs text-gray-500">
+                              <p className="mt-1 text-xs text-stone-500">
                                 Catálogo completo de la planta. Arriba aparecen <strong>sugeridos</strong> según OCs previas,
                                 acuerdos o recepciones con este proveedor; puede elegir cualquier material.
                               </p>
@@ -1073,7 +1171,7 @@ export default function CreatePOModal({
                           </div>
                         </div>
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Unidad de Medida</Label>
+                          <Label className="text-sm font-medium text-stone-700">Unidad de Medida</Label>
                           <div className="mt-1.5">
                             <Select 
                               value={itemForm.uom}
@@ -1093,7 +1191,7 @@ export default function CreatePOModal({
 
                         {itemForm.uom === 'm3' && (
                           <div className="md:col-span-3">
-                            <Label className="text-sm font-medium text-gray-700">Peso volumétrico (kg/m³)</Label>
+                            <Label className="text-sm font-medium text-stone-700">Peso volumétrico (kg/m³)</Label>
                             <div className="mt-1.5">
                               <Input
                                 type="number"
@@ -1107,13 +1205,13 @@ export default function CreatePOModal({
                                 placeholder="Ej. 1400"
                                 className="text-base"
                               />
-                              <p className="mt-1 text-xs text-gray-500">Si se define aquí, las entradas usarán este valor por defecto para convertir m³→kg. Litros no requieren conversión.</p>
+                              <p className="mt-1 text-xs text-stone-500">Si se define aquí, las entradas usarán este valor por defecto para convertir m³→kg. Litros no requieren conversión.</p>
                             </div>
                           </div>
                         )}
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">
+                          <Label className="text-sm font-medium text-stone-700">
                             Cantidad Ordenada ({itemForm.uom || 'kg'})
                           </Label>
                           <div className="mt-1.5">
@@ -1125,7 +1223,7 @@ export default function CreatePOModal({
                               className="text-base"
                             />
                             {!Number.isNaN(parseQtyFromInput()) && parseQtyFromInput() > 0 && (
-                              <p className="mt-1 text-xs text-gray-500">
+                              <p className="mt-1 text-xs text-stone-500">
                                 {parseQtyFromInput().toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}{' '}
                                 {itemForm.uom || 'kg'}
                               </p>
@@ -1134,7 +1232,7 @@ export default function CreatePOModal({
                         </div>
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Precio Unitario (MXN)</Label>
+                          <Label className="text-sm font-medium text-stone-700">Precio Unitario (MXN)</Label>
                           <div className="mt-1.5">
                             <Input
                               inputMode="decimal"
@@ -1144,13 +1242,13 @@ export default function CreatePOModal({
                               className="text-base"
                             />
                             {!Number.isNaN(parsePriceFromInput()) && parsePriceFromInput() >= 0 && unitPriceInput.trim() !== '' && (
-                              <p className="mt-1 text-xs text-gray-500">{mxn.format(parsePriceFromInput())}</p>
+                              <p className="mt-1 text-xs text-stone-500">{mxn.format(parsePriceFromInput())}</p>
                             )}
                           </div>
                         </div>
 
                         <div>
-                          <Label className="text-sm font-medium text-gray-700">Fecha Límite de Entrega (Opcional)</Label>
+                          <Label className="text-sm font-medium text-stone-700">Fecha Límite de Entrega (Opcional)</Label>
                           <div className="mt-1.5">
                             <Input
                               type="date"
@@ -1163,67 +1261,68 @@ export default function CreatePOModal({
                       </>
                     )}
 
-                    <div className="md:col-span-3">
-                      <div className="mt-4 p-5 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="flex items-baseline justify-between">
-                          <div className="text-sm font-medium text-gray-600">Total del Ítem</div>
-                          <div className="text-3xl font-semibold text-gray-900 tabular-nums">
-                            {mxn.format(linePreviewTotal)}
-                          </div>
-                        </div>
-                      </div>
+                    <div className="md:col-span-3 flex items-center justify-end gap-2 text-sm">
+                      <span className="text-stone-500">Total del ítem:</span>
+                      <span className="font-semibold text-stone-900 tabular-nums text-base">{mxn.format(linePreviewTotal)}</span>
                     </div>
                   </div>
 
                   <div className="flex justify-end gap-2">
-                    {isEditing && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setIsEditing(false)
-                          setEditingItem(null)
-                          resetItemForm()
-                        }}
-                      >
-                        Cancelar
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsEditing(false)
+                        setEditingItem(null)
+                        resetItemForm()
+                        if (items.length > 0) setShowAddForm(false)
+                      }}
+                    >
+                      Cancelar
+                    </Button>
                     <Button
                       onClick={isEditing ? handleUpdateItem : handleAddItem}
+                      className="bg-blue-600 hover:bg-blue-700"
                     >
                       {isEditing ? (
                         <>
                           <Save className="h-4 w-4 mr-2" />
-                          Actualizar Ítem
+                          Actualizar material
                         </>
                       ) : (
                         <>
                           <Plus className="h-4 w-4 mr-2" />
-                          Agregar Ítem
+                          Agregar al pedido
                         </>
                       )}
                     </Button>
                   </div>
                 </CardContent>
               </Card>
+              )}
             </div>
           )}
         </div>
 
         {/* Footer - Fixed */}
-        <div className="flex items-center justify-between p-6 border-t bg-gray-50 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-stone-200 bg-stone-50 flex-shrink-0">
           <div>
             {step === 'items' && (
-              <Button
-                variant="outline"
-                onClick={() => setStep('header')}
-              >
-                Anterior
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setStep('header')}
+                  className="mr-3"
+                >
+                  Anterior
+                </Button>
+                <span className="text-xs text-stone-500">
+                  Subtotal: <span className="font-semibold text-stone-800 tabular-nums">{mxn.format(subtotal)}</span>
+                </span>
+              </>
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={tryClose}>
               Cancelar
             </Button>
             {step === 'header' ? (
@@ -1235,6 +1334,7 @@ export default function CreatePOModal({
                   }
                   setStep('items')
                 }}
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 Continuar a Ítems
               </Button>
@@ -1242,6 +1342,7 @@ export default function CreatePOModal({
               <Button
                 onClick={handleSubmit}
                 disabled={loading || items.length === 0}
+                className="bg-green-600 hover:bg-green-700"
               >
                 {loading ? 'Creando...' : `Crear PO (${items.length} ${items.length === 1 ? 'ítem' : 'ítems'})`}
               </Button>
@@ -1249,6 +1350,29 @@ export default function CreatePOModal({
           </div>
         </div>
       </div>
+
+      {/* Discard-changes confirmation */}
+      <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Descartar la orden en curso?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-stone-600">
+            Tiene información sin guardar ({items.length > 0 ? `${items.length} ítem${items.length !== 1 ? 's' : ''}` : 'encabezado capturado'}). Si cierra ahora se perderá.
+          </p>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setDiscardConfirmOpen(false)}>
+              Seguir editando
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => { setDiscardConfirmOpen(false); onClose() }}
+            >
+              Descartar
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
