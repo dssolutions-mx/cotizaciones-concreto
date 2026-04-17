@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 // Removed date-fns imports since we're using simple date strings
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FileText, Eye, ExternalLink, Search, Filter, Loader2, AlertCircle, Calendar } from 'lucide-react';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { toast } from 'sonner';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PumpingEvidence {
   id: string;
@@ -58,6 +60,8 @@ interface PaginationInfo {
 }
 
 export default function PumpingRemisionesAdmin() {
+  const { profile } = useAuthBridge();
+  const isDosificador = profile?.role === 'DOSIFICADOR';
   const [pumpingRemisiones, setPumpingRemisiones] = useState<PumpingRemision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +78,12 @@ export default function PumpingRemisionesAdmin() {
 
   const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600);
   const { availablePlants } = usePlantContext();
+
+  const myPlantName = useMemo(() => {
+    if (!profile?.plant_id) return null;
+    const p = availablePlants.find((pl) => String(pl.id) === String(profile.plant_id));
+    return p?.name ?? null;
+  }, [availablePlants, profile?.plant_id]);
 
   const fetchPumpingRemisiones = async (page = 1) => {
     try {
@@ -180,6 +190,13 @@ export default function PumpingRemisionesAdmin() {
 
   return (
     <div className="space-y-6">
+      {isDosificador && (
+        <Alert>
+          <AlertDescription>
+            Solo se listan las remisiones de bombeo que usted registró en su planta (las capturadas con su usuario).
+          </AlertDescription>
+        </Alert>
+      )}
       {/* Filters */}
       <Card>
         <CardHeader>
@@ -192,19 +209,25 @@ export default function PumpingRemisionesAdmin() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">Planta</label>
-              <Select value={filters.plant_id} onValueChange={(value) => handleFilterChange('plant_id', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas las plantas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las plantas</SelectItem>
-                  {availablePlants.map((plant) => (
-                    <SelectItem key={plant.id} value={plant.id.toString()}>
-                      {plant.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {isDosificador ? (
+                <p className="text-sm text-gray-800 border rounded-md px-3 py-2 bg-muted/40 min-h-[40px] flex items-center">
+                  {myPlantName || profile?.plant_id || '—'}
+                </p>
+              ) : (
+                <Select value={filters.plant_id} onValueChange={(value) => handleFilterChange('plant_id', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas las plantas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las plantas</SelectItem>
+                    {availablePlants.map((plant) => (
+                      <SelectItem key={plant.id} value={plant.id.toString()}>
+                        {plant.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             <div>

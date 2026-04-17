@@ -13,10 +13,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
     }
 
-    // Check if user has admin role
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
@@ -24,15 +23,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 403 });
     }
 
-    if (!['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'].includes(profile.role)) {
+    const isDosificador = profile.role === 'DOSIFICADOR';
+    const isPumpAdmin =
+      isDosificador || ['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'].includes(profile.role);
+
+    if (!isPumpAdmin) {
       return NextResponse.json({ error: 'Acceso denegado. Se requieren permisos de administrador.' }, { status: 403 });
+    }
+
+    if (isDosificador && !profile.plant_id) {
+      return NextResponse.json(
+        { error: 'Su usuario no tiene planta asignada; no puede consultar remisiones de bombeo.' },
+        { status: 403 }
+      );
     }
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
-    const plantId = searchParams.get('plant_id');
+    /** Dosificadores: always their plant only (ignore client plant filter). */
+    const plantId = isDosificador ? profile.plant_id : searchParams.get('plant_id');
     const dateFrom = searchParams.get('date_from');
     const dateTo = searchParams.get('date_to');
     const hasEvidence = searchParams.get('has_evidence');
@@ -60,6 +71,10 @@ export async function GET(request: NextRequest) {
       `)
       .eq('tipo_remision', 'BOMBEO')
       .order('fecha', { ascending: false });
+
+    if (isDosificador) {
+      baseQuery = baseQuery.eq('created_by', user.id);
+    }
 
     // Apply basic filters
     if (plantId) {
