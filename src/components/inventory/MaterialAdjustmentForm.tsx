@@ -694,7 +694,7 @@ export default function MaterialAdjustmentForm({
             Documentos de Evidencia
           </CardTitle>
           <CardDescription>
-            Información adicional y documentos de evidencia. Use la cámara para capturar documentos o suba archivos existentes.
+            Información adicional y documentos de evidencia. Puede adjuntar cualquier tipo de archivo dentro del límite de tamaño.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -702,12 +702,12 @@ export default function MaterialAdjustmentForm({
             <Label>Documentos de Evidencia</Label>
             <div className="text-xs text-gray-600 mb-3">
               <p>• Use la cámara para capturar documentos y convertirlos automáticamente a PDF</p>
-              <p>• O suba archivos existentes (imágenes, PDFs)</p>
+              <p>• O suba cualquier archivo desde el dispositivo</p>
             </div>
             
             <SimpleFileUpload
               onFileSelect={handleFileUpload}
-              acceptedTypes={['image/*', 'application/pdf']}
+              acceptAnyFileType
               multiple
               uploading={uploading}
               disabled={loading}

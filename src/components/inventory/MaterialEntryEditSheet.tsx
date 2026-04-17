@@ -180,13 +180,13 @@ export default function MaterialEntryEditSheet({
             <div className="space-y-2">
               <Label className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4" />
-                Evidencias (PDF, imagen, CSV)
+                Evidencias (cualquier archivo)
               </Label>
               <SimpleFileUpload
                 onFileSelect={(list) => void handleFiles(list)}
                 uploading={uploading}
                 disabled={uploading}
-                acceptedTypes={['image/*', 'application/pdf', 'text/csv']}
+                acceptAnyFileType
                 className="bg-white"
               />
             </div>
