@@ -27,6 +27,8 @@ interface SimpleFileUploadProps {
   uploading?: boolean
   disabled?: boolean
   className?: string
+  /** If true, do not keep/show an internal "selected files" list — the parent owns file state/feedback. */
+  hideInternalList?: boolean
 }
 
 interface UploadedFile {
@@ -45,7 +47,8 @@ export default function SimpleFileUpload({
   maxSize = 10,
   uploading = false,
   disabled = false,
-  className
+  className,
+  hideInternalList = false,
 }: SimpleFileUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -146,13 +149,15 @@ export default function SimpleFileUpload({
     setErrors(errors)
 
     if (valid.length > 0) {
-      const newFiles: UploadedFile[] = valid.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: file.type
-      }))
-      setUploadedFiles(prev => [...prev, ...newFiles])
-      
+      if (!hideInternalList) {
+        const newFiles: UploadedFile[] = valid.map(file => ({
+          name: file.name,
+          size: file.size,
+          type: file.type
+        }))
+        setUploadedFiles(prev => [...prev, ...newFiles])
+      }
+
       const dataTransfer = new DataTransfer()
       valid.forEach(file => dataTransfer.items.add(file))
       onFileSelect(dataTransfer.files)
@@ -253,7 +258,7 @@ export default function SimpleFileUpload({
       )}
 
       {/* Uploaded Files List */}
-      {uploadedFiles.length > 0 && (
+      {!hideInternalList && uploadedFiles.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium text-gray-900">
             Archivos seleccionados ({uploadedFiles.length})

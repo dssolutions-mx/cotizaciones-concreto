@@ -21,10 +21,23 @@ import {
 } from '@/components/ui/select'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
+import { cn } from '@/lib/utils'
 import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import { toast } from 'sonner'
 import { formatReceptionAssignedDay, formatEntrySavedShortFor } from '@/lib/inventory/entryReceivedDisplay'
-import { Eye, Loader2, Package, Paperclip, Save, Trash2, Truck } from 'lucide-react'
+import {
+  AlertCircle,
+  CheckCircle2,
+  Eye,
+  Loader2,
+  Package,
+  Paperclip,
+  RefreshCw,
+  Save,
+  Trash2,
+  Truck,
+  X,
+} from 'lucide-react'
 
 function qtyLabel(entry: MaterialEntry): string {
   if (entry.received_uom === 'm3') return 'Peso en báscula (kg)'
@@ -55,6 +68,23 @@ function parseDecimal(s: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function formatBytes(bytes: number): string {
+  if (!bytes) return '0 B'
+  const k = 1024
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`
+}
+
+type UploadItemStatus = 'uploading' | 'success' | 'error'
+
+interface UploadItem {
+  id: string
+  file: File
+  status: UploadItemStatus
+  error?: string
+}
+
 interface MaterialEntryEditSheetProps {
   entry: MaterialEntry | null
   open: boolean
@@ -83,6 +113,7 @@ export default function MaterialEntryEditSheet({
   const [uploading, setUploading] = useState(false)
   const [documents, setDocuments] = useState<InventoryDocument[]>([])
   const [docLoading, setDocLoading] = useState(false)
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
 
   const fetchDocuments = useCallback(async (entryId: string) => {
     setDocLoading(true)
@@ -116,75 +147,126 @@ export default function MaterialEntryEditSheet({
       entry.fleet_qty_entered != null ? String(entry.fleet_qty_entered) : ''
     )
     setFleetUom(entry.fleet_uom ?? '')
+    setUploadItems([])
     void fetchDocuments(entry.id)
   }, [open, entry, fetchDocuments])
 
-  const handleFiles = async (files: FileList) => {
-    if (!entry) return
+  const uploadSingle = async (item: UploadItem, entryId: string): Promise<UploadItem> => {
+    try {
+      const fd = new FormData()
+      fd.append('file', item.file)
+      fd.append('type', 'entry')
+      fd.append('reference_id', entryId)
+      const res = await fetch('/api/inventory/documents', {
+        method: 'POST',
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        const msg =
+          err?.error || `Error al subir (HTTP ${res.status})`
+        console.error('[EntryEdit] upload failed', {
+          entryId,
+          fileName: item.file.name,
+          fileSize: item.file.size,
+          fileType: item.file.type,
+          status: res.status,
+          error: err,
+        })
+        return { ...item, status: 'error', error: msg }
+      }
+      return { ...item, status: 'success', error: undefined }
+    } catch (e) {
+      console.error('[EntryEdit] upload threw', {
+        entryId,
+        fileName: item.file.name,
+        fileSize: item.file.size,
+        fileType: item.file.type,
+        error: e,
+      })
+      const msg =
+        e instanceof Error ? `Error de red: ${e.message}` : 'Error de red al subir archivo'
+      return { ...item, status: 'error', error: msg }
+    }
+  }
+
+  const runUploads = async (items: UploadItem[]) => {
+    if (!entry || items.length === 0) return
     const entryId = entry.id
     setUploading(true)
-    let okCount = 0
-    let failCount = 0
     try {
-      for (const file of Array.from(files)) {
-        try {
-          const fd = new FormData()
-          fd.append('file', file)
-          fd.append('type', 'entry')
-          fd.append('reference_id', entryId)
-          const res = await fetch('/api/inventory/documents', {
-            method: 'POST',
-            body: fd,
-          })
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}))
-            const msg = err?.error || `Error al subir ${file.name} (HTTP ${res.status})`
-            console.error('[EntryEdit] upload failed', {
-              entryId,
-              fileName: file.name,
-              fileSize: file.size,
-              fileType: file.type,
-              status: res.status,
-              error: err,
-            })
-            toast.error(msg)
-            failCount += 1
-            continue
-          }
-          okCount += 1
-        } catch (e) {
-          console.error('[EntryEdit] upload threw', {
-            entryId,
-            fileName: file.name,
-            fileSize: file.size,
-            fileType: file.type,
-            error: e,
-          })
-          toast.error(`Error de red al subir ${file.name}`)
-          failCount += 1
-        }
+      for (const item of items) {
+        const result = await uploadSingle(item, entryId)
+        setUploadItems((prev) =>
+          prev.map((p) => (p.id === item.id ? result : p))
+        )
       }
     } finally {
-      // Always refresh the list so any files that actually landed in storage show up,
-      // even if some uploads failed or the request threw midway.
       try {
         await fetchDocuments(entryId)
       } catch (e) {
         console.error('[EntryEdit] fetchDocuments after upload failed', e)
       }
       setUploading(false)
-      if (okCount > 0) {
-        toast.success(
-          okCount === 1
-            ? 'Evidencia subida correctamente'
-            : `${okCount} evidencias subidas correctamente`
-        )
-        onSaved?.()
-      }
-      if (failCount > 0 && okCount === 0) {
-        toast.error('No se pudo subir la evidencia. Intente nuevamente.')
-      }
+      // Summarize using fresh state (via closure on items that were just attempted)
+      const attemptedIds = new Set(items.map((i) => i.id))
+      setUploadItems((prev) => {
+        const attempted = prev.filter((p) => attemptedIds.has(p.id))
+        const ok = attempted.filter((p) => p.status === 'success').length
+        const fail = attempted.filter((p) => p.status === 'error').length
+        if (ok > 0) {
+          toast.success(
+            ok === 1
+              ? 'Evidencia subida correctamente'
+              : `${ok} evidencias subidas correctamente`
+          )
+          onSaved?.()
+        }
+        if (fail > 0) {
+          toast.error(
+            fail === 1
+              ? 'Un archivo no se pudo subir. Revise la lista y reintente.'
+              : `${fail} archivos no se pudieron subir. Revise la lista y reintente.`
+          )
+        }
+        return prev
+      })
     }
+  }
+
+  const handleFiles = async (files: FileList) => {
+    if (!entry) return
+    const newItems: UploadItem[] = Array.from(files).map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      status: 'uploading',
+    }))
+    setUploadItems((prev) => [...prev, ...newItems])
+    await runUploads(newItems)
+  }
+
+  const retryUpload = async (itemId: string) => {
+    if (!entry) return
+    const target = uploadItems.find((i) => i.id === itemId)
+    if (!target) return
+    const retryItem: UploadItem = { ...target, status: 'uploading', error: undefined }
+    setUploadItems((prev) => prev.map((p) => (p.id === itemId ? retryItem : p)))
+    await runUploads([retryItem])
+  }
+
+  const retryAllFailed = async () => {
+    const failed = uploadItems.filter((i) => i.status === 'error')
+    if (failed.length === 0) return
+    const retried = failed.map((i) => ({ ...i, status: 'uploading' as const, error: undefined }))
+    setUploadItems((prev) => {
+      const map = new Map(retried.map((r) => [r.id, r]))
+      return prev.map((p) => map.get(p.id) ?? p)
+    })
+    await runUploads(retried)
+  }
+
+  const dismissUploadItem = (itemId: string) => {
+    setUploadItems((prev) => prev.filter((p) => p.id !== itemId))
   }
 
   const deleteDocument = async (documentId: string) => {
@@ -492,6 +574,7 @@ export default function MaterialEntryEditSheet({
                 uploading={uploading}
                 disabled={uploading}
                 acceptAnyFileType
+                hideInternalList
                 className="bg-white"
               />
               {uploading && (
@@ -499,6 +582,92 @@ export default function MaterialEntryEditSheet({
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Subiendo evidencia... no cierre esta ventana.
                 </p>
+              )}
+
+              {uploadItems.length > 0 && (
+                <div className="space-y-1.5">
+                  {uploadItems.some((i) => i.status === 'error') && (
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded border border-red-200 bg-red-50">
+                      <p className="text-xs text-red-800">
+                        Algunos archivos no se subieron. Revise el motivo y reintente.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void retryAllFailed()}
+                        disabled={uploading}
+                        className="text-xs font-medium text-red-800 hover:text-red-900 disabled:opacity-50 flex items-center gap-1"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Reintentar todos
+                      </button>
+                    </div>
+                  )}
+                  <ul className="space-y-1">
+                    {uploadItems.map((item) => (
+                      <li
+                        key={item.id}
+                        className={cn(
+                          'flex items-start gap-2 text-xs p-2 rounded border',
+                          item.status === 'error'
+                            ? 'bg-red-50 border-red-200'
+                            : item.status === 'success'
+                            ? 'bg-emerald-50 border-emerald-200'
+                            : 'bg-sky-50 border-sky-200'
+                        )}
+                      >
+                        <div className="mt-0.5 shrink-0">
+                          {item.status === 'uploading' && (
+                            <Loader2 className="h-3.5 w-3.5 text-sky-600 animate-spin" />
+                          )}
+                          {item.status === 'success' && (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          )}
+                          {item.status === 'error' && (
+                            <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate font-medium text-stone-800">
+                            {item.file.name}
+                          </p>
+                          <p className="text-stone-500">
+                            {formatBytes(item.file.size)}
+                            {item.status === 'uploading' && ' · Subiendo…'}
+                            {item.status === 'success' && ' · Subido'}
+                          </p>
+                          {item.status === 'error' && item.error && (
+                            <p className="text-red-700 mt-0.5 break-words">
+                              {item.error}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {item.status === 'error' && (
+                            <button
+                              type="button"
+                              onClick={() => void retryUpload(item.id)}
+                              disabled={uploading}
+                              className="p-1 text-red-700 hover:bg-red-100 rounded disabled:opacity-50"
+                              title="Reintentar"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {item.status !== 'uploading' && (
+                            <button
+                              type="button"
+                              onClick={() => dismissUploadItem(item.id)}
+                              className="p-1 text-stone-500 hover:bg-stone-100 rounded"
+                              title="Quitar de la lista"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
 
