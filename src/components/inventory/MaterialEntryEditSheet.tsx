@@ -85,6 +85,33 @@ interface UploadItem {
   error?: string
 }
 
+const UPLOAD_MAX_ATTEMPTS = 4
+const UPLOAD_RETRY_DELAY_MS = [0, 900, 2200, 4500] as const
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function shouldRetryHttpStatus(status: number): boolean {
+  return [408, 425, 429, 502, 503, 504].includes(status)
+}
+
+function isTransientNetworkFailure(e: unknown): boolean {
+  if (e instanceof TypeError) return true
+  if (e instanceof DOMException && e.name === 'AbortError') return true
+  return false
+}
+
+function formatUploadNetworkMessage(e: unknown): string {
+  if (e instanceof TypeError) {
+    return 'No se pudo conectar con el servidor (señal inestable o conexión interrumpida). Espere unos segundos y pulse Reintentar; si sigue igual, pruebe con Wi‑Fi o otra red.'
+  }
+  if (e instanceof Error) {
+    return `Error de red: ${e.message}`
+  }
+  return 'Error de red al subir el archivo'
+}
+
 interface MaterialEntryEditSheetProps {
   entry: MaterialEntry | null
   open: boolean
@@ -152,42 +179,54 @@ export default function MaterialEntryEditSheet({
   }, [open, entry, fetchDocuments])
 
   const uploadSingle = async (item: UploadItem, entryId: string): Promise<UploadItem> => {
-    try {
-      const fd = new FormData()
-      fd.append('file', item.file)
-      fd.append('type', 'entry')
-      fd.append('reference_id', entryId)
-      const res = await fetch('/api/inventory/documents', {
-        method: 'POST',
-        body: fd,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        const msg =
-          err?.error || `Error al subir (HTTP ${res.status})`
-        console.error('[EntryEdit] upload failed', {
+    let lastError = 'No se pudo subir el archivo'
+
+    for (let attempt = 0; attempt < UPLOAD_MAX_ATTEMPTS; attempt++) {
+      await sleep(UPLOAD_RETRY_DELAY_MS[attempt] ?? 0)
+      try {
+        const fd = new FormData()
+        fd.append('file', item.file)
+        fd.append('type', 'entry')
+        fd.append('reference_id', entryId)
+        const res = await fetch('/api/inventory/documents', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include',
+          cache: 'no-store',
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          const msg = err?.error || `Error al subir (HTTP ${res.status})`
+          console.error('[EntryEdit] upload failed', {
+            entryId,
+            fileName: item.file.name,
+            attempt: attempt + 1,
+            status: res.status,
+            error: err,
+          })
+          lastError = msg
+          if (shouldRetryHttpStatus(res.status) && attempt < UPLOAD_MAX_ATTEMPTS - 1) {
+            continue
+          }
+          return { ...item, status: 'error', error: msg }
+        }
+        return { ...item, status: 'success', error: undefined }
+      } catch (e) {
+        console.error('[EntryEdit] upload threw', {
           entryId,
           fileName: item.file.name,
-          fileSize: item.file.size,
-          fileType: item.file.type,
-          status: res.status,
-          error: err,
+          attempt: attempt + 1,
+          error: e,
         })
-        return { ...item, status: 'error', error: msg }
+        lastError = formatUploadNetworkMessage(e)
+        if (isTransientNetworkFailure(e) && attempt < UPLOAD_MAX_ATTEMPTS - 1) {
+          continue
+        }
+        return { ...item, status: 'error', error: lastError }
       }
-      return { ...item, status: 'success', error: undefined }
-    } catch (e) {
-      console.error('[EntryEdit] upload threw', {
-        entryId,
-        fileName: item.file.name,
-        fileSize: item.file.size,
-        fileType: item.file.type,
-        error: e,
-      })
-      const msg =
-        e instanceof Error ? `Error de red: ${e.message}` : 'Error de red al subir archivo'
-      return { ...item, status: 'error', error: msg }
     }
+
+    return { ...item, status: 'error', error: lastError }
   }
 
   const runUploads = async (items: UploadItem[]) => {

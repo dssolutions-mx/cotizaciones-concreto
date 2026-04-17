@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
+/** Slow mobile uploads + cold start: give the function time to finish before the platform cuts it off */
+export const maxDuration = 120;
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
