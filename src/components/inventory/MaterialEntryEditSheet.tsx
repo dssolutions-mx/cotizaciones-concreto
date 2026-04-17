@@ -64,25 +64,69 @@ export default function MaterialEntryEditSheet({
 
   const handleFiles = async (files: FileList) => {
     if (!entry) return
+    const entryId = entry.id
     setUploading(true)
+    let okCount = 0
+    let failCount = 0
     try {
       for (const file of Array.from(files)) {
-        const fd = new FormData()
-        fd.append('file', file)
-        fd.append('type', 'entry')
-        fd.append('reference_id', entry.id)
-        const res = await fetch('/api/inventory/documents', { method: 'POST', body: fd })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          toast.error(err.error || `Error al subir ${file.name}`)
-          continue
+        try {
+          const fd = new FormData()
+          fd.append('file', file)
+          fd.append('type', 'entry')
+          fd.append('reference_id', entryId)
+          const res = await fetch('/api/inventory/documents', {
+            method: 'POST',
+            body: fd,
+          })
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            const msg = err?.error || `Error al subir ${file.name} (HTTP ${res.status})`
+            console.error('[EntryEdit] upload failed', {
+              entryId,
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              status: res.status,
+              error: err,
+            })
+            toast.error(msg)
+            failCount += 1
+            continue
+          }
+          okCount += 1
+        } catch (e) {
+          console.error('[EntryEdit] upload threw', {
+            entryId,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            error: e,
+          })
+          toast.error(`Error de red al subir ${file.name}`)
+          failCount += 1
         }
-        toast.success(`${file.name} subido`)
       }
-      await fetchDocuments(entry.id)
-      onSaved?.()
     } finally {
+      // Always refresh the list so any files that actually landed in storage show up,
+      // even if some uploads failed or the request threw midway.
+      try {
+        await fetchDocuments(entryId)
+      } catch (e) {
+        console.error('[EntryEdit] fetchDocuments after upload failed', e)
+      }
       setUploading(false)
+      if (okCount > 0) {
+        toast.success(
+          okCount === 1
+            ? 'Evidencia subida correctamente'
+            : `${okCount} evidencias subidas correctamente`
+        )
+        onSaved?.()
+      }
+      if (failCount > 0 && okCount === 0) {
+        toast.error('No se pudo subir la evidencia. Intente nuevamente.')
+      }
     }
   }
 
@@ -133,7 +177,18 @@ export default function MaterialEntryEditSheet({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        // Prevent closing while an upload is in progress to avoid losing the
+        // in-flight request context on mobile (camera picker / backgrounded tab).
+        if (!next && uploading) {
+          toast.message('Espere a que termine de subir la evidencia...')
+          return
+        }
+        onOpenChange(next)
+      }}
+    >
       <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto bg-[#fafaf9]">
         <SheetHeader className="text-left">
           <SheetTitle className="text-stone-900">Editar entrada</SheetTitle>
@@ -189,6 +244,12 @@ export default function MaterialEntryEditSheet({
                 acceptAnyFileType
                 className="bg-white"
               />
+              {uploading && (
+                <p className="text-xs text-sky-700 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Subiendo evidencia... no cierre esta ventana.
+                </p>
+              )}
             </div>
 
             {docLoading ? (
@@ -240,14 +301,14 @@ export default function MaterialEntryEditSheet({
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={saving}
+                disabled={saving || uploading}
                 className="border-stone-300"
               >
                 Cerrar
               </Button>
               <Button
                 type="submit"
-                disabled={saving}
+                disabled={saving || uploading}
                 className="bg-stone-900 hover:bg-stone-800 text-white"
               >
                 {saving ? (

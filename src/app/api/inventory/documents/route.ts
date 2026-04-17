@@ -105,10 +105,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Create organized file path structure
-    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    const nameParts = file.name.split('.');
+    const rawExt = nameParts.length > 1 ? nameParts.pop()?.toLowerCase() : '';
+    const fileExtension = rawExt && /^[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : 'bin';
     const timestamp = Date.now();
-    const uniqueId = crypto.randomUUID().split('-')[0]; // Short unique identifier
+    const uniqueId = crypto.randomUUID().split('-')[0];
     const fileName = `${type}/${referenceId}/${timestamp}_${uniqueId}.${fileExtension}`;
+
+    console.info('[inventory-documents] upload start', {
+      userId: user.id,
+      role: profile.role,
+      type,
+      referenceId,
+      originalName: file.name,
+      size: file.size,
+      mime: file.type,
+      storedPath: fileName,
+    });
 
     // Upload document to storage
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -119,6 +132,12 @@ export async function POST(request: NextRequest) {
       });
 
     if (uploadError) {
+      console.error('[inventory-documents] storage upload failed', {
+        userId: user.id,
+        referenceId,
+        storedPath: fileName,
+        error: uploadError,
+      });
       throw new Error(`Error al subir documento: ${uploadError.message}`);
     }
 
@@ -158,13 +177,26 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
+      console.error('[inventory-documents] db insert failed', {
+        userId: user.id,
+        referenceId,
+        storedPath: fileName,
+        error: insertError,
+      });
       // If database insert fails, clean up the uploaded file
       await supabase.storage
         .from('inventory-documents')
         .remove([fileName]);
-      
+
       throw new Error(`Error al guardar documento en base de datos: ${insertError.message}`);
     }
+
+    console.info('[inventory-documents] upload success', {
+      userId: user.id,
+      referenceId,
+      documentId: documentRecord.id,
+      storedPath: fileName,
+    });
 
     return NextResponse.json({
       success: true,

@@ -163,6 +163,8 @@ export default function SimpleFileUpload({
     if (e.target.files && e.target.files.length > 0) {
       handleFileSelection(e.target.files)
     }
+    // Reset so re-selecting the same file (common on mobile camera) still fires onChange
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const removeFile = (index: number) => {
