@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { MaterialEntry } from '@/types/inventory'
-import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User, Clock, ExternalLink, CheckCircle2, CalendarClock } from 'lucide-react'
+import { DollarSign, Truck, Save, AlertTriangle, FileText, Plus, ChevronDown, Paperclip, Factory, User, Clock, ExternalLink, CheckCircle2, CalendarClock, Pencil, Lock, Building2, X } from 'lucide-react'
 import CreatePOModal, {
   type PrefillFromMaterialEntry,
   type PrefillFleetFromMaterialEntry,
@@ -199,6 +199,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [fleetCarrierFilterForSearch, setFleetCarrierFilterForSearch] = useState('')
 
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
+  const [editingSupplier, setEditingSupplier] = useState(false)
 
   const [formData, setFormData] = useState({
     unit_price: entry.unit_price?.toString() || '',
@@ -230,9 +231,25 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const hasFleetPoLink = Boolean(entry.fleet_po_id && entry.fleet_po_item_id)
 
   const effectiveSupplierId = useMemo(
-    () => entry.supplier_id || selectedSupplierId || '',
+    () => selectedSupplierId || entry.supplier_id || '',
     [entry.supplier_id, selectedSupplierId]
   )
+
+  const supplierChanged =
+    Boolean(selectedSupplierId) &&
+    Boolean(entry.supplier_id) &&
+    selectedSupplierId !== entry.supplier_id
+
+  const currentSupplierName = useMemo(() => {
+    const id = effectiveSupplierId
+    if (!id) return null
+    const row = suppliers.find((s) => s.id === id)
+    if (row?.name) return row.name
+    if (entry.supplier?.id === id && entry.supplier?.name) return entry.supplier.name
+    return null
+  }, [effectiveSupplierId, suppliers, entry.supplier])
+
+  const supplierLockedByPo = hasMaterialPoLink || hasFleetPoLink
 
   const { availablePlants } = usePlantContext()
 
@@ -719,7 +736,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         id: entry.id,
         unit_price: parseFloat(formData.unit_price),
         total_cost: parseFloat(formData.total_cost),
-        ...(!entry.supplier_id && effectiveSupplierId && { supplier_id: effectiveSupplierId }),
+        ...((!entry.supplier_id || supplierChanged) && effectiveSupplierId && { supplier_id: effectiveSupplierId }),
         ...(effectiveFleetSupplierId && { fleet_supplier_id: effectiveFleetSupplierId }),
         ...(formData.fleet_cost && { fleet_cost: parseFloat(formData.fleet_cost) }),
         ...(formData.supplier_invoice && { supplier_invoice: formData.supplier_invoice }),
@@ -922,21 +939,97 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             )
           })()}
 
-        {/* ─── 1. Supplier (only if missing) ─── */}
-        {!entry.supplier_id && (
-          <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-            <div className="flex items-center gap-2 text-sm text-amber-800 font-medium">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Sin proveedor — seleccione uno para vincular OC
+        {/* ─── 1. Supplier (always visible — read-only by default, editable on demand) ─── */}
+        {(() => {
+          const missing = !entry.supplier_id
+          const showPicker = missing || editingSupplier
+          return (
+            <div
+              className={cn(
+                'rounded-lg border px-3 py-2',
+                missing
+                  ? 'border-amber-200 bg-amber-50/60'
+                  : supplierChanged
+                    ? 'border-sky-200 bg-sky-50/60'
+                    : 'border-stone-200 bg-stone-50/40'
+              )}
+            >
+              {showPicker ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className={cn(
+                        'flex items-center gap-1.5 text-xs font-medium',
+                        missing ? 'text-amber-800' : 'text-stone-700'
+                      )}
+                    >
+                      {missing ? (
+                        <>
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          Sin proveedor — seleccione uno para vincular OC
+                        </>
+                      ) : (
+                        <>
+                          <Building2 className="h-3.5 w-3.5 shrink-0 text-stone-500" />
+                          Proveedor del material
+                        </>
+                      )}
+                    </div>
+                    {!missing && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSupplierId('')
+                          setEditingSupplier(false)
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-800"
+                      >
+                        <X className="h-3 w-3" /> Cancelar
+                      </button>
+                    )}
+                  </div>
+                  <SupplierSelect
+                    value={selectedSupplierId || (missing ? '' : entry.supplier_id || '')}
+                    onChange={(v) => setSelectedSupplierId(v)}
+                    plantId={entry.plant_id || undefined}
+                    required={missing}
+                  />
+                  {supplierChanged && (
+                    <p className="text-[11px] text-sky-800 leading-snug">
+                      Se actualizará el proveedor de la entrada al guardar. Esto permite vincular OC del proveedor correcto.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-stone-500" />
+                    <span className="text-[11px] text-stone-500 shrink-0">Proveedor</span>
+                    <span className="text-sm font-medium text-stone-900 truncate">
+                      {currentSupplierName || entry.supplier?.name || '—'}
+                    </span>
+                  </div>
+                  {supplierLockedByPo ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-[11px] text-stone-400"
+                      title="Desvincule la OC para poder cambiar el proveedor"
+                    >
+                      <Lock className="h-3 w-3" /> Vinculado a OC
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEditingSupplier(true)}
+                      className="inline-flex items-center gap-1 text-[11px] text-sky-800 hover:text-sky-900 font-medium shrink-0"
+                    >
+                      <Pencil className="h-3 w-3" /> Cambiar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-            <SupplierSelect
-              value={selectedSupplierId}
-              onChange={setSelectedSupplierId}
-              plantId={entry.plant_id || undefined}
-              required
-            />
-          </div>
-        )}
+          )
+        })()}
 
         {/* ─── 2. Material Pricing (always visible — core task) ─── */}
         <section className="space-y-3">
