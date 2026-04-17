@@ -83,6 +83,7 @@ export class FIFOPricingService {
       .select('id, entry_number, entry_date, entry_time, created_at, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received')
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
+      .eq('excluded_from_fifo', false)
       .lte('entry_date', consumptionDate) // Only entries received before or on consumption date
       .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gte.0.001') // Include NULL (uninitialized) or > 0
       .order('entry_date', { ascending: true })
@@ -308,6 +309,7 @@ export class FIFOPricingService {
       .select('id, entry_number, remaining_quantity_kg, unit_price, received_qty_kg, quantity_received')
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
+      .eq('excluded_from_fifo', false)
       .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gt.0')
       .order('entry_date', { ascending: true })
       .order('entry_time', { ascending: true })

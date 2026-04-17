@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { getOrdersForDosificador } from '@/lib/supabase/orders';
 import { supabase } from '@/lib/supabase/client';
@@ -50,6 +51,7 @@ function formatBytes(n: number): string {
 }
 
 export default function EvidenciaConcretoPage() {
+  const { profile } = useAuthBridge();
   const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const { getSignedUrl } = useSignedUrls('remision-documents', 3600);
   const [orders, setOrders] = useState<OrderWithClient[]>([]);
@@ -89,10 +91,11 @@ export default function EvidenciaConcretoPage() {
         setEvidenceOrderIds(new Set());
         return;
       }
-      const { data: evRows, error: evErr } = await supabase
-        .from('order_concrete_evidence')
-        .select('order_id')
-        .in('order_id', ids);
+      let evQuery = supabase.from('order_concrete_evidence').select('order_id').in('order_id', ids);
+      if (profile?.role === 'DOSIFICADOR' && profile.id) {
+        evQuery = evQuery.eq('uploaded_by', profile.id);
+      }
+      const { data: evRows, error: evErr } = await evQuery;
       if (evErr) throw evErr;
       setEvidenceOrderIds(new Set((evRows || []).map((r) => r.order_id)));
     } catch (e) {
@@ -101,7 +104,7 @@ export default function EvidenciaConcretoPage() {
     } finally {
       setLoadingOrders(false);
     }
-  }, [currentPlant?.id]);
+  }, [currentPlant?.id, profile?.role, profile?.id]);
 
   useEffect(() => {
     if (plantLoading) return;
@@ -294,6 +297,11 @@ export default function EvidenciaConcretoPage() {
         <h1 className="text-2xl font-semibold text-stone-900">Evidencia de remisiones (concreto)</h1>
         <p className="text-sm text-stone-600 mt-1">
           Uno o varios archivos por pedido (p. ej. varios PDF) con las remisiones en el orden indicado.
+          {profile?.role === 'DOSIFICADOR' ? (
+            <span className="block mt-1 text-stone-700">
+              Como dosificador, aquí solo verá y administrará los archivos que usted haya subido.
+            </span>
+          ) : null}
           {mounted && currentPlant?.name ? (
             <span className="block mt-1 font-medium text-stone-800">Planta: {currentPlant.name}</span>
           ) : null}
@@ -370,11 +378,12 @@ export default function EvidenciaConcretoPage() {
                       </div>
                       {hasEv ? (
                         <Badge className="shrink-0 bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
-                          <CheckCircle2 className="h-3 w-3 mr-1" /> Con evidencia
+                          <CheckCircle2 className="h-3 w-3 mr-1" />{' '}
+                          {profile?.role === 'DOSIFICADOR' ? 'Mis archivos' : 'Con evidencia'}
                         </Badge>
                       ) : (
                         <Badge variant="secondary" className="shrink-0">
-                          Sin evidencia
+                          {profile?.role === 'DOSIFICADOR' ? 'Sin mis archivos' : 'Sin evidencia'}
                         </Badge>
                       )}
                     </div>

@@ -14,6 +14,7 @@ import {
 } from '@/lib/auth/inventoryRoles';
 import { resolveVolumetricWeightKgPerM3 } from '@/lib/inventory/volumetricWeight';
 import { kgToMetricTons, KG_PER_METRIC_TON } from '@/lib/inventory/massUnits';
+import { recalculateFifoBeforeDeletingEntry } from '@/services/materialEntryFifoRecalcService';
 
 /** Merge document_count per entry from inventory_documents (type entry). */
 async function attachEntryDocumentCounts(
@@ -1590,21 +1591,16 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const { count: allocCount, error: allocErr } = await supabase
-      .from('material_consumption_allocations')
-      .select('id', { count: 'exact', head: true })
-      .eq('entry_id', id);
-
-    if (allocErr) {
-      console.error('DELETE entry: allocations count', allocErr);
-    } else if ((allocCount ?? 0) > 0) {
+    const fifoRecalc = await recalculateFifoBeforeDeletingEntry(supabase, id, user.id);
+    if (!fifoRecalc.ok) {
+      console.error('DELETE entry: FIFO recalc failed', fifoRecalc.message, fifoRecalc.remisionErrors);
       return NextResponse.json(
         {
           success: false,
-          error:
-            'No se puede eliminar: el material de esta entrada ya fue consumido en remisiones (costeo FIFO).',
+          error: fifoRecalc.message,
+          remision_errors: fifoRecalc.remisionErrors,
         },
-        { status: 409 }
+        { status: 422 }
       );
     }
 

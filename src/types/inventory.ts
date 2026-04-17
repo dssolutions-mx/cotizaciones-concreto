@@ -47,6 +47,8 @@ export interface MaterialEntry {
   original_unit_price?: number | null; // Original unit_price before PO credit adjustment
   // FIFO consumption tracking
   remaining_quantity_kg?: number | null; // Remaining inventory from this entry layer (for FIFO)
+  /** When true, FIFO ignores this receipt layer (delete/recalc orchestration) */
+  excluded_from_fifo?: boolean;
   // Landed cost (material + fleet per kg) — computed column
   landed_unit_price?: number | null;
   // Lot reference

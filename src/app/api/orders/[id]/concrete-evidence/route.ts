@@ -37,6 +37,20 @@ function canUploadEvidence(profile: { role: string; plant_id: string | null }, o
   return false;
 }
 
+/** Who may load remisiones + evidence for an order (uploaders, plant, finanzas readers). */
+function canReadConcreteEvidence(profile: { role: string; plant_id: string | null }, orderPlantId: string) {
+  if (canUploadEvidence(profile, orderPlantId)) return true;
+  if (['EXECUTIVE', 'ADMIN_OPERATIONS'].includes(profile.role)) {
+    if (profile.plant_id == null) return true;
+    return profile.plant_id === orderPlantId;
+  }
+  if (['SALES_AGENT', 'CREDIT_VALIDATOR', 'ADMINISTRATIVE'].includes(profile.role)) {
+    if (profile.plant_id == null) return true;
+    return profile.plant_id === orderPlantId;
+  }
+  return false;
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -50,6 +64,30 @@ export async function GET(
     } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('role, plant_id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 403 });
+    }
+
+    const { data: orderRow, error: orderPeekErr } = await supabase
+      .from('orders')
+      .select('plant_id')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    if (orderPeekErr || !orderRow?.plant_id) {
+      return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
+    }
+
+    if (!canReadConcreteEvidence(profile, orderRow.plant_id)) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 
     const { data: remisionesRaw, error: remErr } = await supabase
@@ -75,11 +113,17 @@ export async function GET(
       }))
     );
 
-    const { data: evidenceList, error: evErr } = await supabase
+    let evQuery = supabase
       .from('order_concrete_evidence')
       .select('id, file_path, original_name, file_size, mime_type, uploaded_by, notes, created_at, updated_at')
       .eq('order_id', orderId)
       .order('created_at', { ascending: true });
+
+    if (profile.role === 'DOSIFICADOR') {
+      evQuery = evQuery.eq('uploaded_by', user.id);
+    }
+
+    const { data: evidenceList, error: evErr } = await evQuery;
 
     if (evErr) {
       console.error('concrete-evidence GET evidence:', evErr);
@@ -305,13 +349,17 @@ export async function DELETE(
 
     const { data: existing, error: findErr } = await supabase
       .from('order_concrete_evidence')
-      .select('id, file_path')
+      .select('id, file_path, uploaded_by')
       .eq('id', evidenceId.trim())
       .eq('order_id', orderId)
       .maybeSingle();
 
     if (findErr || !existing) {
       return NextResponse.json({ error: 'Evidencia no encontrada' }, { status: 404 });
+    }
+
+    if (profile.role === 'DOSIFICADOR' && existing.uploaded_by !== user.id) {
+      return NextResponse.json({ error: 'Solo puede eliminar sus propios archivos' }, { status: 403 });
     }
 
     await supabase.storage.from('remision-documents').remove([existing.file_path]);
