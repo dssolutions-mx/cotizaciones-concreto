@@ -177,6 +177,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const [uploading, setUploading] = useState(false)
   const [currentInventory, setCurrentInventory] = useState<number | null>(null)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  /** Entrada ya creada en BD pero la subida de evidencias falló (evitar duplicar entrada). */
+  const [pendingEvidenceEntry, setPendingEvidenceEntry] = useState<{
+    id: string
+    entry_number: string
+  } | null>(null)
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
   const [poItems, setPoItems] = useState<any[]>([])
   const [selectedPoItemId, setSelectedPoItemId] = useState<string>('')
@@ -699,52 +704,151 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     setPendingFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Upload documents after entry creation
-  const uploadDocuments = async (entryId: string) => {
-    if (pendingFiles.length === 0) return;
+  /** Sube evidencias para una entrada ya existente. Devuelve resultados en el mismo orden que `files`. */
+  const uploadEntryDocuments = async (
+    entryId: string,
+    files: PendingFile[]
+  ): Promise<{ allOk: boolean; results: PendingFile[]; uploadedCount: number }> => {
+    if (files.length === 0) {
+      return { allOk: true, results: [], uploadedCount: 0 }
+    }
 
-    const uploadPromises = pendingFiles.map(async (fileInfo) => {
-      try {
-        const formData = new FormData();
-        formData.append('file', fileInfo.file);
-        formData.append('type', 'entry');
-        formData.append('reference_id', entryId);
+    const results = await Promise.all(
+      files.map(async (fileInfo) => {
+        try {
+          const fd = new FormData()
+          fd.append('file', fileInfo.file)
+          fd.append('type', 'entry')
+          fd.append('reference_id', entryId)
 
-        const response = await fetch('/api/inventory/documents', {
-          method: 'POST',
-          body: formData,
-        });
+          const response = await fetch('/api/inventory/documents', {
+            method: 'POST',
+            body: fd,
+          })
 
-        if (response.ok) {
-          const result = await response.json();
-          return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
-        } else {
-          const error = await response.json();
-          console.error('Error uploading document:', error);
-          return { ...fileInfo, status: 'error' as const, error: error.error };
+          if (response.ok) {
+            const result = await response.json()
+            return {
+              ...fileInfo,
+              status: 'uploaded' as const,
+              documentId: result.data?.id,
+              error: undefined,
+            }
+          }
+          const errorJson = await response.json().catch(() => ({}))
+          const msg =
+            typeof (errorJson as { error?: string }).error === 'string'
+              ? (errorJson as { error: string }).error
+              : 'Error al subir'
+          console.error('Error uploading document:', errorJson)
+          return { ...fileInfo, status: 'error' as const, error: msg }
+        } catch (error) {
+          console.error('Error uploading document:', error)
+          return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' }
         }
-      } catch (error) {
-        console.error('Error uploading document:', error);
-        return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' };
-      }
-    });
+      })
+    )
 
-    const results = await Promise.all(uploadPromises);
-    
-    // Update pending files with results
-    setPendingFiles(results);
-    
-    // Clear successfully uploaded files after a delay
-    setTimeout(() => {
-      setPendingFiles(prev => prev.filter(f => f.status !== 'uploaded'));
-    }, 3000);
-  };
+    const uploadedCount = results.filter((r) => r.status === 'uploaded').length
+    const allOk = results.every((r) => r.status === 'uploaded')
+    return { allOk, results, uploadedCount }
+  }
+
+  const mergePendingFileResults = (
+    prev: PendingFile[],
+    toUpload: PendingFile[],
+    uploadResults: PendingFile[]
+  ) => {
+    const repl = new Map<File, PendingFile>()
+    toUpload.forEach((t, i) => {
+      repl.set(t.file, uploadResults[i] ?? t)
+    })
+    return prev.map((f) => repl.get(f.file) ?? f)
+  }
+
+  const handleRetryEvidence = async () => {
+    if (!pendingEvidenceEntry) return
+    const toUpload = pendingFiles.filter((f) => f.status === 'pending' || f.status === 'error')
+    if (toUpload.length === 0) {
+      toast.error('No hay archivos pendientes. Agregue evidencia e intente de nuevo.')
+      return
+    }
+    setLoading(true)
+    try {
+      const { allOk, results, uploadedCount } = await uploadEntryDocuments(
+        pendingEvidenceEntry.id,
+        toUpload
+      )
+      setPendingFiles((prev) => mergePendingFileResults(prev, toUpload, results))
+      await fetchExistingDocuments(pendingEvidenceEntry.id)
+      if (!allOk) {
+        toast.error(
+          'Algunos archivos no se pudieron subir. Revise el mensaje de error junto a cada archivo, el tamaño máximo o intente de nuevo.'
+        )
+        return
+      }
+      setPendingEvidenceEntry(null)
+      toast.success(
+        uploadedCount > 0
+          ? `${uploadedCount} archivo(s) de evidencia guardado(s). Entrada completa.`
+          : 'Evidencia guardada. Entrada completa.'
+      )
+      setFormData({
+        material_id: '',
+        quantity_received: 0,
+        supplier_id: '',
+        supplier_invoice: '',
+        fleet_supplier_id: '',
+        fleet_invoice: '',
+        notes: '',
+        entry_date: new Date().toISOString().split('T')[0],
+      })
+      setCurrentInventory(null)
+      setPendingFiles([])
+      setExistingDocuments([])
+      setSelectedPoItemId('')
+      setSelectedFleetPoItemId('')
+      setFleetQtyEntered(0)
+      setReceivedQtyEntered(0)
+      setReceivedUom('kg')
+      setVolumetricWeight(undefined)
+      setAutoFilledFromPO({
+        material: false,
+        supplier: false,
+        uom: false,
+        volumetricWeight: false,
+      })
+      setFulfillmentAlerts([])
+      setSelectedFulfillmentAlertId('')
+      supplierAutoFromPoRef.current = null
+      setDosificadorReceiptContext(null)
+      setDosificadorSupplierOverride(false)
+      onSuccess?.()
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     console.log('Form submission - currentPlant:', currentPlant);
     console.log('Form submission - formData:', formData);
+
+    if (pendingEvidenceEntry) {
+      toast.error(
+        'Ya hay una entrada guardada pendiente de evidencia. Use «Reintentar subida de evidencia» o limpie el formulario.'
+      )
+      return
+    }
+
+    const evidenceQueue = pendingFiles.filter((f) => f.status === 'pending')
+    if (evidenceQueue.length === 0) {
+      toast.error(
+        'Debe adjuntar al menos un documento de evidencia antes de registrar la entrada.'
+      )
+      return
+    }
     
     if (!formData.material_id) {
       toast.error('Por favor complete todos los campos requeridos')
@@ -911,6 +1015,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
 
       if (response.ok) {
         const data = await response.json()
+        const entryId = data.entry_id as string | undefined
+        const entryNumber = String(data.data?.entry_number ?? entryId?.slice(0, 8) ?? '—')
+
+        let evidenceUploadedCount = 0
+        if (entryId && evidenceQueue.length > 0) {
+          const { allOk, results, uploadedCount } = await uploadEntryDocuments(entryId, evidenceQueue)
+          evidenceUploadedCount = uploadedCount
+          setPendingFiles((prev) => mergePendingFileResults(prev, evidenceQueue, results))
+          await fetchExistingDocuments(entryId)
+
+          if (!allOk) {
+            if (data.resolved_alert_number) {
+              setEntrySuccessInfo({ alertNumber: data.resolved_alert_number })
+            } else {
+              setEntrySuccessInfo(null)
+            }
+            setPendingEvidenceEntry({ id: entryId, entry_number: String(entryNumber) })
+            toast.error(
+              `La entrada ${entryNumber} se guardó, pero falló la evidencia. Revise los errores en la lista de archivos y use «Reintentar subida de evidencia». No registre otra entrada por la misma recepción.`
+            )
+            setLoading(false)
+            return
+          }
+
+          setPendingEvidenceEntry(null)
+        }
+
         if (data.resolved_alert_number) {
           setEntrySuccessInfo({ alertNumber: data.resolved_alert_number })
           toast.success(`Entrada registrada. Solicitud ${data.resolved_alert_number} cerrada.`)
@@ -919,13 +1050,8 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           toast.success('Entrada registrada correctamente')
         }
 
-        // Upload pending documents
-        if (data.entry_id && pendingFiles.length > 0) {
-          await uploadDocuments(data.entry_id)
-          toast.success(`${pendingFiles.length} archivo(s) subido(s) correctamente`)
-          
-          // Fetch existing documents to show them
-          await fetchExistingDocuments(data.entry_id)
+        if (evidenceUploadedCount > 0) {
+          toast.success(`${evidenceUploadedCount} archivo(s) de evidencia guardado(s).`)
         }
         
         // Reset form
@@ -958,6 +1084,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         supplierAutoFromPoRef.current = null
         setDosificadorReceiptContext(null)
         setDosificadorSupplierOverride(false)
+        setPendingEvidenceEntry(null)
 
         onSuccess?.()
       } else {
@@ -1016,6 +1143,33 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               Cerrar aviso
             </Button>
           </div>
+        </div>
+      )}
+
+      {pendingEvidenceEntry && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50/95 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start gap-2 min-w-0">
+            <AlertCircle className="h-5 w-5 text-amber-800 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-medium text-amber-950">Evidencia pendiente</p>
+              <p className="text-sm text-amber-900 mt-1">
+                La entrada{' '}
+                <span className="font-mono font-semibold">{pendingEvidenceEntry.entry_number}</span> ya quedó en el
+                sistema, pero uno o más archivos no se subieron. Corrija o vuelva a elegir los archivos marcados en
+                error y pulse reintentar. No use «Guardar entrada» de nuevo para la misma recepción.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            className="shrink-0 bg-amber-800 hover:bg-amber-900 text-white"
+            disabled={loading}
+            onClick={() => void handleRetryEvidence()}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Reintentar subida de evidencia
+          </Button>
         </div>
       )}
 
@@ -2361,7 +2515,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             Notas y Documentos
           </CardTitle>
           <CardDescription>
-            Información adicional y documentos de evidencia. Use la cámara para capturar documentos o suba archivos existentes.
+            La evidencia documental es obligatoria para registrar la entrada. Puede adjuntar cualquier tipo de archivo (imagen, PDF, Office, comprimido, etc.) dentro del límite de tamaño.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -2384,12 +2538,12 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             <Label>Documentos de Evidencia</Label>
             <div className="text-xs text-stone-600 mb-3">
               <p>• Use la cámara para capturar documentos y convertirlos automáticamente a PDF</p>
-              <p>• O suba archivos existentes (imágenes, PDFs)</p>
+              <p>• O suba cualquier archivo desde el dispositivo</p>
             </div>
             
             <SimpleFileUpload
               onFileSelect={handleFileUpload}
-              acceptedTypes={['image/*', 'application/pdf']}
+              acceptAnyFileType
               multiple
               uploading={uploading}
               disabled={loading}
@@ -2579,6 +2733,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             setFulfillmentAlerts([])
             setSelectedFulfillmentAlertId('')
             setEntrySuccessInfo(null)
+            setPendingEvidenceEntry(null)
             supplierAutoFromPoRef.current = null
             setDosificadorReceiptContext(null)
             setDosificadorSupplierOverride(false)
@@ -2592,6 +2747,8 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           disabled={
             loading ||
             uploading ||
+            pendingEvidenceEntry !== null ||
+            !pendingFiles.some((f) => f.status === 'pending') ||
             !formData.material_id ||
             formData.quantity_received <= 0 ||
             (isDosificador && !String(formData.supplier_invoice || '').trim())
@@ -2623,6 +2780,19 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         </div>
       )}
 
+      {!pendingEvidenceEntry &&
+        formData.material_id &&
+        formData.quantity_received > 0 &&
+        (!isDosificador || String(formData.supplier_invoice || '').trim()) &&
+        !pendingFiles.some((f) => f.status === 'pending') && (
+          <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertCircle className="h-4 w-4 text-amber-700" />
+            <p className="text-sm text-amber-900">
+              Adjunte al menos un archivo de evidencia para poder guardar la entrada.
+            </p>
+          </div>
+        )}
+
       {isDosificador && (
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-stone-200 bg-[#faf9f7]/95 backdrop-blur-sm p-3 md:hidden flex items-center justify-between gap-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
           <div className="min-w-0 text-xs text-stone-600">
@@ -2645,6 +2815,8 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             disabled={
               loading ||
               uploading ||
+              pendingEvidenceEntry !== null ||
+              !pendingFiles.some((f) => f.status === 'pending') ||
               !formData.material_id ||
               formData.quantity_received <= 0 ||
               (isDosificador && !String(formData.supplier_invoice || '').trim())

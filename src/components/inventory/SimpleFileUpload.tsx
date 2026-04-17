@@ -19,6 +19,8 @@ import { cn } from '@/lib/utils'
 interface SimpleFileUploadProps {
   onFileSelect: (files: FileList) => void
   acceptedTypes?: string[]
+  /** Si es true, no se filtra por MIME/extensión; el input acepta cualquier archivo (solo límite de tamaño). */
+  acceptAnyFileType?: boolean
   multiple?: boolean
   maxFiles?: number
   maxSize?: number // in MB
@@ -37,6 +39,7 @@ interface UploadedFile {
 export default function SimpleFileUpload({
   onFileSelect,
   acceptedTypes = ['image/*', 'application/pdf'],
+  acceptAnyFileType = false,
   multiple = true,
   maxFiles = 15,
   maxSize = 10,
@@ -72,6 +75,17 @@ export default function SimpleFileUpload({
       return { valid, errors: newErrors }
     }
 
+    const extFallbackOk = (file: File): boolean => {
+      const ext = file.name.split('.').pop()?.toLowerCase() || ''
+      const imageExt = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'].includes(ext)
+      const pdfExt = ext === 'pdf'
+      const csvExt = ext === 'csv'
+      const wantsImage = acceptedTypes.some((t) => t === 'image/*' || t.startsWith('image/'))
+      const wantsPdf = acceptedTypes.includes('application/pdf')
+      const wantsCsv = acceptedTypes.includes('text/csv')
+      return (wantsImage && imageExt) || (wantsPdf && pdfExt) || (wantsCsv && csvExt)
+    }
+
     Array.from(files).forEach((file) => {
       // Check file size
       if (file.size > maxSize * 1024 * 1024) {
@@ -79,18 +93,23 @@ export default function SimpleFileUpload({
         return
       }
 
-      // Check file type
-      const isValidType = acceptedTypes.some(type => {
-        if (type.includes('*')) {
-          const baseType = type.split('/')[0]
-          return file.type.startsWith(baseType + '/')
-        }
-        return file.type === type
-      })
+      if (!acceptAnyFileType) {
+        const isValidType =
+          acceptedTypes.some((type) => {
+            if (type.includes('*')) {
+              const baseType = type.split('/')[0]
+              return file.type
+                ? file.type.startsWith(baseType + '/')
+                : extFallbackOk(file)
+            }
+            return file.type === type
+          }) ||
+          (!file.type && extFallbackOk(file))
 
-      if (!isValidType) {
-        newErrors.push(`${file.name}: Tipo de archivo no permitido`)
-        return
+        if (!isValidType) {
+          newErrors.push(`${file.name}: Tipo de archivo no permitido`)
+          return
+        }
       }
 
       valid.push(file)
@@ -184,9 +203,15 @@ export default function SimpleFileUpload({
                 <span className="block mt-1 font-normal">Puede subir varios archivos a la vez.</span>
               </p>
               <p className="text-xs text-gray-500 text-center">
-                {acceptedTypes.includes('image/*') && 'Imágenes, '}
-                {acceptedTypes.includes('application/pdf') && 'PDF, '}
-                máximo {maxSize}MB por archivo
+                {acceptAnyFileType
+                  ? `Cualquier tipo de archivo · máximo ${maxSize}MB por archivo`
+                  : (
+                      <>
+                        {acceptedTypes.includes('image/*') && 'Imágenes, '}
+                        {acceptedTypes.includes('application/pdf') && 'PDF, '}
+                        máximo {maxSize}MB por archivo
+                      </>
+                    )}
               </p>
             </>
           )}
@@ -198,7 +223,7 @@ export default function SimpleFileUpload({
         ref={fileInputRef}
         type="file"
         multiple={multiple}
-        accept={acceptedTypes.join(',')}
+        accept={acceptAnyFileType ? undefined : acceptedTypes.join(',')}
         onChange={handleInputChange}
         className="hidden"
         disabled={disabled || uploading}
@@ -245,7 +270,9 @@ export default function SimpleFileUpload({
                       {formatFileSize(file.size)}
                     </p>
                     <Badge variant="outline" className="text-xs">
-                      {file.type.split('/')[1]?.toUpperCase()}
+                      {file.type
+                        ? (file.type.split('/')[1]?.toUpperCase() || file.type.toUpperCase())
+                        : '—'}
                     </Badge>
                   </div>
                 </div>
@@ -273,7 +300,11 @@ export default function SimpleFileUpload({
 
       {/* Upload Instructions */}
       <div className="text-xs text-gray-500">
-        <p>• Formatos permitidos: {acceptedTypes.join(', ')}</p>
+        {acceptAnyFileType ? (
+          <p>• Se acepta cualquier formato; tamaño máximo {maxSize}MB por archivo</p>
+        ) : (
+          <p>• Formatos permitidos: {acceptedTypes.join(', ')}</p>
+        )}
         <p>• Tamaño máximo por archivo: {maxSize}MB</p>
         <p>• Máximo {maxFiles} archivo(s) por entrada</p>
       </div>

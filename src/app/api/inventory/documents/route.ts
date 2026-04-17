@@ -33,16 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type and size
-    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'text/csv'];
-    if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { success: false, error: 'Tipo de archivo no permitido. Solo se permiten: JPEG, PNG, PDF, CSV' },
-        { status: 400 }
-      );
-    }
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024; // 10MB — cualquier tipo de archivo permitido
     if (file.size > maxSize) {
       return NextResponse.json(
         { success: false, error: 'El archivo excede el tamaño máximo de 10MB' },
