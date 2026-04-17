@@ -21,7 +21,9 @@ import {
 } from '@/components/ui/select'
 import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import { toast } from 'sonner'
 import { formatReceptionAssignedDay, formatEntrySavedShortFor } from '@/lib/inventory/entryReceivedDisplay'
@@ -40,11 +42,22 @@ import {
   X,
 } from 'lucide-react'
 
-function qtyLabel(entry: MaterialEntry): string {
-  if (entry.received_uom === 'm3') return 'Peso en báscula (kg)'
-  if (entry.received_uom === 'l')
-    return `Cantidad recibida (${entry.material?.unit_of_measure || 'L'})`
-  return `Cantidad recibida (${entry.material?.unit_of_measure || 'kg'})`
+/** Etiqueta corta de UoM de flota (alineado con líneas de OC / formulario). */
+function fleetUomDisplay(uom: string | null | undefined): string {
+  switch (uom) {
+    case 'trips':
+      return 'viajes'
+    case 'tons':
+      return 't'
+    case 'hours':
+      return 'h'
+    case 'loads':
+      return 'cargas'
+    case 'units':
+      return 'unidades'
+    default:
+      return uom || '—'
+  }
 }
 
 function initialQtyInput(entry: MaterialEntry): string {
@@ -129,6 +142,7 @@ export default function MaterialEntryEditSheet({
   onOpenChange,
   onSaved,
 }: MaterialEntryEditSheetProps) {
+  const { profile } = useAuthSelectors()
   const [notes, setNotes] = useState('')
   const [supplierInvoice, setSupplierInvoice] = useState('')
   const [supplierId, setSupplierId] = useState('')
@@ -460,116 +474,270 @@ export default function MaterialEntryEditSheet({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-qty">{qtyLabel(entry)}</Label>
-              <Input
-                id="edit-qty"
-                type="text"
-                inputMode="decimal"
-                value={qtyInput}
-                onChange={(e) => setQtyInput(e.target.value)}
-                className="bg-white border-stone-200"
-              />
-              {entry.received_uom === 'm3' && entry.received_qty_entered != null ? (
-                <p className="text-xs text-stone-500">
-                  m³ registrados:{' '}
-                  {Number(entry.received_qty_entered).toLocaleString('es-MX', {
-                    maximumFractionDigits: 4,
-                  })}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50/80 p-3">
-              <div className="flex items-center gap-2 text-stone-800 text-sm font-medium">
-                <Truck className="h-4 w-4" />
-                Flota / flete
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs">Proveedor de flota</Label>
-                <SupplierSelect
-                  value={fleetSupplierId}
-                  onChange={setFleetSupplierId}
-                  plantId={entry.plant_id}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-fleet-invoice" className="text-xs">
-                  Factura / remisión flota
-                </Label>
-                <Input
-                  id="edit-fleet-invoice"
-                  value={fleetInvoice}
-                  onChange={(e) => setFleetInvoice(e.target.value)}
-                  maxLength={100}
-                  className="bg-white border-stone-200"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-fleet-cost" className="text-xs">
-                  Costo de flota (opcional)
-                </Label>
-                <Input
-                  id="edit-fleet-cost"
-                  type="text"
-                  inputMode="decimal"
-                  value={fleetCost}
-                  onChange={(e) => setFleetCost(e.target.value)}
-                  placeholder="0.00"
-                  className="bg-white border-stone-200"
-                />
-              </div>
-              {entry.fleet_po_item_id ? (
-                <p className="text-xs text-stone-500">
-                  Hay OC de flota vinculada; la cantidad de servicio de flota no se edita aquí.
-                </p>
+              {entry.received_uom === 'm3' ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="edit-qty">Peso báscula (kg)</Label>
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden />
+                      OC en m³ · entrada en kg
+                    </Badge>
+                  </div>
+                  <Input
+                    id="edit-qty"
+                    type="text"
+                    inputMode="decimal"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    className="bg-white border-stone-200"
+                  />
+                  {(() => {
+                    const volW =
+                      Number(entry.volumetric_weight_kg_per_m3) ||
+                      Number(entry.material?.bulk_density_kg_per_m3) ||
+                      0
+                    const q = parseDecimal(qtyInput)
+                    const previewM3 =
+                      volW > 0 && q != null && q > 0 ? q / volW : null
+                    return (
+                      <>
+                        {volW > 0 ? (
+                          <p className="text-xs text-stone-600">
+                            Densidad acordada (recepción):{' '}
+                            <span className="font-medium tabular-nums">
+                              {volW.toLocaleString('es-MX')} kg/m³
+                            </span>
+                            {previewM3 != null && (
+                              <>
+                                {' '}
+                                → ≈{' '}
+                                <span className="font-medium tabular-nums">
+                                  {previewM3.toLocaleString('es-MX', {
+                                    maximumFractionDigits: 3,
+                                  })}
+                                </span>{' '}
+                                m³ contra la línea (comercial)
+                              </>
+                            )}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-100 rounded-md px-2 py-1.5">
+                            No hay peso volumétrico (kg/m³) en esta entrada; no se puede
+                            mostrar la vista previa en m³.
+                          </p>
+                        )}
+                        {entry.received_qty_entered != null ? (
+                          <p className="text-xs text-stone-500">
+                            m³ ya registrados en esta recepción:{' '}
+                            {Number(entry.received_qty_entered).toLocaleString('es-MX', {
+                              maximumFractionDigits: 4,
+                            })}
+                          </p>
+                        ) : null}
+                      </>
+                    )
+                  })()}
+                </>
+              ) : entry.received_uom === 'l' ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label htmlFor="edit-qty">Volumen (L)</Label>
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      Recepción en litros
+                    </Badge>
+                  </div>
+                  <Input
+                    id="edit-qty"
+                    type="text"
+                    inputMode="decimal"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    className="bg-white border-stone-200"
+                  />
+                </>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-fleet-qty" className="text-xs">
-                      Cantidad servicio flota
-                    </Label>
-                    <Input
-                      id="edit-fleet-qty"
-                      type="text"
-                      inputMode="decimal"
-                      value={fleetQtyEntered}
-                      onChange={(e) => setFleetQtyEntered(e.target.value)}
-                      className="bg-white border-stone-200"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Unidad</Label>
-                    <Select
-                      value={fleetUom || '__none__'}
-                      onValueChange={(v) => setFleetUom(v === '__none__' ? '' : v)}
-                    >
-                      <SelectTrigger className="bg-white border-stone-200">
-                        <SelectValue placeholder="—" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">—</SelectItem>
-                        <SelectItem value="trips">Viajes</SelectItem>
-                        <SelectItem value="tons">Toneladas</SelectItem>
-                        <SelectItem value="hours">Horas</SelectItem>
-                        <SelectItem value="loads">Cargas</SelectItem>
-                        <SelectItem value="units">Unidades</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <>
+                  <Label htmlFor="edit-qty">Cantidad recibida (kg)</Label>
+                  <Input
+                    id="edit-qty"
+                    type="text"
+                    inputMode="decimal"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(e.target.value)}
+                    className="bg-white border-stone-200"
+                  />
+                  <p className="text-xs text-stone-500">
+                    El inventario y el avance de OC se manejan en kilogramos (no use la
+                    unidad comercial del catálogo de material aquí).
+                  </p>
+                </>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-supplier-invoice">Número de remisión</Label>
+              <Label htmlFor="edit-supplier-invoice">Número de remisión (proveedor material)</Label>
               <Input
                 id="edit-supplier-invoice"
                 value={supplierInvoice}
                 onChange={(e) => setSupplierInvoice(e.target.value)}
                 maxLength={100}
-                placeholder="Opcional"
+                placeholder="Ej. REM-2024-001"
                 className="bg-white border-stone-200"
               />
+              <p className="text-xs text-stone-500">
+                Documento del <strong>proveedor del material</strong>, no del transporte.
+              </p>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50/80 p-3">
+              <div className="flex items-center gap-2 text-stone-800 text-sm font-medium">
+                <Truck className="h-4 w-4" />
+                Transporte (camión / fletera)
+              </div>
+              <div className="rounded-md bg-white/90 border border-stone-100 px-3 py-2.5 text-xs text-stone-700 space-y-1.5 leading-relaxed">
+                <p>
+                  <span className="font-semibold text-stone-900">¿Qué va aquí?</span> Lo que consta
+                  en planta: la <strong>línea o nombre del transportista</strong> y el{' '}
+                  <strong>folio del viaje</strong> (papel del chofer o fletera).
+                </p>
+                <p className="text-stone-600">
+                  Si es el mismo proveedor del material y un solo documento, puede dejar el transporte
+                  vacío.
+                </p>
+              </div>
+
+              {entry.fleet_po_item_id ? (
+                <div className="rounded-md border border-stone-200 bg-white p-3 space-y-2">
+                  <p className="text-xs font-semibold text-stone-800 uppercase tracking-wide">
+                    OC de flota vinculada
+                  </p>
+                  {entry.fleet_po?.po_number ? (
+                    <p className="text-sm text-stone-900">
+                      OC{' '}
+                      <span className="font-mono font-medium">
+                        {entry.fleet_po.po_number}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-500">OC de flota asociada (sin número en datos cargados).</p>
+                  )}
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+                    <span className="text-stone-600 text-xs">Cantidad de servicio (según OC):</span>
+                    <span className="font-medium tabular-nums text-stone-900">
+                      {entry.fleet_qty_entered != null
+                        ? Number(entry.fleet_qty_entered).toLocaleString('es-MX', {
+                            maximumFractionDigits: 4,
+                          })
+                        : '—'}
+                    </span>
+                    <span className="text-stone-800">{fleetUomDisplay(entry.fleet_uom)}</span>
+                  </div>
+                  <p className="text-xs text-stone-500">
+                    Para cambiar la línea de OC o la cantidad de servicio vinculada, use compras o
+                    contacte a administración.
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm">
+                    ¿Quién transportó? (transportista / fletera)
+                  </Label>
+                  <SupplierSelect
+                    value={fleetSupplierId}
+                    onChange={setFleetSupplierId}
+                    plantId={entry.plant_id}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-fleet-invoice" className="text-sm">
+                    Folio de remisión o guía del viaje
+                  </Label>
+                  <div className="relative">
+                    <Truck className="absolute left-3 top-3 h-4 w-4 text-stone-400 pointer-events-none" />
+                    <Input
+                      id="edit-fleet-invoice"
+                      value={fleetInvoice}
+                      onChange={(e) => setFleetInvoice(e.target.value)}
+                      maxLength={100}
+                      placeholder="Ej. folio en báscula"
+                      className="bg-white border-stone-200 pl-10"
+                    />
+                  </div>
+                  <p className="text-xs text-stone-500">
+                    El del <strong>camión / flete</strong>, no el de la remisión del proveedor del
+                    material.
+                  </p>
+                </div>
+              </div>
+
+              {!entry.fleet_po_item_id ? (
+                <div className="space-y-2 pt-2 border-t border-stone-200/90">
+                  <p className="text-xs font-medium text-stone-800">
+                    Servicio sin OC de flota (opcional)
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Si registró manualmente viajes, toneladas u otra unidad de servicio, ajústelo
+                    aquí.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-fleet-qty" className="text-xs">
+                        Cantidad de servicio
+                      </Label>
+                      <Input
+                        id="edit-fleet-qty"
+                        type="text"
+                        inputMode="decimal"
+                        value={fleetQtyEntered}
+                        onChange={(e) => setFleetQtyEntered(e.target.value)}
+                        className="bg-white border-stone-200"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs">Unidad de servicio</Label>
+                      <Select
+                        value={fleetUom || '__none__'}
+                        onValueChange={(v) => setFleetUom(v === '__none__' ? '' : v)}
+                      >
+                        <SelectTrigger className="bg-white border-stone-200">
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">—</SelectItem>
+                          <SelectItem value="trips">Viajes</SelectItem>
+                          <SelectItem value="tons">Toneladas (t)</SelectItem>
+                          <SelectItem value="hours">Horas</SelectItem>
+                          <SelectItem value="loads">Cargas</SelectItem>
+                          <SelectItem value="units">Unidades</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {profile?.role !== 'DOSIFICADOR' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-fleet-cost" className="text-sm">
+                    Costo de transporte (opcional)
+                  </Label>
+                  <Input
+                    id="edit-fleet-cost"
+                    type="text"
+                    inputMode="decimal"
+                    value={fleetCost}
+                    onChange={(e) => setFleetCost(e.target.value)}
+                    placeholder="0.00"
+                    className="bg-white border-stone-200"
+                  />
+                  <p className="text-xs text-stone-500">
+                    Visible en revisión de costos; el flujo de planta solo pide transportista y
+                    folio.
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="space-y-2">
