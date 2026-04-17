@@ -89,6 +89,18 @@ function nativeKgFromEntryForPoItem(
   return { native: kg, kg: kg };
 }
 
+/** Stock delta for this entry row (aligned with inventory_after - inventory_before). */
+function inventoryContributionFromEntryRow(row: Record<string, unknown>): number {
+  const uom = row.received_uom as string | null | undefined;
+  if (uom === 'l') {
+    return Number(row.received_qty_entered ?? row.quantity_received) || 0;
+  }
+  if (uom === 'm3') {
+    return Number(row.received_qty_kg ?? row.quantity_received) || 0;
+  }
+  return Number(row.received_qty_kg ?? row.quantity_received) || 0;
+}
+
 export async function GET(request: NextRequest) {
   try {
     console.log('GET /api/inventory/entries called');
@@ -934,7 +946,7 @@ export async function PUT(request: NextRequest) {
 
     // Validate update data
     const validatedData = UpdateMaterialEntrySchema.parse(body);
-    const { id, ...updateData } = validatedData;
+    const { id, ...rest } = validatedData;
 
     // Load current entry to compute deltas and plant/material context
     const { data: currentEntry, error: loadErr } = await supabase
@@ -957,6 +969,23 @@ export async function PUT(request: NextRequest) {
           { status: 403 }
         );
       }
+    }
+
+    const updateData: Record<string, any> = { ...rest };
+    const userSentPoItemId = updateData.po_item_id !== undefined;
+    if (
+      typeof updateData.entry_time === 'string' &&
+      /^\d{2}:\d{2}$/.test(updateData.entry_time.trim())
+    ) {
+      updateData.entry_time = `${updateData.entry_time.trim()}:00`;
+    }
+
+    const qtyTouches =
+      updateData.quantity_received !== undefined ||
+      updateData.received_qty_entered !== undefined ||
+      updateData.received_qty_kg !== undefined;
+    if (qtyTouches && currentEntry.po_item_id && !updateData.po_item_id) {
+      updateData.po_item_id = currentEntry.po_item_id;
     }
 
     // Prepare update payload
@@ -1236,6 +1265,47 @@ export async function PUT(request: NextRequest) {
       __fleet_po_link_delta_native = qtyIn;
     }
 
+    // Keep inventory_before/after and FIFO remaining in sync when quantities change
+    // (trigger sets material_inventory.current_stock from NEW.inventory_after).
+    if (qtyTouches) {
+      const stripInternalForMerge = (obj: Record<string, any>) => {
+        const o = { ...obj };
+        delete o.__po_delta_native;
+        delete o.__po_delta_kg;
+        delete o.__po_native_uom;
+        delete o.updated_at;
+        return o;
+      };
+      const oldContrib =
+        Number(currentEntry.inventory_after) - Number(currentEntry.inventory_before);
+      const mergedForQty = stripInternalForMerge({ ...currentEntry, ...updatePayload });
+      const newContrib = inventoryContributionFromEntryRow(mergedForQty);
+      if (Math.abs(newContrib - oldContrib) > 1e-6) {
+        const { data: invRow } = await supabase
+          .from('material_inventory')
+          .select('current_stock')
+          .eq('plant_id', currentEntry.plant_id as string)
+          .eq('material_id', currentEntry.material_id as string)
+          .maybeSingle();
+        const S = Number(invRow?.current_stock) || 0;
+        const newS = S - oldContrib + newContrib;
+        updatePayload.inventory_before = newS - newContrib;
+        updatePayload.inventory_after = newS;
+
+        const oldKg =
+          Number(currentEntry.received_qty_kg ?? currentEntry.quantity_received) || 0;
+        const newKg =
+          Number(mergedForQty.received_qty_kg ?? mergedForQty.quantity_received) || 0;
+        const oldRemRaw = currentEntry.remaining_quantity_kg;
+        const oldRem =
+          oldRemRaw !== null && oldRemRaw !== undefined && oldRemRaw !== ''
+            ? Number(oldRemRaw)
+            : NaN;
+        const consumed = Number.isFinite(oldRem) ? Math.max(0, oldKg - oldRem) : 0;
+        updatePayload.remaining_quantity_kg = Math.max(0, newKg - consumed);
+      }
+    }
+
     // If pricing fields are being updated, mark as reviewed
     if (
       (updateData.unit_price !== undefined ||
@@ -1243,7 +1313,7 @@ export async function PUT(request: NextRequest) {
         updateData.fleet_supplier_id !== undefined ||
         updateData.fleet_cost !== undefined ||
         updateData.fleet_po_item_id !== undefined ||
-        updateData.po_item_id !== undefined) &&
+        userSentPoItemId) &&
       canCompleteEntryPricingReview(profile.role)
     ) {
       updatePayload.pricing_status = 'reviewed';

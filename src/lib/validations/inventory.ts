@@ -20,6 +20,10 @@ const BaseMaterialEntryInputSchema = z.object({
   ap_due_date_material: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
+  /** HH:MM or HH:MM:SS — hora de recepción en planta */
+  entry_time: z
+    .preprocess((v) => (v === '' || v === null || v === undefined ? undefined : v), z.string().max(20))
+    .optional(),
   plant_id: optionalUuidField('ID de planta debe ser un UUID válido'),
   // Pricing fields (for accounting review)
   unit_price: z.number().nonnegative('El precio unitario debe ser no negativo').optional(),
