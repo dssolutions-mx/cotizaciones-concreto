@@ -143,6 +143,7 @@ export default function MaterialEntryEditSheet({
   onSaved,
 }: MaterialEntryEditSheetProps) {
   const { profile } = useAuthSelectors()
+  const isDosificador = profile?.role === 'DOSIFICADOR'
   const [notes, setNotes] = useState('')
   const [supplierInvoice, setSupplierInvoice] = useState('')
   const [supplierId, setSupplierId] = useState('')
@@ -478,10 +479,12 @@ export default function MaterialEntryEditSheet({
                 <>
                   <div className="flex flex-wrap items-center gap-2">
                     <Label htmlFor="edit-qty">Peso báscula (kg)</Label>
-                    <Badge variant="secondary" className="text-xs font-normal">
-                      <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden />
-                      OC en m³ · entrada en kg
-                    </Badge>
+                    {!isDosificador ? (
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        <CheckCircle2 className="h-3 w-3 mr-1" aria-hidden />
+                        OC en m³ · entrada en kg
+                      </Badge>
+                    ) : null}
                   </div>
                   <Input
                     id="edit-qty"
@@ -491,61 +494,71 @@ export default function MaterialEntryEditSheet({
                     onChange={(e) => setQtyInput(e.target.value)}
                     className="bg-white border-stone-200"
                   />
-                  {(() => {
-                    const volW =
-                      Number(entry.volumetric_weight_kg_per_m3) ||
-                      Number(entry.material?.bulk_density_kg_per_m3) ||
-                      0
-                    const q = parseDecimal(qtyInput)
-                    const previewM3 =
-                      volW > 0 && q != null && q > 0 ? q / volW : null
-                    return (
-                      <>
-                        {volW > 0 ? (
-                          <p className="text-xs text-stone-600">
-                            Densidad acordada (recepción):{' '}
-                            <span className="font-medium tabular-nums">
-                              {volW.toLocaleString('es-MX')} kg/m³
-                            </span>
-                            {previewM3 != null && (
-                              <>
-                                {' '}
-                                → ≈{' '}
-                                <span className="font-medium tabular-nums">
-                                  {previewM3.toLocaleString('es-MX', {
-                                    maximumFractionDigits: 3,
-                                  })}
-                                </span>{' '}
-                                m³ contra la línea (comercial)
-                              </>
-                            )}
-                          </p>
-                        ) : (
-                          <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-100 rounded-md px-2 py-1.5">
-                            No hay peso volumétrico (kg/m³) en esta entrada; no se puede
-                            mostrar la vista previa en m³.
-                          </p>
-                        )}
-                        {entry.received_qty_entered != null ? (
-                          <p className="text-xs text-stone-500">
-                            m³ ya registrados en esta recepción:{' '}
-                            {Number(entry.received_qty_entered).toLocaleString('es-MX', {
-                              maximumFractionDigits: 4,
-                            })}
-                          </p>
-                        ) : null}
-                      </>
-                    )
-                  })()}
+                  {isDosificador ? (
+                    <p className="text-xs text-stone-500">
+                      Misma captura que al registrar: peso en kg; la OC comercial va en m³.
+                    </p>
+                  ) : (
+                    (() => {
+                      const volW =
+                        Number(entry.volumetric_weight_kg_per_m3) ||
+                        Number(entry.material?.bulk_density_kg_per_m3) ||
+                        0
+                      const q = parseDecimal(qtyInput)
+                      const previewM3 =
+                        volW > 0 && q != null && q > 0 ? q / volW : null
+                      return (
+                        <>
+                          {volW > 0 ? (
+                            <p className="text-xs text-stone-600">
+                              Densidad acordada (recepción):{' '}
+                              <span className="font-medium tabular-nums">
+                                {volW.toLocaleString('es-MX')} kg/m³
+                              </span>
+                              {previewM3 != null && (
+                                <>
+                                  {' '}
+                                  → ≈{' '}
+                                  <span className="font-medium tabular-nums">
+                                    {previewM3.toLocaleString('es-MX', {
+                                      maximumFractionDigits: 3,
+                                    })}
+                                  </span>{' '}
+                                  m³ contra la línea (comercial)
+                                </>
+                              )}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-amber-800 bg-amber-50/80 border border-amber-100 rounded-md px-2 py-1.5">
+                              No hay peso volumétrico (kg/m³) en esta entrada; no se puede
+                              mostrar la vista previa en m³.
+                            </p>
+                          )}
+                          {entry.received_qty_entered != null ? (
+                            <p className="text-xs text-stone-500">
+                              m³ ya registrados en esta recepción:{' '}
+                              {Number(entry.received_qty_entered).toLocaleString('es-MX', {
+                                maximumFractionDigits: 4,
+                              })}
+                            </p>
+                          ) : null}
+                        </>
+                      )
+                    })()
+                  )}
                 </>
               ) : entry.received_uom === 'l' ? (
                 <>
-                  <div className="flex flex-wrap items-center gap-2">
+                  {!isDosificador ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label htmlFor="edit-qty">Volumen (L)</Label>
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        Recepción en litros
+                      </Badge>
+                    </div>
+                  ) : (
                     <Label htmlFor="edit-qty">Volumen (L)</Label>
-                    <Badge variant="secondary" className="text-xs font-normal">
-                      Recepción en litros
-                    </Badge>
-                  </div>
+                  )}
                   <Input
                     id="edit-qty"
                     type="text"
@@ -557,7 +570,7 @@ export default function MaterialEntryEditSheet({
                 </>
               ) : (
                 <>
-                  <Label htmlFor="edit-qty">Cantidad recibida (kg)</Label>
+                  <Label htmlFor="edit-qty">Cantidad (kg)</Label>
                   <Input
                     id="edit-qty"
                     type="text"
@@ -566,16 +579,22 @@ export default function MaterialEntryEditSheet({
                     onChange={(e) => setQtyInput(e.target.value)}
                     className="bg-white border-stone-200"
                   />
-                  <p className="text-xs text-stone-500">
-                    El inventario y el avance de OC se manejan en kilogramos (no use la
-                    unidad comercial del catálogo de material aquí).
-                  </p>
+                  {!isDosificador ? (
+                    <p className="text-xs text-stone-500">
+                      El inventario y el avance de OC se manejan en kilogramos (no use la
+                      unidad comercial del catálogo de material aquí).
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-supplier-invoice">Número de remisión (proveedor material)</Label>
+              <Label htmlFor="edit-supplier-invoice">
+                {isDosificador
+                  ? 'Número de remisión'
+                  : 'Número de remisión (proveedor material)'}
+              </Label>
               <Input
                 id="edit-supplier-invoice"
                 value={supplierInvoice}
@@ -584,9 +603,15 @@ export default function MaterialEntryEditSheet({
                 placeholder="Ej. REM-2024-001"
                 className="bg-white border-stone-200"
               />
-              <p className="text-xs text-stone-500">
-                Documento del <strong>proveedor del material</strong>, no del transporte.
-              </p>
+              {!isDosificador ? (
+                <p className="text-xs text-stone-500">
+                  Documento del <strong>proveedor del material</strong>, no del transporte.
+                </p>
+              ) : (
+                <p className="text-xs text-stone-500">
+                  Del proveedor del material (no del camión).
+                </p>
+              )}
             </div>
 
             <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50/80 p-3">
@@ -594,22 +619,29 @@ export default function MaterialEntryEditSheet({
                 <Truck className="h-4 w-4" />
                 Transporte (camión / fletera)
               </div>
-              <div className="rounded-md bg-white/90 border border-stone-100 px-3 py-2.5 text-xs text-stone-700 space-y-1.5 leading-relaxed">
-                <p>
-                  <span className="font-semibold text-stone-900">¿Qué va aquí?</span> Lo que consta
-                  en planta: la <strong>línea o nombre del transportista</strong> y el{' '}
-                  <strong>folio del viaje</strong> (papel del chofer o fletera).
+              {isDosificador ? (
+                <p className="text-xs text-stone-600">
+                  Solo si hubo <strong>otra fletera u otro folio</strong> que el del proveedor del
+                  material. Si fue el mismo papel, puede dejar vacío.
                 </p>
-                <p className="text-stone-600">
-                  Si es el mismo proveedor del material y un solo documento, puede dejar el transporte
-                  vacío.
-                </p>
-              </div>
+              ) : (
+                <div className="rounded-md bg-white/90 border border-stone-100 px-3 py-2.5 text-xs text-stone-700 space-y-1.5 leading-relaxed">
+                  <p>
+                    <span className="font-semibold text-stone-900">¿Qué va aquí?</span> Lo que consta
+                    en planta: la <strong>línea o nombre del transportista</strong> y el{' '}
+                    <strong>folio del viaje</strong> (papel del chofer o fletera).
+                  </p>
+                  <p className="text-stone-600">
+                    Si es el mismo proveedor del material y un solo documento, puede dejar el transporte
+                    vacío.
+                  </p>
+                </div>
+              )}
 
               {entry.fleet_po_item_id ? (
                 <div className="rounded-md border border-stone-200 bg-white p-3 space-y-2">
-                  <p className="text-xs font-semibold text-stone-800 uppercase tracking-wide">
-                    OC de flota vinculada
+                  <p className="text-xs font-medium text-stone-700">
+                    {isDosificador ? 'Servicio de flota (OC)' : 'OC de flota vinculada'}
                   </p>
                   {entry.fleet_po?.po_number ? (
                     <p className="text-sm text-stone-900">
@@ -619,23 +651,29 @@ export default function MaterialEntryEditSheet({
                       </span>
                     </p>
                   ) : (
-                    <p className="text-xs text-stone-500">OC de flota asociada (sin número en datos cargados).</p>
+                    <p className="text-xs text-stone-500">OC de flota asociada.</p>
                   )}
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
-                    <span className="text-stone-600 text-xs">Cantidad de servicio (según OC):</span>
-                    <span className="font-medium tabular-nums text-stone-900">
+                  <p className="text-sm text-stone-800">
+                    <span className="text-stone-600 text-xs mr-1">Servicio:</span>
+                    <span className="font-medium tabular-nums">
                       {entry.fleet_qty_entered != null
                         ? Number(entry.fleet_qty_entered).toLocaleString('es-MX', {
                             maximumFractionDigits: 4,
                           })
                         : '—'}
-                    </span>
-                    <span className="text-stone-800">{fleetUomDisplay(entry.fleet_uom)}</span>
-                  </div>
-                  <p className="text-xs text-stone-500">
-                    Para cambiar la línea de OC o la cantidad de servicio vinculada, use compras o
-                    contacte a administración.
+                    </span>{' '}
+                    <span>{fleetUomDisplay(entry.fleet_uom)}</span>
                   </p>
+                  {!isDosificador ? (
+                    <p className="text-xs text-stone-500">
+                      Para cambiar la línea de OC o la cantidad de servicio vinculada, use compras o
+                      contacte a administración.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-500">
+                      La cantidad de servicio viene de la OC; no se edita aquí.
+                    </p>
+                  )}
                 </div>
               ) : null}
 
@@ -665,14 +703,18 @@ export default function MaterialEntryEditSheet({
                       className="bg-white border-stone-200 pl-10"
                     />
                   </div>
-                  <p className="text-xs text-stone-500">
-                    El del <strong>camión / flete</strong>, no el de la remisión del proveedor del
-                    material.
-                  </p>
+                  {!isDosificador ? (
+                    <p className="text-xs text-stone-500">
+                      El del <strong>camión / flete</strong>, no el de la remisión del proveedor del
+                      material.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-stone-500">Folio del viaje, no el de arriba.</p>
+                  )}
                 </div>
               </div>
 
-              {!entry.fleet_po_item_id ? (
+              {!entry.fleet_po_item_id && !isDosificador ? (
                 <div className="space-y-2 pt-2 border-t border-stone-200/90">
                   <p className="text-xs font-medium text-stone-800">
                     Servicio sin OC de flota (opcional)
