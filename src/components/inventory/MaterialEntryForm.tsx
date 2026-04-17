@@ -37,6 +37,7 @@ import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import { format, isToday, parseISO } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { kgToMetricTons, KG_PER_METRIC_TON } from '@/lib/inventory/massUnits'
+import { uploadInventoryEntryDocumentFromClient } from '@/lib/inventory/uploadInventoryEntryDocumentFromClient'
 
 function scaleKgFromEntryForm(opts: {
   materialPoLine: { is_service?: boolean; uom?: string | null; material?: { density_kg_per_l?: number | null } } | null | undefined
@@ -716,35 +717,21 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     const results = await Promise.all(
       files.map(async (fileInfo) => {
         try {
-          const fd = new FormData()
-          fd.append('file', fileInfo.file)
-          fd.append('type', 'entry')
-          fd.append('reference_id', entryId)
-
-          const response = await fetch('/api/inventory/documents', {
-            method: 'POST',
-            body: fd,
-          })
-
-          if (response.ok) {
-            const result = await response.json()
-            return {
-              ...fileInfo,
-              status: 'uploaded' as const,
-              documentId: result.data?.id,
-              error: undefined,
-            }
+          const data = await uploadInventoryEntryDocumentFromClient(
+            fileInfo.file,
+            entryId
+          )
+          return {
+            ...fileInfo,
+            status: 'uploaded' as const,
+            documentId: data.id,
+            error: undefined,
           }
-          const errorJson = await response.json().catch(() => ({}))
-          const msg =
-            typeof (errorJson as { error?: string }).error === 'string'
-              ? (errorJson as { error: string }).error
-              : 'Error al subir'
-          console.error('Error uploading document:', errorJson)
-          return { ...fileInfo, status: 'error' as const, error: msg }
         } catch (error) {
           console.error('Error uploading document:', error)
-          return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' }
+          const msg =
+            error instanceof Error ? error.message : 'Error de conexión'
+          return { ...fileInfo, status: 'error' as const, error: msg }
         }
       })
     )

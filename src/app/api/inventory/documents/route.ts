@@ -1,11 +1,274 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
+import {
+  INVENTORY_DOCUMENT_MAX_BYTES,
+  buildInventoryDocumentStoragePath,
+  inventoryDocumentExtension,
+} from '@/lib/inventory/inventoryDocumentUploadShared';
 
 /** Slow mobile uploads + cold start: give the function time to finish before the platform cuts it off */
 export const maxDuration = 120;
 
+const RegisterInventoryDocumentBodySchema = z.object({
+  type: z.enum(['entry', 'adjustment']),
+  reference_id: z.string().uuid(),
+  file_path: z.string().min(5),
+  original_name: z.string().min(1).max(500),
+  file_size: z
+    .number()
+    .int()
+    .positive()
+    .max(INVENTORY_DOCUMENT_MAX_BYTES),
+  mime_type: z.string().max(200).optional(),
+});
+
+async function verifyInventoryStorageObjectExists(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  file_path: string
+): Promise<boolean> {
+  const i = file_path.lastIndexOf('/');
+  if (i <= 0) return false;
+  const folder = file_path.slice(0, i);
+  const name = file_path.slice(i + 1);
+  const { data, error } = await supabase.storage
+    .from('inventory-documents')
+    .list(folder, { limit: 1000 });
+  if (error || !data) return false;
+  return data.some((item) => item.name === name);
+}
+
+/** Registro tras subida directa del navegador a Storage (JSON, sin multipart por Vercel). */
+async function registerClientUploadedInventoryDocument(
+  request: NextRequest
+): Promise<NextResponse> {
+  const supabase = await createServerSupabaseClient();
+
+  let parsed: z.infer<typeof RegisterInventoryDocumentBodySchema>;
+  try {
+    const body = await request.json();
+    parsed = RegisterInventoryDocumentBodySchema.parse(body);
+  } catch {
+    return NextResponse.json(
+      { success: false, error: 'Solicitud inválida: JSON incorrecto' },
+      { status: 400 }
+    );
+  }
+
+  const { type, reference_id, file_path, original_name, file_size, mime_type } =
+    parsed;
+  const expectedPrefix = `${type}/${reference_id}/`;
+  if (!file_path.startsWith(expectedPrefix)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'La ruta del archivo no corresponde a esta referencia',
+      },
+      { status: 400 }
+    );
+  }
+
+  const ext = inventoryDocumentExtension(original_name);
+  if (!file_path.endsWith(`.${ext}`)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'La extensión del archivo no coincide con el nombre indicado',
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
+  }
+
+  if (!hasInventoryStandardAccess(profile.role)) {
+    return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
+  }
+
+  let hasAccess = false;
+  if (type === 'entry') {
+    const { data: entry } = await supabase
+      .from('material_entries')
+      .select('plant_id, pricing_status')
+      .eq('id', reference_id)
+      .single();
+
+    if (entry?.pricing_status === 'reviewed') {
+      return NextResponse.json(
+        {
+          error:
+            'Esta entrada ya fue revisada por administración; no se pueden agregar documentos.',
+        },
+        { status: 403 }
+      );
+    }
+
+    if (entry) {
+      hasAccess =
+        isGlobalInventoryRole(profile.role) ||
+        profile.plant_id === entry.plant_id ||
+        (profile.business_unit_id &&
+          (await checkBusinessUnitAccess(
+            supabase,
+            profile.business_unit_id,
+            entry.plant_id
+          )));
+    }
+  } else {
+    const { data: adjustment } = await supabase
+      .from('material_adjustments')
+      .select('plant_id')
+      .eq('id', reference_id)
+      .single();
+
+    if (adjustment) {
+      hasAccess =
+        isGlobalInventoryRole(profile.role) ||
+        profile.plant_id === adjustment.plant_id ||
+        (profile.business_unit_id &&
+          (await checkBusinessUnitAccess(
+            supabase,
+            profile.business_unit_id,
+            adjustment.plant_id
+          )));
+    }
+  }
+
+  if (!hasAccess) {
+    return NextResponse.json(
+      { error: 'Sin acceso a la entrada o ajuste especificado' },
+      { status: 403 }
+    );
+  }
+
+  const exists = await verifyInventoryStorageObjectExists(supabase, file_path);
+  if (!exists) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          'No se encontró el archivo en almacenamiento. Vuelva a subirlo e intente de nuevo.',
+      },
+      { status: 400 }
+    );
+  }
+
+  console.info('[inventory-documents] register after client upload', {
+    userId: user.id,
+    role: profile.role,
+    type,
+    referenceId: reference_id,
+    storedPath: file_path,
+    originalName: original_name,
+    size: file_size,
+    mime: mime_type,
+  });
+
+  const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+    .from('inventory-documents')
+    .createSignedUrl(file_path, 31536000);
+
+  let documentUrl: string;
+  if (signedUrlError) {
+    console.warn('Failed to create signed URL, using public URL:', signedUrlError);
+    const { data: urlData } = supabase.storage
+      .from('inventory-documents')
+      .getPublicUrl(file_path);
+    documentUrl = urlData.publicUrl;
+  } else {
+    documentUrl = signedUrlData.signedUrl;
+  }
+
+  const resolvedMime = (mime_type && mime_type.trim()) || 'application/octet-stream';
+
+  const documentData = {
+    entry_id: type === 'entry' ? reference_id : null,
+    adjustment_id: type === 'adjustment' ? reference_id : null,
+    file_name: file_path,
+    original_name: original_name,
+    file_path: file_path,
+    file_size: file_size,
+    mime_type: resolvedMime,
+    document_type: type,
+    uploaded_by: user.id,
+  };
+
+  const { data: documentRecord, error: insertError } = await supabase
+    .from('inventory_documents')
+    .insert(documentData)
+    .select()
+    .single();
+
+  if (insertError) {
+    console.error('[inventory-documents] db insert failed (register)', {
+      userId: user.id,
+      referenceId: reference_id,
+      storedPath: file_path,
+      error: insertError,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Error al guardar documento en base de datos: ${insertError.message}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  console.info('[inventory-documents] register success', {
+    userId: user.id,
+    referenceId: reference_id,
+    documentId: documentRecord.id,
+    storedPath: file_path,
+  });
+
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        id: documentRecord.id,
+        url: documentUrl,
+        fileName: original_name,
+        fileSize: file_size,
+        mimeType: resolvedMime,
+        documentType: type,
+        referenceId: reference_id,
+        uploadedAt: documentRecord.created_at,
+      },
+      message: 'Documento registrado exitosamente',
+    },
+    { status: 201 }
+  );
+}
+
 export async function POST(request: NextRequest) {
+  const contentType = request.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    try {
+      return await registerClientUploadedInventoryDocument(request);
+    } catch (error) {
+      console.error('Error in documents POST (JSON register):', error);
+      return NextResponse.json(
+        { success: false, error: 'Error interno del servidor' },
+        { status: 500 }
+      );
+    }
+  }
+
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -36,8 +299,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const maxSize = 10 * 1024 * 1024; // 10MB — cualquier tipo de archivo permitido
-    if (file.size > maxSize) {
+    if (file.size > INVENTORY_DOCUMENT_MAX_BYTES) {
       return NextResponse.json(
         { success: false, error: 'El archivo excede el tamaño máximo de 10MB' },
         { status: 400 }
@@ -107,13 +369,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sin acceso a la entrada o ajuste especificado' }, { status: 403 });
     }
 
-    // Create organized file path structure
-    const nameParts = file.name.split('.');
-    const rawExt = nameParts.length > 1 ? nameParts.pop()?.toLowerCase() : '';
-    const fileExtension = rawExt && /^[a-z0-9]{1,8}$/.test(rawExt) ? rawExt : 'bin';
-    const timestamp = Date.now();
-    const uniqueId = crypto.randomUUID().split('-')[0];
-    const fileName = `${type}/${referenceId}/${timestamp}_${uniqueId}.${fileExtension}`;
+    const fileName = buildInventoryDocumentStoragePath(
+      type as 'entry' | 'adjustment',
+      referenceId,
+      file.name
+    );
 
     console.info('[inventory-documents] upload start', {
       userId: user.id,

@@ -29,6 +29,7 @@ import MaterialSelect from './MaterialSelect'
 import SimpleFileUpload from './SimpleFileUpload'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { uploadInventoryDocumentFromClient } from '@/lib/inventory/uploadInventoryEntryDocumentFromClient'
 
 const POSITIVE_ADJUSTMENT_TYPES = [
   'initial_count',
@@ -243,29 +244,23 @@ export default function MaterialAdjustmentForm({
 
     const uploadPromises = pendingFiles.map(async (fileInfo) => {
       try {
-        const formData = new FormData();
-        formData.append('file', fileInfo.file);
-        formData.append('type', 'adjustment');
-        formData.append('reference_id', adjustmentId);
-
-        const response = await fetch('/api/inventory/documents', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (response.ok) {
-          const result = await response.json();
-          return { ...fileInfo, status: 'uploaded' as const, documentId: result.data.id };
-        } else {
-          const error = await response.json();
-          console.error('Error uploading document:', error);
-          return { ...fileInfo, status: 'error' as const, error: error.error };
+        const data = await uploadInventoryDocumentFromClient(
+          fileInfo.file,
+          'adjustment',
+          adjustmentId
+        )
+        return {
+          ...fileInfo,
+          status: 'uploaded' as const,
+          documentId: data.id,
         }
       } catch (error) {
-        console.error('Error uploading document:', error);
-        return { ...fileInfo, status: 'error' as const, error: 'Error de conexión' };
+        console.error('Error uploading document:', error)
+        const msg =
+          error instanceof Error ? error.message : 'Error de conexión'
+        return { ...fileInfo, status: 'error' as const, error: msg }
       }
-    });
+    })
 
     const results = await Promise.all(uploadPromises);
     
