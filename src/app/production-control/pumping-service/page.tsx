@@ -19,7 +19,7 @@ export default function PumpingServicePage() {
     setMounted(true);
   }, []);
 
-  const canViewAdmin = hasRole(['EXECUTIVE', 'PLANT_MANAGER']);
+  const canViewAdmin = hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS']);
 
   // Show loading state during hydration
   if (!mounted || !isInitialized) {

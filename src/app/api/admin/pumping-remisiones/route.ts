@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 403 });
     }
 
-    if (!['EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
+    if (!['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'].includes(profile.role)) {
       return NextResponse.json({ error: 'Acceso denegado. Se requieren permisos de administrador.' }, { status: 403 });
     }
 
