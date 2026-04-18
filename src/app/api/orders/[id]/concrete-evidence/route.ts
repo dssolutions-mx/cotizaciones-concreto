@@ -92,7 +92,9 @@ export async function GET(
 
     const { data: remisionesRaw, error: remErr } = await supabase
       .from('remisiones')
-      .select('id, remision_number, fecha, volumen_fabricado, unidad, conductor, tipo_remision')
+      .select(
+        'id, remision_number, fecha, hora_carga, volumen_fabricado, unidad, conductor, tipo_remision'
+      )
       .eq('order_id', orderId)
       .eq('tipo_remision', 'CONCRETO')
       .order('fecha', { ascending: true });
@@ -107,6 +109,7 @@ export async function GET(
         id: r.id,
         remision_number: r.remision_number,
         fecha: r.fecha,
+        hora_carga: r.hora_carga ?? null,
         volumen_fabricado: r.volumen_fabricado,
         unidad: r.unidad,
         conductor: r.conductor,

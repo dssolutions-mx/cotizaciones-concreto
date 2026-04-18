@@ -49,7 +49,7 @@ import {
   uniqueZipPath,
 } from '@/lib/finanzas/concreteEvidenceZipUtils'
 import { formatPostgresDateEs } from '@/lib/dates/postgresDate'
-import { formatRemisionFechaForDisplay } from '@/lib/dates/remisionFechaDisplay'
+import { formatHoraCargaForDisplay, formatRemisionFechaForDisplay } from '@/lib/dates/remisionFechaDisplay'
 
 type EvidenceRow = {
   id: string
@@ -67,6 +67,7 @@ type ConcreteRemRow = {
   id: string
   remision_number: string
   fecha: string
+  hora_carga?: string | null
   volumen_fabricado?: number | null
   unidad?: string | null
   conductor?: string | null
@@ -506,22 +507,29 @@ export default function ConcreteEvidenceOrderDetailPanel({
                     {remisiones.length === 0 ? (
                       <li className="text-muted-foreground text-xs">Sin remisiones de concreto</li>
                     ) : (
-                      remisiones.map((r) => (
-                        <li
-                          key={r.id}
-                          className="rounded border border-stone-200/60 bg-background px-2 py-1.5 text-xs"
-                        >
-                          <div className="font-medium text-stone-900">{r.remision_number}</div>
-                          <div className="text-muted-foreground text-[11px]">
-                            {formatRemisionFechaForDisplay(r.fecha)}
-                            {r.volumen_fabricado != null && r.volumen_fabricado !== undefined && (
-                              <span className="ml-2">
-                                {r.volumen_fabricado} {r.unidad || ''}
-                              </span>
-                            )}
-                          </div>
-                        </li>
-                      ))
+                      remisiones.map((r) => {
+                        const horaTxt = formatHoraCargaForDisplay(r.hora_carga)
+                        return (
+                          <li
+                            key={r.id}
+                            className="rounded border border-stone-200/60 bg-background px-2 py-1.5 text-xs"
+                          >
+                            <div className="font-medium text-stone-900">{r.remision_number}</div>
+                            <div className="text-muted-foreground text-[11px]">
+                              <span>{formatRemisionFechaForDisplay(r.fecha)}</span>
+                              {horaTxt ? (
+                                <span className="ml-1 font-mono tabular-nums">{horaTxt}</span>
+                              ) : null}
+                              {r.volumen_fabricado != null && r.volumen_fabricado !== undefined && (
+                                <span className="ml-2">
+                                  · {r.volumen_fabricado}
+                                  {r.unidad ? ` ${r.unidad}` : ' m³'}
+                                </span>
+                              )}
+                            </div>
+                          </li>
+                        )
+                      })
                     )}
                   </ul>
                 </CollapsibleContent>

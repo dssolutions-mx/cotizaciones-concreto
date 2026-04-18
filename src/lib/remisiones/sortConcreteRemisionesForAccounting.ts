@@ -7,6 +7,8 @@ export type MinimalConcreteRemisionRow = {
   id: string;
   remision_number: string;
   fecha: string;
+  /** TIME from DB; display without timezone conversion */
+  hora_carga?: string | null;
   volumen_fabricado?: number | null;
   unidad?: string | null;
   conductor?: string | null;
