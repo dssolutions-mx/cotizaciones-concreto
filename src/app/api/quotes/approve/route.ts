@@ -3,7 +3,7 @@ import { productPriceService } from '@/lib/supabase/product-prices';
 import { createClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-const APPROVAL_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM', 'DOSIFICADOR'];
+const APPROVAL_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM', 'DOSIFICADOR', 'CREDIT_VALIDATOR'];
 
 // Use service role for admin operations (bypasses RLS)
 const supabaseAdmin = createClient(
@@ -37,7 +37,7 @@ async function requireApprovalAuth() {
   if (profileError || !profile || !APPROVAL_ROLES.includes(profile.role || '')) {
     return {
       ok: false as const,
-      response: NextResponse.json({ error: 'Forbidden. Role must be PLANT_MANAGER, EXECUTIVE, QUALITY_TEAM, or DOSIFICADOR.' }, { status: 403 }),
+      response: NextResponse.json({ error: 'Forbidden. Role must be PLANT_MANAGER, EXECUTIVE, QUALITY_TEAM, DOSIFICADOR, or CREDIT_VALIDATOR.' }, { status: 403 }),
       userId: null as string | null
     };
   }

@@ -699,11 +699,11 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
 
   return (
     <RoleProtectedSection 
-      allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+      allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
       fallback={
         <div className="p-8 text-center bg-gray-50 rounded-lg">
           <h3 className="text-xl font-semibold mb-2">Acceso Restringido</h3>
-          <p className="text-gray-600">Solo los gerentes de planta y ejecutivos pueden aprobar cotizaciones.</p>
+          <p className="text-gray-600">Solo gerentes de planta, ejecutivos y validadores de crédito pueden aprobar cotizaciones.</p>
         </div>
       }
     >

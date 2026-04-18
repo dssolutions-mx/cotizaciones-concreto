@@ -153,8 +153,8 @@ function QuotesContent() {
       ];
     }
     
-    // PLANT_MANAGER and EXECUTIVE can see all tabs
-    if (hasRole(['PLANT_MANAGER', 'EXECUTIVE'])) {
+    // PLANT_MANAGER, EXECUTIVE, and CREDIT_VALIDATOR can see all tabs
+    if (hasRole(['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR'])) {
       roleTabs = [
         { 
           id: 'create', 
@@ -358,7 +358,7 @@ function QuotesContent() {
 export default function QuotesPage() {
   return (
     <RoleGuard 
-      allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT']}
+      allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT', 'CREDIT_VALIDATOR']}
       redirectTo="/access-denied"
     >
       <Suspense fallback={

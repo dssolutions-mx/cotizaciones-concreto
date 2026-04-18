@@ -62,6 +62,10 @@ const permissionsByRole: Record<UserRole, Permission[]> = {
   ],
 
   CREDIT_VALIDATOR: [
+    'CREATE_QUOTE',
+    'EDIT_QUOTE',
+    'APPROVE_QUOTE',
+    'VIEW_ALL_QUOTES',
     'VIEW_REPORTS',
   ],
 
