@@ -114,7 +114,8 @@ export interface ReportRemisionData {
   volumen_fabricado: number;
   conductor?: string;
   unidad?: string;
-  tipo_remision: 'CONCRETO' | 'BOMBEO';
+  /** Matches DB values; includes vacío de olla for pricing parity with Ventas/Remisiones */
+  tipo_remision: 'CONCRETO' | 'BOMBEO' | 'VACÍO DE OLLA' | string;
   
   // Display product: master_code when available (source of truth), else variant recipe_code
   master_code?: string;
@@ -133,6 +134,8 @@ export interface ReportRemisionData {
     order_number: string;
     construction_site: string;
     elemento?: string;
+    special_requirements?: string | null;
+    order_status?: string | null;
     requires_invoice: boolean;
     total_amount: number;
     final_amount?: number;
@@ -146,6 +149,8 @@ export interface ReportRemisionData {
     name?: string;
     rfc?: string;
     address?: string;
+    contact_name?: string;
+    email?: string;
   };
   
   // Plant information for VAT calculation
@@ -179,6 +184,25 @@ export interface ReportSummary {
     volume: number;
     amount: number;
   }>;
+}
+
+/** Convert stored plant VAT (e.g. 16 or 0.16) to a fraction for arithmetic. */
+export function vatRateToFraction(vatPct: number | undefined | null, fallbackPercent = 16): number {
+  if (vatPct == null || Number.isNaN(Number(vatPct))) return fallbackPercent / 100
+  const n = Number(vatPct)
+  if (n <= 1) return n
+  return n / 100
+}
+
+/** Serializable UI state for localStorage / future DB presets (v1). */
+export interface ReportDefinitionPersistedV1 {
+  v: 1
+  selectedTemplate: string
+  columnIdsOrdered: string[]
+  reportTitle: string
+  showSummary: boolean
+  showVAT: boolean
+  sortBy: { field: string; direction: 'asc' | 'desc' }
 }
 
 export interface ReportConfiguration {
@@ -215,6 +239,8 @@ export interface PDFReportProps {
       vat_percentage: number;
     };
   };
+  /** When more than one client is included, list them on the cover (optional). */
+  exportClientSummaries?: Array<{ business_name: string; rfc?: string }>;
   dateRange: DateRange;
   generatedAt: Date;
 }
@@ -407,6 +433,55 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     field: 'client.rfc',
     type: 'text',
     width: '10%'
+  },
+  {
+    id: 'contact_name',
+    label: 'Contacto',
+    field: 'client.contact_name',
+    type: 'text',
+    width: '12%'
+  },
+
+  // Order annotations
+  {
+    id: 'special_requirements',
+    label: 'Observaciones',
+    field: 'order.special_requirements',
+    type: 'text',
+    width: '18%'
+  },
+  {
+    id: 'order_status',
+    label: 'Estatus Pedido',
+    field: 'order.order_status',
+    type: 'text',
+    width: '10%'
+  },
+
+  // Remision type
+  {
+    id: 'tipo_remision',
+    label: 'Tipo Remisión',
+    field: 'tipo_remision',
+    type: 'text',
+    width: '10%'
+  },
+
+  // Recipe annotations
+  {
+    id: 'recipe_notes',
+    label: 'Notas Receta',
+    field: 'recipe.notes',
+    type: 'text',
+    width: '16%'
+  },
+  {
+    id: 'age_days',
+    label: 'Edad (días)',
+    field: 'recipe.age_days',
+    type: 'number',
+    format: 'integer',
+    width: '8%'
   }
 ];
 
@@ -517,3 +592,10 @@ export const DEFAULT_TEMPLATES: ReportTemplate[] = [
     selectedColumns: DEFAULT_COLUMN_SETS.detailed
   }
 ];
+
+export const REPORTES_CLIENTES_STORAGE_KEY = 'finanzas-reportes-clientes-v1'
+
+export function columnsFromOrderedIds(ids: string[]): ReportColumn[] {
+  const byId = new Map(AVAILABLE_COLUMNS.map((c) => [c.id, c]))
+  return ids.map((id) => byId.get(id)).filter(Boolean) as ReportColumn[]
+}

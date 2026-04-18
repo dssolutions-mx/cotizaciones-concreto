@@ -110,7 +110,7 @@ const finanzasSubMenuItems = [
     IconComponent: Layers,
   },
   {
-    title: "Reportes PDF",
+    title: "Reportes para clientes",
     href: "/finanzas/reportes-clientes",
     IconComponent: FileSpreadsheet,
   },
@@ -135,7 +135,7 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
         href: "/finanzas/evidencia-remisiones-concreto",
         IconComponent: Layers,
       },
-      { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Reportes para clientes", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
       { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];
   }
@@ -150,7 +150,7 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
         href: "/finanzas/evidencia-remisiones-concreto",
         IconComponent: Layers,
       },
-      { title: "Reportes PDF", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+      { title: "Reportes para clientes", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
       { title: "Ubicaciones (Mapa)", href: "/finanzas/ubicaciones", IconComponent: MapPin },
     ];
   }

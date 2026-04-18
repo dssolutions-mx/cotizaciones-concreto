@@ -1,742 +1,1118 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { DateRange } from "react-day-picker";
-import { PDFDownloadLink } from '@react-pdf/renderer';
+import { DateRange } from 'react-day-picker';
 
-// UI Components
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+// UI
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 
 // Icons
-import { 
-  Download, 
-  FileText, 
-  Settings, 
-  Eye, 
-  Search, 
-  Filter,
-  BarChart3,
+import {
+  Download,
+  FileText,
   FileSpreadsheet,
-  Target,
-  X
+  Filter,
+  RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  Check,
+  Minus,
+  AlertCircle,
+  RefreshCw,
+  Settings2,
 } from 'lucide-react';
 
-// Services and Types
+// Services & types
 import { ReportDataService } from '@/services/reportDataService';
-import type { 
-  ReportFilter, 
-  ReportConfiguration, 
-  ReportRemisionData, 
+import type {
+  ReportFilter,
+  ReportRemisionData,
   ReportSummary,
   ReportColumn,
   HierarchicalReportData,
-  SelectionSummary
+  SelectableClient,
+  SelectableOrder,
+  SelectableRemision,
 } from '@/types/pdf-reports';
-import { 
-  AVAILABLE_COLUMNS, 
-  DEFAULT_COLUMN_SETS, 
-  DEFAULT_TEMPLATES 
+import {
+  AVAILABLE_COLUMNS,
+  DEFAULT_COLUMN_SETS,
+  DEFAULT_TEMPLATES,
+  columnsFromOrderedIds,
+  REPORTES_CLIENTES_STORAGE_KEY,
+  type ReportDefinitionPersistedV1,
 } from '@/types/pdf-reports';
-
-// Components
-import ClientReportPDF from '@/components/reports/ClientReportPDF';
-import EnhancedReportFilters from '@/components/reports/EnhancedReportFilters';
 import { formatCurrency } from '@/lib/utils';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { buildDeliveryReceiptExcel, downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
+import type { DeliveryReceiptExcelConfig } from '@/lib/reports/deliveryReceiptExcel';
+import type { DeliveryReceiptTemplateConfig } from '@/components/reports/templates/DeliveryReceiptPDF';
 
-export default function ReportesClientes() {
-  // Enhanced state for new hierarchical system
-  const [hierarchicalData, setHierarchicalData] = useState<HierarchicalReportData | null>(null);
-  const [selectionSummary, setSelectionSummary] = useState<SelectionSummary>({
-    totalClients: 0,
-    totalOrders: 0,
-    totalRemisiones: 0,
-    totalVolume: 0,
-    totalAmount: 0,
-    selectedClients: [],
-    selectedOrders: [],
-    selectedRemisiones: []
-  });
-  const [currentFilters, setCurrentFilters] = useState<ReportFilter>({
-    dateRange: { from: subDays(new Date(), 30), to: new Date() },
-    clientIds: [],
-    orderIds: [],
-    remisionIds: []
-  });
+// No dynamic imports for PDF renderer at module level — use pdf() API on demand
 
-  // State for legacy report data (for PDF generation)
-  const [reportData, setReportData] = useState<ReportRemisionData[]>([]);
-  const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
-  
-  // State for UI
-  const [loading, setLoading] = useState(false);
-  const [generatingReport, setGeneratingReport] = useState(false);
-  
-  // State for report configuration
-  const [selectedColumns, setSelectedColumns] = useState<ReportColumn[]>(
-    AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.company_standard.includes(col.id))
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const STORAGE_KEY = REPORTES_CLIENTES_STORAGE_KEY;
+const DEFAULT_DATE_RANGE: DateRange = {
+  from: subDays(new Date(), 30),
+  to: new Date(),
+};
+const COMPANY_STANDARD_COLS = DEFAULT_COLUMN_SETS.company_standard;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function fmtCurr(v?: number) {
+  if (v == null) return '—';
+  return `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function fmtNum(v?: number, d = 2) {
+  if (v == null) return '—';
+  return v.toLocaleString('es-MX', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtDate(d?: string) {
+  if (!d) return '—';
+  try { return format(new Date(d + 'T12:00:00'), 'dd/MM/yy'); } catch { return d; }
+}
+function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
+  switch (col.id) {
+    case 'row_number': return '';
+    case 'fecha': return fmtDate(item.fecha);
+    case 'remision_number': return String(item.remision_number ?? '');
+    case 'business_name': return item.client?.business_name ?? '—';
+    case 'order_number': return String(item.order?.order_number ?? '');
+    case 'construction_site': return item.order?.construction_site ?? '—';
+    case 'elemento': return item.order?.elemento ?? '—';
+    case 'unidad_cr': case 'unidad': return item.unidad ?? '—';
+    case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '—';
+    case 'volumen_fabricado': return fmtNum(item.volumen_fabricado);
+    case 'unit_price': return fmtCurr(item.unit_price);
+    case 'line_total': return fmtCurr(item.line_total);
+    case 'vat_amount': return fmtCurr(item.vat_amount);
+    case 'final_total': return fmtCurr(item.final_total);
+    case 'conductor': return item.conductor ?? '—';
+    case 'strength_fc': return item.recipe?.strength_fc ? `${item.recipe.strength_fc}` : '—';
+    case 'requires_invoice': return item.order?.requires_invoice ? 'Sí' : 'No';
+    case 'client_rfc': return item.client?.rfc ?? '—';
+    case 'contact_name': return item.client?.contact_name ?? '—';
+    case 'special_requirements': return item.order?.special_requirements ?? '—';
+    case 'order_status': return item.order?.order_status ?? '—';
+    case 'tipo_remision': return item.tipo_remision ?? '—';
+    case 'recipe_notes': return item.recipe?.notes ?? '—';
+    case 'age_days': return item.recipe?.age_days != null ? `${item.recipe.age_days}` : '—';
+    case 'placement_type': return item.recipe?.placement_type ?? '—';
+    case 'max_aggregate_size': return item.recipe?.max_aggregate_size != null ? `${item.recipe.max_aggregate_size}` : '—';
+    case 'slump': return item.recipe?.slump != null ? `${item.recipe.slump}` : '—';
+    default: return '—';
+  }
+}
+
+function persistPrefs(prefs: ReportDefinitionPersistedV1) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* quota */ }
+}
+function loadPrefs(): ReportDefinitionPersistedV1 | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p.v === 1) return p as ReportDefinitionPersistedV1;
+  } catch { /* corrupt */ }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// KPI tile
+// ---------------------------------------------------------------------------
+function KpiTile({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="flex flex-col items-center rounded-lg border border-stone-200 bg-white px-4 py-3 text-center shadow-sm">
+      <span className="text-xs font-medium uppercase tracking-wide text-stone-500">{label}</span>
+      <span className={`mt-1 font-mono text-base font-semibold tabular-nums ${accent ? 'text-emerald-700' : 'text-stone-900'}`}>
+        {value}
+      </span>
+    </div>
   );
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('company-standard');
-  const [reportTitle, setReportTitle] = useState<string>('Reporte Dinámico de Entregas');
-  const [showSummary, setShowSummary] = useState<boolean>(true);
-  const [showVAT, setShowVAT] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<string>('selection');
+}
 
-  // Handle data changes from enhanced filters
-  const handleDataChange = useCallback((data: HierarchicalReportData, filters: ReportFilter) => {
-    setHierarchicalData(data);
-    setCurrentFilters(filters);
-  }, []);
+// ---------------------------------------------------------------------------
+// Hierarchical selection tree
+// ---------------------------------------------------------------------------
+interface TreeProps {
+  data: HierarchicalReportData;
+  selectedRemisionIds: Set<string>;
+  onToggleRemision: (id: string) => void;
+  onToggleOrder: (orderId: string, remisionIds: string[]) => void;
+  onToggleClient: (clientId: string, remisionIds: string[]) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+}
 
-  // Handle selection changes
-  const handleSelectionChange = useCallback((summary: SelectionSummary) => {
-    setSelectionSummary(summary);
-  }, []);
+function SelectionTree({
+  data,
+  selectedRemisionIds,
+  onToggleRemision,
+  onToggleOrder,
+  onToggleClient,
+  onSelectAll,
+  onClearAll,
+}: TreeProps) {
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
 
-  // Generate actual report data for PDF
-  const generateReportData = useCallback(async () => {
-    if (!currentFilters.dateRange.from || !currentFilters.dateRange.to) {
-      alert('Por favor selecciona un rango de fechas válido');
-      return;
-    }
-    
-    if (selectionSummary.selectedRemisiones.length === 0) {
-      alert('Por favor selecciona al menos una remisión para el reporte');
-      return;
-    }
+  const allRemisionIds = useMemo(() => {
+    const ids: string[] = [];
+    data.clients.forEach((c) => c.orders.forEach((o) => o.remisiones.forEach((r) => ids.push(r.id))));
+    return ids;
+  }, [data]);
 
-    // No exigir cliente si ya hay órdenes o remisiones seleccionadas
+  const toggleClient = (clientId: string) =>
+    setExpandedClients((s) => {
+      const n = new Set(s);
+      n.has(clientId) ? n.delete(clientId) : n.add(clientId);
+      return n;
+    });
+  const toggleOrder = (orderId: string) =>
+    setExpandedOrders((s) => {
+      const n = new Set(s);
+      n.has(orderId) ? n.delete(orderId) : n.add(orderId);
+      return n;
+    });
 
-    setGeneratingReport(true);
-    try {
-      // Ensure clientIds are properly set from selection summary
-      const filtersWithClients = {
-        ...currentFilters,
-        clientIds: selectionSummary.selectedClients,
-        orderIds: selectionSummary.selectedOrders,
-        remisionIds: selectionSummary.selectedRemisiones
-      };
-      
-      const result = await ReportDataService.fetchReportData(filtersWithClients);
-      setReportData(result.data);
-      setReportSummary(result.summary);
-      
-      // Switch to preview tab
-      setActiveTab('preview');
-    } catch (error) {
-      console.error('Error generating report data:', error);
-      alert('Error al generar los datos del reporte');
-    } finally {
-      setGeneratingReport(false);
-    }
-  }, [currentFilters, selectionSummary]);
-
-  // Clear report data when selection changes
-  useEffect(() => {
-    if (selectionSummary.selectedRemisiones.length === 0) {
-      setReportData([]);
-      setReportSummary(null);
-    }
-  }, [selectionSummary.selectedRemisiones]);
-
-  // Get selected client info from hierarchical data
-  const selectedClient = useMemo(() => {
-    if (!hierarchicalData || selectionSummary.selectedClients.length !== 1) return null;
-    return hierarchicalData.clients.find(c => c.id === selectionSummary.selectedClients[0]);
-  }, [hierarchicalData, selectionSummary.selectedClients]);
-
-  // Extract plant information from report data for VAT calculation
-  const plantInfo = useMemo(() => {
-    if (!reportData || reportData.length === 0) return null;
-    
-    // Get unique plants from the data
-    const plants = Array.from(new Set(
-      reportData
-        .map(item => item.plant_info)
-        .filter(Boolean)
-    ));
-    
-    if (plants.length === 0) return null;
-    
-    // If all plants have the same VAT rate, use that
-    const vatRates = plants.map(p => p?.vat_percentage).filter((rate): rate is number => rate !== undefined);
-    const uniqueVatRates = Array.from(new Set(vatRates));
-    
-    if (uniqueVatRates.length === 1) {
-      // Single VAT rate across all plants
-      const plant = plants[0];
-      return {
-        plant_id: plant?.plant_id || '',
-        plant_code: plant?.plant_code || '',
-        plant_name: plant?.plant_name || '',
-        vat_percentage: uniqueVatRates[0]
-      };
-    } else {
-      // Multiple VAT rates - use the most common one or default
-      const vatCounts: Record<number, number> = {};
-      vatRates.forEach(rate => {
-        vatCounts[rate] = (vatCounts[rate] || 0) + 1;
-      });
-      
-      const mostCommonVat = Object.entries(vatCounts)
-        .sort(([,a], [,b]) => b - a)[0][0];
-      
-      const representativePlant = plants.find(p => p?.vat_percentage === Number(mostCommonVat));
-      
-      return {
-        plant_id: representativePlant?.plant_id || '',
-        plant_code: representativePlant?.plant_code || '',
-        plant_name: representativePlant?.plant_name || '',
-        vat_percentage: Number(mostCommonVat)
-      };
-    }
-  }, [reportData]);
-
-  // Enhanced client info with plant information
-  const enhancedClientInfo = useMemo(() => {
-    if (!selectedClient) return undefined;
-    
-    return {
-      business_name: selectedClient.business_name,
-      name: selectedClient.business_name,
-      address: '', // We don't have address in SelectableClient
-      rfc: selectedClient.rfc,
-      plant_info: plantInfo || undefined
-    };
-  }, [selectedClient, plantInfo]);
-
-  // Handle template selection
-  const handleTemplateChange = (templateId: string) => {
-    setSelectedTemplate(templateId);
-    const template = DEFAULT_TEMPLATES.find(t => t.id === templateId);
-    
-    if (template) {
-      const templateColumns = AVAILABLE_COLUMNS.filter(col => 
-        template.selectedColumns.includes(col.id)
-      );
-      setSelectedColumns(templateColumns);
-      setReportTitle(template.name);
-    }
+  const clientState = (client: SelectableClient): 'all' | 'some' | 'none' => {
+    const ids = client.orders.flatMap((o) => o.remisiones.map((r) => r.id));
+    const sel = ids.filter((id) => selectedRemisionIds.has(id)).length;
+    if (sel === 0) return 'none';
+    if (sel === ids.length) return 'all';
+    return 'some';
   };
-
-  // Handle column selection
-  const handleColumnToggle = (column: ReportColumn, checked: boolean) => {
-    if (checked) {
-      setSelectedColumns(prev => [...prev, column]);
-    } else {
-      setSelectedColumns(prev => prev.filter(col => col.id !== column.id));
-    }
+  const orderState = (order: SelectableOrder): 'all' | 'some' | 'none' => {
+    const ids = order.remisiones.map((r) => r.id);
+    const sel = ids.filter((id) => selectedRemisionIds.has(id)).length;
+    if (sel === 0) return 'none';
+    if (sel === ids.length) return 'all';
+    return 'some';
   };
-
-  // Handle quick column set selection
-  const handleQuickColumnSet = (setName: keyof typeof DEFAULT_COLUMN_SETS) => {
-    const columnIds = DEFAULT_COLUMN_SETS[setName];
-    const columns = AVAILABLE_COLUMNS.filter(col => columnIds.includes(col.id));
-    setSelectedColumns(columns);
-  };
-
-  // Generate report configuration
-  const reportConfiguration: ReportConfiguration = {
-    title: reportTitle,
-    filters: currentFilters,
-    selectedColumns,
-    showSummary,
-    showVAT,
-    groupBy: 'none',
-    sortBy: {
-      field: 'fecha',
-      direction: 'desc'
-    },
-    selectionMode: 'remision-level',
-    allowPartialSelection: true
-  };
-
-  // PDF filename
-  const pdfFilename = `reporte-${selectedClient?.business_name?.replace(/[^a-zA-Z0-9]/g, '-') || 'dinamico'}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
 
   return (
-    <div className="container mx-auto p-6">
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Reportes Dinámicos Avanzados
-          </CardTitle>
-          <CardDescription>
-            Sistema avanzado de generación de reportes con selección jerárquica flexible por cliente, orden y remisión
-          </CardDescription>
-        </CardHeader>
-        
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="selection" className="flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                Selección
-              </TabsTrigger>
-              <TabsTrigger value="columns" className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                Columnas
-              </TabsTrigger>
-              <TabsTrigger value="preview" className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                Vista Previa
-              </TabsTrigger>
-              <TabsTrigger value="export" className="flex items-center gap-2">
-                <Download className="h-4 w-4" />
-                Exportar
-              </TabsTrigger>
-            </TabsList>
+    <div className="rounded-lg border border-stone-200 bg-white">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between border-b border-stone-200 px-4 py-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+          Datos Disponibles
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={onSelectAll}
+            className="text-xs text-stone-600 underline underline-offset-2 hover:text-stone-900"
+          >
+            Seleccionar Todo
+          </button>
+          <span className="text-stone-300">·</span>
+          <button
+            onClick={onClearAll}
+            className="text-xs text-stone-600 underline underline-offset-2 hover:text-stone-900"
+          >
+            Limpiar
+          </button>
+        </div>
+      </div>
 
-            {/* Enhanced Selection Tab */}
-            <TabsContent value="selection" className="space-y-6">
-              <EnhancedReportFilters
-                onDataChange={handleDataChange}
-                onSelectionChange={handleSelectionChange}
-                loading={loading}
-              />
-              
-              {selectionSummary.selectedRemisiones.length > 0 && (
-                <div className="flex justify-center">
-                  <Button 
-                    onClick={generateReportData}
-                    disabled={generatingReport}
-                    size="lg"
-                    className="flex items-center gap-2"
-                  >
-                    {generatingReport ? (
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    ) : (
-                      <BarChart3 className="h-4 w-4" />
-                    )}
-                    {generatingReport ? 'Generando Reporte...' : 'Generar Reporte para PDF'}
-                  </Button>
+      {/* Tree */}
+      <div className="divide-y divide-stone-100">
+        {data.clients.map((client) => {
+          const cState = clientState(client);
+          const cExpanded = expandedClients.has(client.id);
+          const cRemIds = client.orders.flatMap((o) => o.remisiones.map((r) => r.id));
+          return (
+            <div key={client.id}>
+              {/* Client row */}
+              <div className="flex cursor-pointer items-center gap-2 px-4 py-3 hover:bg-stone-50">
+                <button onClick={() => toggleClient(client.id)} className="shrink-0 text-stone-400">
+                  {cExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                <div
+                  onClick={() => onToggleClient(client.id, cRemIds)}
+                  className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border border-stone-300"
+                  style={{
+                    backgroundColor: cState === 'all' ? '#1B365D' : cState === 'some' ? '#E2E8F0' : '',
+                  }}
+                >
+                  {cState === 'all' && <Check className="h-3 w-3 text-white" />}
+                  {cState === 'some' && <Minus className="h-3 w-3 text-stone-500" />}
                 </div>
-              )}
-            </TabsContent>
-
-            {/* Columns Tab */}
-            <TabsContent value="columns" className="space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Template Selection */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Plantillas Rápidas</CardTitle>
-                    <CardDescription>
-                      Selecciona una plantilla predefinida
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {DEFAULT_TEMPLATES.map(template => (
-                      <div key={template.id} className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          id={template.id}
-                          name="template"
-                          value={template.id}
-                          checked={selectedTemplate === template.id}
-                          onChange={() => handleTemplateChange(template.id)}
-                          className="h-4 w-4"
-                        />
-                        <Label htmlFor={template.id} className="flex-1 cursor-pointer">
-                          <div>
-                            <div className="font-medium">{template.name}</div>
-                            <div className="text-sm text-gray-500">{template.description}</div>
-                          </div>
-                        </Label>
-                      </div>
-                    ))}
-
-                    <div className="pt-4 border-t space-y-2">
-                      <Label className="text-sm font-medium">Conjuntos Rápidos:</Label>
-                      <div className="flex flex-wrap gap-2">
-                        {Object.entries(DEFAULT_COLUMN_SETS).map(([setName, _]) => (
-                          <Button
-                            key={setName}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleQuickColumnSet(setName as keyof typeof DEFAULT_COLUMN_SETS)}
-                          >
-                            {setName.charAt(0).toUpperCase() + setName.slice(1)}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Column Selection */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Columnas Disponibles</CardTitle>
-                    <CardDescription>
-                      Selecciona las columnas que deseas incluir en el reporte
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
-                      {AVAILABLE_COLUMNS.map(column => {
-                        const isSelected = selectedColumns.some(col => col.id === column.id);
-                        return (
-                          <div key={column.id} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={column.id}
-                              checked={isSelected}
-                              onCheckedChange={(checked) => 
-                                handleColumnToggle(column, checked === true)
-                              }
-                            />
-                            <Label htmlFor={column.id} className="flex-1 cursor-pointer">
-                              <div>
-                                <div className="font-medium">{column.label}</div>
-                                <div className="text-xs text-gray-500">
-                                  {column.type} - {column.width || '10%'}
-                                </div>
-                              </div>
-                            </Label>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className="min-w-0 flex-1" onClick={() => toggleClient(client.id)}>
+                  <div className="text-sm font-medium text-stone-900">{client.business_name}</div>
+                  <div className="text-xs text-stone-500">
+                    {client.orders.length} órdenes ·{' '}
+                    {client.orders.reduce((s, o) => s + o.total_remisiones, 0)} remisiones
+                  </div>
+                </div>
               </div>
 
-              {/* Selected Columns Summary */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Columnas Seleccionadas ({selectedColumns.length})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedColumns.map(column => (
-                      <Badge key={column.id} variant="secondary" className="flex items-center gap-1">
-                        {column.label}
-                        <X 
-                          className="h-3 w-3 cursor-pointer" 
-                          onClick={() => handleColumnToggle(column, false)}
-                        />
-                      </Badge>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              {/* Orders */}
+              {cExpanded && (
+                <div className="divide-y divide-stone-50 bg-stone-50/50">
+                  {client.orders.map((order) => {
+                    const oState = orderState(order);
+                    const oExpanded = expandedOrders.has(order.id);
+                    const oRemIds = order.remisiones.map((r) => r.id);
+                    return (
+                      <div key={order.id}>
+                        <div className="flex cursor-pointer items-center gap-2 py-2 pl-10 pr-4 hover:bg-stone-100/70">
+                          <button
+                            onClick={() => toggleOrder(order.id)}
+                            className="shrink-0 text-stone-400"
+                          >
+                            {oExpanded ? (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <div
+                            onClick={() => onToggleOrder(order.id, oRemIds)}
+                            className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border border-stone-300"
+                            style={{
+                              backgroundColor:
+                                oState === 'all' ? '#1B365D' : oState === 'some' ? '#E2E8F0' : '',
+                            }}
+                          >
+                            {oState === 'all' && <Check className="h-3 w-3 text-white" />}
+                            {oState === 'some' && <Minus className="h-3 w-3 text-stone-500" />}
+                          </div>
+                          <div className="min-w-0 flex-1" onClick={() => toggleOrder(order.id)}>
+                            <span className="text-xs font-medium text-stone-800">
+                              {order.order_number}
+                            </span>
+                            <span className="ml-2 text-xs text-stone-500">{order.construction_site}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-stone-500">{order.total_remisiones} rem.</div>
+                            <div className="font-mono text-xs tabular-nums text-stone-700">
+                              {fmtNum(order.total_volume)} m³
+                            </div>
+                          </div>
+                        </div>
 
-              {/* Report Options */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Opciones del Reporte</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="report-title">Título del Reporte</Label>
-                    <Input
-                      id="report-title"
-                      value={reportTitle}
-                      onChange={(e) => setReportTitle(e.target.value)}
-                      placeholder="Título del reporte..."
-                    />
-                  </div>
+                        {/* Remisiones */}
+                        {oExpanded && (
+                          <div className="divide-y divide-stone-100 bg-white">
+                            {order.remisiones.map((rem) => (
+                              <div
+                                key={rem.id}
+                                onClick={() => onToggleRemision(rem.id)}
+                                className="flex cursor-pointer items-center gap-2 py-1.5 pl-16 pr-4 hover:bg-stone-50"
+                              >
+                                <div
+                                  className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border border-stone-300"
+                                  style={{
+                                    backgroundColor: selectedRemisionIds.has(rem.id) ? '#1B365D' : '',
+                                  }}
+                                >
+                                  {selectedRemisionIds.has(rem.id) && (
+                                    <Check className="h-2.5 w-2.5 text-white" />
+                                  )}
+                                </div>
+                                <span className="text-xs text-stone-700">{fmtDate(rem.fecha)}</span>
+                                <span className="text-xs font-medium text-stone-800">
+                                  #{rem.remision_number}
+                                </span>
+                                <span className="ml-1 text-xs text-stone-500">{rem.recipe_code}</span>
+                                <span className="ml-auto font-mono text-xs tabular-nums text-stone-600">
+                                  {fmtNum(rem.volumen_fabricado)} m³
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="show-summary"
-                      checked={showSummary}
-                      onCheckedChange={(checked) => setShowSummary(checked === true)}
-                    />
-                    <Label htmlFor="show-summary">Incluir resumen general</Label>
-                  </div>
+        {data.clients.length === 0 && (
+          <div className="flex flex-col items-center py-12 text-stone-400">
+            <Filter className="mb-2 h-8 w-8 opacity-30" />
+            <p className="text-sm">Sin datos para el período seleccionado</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="show-vat"
-                      checked={showVAT}
-                      onCheckedChange={(checked) => setShowVAT(checked === true)}
-                    />
-                    <Label htmlFor="show-vat">Mostrar IVA en cálculos</Label>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+// ---------------------------------------------------------------------------
+// Column picker
+// ---------------------------------------------------------------------------
+function ColumnPicker({
+  orderedCols,
+  onReorder,
+  onRemove,
+  onAddCol,
+  onApplyPreset,
+}: {
+  orderedCols: ReportColumn[];
+  onReorder: (from: number, to: number) => void;
+  onRemove: (id: string) => void;
+  onAddCol: (col: ReportColumn) => void;
+  onApplyPreset: (ids: string[]) => void;
+}) {
+  const selected = new Set(orderedCols.map((c) => c.id));
+  const available = AVAILABLE_COLUMNS.filter((c) => !selected.has(c.id));
 
-            {/* Preview Tab */}
-            <TabsContent value="preview" className="space-y-6">
-              {loading || generatingReport ? (
-                <div className="space-y-4">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-32 w-full" />
-                  <Skeleton className="h-64 w-full" />
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {/* Presets */}
+      <div className="rounded-lg border border-stone-200 bg-white p-4">
+        <p className="mb-3 text-sm font-semibold text-stone-800">Plantillas Rápidas</p>
+        <div className="space-y-2">
+          {DEFAULT_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onApplyPreset(t.selectedColumns)}
+              className="w-full rounded-md border border-stone-200 px-3 py-2 text-left text-xs hover:border-stone-900 hover:bg-stone-50"
+            >
+              <div className="font-medium text-stone-800">{t.name}</div>
+              <div className="mt-0.5 text-stone-500">{t.description}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Available + Selected */}
+      <div className="space-y-3">
+        {/* Available */}
+        <div className="rounded-lg border border-stone-200 bg-white p-4">
+          <p className="mb-2 text-sm font-semibold text-stone-800">Columnas Disponibles</p>
+          <div className="space-y-1 overflow-y-auto" style={{ maxHeight: '180px' }}>
+            {available.map((col) => (
+              <button
+                key={col.id}
+                onClick={() => onAddCol(col)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-stone-700 hover:bg-stone-50"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-stone-300" />
+                {col.label}
+                <span className="ml-auto text-stone-400">{col.width}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Selected (ordered) */}
+        <div className="rounded-lg border border-stone-200 bg-white p-4">
+          <p className="mb-2 text-sm font-semibold text-stone-800">
+            Columnas Seleccionadas ({orderedCols.length})
+          </p>
+          <div className="space-y-1 overflow-y-auto" style={{ maxHeight: '180px' }}>
+            {orderedCols.map((col, i) => (
+              <div
+                key={col.id}
+                className="flex items-center gap-2 rounded px-2 py-1 text-xs text-stone-700 hover:bg-stone-50"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    disabled={i === 0}
+                    onClick={() => onReorder(i, i - 1)}
+                    className="leading-none text-stone-400 disabled:opacity-20 hover:text-stone-700"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    disabled={i === orderedCols.length - 1}
+                    onClick={() => onReorder(i, i + 1)}
+                    className="leading-none text-stone-400 disabled:opacity-20 hover:text-stone-700"
+                  >
+                    ▼
+                  </button>
+                </div>
+                <span className="flex-1">{col.label}</span>
+                <button
+                  onClick={() => onRemove(col.id)}
+                  className="text-stone-400 hover:text-red-500"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+type Step = 'selection' | 'columns' | 'review';
+
+export default function ReportesClientesPage() {
+  const { profile } = useAuthBridge();
+
+  // ── Date & filter state ───────────────────────────────────────────────────
+  const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
+  const [search, setSearch] = useState('');
+
+  // ── Hierarchical data ─────────────────────────────────────────────────────
+  const [hierarchical, setHierarchical] = useState<HierarchicalReportData | null>(null);
+  const [hierarchicalLoading, setHierarchicalLoading] = useState(false);
+  const [hierarchicalError, setHierarchicalError] = useState<string | null>(null);
+
+  // ── Selection ─────────────────────────────────────────────────────────────
+  const [selectedRemisionIds, setSelectedRemisionIds] = useState<Set<string>>(new Set());
+
+  // ── Columns ───────────────────────────────────────────────────────────────
+  const [orderedCols, setOrderedCols] = useState<ReportColumn[]>(() =>
+    columnsFromOrderedIds(COMPANY_STANDARD_COLS),
+  );
+
+  // ── Grouping / sort ───────────────────────────────────────────────────────
+  const [groupBy, setGroupBy] = useState<'none' | 'order' | 'construction_site'>('none');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // ── Report data ───────────────────────────────────────────────────────────
+  const [reportData, setReportData] = useState<ReportRemisionData[]>([]);
+  const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  // ── Step ──────────────────────────────────────────────────────────────────
+  const [step, setStep] = useState<Step>('selection');
+  const [excelLoading, setExcelLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // ── Restore prefs ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const saved = loadPrefs();
+    if (saved?.columnIdsOrdered?.length) {
+      setOrderedCols(columnsFromOrderedIds(saved.columnIdsOrdered));
+    }
+  }, []);
+
+  // ── Load hierarchical when date changes ───────────────────────────────────
+  const loadHierarchical = useCallback(async () => {
+    if (!dateRange.from || !dateRange.to) return;
+    setHierarchicalLoading(true);
+    setHierarchicalError(null);
+    try {
+      const data = await ReportDataService.fetchHierarchicalData({
+        from: dateRange.from,
+        to: dateRange.to,
+      });
+      setHierarchical(data);
+      setSelectedRemisionIds(new Set()); // reset selection on date change
+    } catch (e: any) {
+      setHierarchicalError(e.message ?? 'Error al cargar datos');
+    } finally {
+      setHierarchicalLoading(false);
+    }
+  }, [dateRange.from, dateRange.to]);
+
+  useEffect(() => { loadHierarchical(); }, [loadHierarchical]);
+
+  // ── Filtered hierarchical (search) ───────────────────────────────────────
+  const emptySummary = {
+    totalClients: 0, totalOrders: 0, totalRemisiones: 0,
+    totalVolume: 0, totalAmount: 0,
+    selectedClients: [] as string[], selectedOrders: [] as string[], selectedRemisiones: [] as string[],
+  };
+  const filteredHierarchical = useMemo<HierarchicalReportData>(() => {
+    if (!hierarchical) return { clients: [], selectionSummary: emptySummary };
+    if (!search.trim()) return hierarchical;
+    const q = search.toLowerCase();
+    const clients = hierarchical.clients
+      .map((c) => {
+        const orders = c.orders
+          .map((o) => {
+            const remisiones = o.remisiones.filter(
+              (r) =>
+                String(r.remision_number).includes(q) ||
+                (r.recipe_code ?? '').toLowerCase().includes(q),
+            );
+            if (
+              o.order_number.toLowerCase().includes(q) ||
+              o.construction_site.toLowerCase().includes(q) ||
+              remisiones.length > 0
+            )
+              return { ...o, remisiones };
+            return null;
+          })
+          .filter(Boolean) as typeof c.orders;
+        if (c.business_name.toLowerCase().includes(q) || orders.length > 0)
+          return { ...c, orders };
+        return null;
+      })
+      .filter(Boolean) as typeof hierarchical.clients;
+    return { ...hierarchical, clients };
+  }, [hierarchical, search]);
+
+  // ── Selection helpers ─────────────────────────────────────────────────────
+  const allRemisionIds = useMemo(
+    () =>
+      hierarchical?.clients.flatMap((c) =>
+        c.orders.flatMap((o) => o.remisiones.map((r) => r.id)),
+      ) ?? [],
+    [hierarchical],
+  );
+
+  const toggleRemision = useCallback((id: string) => {
+    setSelectedRemisionIds((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }, []);
+
+  const toggleOrder = useCallback((orderId: string, remisionIds: string[]) => {
+    setSelectedRemisionIds((s) => {
+      const allSel = remisionIds.every((id) => s.has(id));
+      const n = new Set(s);
+      if (allSel) remisionIds.forEach((id) => n.delete(id));
+      else remisionIds.forEach((id) => n.add(id));
+      return n;
+    });
+  }, []);
+
+  const toggleClient = useCallback((clientId: string, remisionIds: string[]) => {
+    setSelectedRemisionIds((s) => {
+      const allSel = remisionIds.every((id) => s.has(id));
+      const n = new Set(s);
+      if (allSel) remisionIds.forEach((id) => n.delete(id));
+      else remisionIds.forEach((id) => n.add(id));
+      return n;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => setSelectedRemisionIds(new Set(allRemisionIds)), [allRemisionIds]);
+  const clearAll = useCallback(() => setSelectedRemisionIds(new Set()), []);
+
+  // ── Summary bar (live, from tree data) ───────────────────────────────────
+  const liveSummary = useMemo(() => {
+    if (!hierarchical) return null;
+    let vol = 0, amount = 0, count = 0;
+    hierarchical.clients.forEach((c) =>
+      c.orders.forEach((o) =>
+        o.remisiones.forEach((r) => {
+          if (selectedRemisionIds.has(r.id)) {
+            count++;
+            vol += r.volumen_fabricado;
+            amount += r.line_total ?? 0;
+          }
+        }),
+      ),
+    );
+    return { count, vol, amount };
+  }, [hierarchical, selectedRemisionIds]);
+
+  // ── Column management ─────────────────────────────────────────────────────
+  const reorderCol = useCallback((from: number, to: number) => {
+    setOrderedCols((cols) => {
+      const next = [...cols];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  }, []);
+  const removeCol = useCallback((id: string) => {
+    setOrderedCols((cols) => cols.filter((c) => c.id !== id));
+  }, []);
+  const addCol = useCallback((col: ReportColumn) => {
+    setOrderedCols((cols) => (cols.some((c) => c.id === col.id) ? cols : [...cols, col]));
+  }, []);
+  const applyPreset = useCallback((ids: string[]) => {
+    setOrderedCols(columnsFromOrderedIds(ids));
+  }, []);
+
+  // ── Fetch report data (on proceed to review) ──────────────────────────────
+  const fetchReport = useCallback(async () => {
+    if (!selectedRemisionIds.size) return;
+    setReportLoading(true);
+    setReportError(null);
+    try {
+      const filter: ReportFilter = {
+        dateRange,
+        remisionIds: Array.from(selectedRemisionIds),
+      };
+      const { data, summary } = await ReportDataService.fetchReportData(filter);
+      const sorted = [...data].sort((a, b) => {
+        const av = new Date(a.fecha).getTime();
+        const bv = new Date(b.fecha).getTime();
+        return sortDirection === 'desc' ? bv - av : av - bv;
+      });
+      setReportData(sorted);
+      setReportSummary(summary);
+    } catch (e: any) {
+      setReportError(e.message ?? 'Error al cargar reporte');
+    } finally {
+      setReportLoading(false);
+    }
+  }, [selectedRemisionIds, dateRange, sortDirection]);
+
+  const goToReview = useCallback(() => {
+    setStep('review');
+    fetchReport();
+  }, [fetchReport]);
+
+  // ── Persist column prefs when they change ─────────────────────────────────
+  useEffect(() => {
+    const prefs: ReportDefinitionPersistedV1 = {
+      v: 1,
+      selectedTemplate: 'company-standard',
+      columnIdsOrdered: orderedCols.map((c) => c.id),
+      reportTitle: 'Reporte de Entregas',
+      showSummary: true,
+      showVAT: true,
+      sortBy: { field: 'fecha', direction: sortDirection },
+    };
+    persistPrefs(prefs);
+  }, [orderedCols, sortDirection]);
+
+  // ── PDF config ────────────────────────────────────────────────────────────
+  const pdfConfig = useMemo((): DeliveryReceiptTemplateConfig => {
+    const clientNames = Array.from(
+      new Set(reportData.map((r) => r.client?.business_name).filter(Boolean) as string[]),
+    );
+    const plantName = reportData[0]?.plant_info?.plant_name;
+    const vatRatePct = reportData[0]?.plant_info?.vat_percentage;
+    const dateLabel =
+      dateRange.from && dateRange.to
+        ? `${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`
+        : '—';
+    return {
+      columns: orderedCols,
+      groupBy,
+      showTotalsRow: true,
+      showIVABreakdown: true,
+      showGroupSubtotals: groupBy !== 'none',
+      orientation: orderedCols.length > 8 ? 'landscape' : 'portrait',
+      reportTitle: 'Reporte de Entregas de Concreto',
+      pageSize: 'A4',
+      generatedAt: new Date(),
+      dateRangeLabel: dateLabel,
+      plantName,
+      clientNames,
+      vatRatePct,
+    };
+  }, [reportData, orderedCols, groupBy, dateRange]);
+
+  // ── Excel export ──────────────────────────────────────────────────────────
+  const handlePdfExport = useCallback(async () => {
+    if (!reportData.length || !reportSummary) return;
+    setPdfLoading(true);
+    try {
+      const { pdf } = await import('@react-pdf/renderer');
+      const { DeliveryReceiptPDF } = await import('@/components/reports/templates/DeliveryReceiptPDF');
+      const blob = await pdf(
+        <DeliveryReceiptPDF data={reportData} summary={reportSummary} config={pdfConfig} />,
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const clientSlug = pdfConfig.clientNames[0]?.replace(/\s+/g, '-').toLowerCase() ?? 'dc';
+      a.href = url;
+      a.download = `reporte-${clientSlug}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('PDF export error', e);
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [reportData, reportSummary, pdfConfig]);
+
+  const handleExcelExport = useCallback(async () => {
+    if (!reportData.length || !reportSummary) return;
+    setExcelLoading(true);
+    try {
+      const cfg: DeliveryReceiptExcelConfig = {
+        columns: orderedCols,
+        reportTitle: pdfConfig.reportTitle,
+        dateRangeLabel: pdfConfig.dateRangeLabel,
+        clientNames: pdfConfig.clientNames,
+        plantName: pdfConfig.plantName,
+        vatRatePct: pdfConfig.vatRatePct,
+        generatedAt: new Date(),
+        groupBy,
+      };
+      const buf = await buildDeliveryReceiptExcel(reportData, reportSummary, cfg);
+      const clientSlug = pdfConfig.clientNames[0]?.replace(/\s+/g, '-').toUpperCase() ?? 'REPORTE';
+      const dateSlug = format(new Date(), 'yyyy-MM-dd');
+      downloadExcelBuffer(buf, `reporte-${clientSlug}-${dateSlug}`);
+    } catch (e) {
+      console.error('Excel export error', e);
+    } finally {
+      setExcelLoading(false);
+    }
+  }, [reportData, reportSummary, orderedCols, groupBy, pdfConfig]);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const dateLabel =
+    dateRange.from && dateRange.to
+      ? `${format(dateRange.from, 'dd/MM/yyyy')} – ${format(dateRange.to, 'dd/MM/yyyy')}`
+      : '—';
+
+  return (
+    <div className="space-y-6 p-6">
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-stone-900">Reportes de Entregas</h1>
+          <p className="mt-0.5 text-sm text-stone-500">
+            Selecciona remisiones, configura columnas y exporta en PDF o Excel
+          </p>
+        </div>
+        {liveSummary && liveSummary.count > 0 && (
+          <Badge variant="secondary" className="text-xs font-mono tabular-nums">
+            {liveSummary.count} rem. · {fmtNum(liveSummary.vol)} m³ · {fmtCurr(liveSummary.amount)}
+          </Badge>
+        )}
+      </div>
+
+      {/* Step nav */}
+      <div className="flex items-center gap-0 rounded-lg border border-stone-200 bg-white p-1 text-sm">
+        {(['selection', 'columns', 'review'] as Step[]).map((s, i) => {
+          const labels: Record<Step, string> = {
+            selection: '1. Selección',
+            columns: '2. Columnas',
+            review: '3. Revisar y Exportar',
+          };
+          const active = step === s;
+          return (
+            <button
+              key={s}
+              onClick={() => {
+                if (s === 'review') { goToReview(); } else { setStep(s); }
+              }}
+              className={`flex-1 rounded-md px-4 py-2 text-center transition-colors ${
+                active
+                  ? 'bg-stone-900 text-white font-medium'
+                  : 'text-stone-600 hover:bg-stone-50'
+              }`}
+            >
+              {labels[s]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Step 1: Selection ─────────────────────────────────────────── */}
+      {step === 'selection' && (
+        <div className="space-y-4">
+          {/* Filter bar */}
+          <Card className="border-stone-200">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                    Período
+                  </span>
+                  <DatePickerWithRange value={dateRange} onChange={(d) => d && setDateRange(d)} />
+                </div>
+                <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+                  <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                    Buscar
+                  </span>
+                  <Input
+                    placeholder="Cliente, orden, remisión..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="h-9 border-stone-200 bg-white text-sm"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadHierarchical}
+                  className="gap-2 border-stone-200 text-stone-700 hover:bg-stone-50"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Actualizar
+                </Button>
+                {selectedRemisionIds.size > 0 && (
+                  <Button
+                    size="sm"
+                    onClick={() => setStep('columns')}
+                    className="gap-2 bg-stone-900 text-white hover:bg-stone-800"
+                  >
+                    Continuar
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Live KPI bar when something is selected */}
+          {liveSummary && liveSummary.count > 0 && (
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-3">
+              <KpiTile label="Remisiones" value={String(liveSummary.count)} />
+              <KpiTile label="Volumen" value={`${fmtNum(liveSummary.vol)} m³`} />
+              <KpiTile label="Subtotal" value={fmtCurr(liveSummary.amount)} accent />
+            </div>
+          )}
+
+          {/* Tree */}
+          {hierarchicalLoading ? (
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : hierarchicalError ? (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="flex items-center gap-3 p-4 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {hierarchicalError}
+              </CardContent>
+            </Card>
+          ) : (
+            <SelectionTree
+              data={filteredHierarchical}
+              selectedRemisionIds={selectedRemisionIds}
+              onToggleRemision={toggleRemision}
+              onToggleOrder={toggleOrder}
+              onToggleClient={toggleClient}
+              onSelectAll={selectAll}
+              onClearAll={clearAll}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Step 2: Columns ───────────────────────────────────────────── */}
+      {step === 'columns' && (
+        <div className="space-y-4">
+          <Card className="border-stone-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold text-stone-800">
+                Configuración de Columnas
+              </CardTitle>
+              <CardDescription className="text-xs text-stone-500">
+                Selecciona y ordena las columnas. Las flechas controlan el orden en PDF y Excel.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                    Ordenar por
+                  </span>
+                  <Select value={sortDirection} onValueChange={(v) => setSortDirection(v as 'asc' | 'desc')}>
+                    <SelectTrigger className="h-8 w-40 border-stone-200 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="desc">Fecha descendente</SelectItem>
+                      <SelectItem value="asc">Fecha ascendente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                    Agrupar por
+                  </span>
+                  <Select value={groupBy} onValueChange={(v) => setGroupBy(v as typeof groupBy)}>
+                    <SelectTrigger className="h-8 w-44 border-stone-200 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin agrupación</SelectItem>
+                      <SelectItem value="order">Por orden / pedido</SelectItem>
+                      <SelectItem value="construction_site">Por obra</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <ColumnPicker
+                orderedCols={orderedCols}
+                onReorder={reorderCol}
+                onRemove={removeCol}
+                onAddCol={addCol}
+                onApplyPreset={applyPreset}
+              />
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setStep('selection')} className="border-stone-200 text-stone-600">
+              ← Selección
+            </Button>
+            <Button
+              size="sm"
+              disabled={selectedRemisionIds.size === 0}
+              onClick={goToReview}
+              className="bg-stone-900 text-white hover:bg-stone-800"
+            >
+              Ver Reporte →
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 3: Review & Export ───────────────────────────────────── */}
+      {step === 'review' && (
+        <div className="space-y-4">
+          {/* KPIs */}
+          {reportSummary && (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <KpiTile label="Remisiones" value={String(reportSummary.totalRemisiones)} />
+              <KpiTile
+                label="Volumen"
+                value={`${fmtNum(reportSummary.totalVolume)} m³`}
+              />
+              <KpiTile label="Subtotal" value={fmtCurr(reportSummary.totalAmount)} />
+              <KpiTile label="IVA" value={fmtCurr(reportSummary.totalVAT)} />
+              <KpiTile label="Total" value={fmtCurr(reportSummary.finalTotal)} accent />
+            </div>
+          )}
+
+          {/* Preview table */}
+          <Card className="border-stone-200">
+            <CardHeader className="flex-row items-center justify-between pb-3">
+              <CardTitle className="text-sm font-semibold text-stone-800">
+                Vista Previa de Datos
+              </CardTitle>
+              {reportData.length > 0 && (
+                <span className="text-xs text-stone-500">{reportData.length} registros</span>
+              )}
+            </CardHeader>
+            <CardContent className="p-0">
+              {reportLoading ? (
+                <div className="space-y-2 p-4">
+                  {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                </div>
+              ) : reportError ? (
+                <div className="flex items-center gap-2 p-4 text-sm text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  {reportError}
                 </div>
               ) : reportData.length === 0 ? (
-                <Card>
-                  <CardContent className="text-center py-12">
-                    <FileSpreadsheet className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      No hay datos para mostrar
-                    </h3>
-                    <p className="text-gray-500 mb-4">
-                      {selectionSummary.selectedRemisiones.length === 0 
-                        ? 'Selecciona remisiones en la pestaña de Selección'
-                        : 'Haz clic en "Generar Reporte para PDF" para procesar los datos'
-                      }
-                    </p>
-                    <Button 
-                      onClick={() => setActiveTab(selectionSummary.selectedRemisiones.length === 0 ? 'selection' : 'selection')}
-                      variant="outline"
-                    >
-                      {selectionSummary.selectedRemisiones.length === 0 ? 'Ir a Selección' : 'Generar Datos'}
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="py-12 text-center text-sm text-stone-400">
+                  Sin datos para las selecciones realizadas
+                </div>
               ) : (
-                <>
-                  {/* Summary Cards */}
-                  {reportSummary && (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <Card>
-                        <CardContent className="p-4">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-blue-600">
-                              {reportSummary.totalRemisiones}
-                            </div>
-                            <div className="text-sm text-gray-500">Total Remisiones</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardContent className="p-4">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-green-600">
-                              {reportSummary.totalVolume.toFixed(2)} m³
-                            </div>
-                            <div className="text-sm text-gray-500">Volumen Total</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                      
-                      <Card>
-                        <CardContent className="p-4">
-                          <div className="text-center">
-                            <div className="text-2xl font-bold text-purple-600">
-                              {formatCurrency(reportSummary.totalAmount)}
-                            </div>
-                            <div className="text-sm text-gray-500">Monto Total</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                      
-                      {showVAT && (
-                        <Card>
-                          <CardContent className="p-4">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-orange-600">
-                                {formatCurrency((reportSummary.totalAmount * (plantInfo?.vat_percentage || 0.16)))}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                IVA Total ({((plantInfo?.vat_percentage || 0.16) * 100).toFixed(0)}%)
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
-                      
-                      {showVAT && (
-                        <Card>
-                          <CardContent className="p-4">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-red-600">
-                                {formatCurrency(reportSummary.totalAmount + ((reportSummary.totalAmount * (plantInfo?.vat_percentage || 0.16))))}
-                              </div>
-                              <div className="text-sm text-gray-500">Total Final</div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )}
-                    </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-stone-50 hover:bg-stone-50">
+                        {orderedCols.map((col) => (
+                          <TableHead
+                            key={col.id}
+                            className="text-xs font-semibold uppercase tracking-wide text-stone-600"
+                          >
+                            {col.label}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reportData.slice(0, 50).map((row, i) => (
+                        <TableRow key={row.id ?? i} className="hover:bg-stone-50/60">
+                          {orderedCols.map((col) => {
+                            const isNum = col.type === 'currency' || col.type === 'number';
+                            return (
+                              <TableCell
+                                key={col.id}
+                                className={`py-2 text-xs ${isNum ? 'text-right font-mono tabular-nums text-stone-700' : 'text-stone-600'}`}
+                              >
+                                {cellDisplay(row, col)}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {reportData.length > 50 && (
+                    <p className="py-3 text-center text-xs text-stone-400">
+                      Mostrando 50 de {reportData.length} registros. El PDF/Excel incluye todos.
+                    </p>
                   )}
-
-                  {/* Data Preview Table */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        <span>Vista Previa de Datos</span>
-                        <Badge variant="outline">
-                          {reportData.length} registros
-                        </Badge>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              {selectedColumns.slice(0, 8).map(column => (
-                                <TableHead key={column.id}>{column.label}</TableHead>
-                              ))}
-                              {selectedColumns.length > 8 && (
-                                <TableHead>...</TableHead>
-                              )}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {reportData.slice(0, 10).map((item, index) => (
-                              <TableRow key={`preview-${item.id || `index-${index}`}`}>
-                                {selectedColumns.slice(0, 8).map(column => {
-                                  // Helper function to safely access nested properties
-                                  const getValue = (obj: any, path: string): any => {
-                                    return path.split('.').reduce((current, key) => current?.[key], obj);
-                                  };
-                                  
-                                  const value = getValue(item, column.field);
-                                  let formattedValue = value?.toString() || '-';
-                                  
-                                  if (column.format === 'currency' && value !== null && value !== undefined) {
-                                    formattedValue = formatCurrency(Number(value));
-                                  } else if (column.format === 'date' && value) {
-                                    try {
-                                      formattedValue = format(new Date(value), 'dd/MM/yyyy', { locale: es });
-                                    } catch {
-                                      formattedValue = value?.toString() || '-';
-                                    }
-                                  } else if (typeof value === 'boolean') {
-                                    formattedValue = value ? 'Sí' : 'No';
-                                  }
-                                  
-                                  return (
-                                    <TableCell key={`preview-${item.id || index}-${column.id}`}>{formattedValue}</TableCell>
-                                  );
-                                })}
-                                {selectedColumns.length > 8 && (
-                                  <TableCell key={`preview-${item.id || index}-more`}>...</TableCell>
-                                )}
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                      
-                      {reportData.length > 10 && (
-                        <div className="text-center mt-4 text-sm text-gray-500">
-                          Mostrando 10 de {reportData.length} registros. 
-                          El reporte completo estará disponible en el PDF.
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </>
+                </div>
               )}
-            </TabsContent>
+            </CardContent>
+          </Card>
 
-            {/* Export Tab */}
-            <TabsContent value="export" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Download className="h-5 w-5" />
-                    Opciones de Exportación
-                  </CardTitle>
-                  <CardDescription>
-                    Descarga el reporte en formato PDF con la configuración actual
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {reportData.length === 0 ? (
-                    <div className="text-center py-8">
-                      <BarChart3 className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">
-                        No hay datos para exportar
-                      </h3>
-                      <p className="text-gray-500 mb-4">
-                        {selectionSummary.selectedRemisiones.length === 0
-                          ? 'Selecciona remisiones para generar el reporte'
-                          : 'Genera los datos del reporte antes de exportar'
-                        }
-                      </p>
-                      <Button 
-                        onClick={() => setActiveTab('selection')}
-                        variant="outline"
-                      >
-                        {selectionSummary.selectedRemisiones.length === 0 ? 'Seleccionar Datos' : 'Generar Reporte'}
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Export Summary */}
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <h4 className="font-medium mb-2">Resumen del Reporte:</h4>
-                        <ul className="text-sm text-gray-600 space-y-1">
-                          <li>• Clientes seleccionados: {selectionSummary.selectedClients.length}</li>
-                          <li>• Órdenes seleccionadas: {selectionSummary.selectedOrders.length}</li>
-                          <li>• Remisiones seleccionadas: {selectionSummary.selectedRemisiones.length}</li>
-                          <li>• Período: {format(currentFilters.dateRange.from!, 'dd/MM/yyyy', { locale: es })} - {format(currentFilters.dateRange.to!, 'dd/MM/yyyy', { locale: es })}</li>
-                          <li>• Registros en PDF: {reportData.length}</li>
-                          <li>• Columnas: {selectedColumns.length}</li>
-                          {currentFilters.recipeCodes && currentFilters.recipeCodes.length > 0 && (
-                            <li>• Recetas filtradas: {currentFilters.recipeCodes.length}</li>
-                          )}
-                          {currentFilters.constructionSites && currentFilters.constructionSites.length > 0 && (
-                            <li>• Obras filtradas: {currentFilters.constructionSites.length}</li>
-                          )}
-                          {plantInfo && <li>• Planta: {plantInfo.plant_name} ({plantInfo.plant_code})</li>}
-                          {showVAT && <li>• IVA: {((plantInfo?.vat_percentage || 0.16) * 100).toFixed(0)}%</li>}
-                        </ul>
-                      </div>
-
-                      {/* Download Button */}
-                      <div className="flex justify-center">
-                        <PDFDownloadLink
-                          document={
-                            <ClientReportPDF
-                              data={reportData}
-                              configuration={reportConfiguration}
-                              summary={reportSummary!}
-                              clientInfo={enhancedClientInfo}
-                              dateRange={currentFilters.dateRange}
-                              generatedAt={new Date()}
-                            />
-                          }
-                          fileName={pdfFilename}
-                        >
-                          {({ blob, url, loading, error }) => (
-                            <Button 
-                              size="lg"
-                              disabled={loading}
-                              className="flex items-center gap-2"
-                            >
-                              {loading ? (
-                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                              ) : (
-                                <Download className="h-4 w-4" />
-                              )}
-                              {loading ? 'Generando PDF...' : 'Descargar PDF'}
-                            </Button>
-                          )}
-                        </PDFDownloadLink>
-                      </div>
-
-                      {reportSummary && (
-                        <div className="text-center text-sm text-gray-500">
-                          El archivo se descargará como: {pdfFilename}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+          {/* Export actions */}
+          <Card className="border-stone-200">
+            <CardContent className="flex flex-wrap items-center justify-between gap-4 p-4">
+              <div className="space-y-0.5">
+                <p className="text-sm font-semibold text-stone-800">Opciones de Exportación</p>
+                <p className="text-xs text-stone-500">
+                  {reportSummary?.totalRemisiones ?? 0} registros · {orderedCols.length} columnas · {dateLabel}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep('columns')}
+                  className="border-stone-200 text-stone-600"
+                >
+                  <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+                  Editar columnas
+                </Button>
+                {reportData.length > 0 && reportSummary && (
+                  <>
+                    <Button
+                      size="sm"
+                      disabled={pdfLoading}
+                      onClick={handlePdfExport}
+                      className="gap-2 bg-stone-900 text-white hover:bg-stone-800"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      {pdfLoading ? 'Generando...' : 'Descargar PDF'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={excelLoading}
+                      onClick={handleExcelExport}
+                      className="gap-2 border-stone-200 text-stone-700 hover:bg-stone-50"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      {excelLoading ? 'Generando...' : 'Descargar Excel'}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

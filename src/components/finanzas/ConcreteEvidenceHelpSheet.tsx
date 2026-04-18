@@ -37,44 +37,68 @@ export default function ConcreteEvidenceHelpSheet() {
               Qué es esta vista
             </div>
             <p>
-              Aquí se agrupa la evidencia documental (PDF o imágenes) por <strong>pedido</strong>, para
-              comprobar que exista respaldo de las remisiones de concreto registradas en el sistema.
+              Agrupa la evidencia (PDF o imágenes) por <strong>pedido</strong> y permite contrastarla con
+              las remisiones de concreto del sistema. En escritorio, el panel de detalle permanece fijo al
+              hacer scroll en la tabla.
             </p>
           </div>
 
           <div className="space-y-2">
-            <p className="font-medium text-stone-800">Estados</p>
+            <p className="font-medium text-stone-800">Estados en tabla</p>
             <ul className="list-disc list-inside space-y-1.5">
               <li>
-                <span className="text-emerald-800">Con evidencia</span>: hay al menos un archivo cargado
-                para el pedido.
+                <span className="text-emerald-800">Con evidencia</span>: hay al menos un archivo para el
+                pedido.
               </li>
               <li>
-                <span className="text-amber-800">Falta evidencia</span>: hay remisiones de concreto pero
-                aún no hay archivos.
+                <span className="text-amber-800">Falta evidencia</span>: hay remisiones de concreto pero no
+                hay archivos.
               </li>
               <li>
-                <span className="text-muted-foreground">Sin remisiones</span>: no aplica revisión de
-                evidencia de concreto para ese pedido en el periodo.
+                <span className="text-muted-foreground">Sin remisiones</span>: no hay remisiones de concreto
+                registradas.
               </li>
             </ul>
           </div>
 
           <div className="space-y-2">
             <p className="font-medium text-stone-800">Filtros</p>
+            <ul className="list-disc list-inside space-y-1.5">
+              <li>
+                Rango por <strong>fecha de entrega</strong>.
+              </li>
+              <li>
+                <strong>Planta</strong>, <strong>cliente</strong> y <strong>estado evidencia</strong>{' '}
+                (todos, con/sin archivos, sin remisiones).
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-medium text-stone-800">Vista previa y PDF</p>
             <p>
-              Use el rango de fechas según la <strong>fecha de entrega</strong> del pedido. Puede filtrar
-              por planta (según sus permisos) y marcar solo pedidos con remisiones y sin evidencia para
-              priorizar pendientes.
+              En PDFs con texto, el cuadro lateral intenta detectar números de remisión (patrón «FECHA :
+              número»). Los PDF escaneados sin texto requieren revisión visual. Si el análisis falla, use
+              Abrir o Descargar.
+            </p>
+            <p>
+              En el <strong>panel del pedido</strong> puede marcar <strong>PDFs e imágenes</strong> (PNG, JPG,
+              GIF, WebP) y generar un <strong>ZIP</strong>. En la <strong>tabla principal</strong>, use la primera
+              columna para elegir varios pedidos con evidencia y <strong>ZIP pedidos</strong> en la cabecera: se
+              descargan todos los PDF/imágenes de esos pedidos, organizados en carpetas por pedido (límites de
+              cantidad en el botón).
             </p>
           </div>
 
           <div className="space-y-2">
-            <p className="font-medium text-stone-800">Descarga y revisión</p>
+            <p className="font-medium text-stone-800">Exportar Excel</p>
             <p>
-              En el panel derecho (o en la hoja en móvil) puede abrir o descargar cada archivo. El CSV
-              exporta metadatos del listado actual para auditoría (rutas internas de almacenamiento, sin
-              enlaces firmados).
+              <strong>Descargar Excel</strong> descarga <strong>todos los pedidos que cumplen los filtros</strong>{' '}
+              (no solo la página visible), hasta un límite de seguridad. El archivo incluye:{' '}
+              <strong>Resumen</strong> (filtros y contexto), <strong>Pedidos</strong> (una fila por pedido, alineado
+              a la tabla), <strong>Remisiones</strong> (una fila por número de remisión para cruzar en Excel) y{' '}
+              <strong>Archivos_evidencia</strong> (una fila por archivo con ruta de almacenamiento). Las hojas de
+              datos tienen autofiltro y anchos razonables.
             </p>
           </div>
 

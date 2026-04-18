@@ -99,6 +99,20 @@ const getQuoteDetails = (p: any): { final_price?: number; recipe_id?: string | n
   return Array.isArray(qd) ? (qd[0] || undefined) : qd;
 };
 
+/**
+ * Product code for findProductPrice — keep in sync with finanzas/ventas and finanzas/remisiones.
+ */
+export function resolveProductCodeForRemisionPricing(remision: {
+  tipo_remision?: string | null;
+  recipe?: { recipe_code?: string | null } | null;
+}): string {
+  const recipeCode = remision.recipe?.recipe_code ?? undefined;
+  const tipo = (remision.tipo_remision || '').toUpperCase();
+  if (tipo === 'BOMBEO') return 'SER002';
+  if (recipeCode === 'SER001' || tipo === 'VACÍO DE OLLA' || tipo === 'VACIO DE OLLA') return 'SER001';
+  return recipeCode || 'PRODUCTO';
+}
+
 // Shared sophisticated price finding utility (extracted from remisiones page)
 // pricingMap: Map of remision_id -> { subtotal_amount, volumen_fabricado } from remisiones_with_pricing view
 // remisionId: Optional remision ID to check pricing map first (respects zero prices)
