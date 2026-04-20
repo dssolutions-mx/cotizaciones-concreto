@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   Archive,
+  History,
   Shuffle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -58,6 +59,11 @@ import {
 } from '@/lib/finanzas/concreteEvidenceZipUtils'
 import { formatPostgresDateEs } from '@/lib/dates/postgresDate'
 import { formatHoraCargaForDisplay, formatRemisionFechaForDisplay } from '@/lib/dates/remisionFechaDisplay'
+import ConcreteEvidenceOrderAuditSections, {
+  type AuditSummaryPayload,
+} from '@/components/finanzas/ConcreteEvidenceOrderAuditSections'
+import AuditHistorySheet from '@/components/finanzas/audit/AuditHistorySheet'
+import { useFinanzasAuditCapabilities } from '@/hooks/finanzas/useFinanzasAuditCapabilities'
 
 type EvidenceRow = {
   id: string
@@ -120,10 +126,15 @@ export default function ConcreteEvidenceOrderDetailPanel({
   className,
 }: Props) {
   const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600)
+  const { canWrite: auditWriter } = useFinanzasAuditCapabilities()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [evidence, setEvidence] = useState<EvidenceRow[]>([])
   const [remisiones, setRemisiones] = useState<ConcreteRemRow[]>([])
+  const [auditSummary, setAuditSummary] = useState<AuditSummaryPayload | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewFile, setPreviewFile] = useState<EvidenceRow | null>(null)
@@ -180,6 +191,32 @@ export default function ConcreteEvidenceOrderDetailPanel({
   useEffect(() => {
     void load()
   }, [load])
+
+  const loadAudit = useCallback(async () => {
+    if (!orderId) {
+      setAuditSummary(null)
+      setAuditError(null)
+      return
+    }
+    setAuditLoading(true)
+    setAuditError(null)
+    try {
+      const res = await fetch(`/api/finanzas/audit/order/${orderId}/summary`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error al cargar auditoría')
+      setAuditSummary(json.data ?? null)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error al cargar auditoría'
+      setAuditError(msg)
+      setAuditSummary(null)
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [orderId])
+
+  useEffect(() => {
+    void loadAudit()
+  }, [loadAudit])
 
   useEffect(() => {
     setSelectedZipIds(new Set())
@@ -482,14 +519,31 @@ export default function ConcreteEvidenceOrderDetailPanel({
                       ? 'Falta evidencia'
                       : 'Sin remisiones'}
                 </Badge>
+                {auditWriter && (
+                  <Badge variant="outline" className="text-[10px] shrink-0 border-amber-300 bg-amber-50/80">
+                    Correcciones
+                  </Badge>
+                )}
               </div>
               {plantLabel && (
                 <p className="text-xs text-muted-foreground mt-1 truncate">{plantLabel}</p>
               )}
             </div>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
-              <X className="h-4 w-4" />
-            </Button>
+            <div className="flex items-center gap-0.5 shrink-0">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                title="Historial de correcciones"
+                onClick={() => setHistoryOpen(true)}
+              >
+                <History className="h-4 w-4" />
+              </Button>
+              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={onClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="outline" size="sm" asChild className="h-8 border-stone-300">
@@ -513,6 +567,16 @@ export default function ConcreteEvidenceOrderDetailPanel({
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Obra</p>
             <p className="text-stone-800 break-words">{summary.construction_site || '—'}</p>
           </div>
+
+          {orderId && (
+            <ConcreteEvidenceOrderAuditSections
+              orderId={orderId}
+              summary={auditSummary}
+              loading={auditLoading}
+              error={auditError}
+              onRefresh={() => void loadAudit()}
+            />
+          )}
 
           {loading ? (
             <div className="space-y-3 pt-2">
@@ -564,11 +628,9 @@ export default function ConcreteEvidenceOrderDetailPanel({
                                 </Tooltip>
                               ) : null}
                             </div>
-                            <div className="text-muted-foreground text-[11px]">
+                            <div className="text-muted-foreground text-[11px] tabular-nums">
                               <span>{formatRemisionFechaForDisplay(r.fecha)}</span>
-                              {horaTxt ? (
-                                <span className="ml-1 font-mono tabular-nums">{horaTxt}</span>
-                              ) : null}
+                              {horaTxt ? <span className="ml-1">{horaTxt}</span> : null}
                               {r.volumen_fabricado != null && r.volumen_fabricado !== undefined && (
                                 <span className="ml-2">
                                   · {r.volumen_fabricado}
@@ -584,61 +646,59 @@ export default function ConcreteEvidenceOrderDetailPanel({
                 </CollapsibleContent>
               </Collapsible>
 
-              <div className="rounded-lg border border-stone-200/80 bg-stone-50/50">
-                <div className="px-3 py-2 font-medium text-stone-800 border-b border-stone-200/60 flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-stone-500" />
-                  Archivos ({evidence.length})
-                </div>
-                {zippableEvidenceList.length > 0 && (
-                  <div className="px-3 py-2 border-b border-stone-200/60 bg-stone-100/40 space-y-2">
-                    <p className="text-[11px] text-muted-foreground">
-                      Paquete ZIP: marque PDFs o imágenes (PNG, JPG, GIF, WebP). Otros tipos: descarga
-                      individual.
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs border-stone-300 bg-white"
-                        disabled={zippableEvidenceList.length === 0}
-                        onClick={selectAllZippable}
-                      >
-                        Todos (PDF / imagen)
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs border-stone-300 bg-white"
-                        disabled={selectedZipCount === 0}
-                        onClick={clearZipSelection}
-                      >
-                        Quitar selección
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs gap-1 border-stone-300 bg-white"
-                        disabled={selectedZipCount === 0 || zipBusy}
-                        onClick={() => void downloadSelectedZip()}
-                      >
-                        {zipBusy ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Archive className="h-3.5 w-3.5" />
-                        )}
-                        ZIP ({selectedZipCount})
-                      </Button>
-                    </div>
+              {evidence.length > 0 && (
+                <div className="rounded-lg border border-stone-200/80 bg-stone-50/50">
+                  <div className="px-3 py-2 font-medium text-stone-800 border-b border-stone-200/60 flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-stone-500" />
+                    Archivos ({evidence.length})
                   </div>
-                )}
-                <ul className="p-2 space-y-2">
-                  {evidence.length === 0 ? (
-                    <li className="text-muted-foreground text-xs px-1 py-2">Sin archivos cargados</li>
-                  ) : (
-                    evidence.map((ev) => {
+                  {zippableEvidenceList.length > 0 && (
+                    <div className="px-3 py-2 border-b border-stone-200/60 bg-stone-100/40 space-y-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Paquete ZIP: marque PDFs o imágenes (PNG, JPG, GIF, WebP). Otros tipos: descarga
+                        individual.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs border-stone-300 bg-white"
+                          disabled={zippableEvidenceList.length === 0}
+                          onClick={selectAllZippable}
+                        >
+                          Todos (PDF / imagen)
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs border-stone-300 bg-white"
+                          disabled={selectedZipCount === 0}
+                          onClick={clearZipSelection}
+                        >
+                          Quitar selección
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 border-stone-300 bg-white"
+                          disabled={selectedZipCount === 0 || zipBusy}
+                          onClick={() => void downloadSelectedZip()}
+                        >
+                          {zipBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Archive className="h-3.5 w-3.5" />
+                          )}
+                          ZIP ({selectedZipCount})
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <ul className="p-2 space-y-2">
+                    {evidence.map((ev) => {
                       const zippable = isConcreteEvidenceFileZippable(ev.mime_type, ev.original_name)
                       return (
                         <li
@@ -725,10 +785,10 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           </div>
                         </li>
                       )
-                    })
-                  )}
-                </ul>
-              </div>
+                    })}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -845,6 +905,12 @@ export default function ConcreteEvidenceOrderDetailPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AuditHistorySheet
+        orderId={orderId}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+      />
     </>
     </TooltipProvider>
   )

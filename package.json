@@ -17,7 +17,8 @@
     "fetch:p004p-march-orders": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/fetch-p004p-march-orders.ts",
     "check:p004p-bombeo-csv-vs-db": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/check-p004p-bombeo-csv-vs-db.ts",
     "validate:p004p-march-volumes": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/validate_p004p_march_volumes.ts",
-    "recalc:hycsa-pitahaya": "npx tsx --env-file=.env.local scripts/recalculate-hycsa-pitahaya-orders.ts"
+    "recalc:hycsa-pitahaya": "npx tsx --env-file=.env.local scripts/recalculate-hycsa-pitahaya-orders.ts",
+    "hycsa:create-contract-quotes-2026": "npx tsx --env-file=.env.local scripts/create-hycsa-contract-quotes-2026.ts"
   },
   "engines": {
     "node": ">=20.19.0",

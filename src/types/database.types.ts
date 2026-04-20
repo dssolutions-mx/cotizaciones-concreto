@@ -112,6 +112,76 @@ export interface Database {
           }
         ]
       }
+      finanzas_audit_log: {
+        Row: {
+          id: string
+          occurred_at: string
+          actor_id: string
+          actor_role: string
+          actor_plant_id: string | null
+          entity_type: string
+          entity_id: string
+          order_id: string | null
+          quote_id: string | null
+          client_id: string | null
+          action: string
+          reason: string
+          changes: Json
+          financial_delta: Json | null
+          flags: Json | null
+          source: string
+          request_ip: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          id?: string
+          occurred_at?: string
+          actor_id: string
+          actor_role: string
+          actor_plant_id?: string | null
+          entity_type: string
+          entity_id: string
+          order_id?: string | null
+          quote_id?: string | null
+          client_id?: string | null
+          action: string
+          reason: string
+          changes?: Json
+          financial_delta?: Json | null
+          flags?: Json | null
+          source?: string
+          request_ip?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          id?: string
+          occurred_at?: string
+          actor_id?: string
+          actor_role?: string
+          actor_plant_id?: string | null
+          entity_type?: string
+          entity_id?: string
+          order_id?: string | null
+          quote_id?: string | null
+          client_id?: string | null
+          action?: string
+          reason?: string
+          changes?: Json
+          financial_delta?: Json | null
+          flags?: Json | null
+          source?: string
+          request_ip?: string | null
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'finanzas_audit_log_actor_id_fkey'
+            columns: ['actor_id']
+            referencedRelation: 'user_profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       compliance_daily_runs: {
         Row: {
           id: string

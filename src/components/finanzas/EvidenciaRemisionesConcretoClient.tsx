@@ -61,6 +61,7 @@ import { formatPostgresDateEs } from '@/lib/dates/postgresDate'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import ConcreteEvidenceHelpSheet from '@/components/finanzas/ConcreteEvidenceHelpSheet'
+import { useFinanzasAuditCapabilities } from '@/hooks/finanzas/useFinanzasAuditCapabilities'
 import ConcreteEvidenceOrderDetailPanel, {
   type OrderSummary,
 } from '@/components/finanzas/ConcreteEvidenceOrderDetailPanel'
@@ -169,6 +170,7 @@ export default function EvidenciaRemisionesConcretoClient() {
   const searchParams = useSearchParams()
   const { availablePlants, currentPlant } = usePlantContext()
   const { profile } = useAuthSelectors()
+  const { canWrite: auditWriterPanel } = useFinanzasAuditCapabilities()
 
   const isPlantManager = profile?.role === 'PLANT_MANAGER'
   const plantList = useMemo(
@@ -1069,7 +1071,8 @@ export default function EvidenciaRemisionesConcretoClient() {
 
         <div
           className={cn(
-            'hidden lg:block shrink-0 w-[420px] xl:w-[480px]',
+            'hidden lg:block shrink-0',
+            auditWriterPanel ? 'w-[520px] xl:w-[600px]' : 'w-[420px] xl:w-[480px]',
             'border-l border-stone-200/80 bg-card',
             'lg:sticky lg:top-16 lg:self-start',
             'lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto'
