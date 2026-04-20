@@ -1,25 +1,29 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import type { ComplianceFinding } from '@/lib/compliance/run';
 
-function JsonFold({ data }: { data: Record<string, unknown> }) {
-  const [open, setOpen] = useState(false);
-  if (Object.keys(data).length === 0) return null;
+function Row({ label, value }: { label: string; value: unknown }) {
+  const text = Array.isArray(value)
+    ? (value as unknown[]).map(String).filter(Boolean).join(', ') || '—'
+    : value == null || value === ''
+      ? '—'
+      : String(value);
   return (
-    <div className="mt-2">
-      <button
-        type="button"
-        className="text-xs text-stone-500 underline underline-offset-2 hover:text-stone-700"
-        onClick={() => setOpen((o) => !o)}
-      >
-        {open ? 'Ocultar detalle técnico' : 'Ver detalle técnico (IDs)'}
-      </button>
-      {open ? (
-        <pre className="mt-1 max-h-36 overflow-auto rounded border border-stone-200 bg-white p-2 text-[10px] text-stone-600">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      ) : null}
+    <div>
+      <dt className="text-xs text-stone-500">{label}</dt>
+      <dd className="font-medium text-stone-900">{text}</dd>
+    </div>
+  );
+}
+
+function Card({ severity, children }: { severity: 'high' | 'info'; children: React.ReactNode }) {
+  const border = severity === 'info'
+    ? 'border-amber-200 bg-amber-50/40'
+    : 'border-stone-200 bg-white';
+  return (
+    <div className={`rounded-md border ${border} px-3 py-2.5 text-sm`}>
+      {children}
     </div>
   );
 }
@@ -27,149 +31,122 @@ function JsonFold({ data }: { data: Record<string, unknown> }) {
 export function ComplianceFindingRow({ f }: { f: ComplianceFinding }) {
   const d = f.details ?? {};
 
+  if (f.rule === 'missingChecklist') {
+    const turno = d.horaFirst && d.horaLast
+      ? `${String(d.horaFirst).slice(0, 5)} – ${String(d.horaLast).slice(0, 5)}`
+      : d.horaFirst ? String(d.horaFirst).slice(0, 5) : null;
+    return (
+      <Card severity="high">
+        <p className="mb-2 font-semibold text-stone-900">{String(d.assetId ?? f.message)}</p>
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <Row label="Planta hogar" value={d.homePlantCode} />
+          <Row label="Operador asignado" value={d.primaryOperator} />
+          <Row label="Conductor(es) en remisión" value={d.drivers} />
+          <Row label="m³ total" value={d.totalM3 != null ? Number(d.totalM3).toFixed(1) : null} />
+          <Row label="Remisiones" value={d.remisionNumbers} />
+          <Row label="Turno" value={turno} />
+          <Row label="Dosificador" value={d.dosificador_names} />
+        </dl>
+      </Card>
+    );
+  }
+
   if (f.rule === 'missingEvidence') {
     return (
-      <div className="rounded-md border border-stone-100 bg-white px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
-        <p className="text-stone-800">{f.message}</p>
-        <dl className="mt-2 grid gap-1 text-stone-700">
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-stone-500">Pedido</dt>
-            <dd className="font-medium">{String(d.order_label ?? '—')}</dd>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-stone-500">Cliente / obra</dt>
-            <dd>{String(d.client_label ?? '—')}</dd>
-          </div>
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Pedido" value={d.order_label} />
+          <Row label="Cliente / Obra" value={d.client_label} />
+          <Row label="m³" value={d.m3Total != null ? Number(d.m3Total).toFixed(1) : null} />
+          <Row label="Remisiones" value={d.remisionNumbers} />
+          <Row label="Conductor(es)" value={d.drivers} />
+          <Row label="Dosificador" value={d.dosificador_names} />
         </dl>
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+      </Card>
     );
   }
 
   if (f.rule === 'missingPumping') {
     return (
-      <div className="rounded-md border border-stone-100 bg-white px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
-        <p className="text-stone-800">{f.message}</p>
-        <dl className="mt-2 text-stone-700">
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-stone-500">Pedido</dt>
-            <dd className="font-medium">{String(d.order_label ?? '—')}</dd>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-stone-500">Cliente / obra</dt>
-            <dd>{String(d.client_label ?? '—')}</dd>
-          </div>
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Pedido" value={d.order_label} />
+          <Row label="Cliente / Obra" value={d.client_label} />
+          <Row label="m³ concreto" value={d.concretoM3 != null ? Number(d.concretoM3).toFixed(1) : null} />
+          <Row label="# Remisiones concreto" value={d.concretoRemisionCount} />
+          <Row label="Nums. remisión" value={d.remisionNumbers} />
+          <Row label="Conductor(es)" value={d.drivers} />
         </dl>
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+      </Card>
     );
   }
 
   if (f.rule === 'operatorMismatch') {
     return (
-      <div className="rounded-md border border-amber-100 bg-amber-50/50 px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
-        <p className="font-medium text-stone-900">Conductor distinto al operador asignado</p>
-        <dl className="mt-2 grid gap-1 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-stone-500">Remisión</dt>
-            <dd>{String(d.remisionNumber ?? '—')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Unidad</dt>
-            <dd>{String(d.unidad ?? '—')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Conductor (remisión)</dt>
-            <dd>{String(d.driver ?? '—')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Operador asignado (mantenimiento)</dt>
-            <dd>{String(d.assignedOperator ?? '—')}</dd>
-          </div>
+      <Card severity="info">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Remisión" value={d.remisionNumber} />
+          <Row label="Unidad" value={d.unidad} />
+          <Row label="Hora" value={d.horaCarga ? String(d.horaCarga).slice(0, 5) : null} />
+          <Row label="Conductor (remisión)" value={d.driver} />
+          <Row label="Operador asignado" value={d.assignedOperator} />
+          <Row label="Pedido" value={d.order_label} />
+          <Row label="Cliente / Obra" value={d.client_label} />
         </dl>
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+      </Card>
     );
   }
 
   if (f.rule === 'unknownUnit') {
     return (
-      <div className="rounded-md border border-stone-100 bg-white px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
-        <p className="text-stone-800">{f.message}</p>
-        <dl className="mt-2 grid gap-1 sm:grid-cols-3">
-          <div>
-            <dt className="text-xs text-stone-500">Texto remisión</dt>
-            <dd>{String(d.unidad ?? '')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Canónico</dt>
-            <dd className="font-mono text-xs">{String(d.canonical ?? '')}</dd>
-          </div>
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Texto remisión" value={d.unidad} />
+          <Row label="Canónico resuelto" value={d.canonical} />
+          <Row label="Num. remisión" value={d.remisionNumber} />
+          <Row label="Hora" value={d.horaCarga ? String(d.horaCarga).slice(0, 5) : null} />
+          <Row label="Conductor" value={d.driver} />
         </dl>
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+      </Card>
     );
   }
 
-  if (f.rule === 'missingChecklist') {
+  if (f.rule === 'missingMaterialEntries') {
     return (
-      <div className="rounded-md border border-stone-100 bg-white px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
+      <Card severity="high">
         <p className="text-stone-800">{f.message}</p>
-        <dl className="mt-2 grid gap-1 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-stone-500">Unidad</dt>
-            <dd>{String(d.assetId ?? '')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Planta hogar</dt>
-            <dd>{String(d.homePlantCode ?? '—')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">m³</dt>
-            <dd>{String(d.totalM3 ?? '')}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-stone-500">Remisiones (count)</dt>
-            <dd>{(d.remisionIds as string[] | undefined)?.length ?? 0}</dd>
-          </div>
-        </dl>
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+        {(d.concretoRemisionCount != null || d.concretoM3 != null) && (
+          <dl className="mt-1.5 grid grid-cols-2 gap-1.5 text-sm">
+            <Row label="Remisiones" value={d.concretoRemisionCount} />
+            <Row label="m³ total" value={d.concretoM3 != null ? Number(d.concretoM3).toFixed(1) : null} />
+          </dl>
+        )}
+      </Card>
     );
   }
 
-  if (f.rule === 'missingMaterialEntries' || f.rule === 'missingProduction') {
+  if (f.rule === 'missingProduction') {
     return (
-      <div className="rounded-md border border-stone-100 bg-white px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-stone-500">{f.rule}</div>
+      <Card severity="high">
         <p className="text-stone-800">{f.message}</p>
-      </div>
+      </Card>
     );
   }
 
   if (f.rule === 'noDieselActivity' || f.rule === 'dieselWithoutProduction') {
     return (
-      <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm">
-        <div className="text-xs font-mono text-slate-500">{f.rule}</div>
+      <Card severity="info">
         <p className="text-stone-800">{f.message}</p>
-        {d.liters !== undefined ? (
+        {d.liters !== undefined && (
           <p className="mt-1 text-xs text-stone-600">Litros: {String(d.liters)}</p>
-        ) : null}
-        <JsonFold data={d as Record<string, unknown>} />
-      </div>
+        )}
+      </Card>
     );
   }
 
   return (
-    <div className="rounded-md border border-stone-100 bg-stone-50/80 px-3 py-2 text-sm">
-      <div className="font-mono text-xs text-stone-500">{f.rule}</div>
-      <div className="text-stone-800">{f.message}</div>
-      <JsonFold data={d as Record<string, unknown>} />
-    </div>
+    <Card severity="info">
+      <p className="text-stone-800">{f.message}</p>
+    </Card>
   );
 }

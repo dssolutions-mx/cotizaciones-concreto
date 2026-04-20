@@ -14,10 +14,11 @@ export async function sendComplianceMail(payload: MailPayload): Promise<void> {
     throw new Error('SENDGRID_API_KEY is not configured');
   }
 
+  const ccList = (payload.cc ?? []).filter((e) => e.includes('@'));
   const personalizations = [
     {
       to: payload.to.map((email) => ({ email })),
-      cc: (payload.cc ?? []).map((email) => ({ email })),
+      ...(ccList.length > 0 ? { cc: ccList.map((email) => ({ email })) } : {}),
     },
   ];
 

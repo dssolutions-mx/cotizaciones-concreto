@@ -43,6 +43,22 @@ function collectOrderIdsFromFindings(findings: ComplianceFinding[]): Set<string>
   return ids;
 }
 
+function collectUserIdsFromFindings(findings: ComplianceFinding[]): Set<string> {
+  const ids = new Set<string>();
+  const isUuid = (v: unknown): v is string =>
+    typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
+  for (const f of findings) {
+    const d = f.details;
+    // createdBys array (missingChecklist, missingEvidence, missingPumping)
+    if (Array.isArray(d?.createdBys)) {
+      for (const id of d.createdBys as unknown[]) if (isUuid(id)) ids.add(id);
+    }
+    // createdBy scalar (operatorMismatch)
+    if (isUuid(d?.createdBy)) ids.add(d.createdBy as string);
+  }
+  return ids;
+}
+
 function rebuildByPlantCategory(
   findings: ComplianceFinding[],
 ): DailyComplianceReport['byPlantCategory'] {
@@ -56,56 +72,106 @@ function rebuildByPlantCategory(
   return byPlantCategory;
 }
 
+function buildOrderLabel(o: OrderRow): { orderLabel: string; clientLabel: string } {
+  const clientName = o.clients?.business_name?.trim() || '';
+  const site = o.construction_site?.trim() || '';
+  const num = o.order_number != null ? String(o.order_number) : '';
+  const orderLabel = num ? `Pedido #${num}` : 'Pedido';
+  const clientLabel = [clientName, site].filter(Boolean).join(' · ') || '—';
+  return { orderLabel, clientLabel };
+}
+
 /**
- * Adds human-readable order labels to findings that carry `orderId` in details.
+ * Adds human-readable labels to all findings:
+ * - order_label / client_label for findings with orderId
+ * - dosificador_names[] for findings with createdBys / createdBy
  */
 export async function enrichComplianceReport(
   cot: SupabaseClient<any>,
   report: DailyComplianceReport,
 ): Promise<DailyComplianceReport> {
-  const idSet = collectOrderIdsFromFindings(report.findings);
-  if (idSet.size === 0) return report;
+  const orderIdSet = collectOrderIdsFromFindings(report.findings);
+  const userIdSet = collectUserIdsFromFindings(report.findings);
 
-  const ids = Array.from(idSet);
+  // Fetch orders
   const orderMap = new Map<string, OrderRow>();
-
-  const chunkSize = 80;
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const slice = ids.slice(i, i + chunkSize);
-    const { data, error } = await cot
-      .from('orders')
-      .select('id, order_number, construction_site, clients:client_id(business_name)')
-      .in('id', slice);
-    if (error) {
-      console.warn('[enrichComplianceReport] orders fetch', error.message);
-      continue;
-    }
-    for (const raw of data ?? []) {
-      const row = normalizeOrderRow(raw);
-      if (row) orderMap.set(row.id, row);
+  if (orderIdSet.size > 0) {
+    const ids = Array.from(orderIdSet);
+    const chunkSize = 80;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const slice = ids.slice(i, i + chunkSize);
+      const { data, error } = await cot
+        .from('orders')
+        .select('id, order_number, construction_site, clients:client_id(business_name)')
+        .in('id', slice);
+      if (error) {
+        console.warn('[enrichComplianceReport] orders fetch', error.message);
+        continue;
+      }
+      for (const raw of data ?? []) {
+        const row = normalizeOrderRow(raw);
+        if (row) orderMap.set(row.id, row);
+      }
     }
   }
 
+  // Fetch user display names for dosificadores
+  const userNameMap = new Map<string, string>();
+  if (userIdSet.size > 0) {
+    const ids = Array.from(userIdSet);
+    const { data, error } = await cot
+      .from('user_profiles')
+      .select('id, first_name, last_name, email')
+      .in('id', ids);
+    if (error) {
+      console.warn('[enrichComplianceReport] user_profiles fetch', error.message);
+    }
+    for (const raw of (data ?? []) as Array<{ id: string; first_name?: string | null; last_name?: string | null; email?: string | null }>) {
+      const name = [raw.first_name, raw.last_name].filter(Boolean).join(' ').trim() || raw.email || raw.id;
+      userNameMap.set(raw.id, name);
+    }
+  }
+
+  const resolveUserNames = (ids: string[]): string[] =>
+    ids.map((id) => userNameMap.get(id) ?? id).filter(Boolean);
+
   const enriched: ComplianceFinding[] = report.findings.map((f) => {
-    const oid = f.details?.orderId;
-    if (typeof oid !== 'string' || !orderMap.has(oid)) return f;
-    const o = orderMap.get(oid)!;
-    const clientName = o.clients?.business_name?.trim() || '';
-    const site = o.construction_site?.trim() || '';
-    const num = o.order_number != null ? String(o.order_number) : '';
-    const orderLabel = num ? `Pedido #${num}` : `Pedido`;
-    const clientLabel = [clientName, site].filter(Boolean).join(' · ') || '—';
-    return {
-      ...f,
-      details: {
-        ...f.details,
+    const d = f.details;
+    let extra: Record<string, unknown> = {};
+
+    // Order context for any finding with orderId
+    const oid = d?.orderId;
+    if (typeof oid === 'string' && orderMap.has(oid)) {
+      const o = orderMap.get(oid)!;
+      const { orderLabel, clientLabel } = buildOrderLabel(o);
+      extra = {
+        ...extra,
         order_label: orderLabel,
         order_number: o.order_number,
-        client_name: clientName || null,
-        construction_site: site || null,
+        client_name: o.clients?.business_name?.trim() || null,
+        construction_site: o.construction_site?.trim() || null,
         client_label: clientLabel,
-      },
-    };
+      };
+    }
+
+    // Dosificador names from createdBys array
+    if (Array.isArray(d?.createdBys) && (d.createdBys as string[]).length > 0) {
+      extra = {
+        ...extra,
+        dosificador_names: resolveUserNames(d.createdBys as string[]),
+      };
+    }
+
+    // Dosificador name from scalar createdBy (operatorMismatch)
+    if (typeof d?.createdBy === 'string' && d.createdBy) {
+      extra = {
+        ...extra,
+        dosificador_name: userNameMap.get(d.createdBy as string) ?? d.createdBy,
+      };
+    }
+
+    if (Object.keys(extra).length === 0) return f;
+    return { ...f, details: { ...d, ...extra } };
   });
 
   return {

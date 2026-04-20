@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Save } from 'lucide-react';
@@ -90,20 +90,20 @@ export function ComplianceEmailSettingsCard() {
     <Card className="border-stone-200">
       <CardHeader>
         <CardTitle>Correos: digest y overrides por planta</CardTitle>
-        <CardDescription className="space-y-2">
-          <p>
+        <div className="space-y-1.5 text-sm text-muted-foreground">
+          <span className="block">
             Aquí configuras lo mismo que en <code className="rounded bg-stone-100 px-1 text-xs">COMPLIANCE_OVERRIDES_JSON</code> y{' '}
             <code className="rounded bg-stone-100 px-1 text-xs">COMPLIANCE_DIGEST_RECIPIENTS</code>, pero en base de datos. Los
             dosificadores activos en cotizador siguen yendo siempre en <strong>Para</strong>.
-          </p>
-          <p className="text-xs text-stone-500">
+          </span>
+          <span className="block text-xs text-stone-500">
             Columnas ↔ JSON: <strong>Extra en Para</strong> ={' '}
             <code className="rounded bg-stone-100 px-0.5">dosificador</code> · <strong>Jefe de planta</strong> ={' '}
             <code className="rounded bg-stone-100 px-0.5">jefe_planta</code> · <strong>CC adicionales</strong> ={' '}
             <code className="rounded bg-stone-100 px-0.5">extra_cc</code>. Ejemplo histórico: P001 dosificador; P002
             P001/P002 ejemplo histórico; P004P incluye planta4@ como extra Para por semilla BD.
-          </p>
-        </CardDescription>
+          </span>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="space-y-2">

@@ -13,12 +13,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, ChevronLeft, RefreshCw, Mail, Users } from 'lucide-react';
 import type { DailyComplianceReport, ComplianceRuleId } from '@/lib/compliance/run';
 import { ComplianceRoutingReferenceCard } from '@/components/compliance/ComplianceRoutingReferenceCard';
 import { ComplianceEmailSettingsCard } from '@/components/compliance/ComplianceEmailSettingsCard';
 import { ComplianceFindingRow } from '@/components/compliance/ComplianceFindingRow';
-import { useAuthSelectors } from '@/hooks/use-auth-zustand';
+import { ComplianceEmailComposer } from '@/components/compliance/ComplianceEmailComposer';
+import { ComplianceIncidentsTab } from '@/components/compliance/ComplianceIncidentsTab';
+import RoleGuard from '@/components/auth/RoleGuard';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -48,7 +51,6 @@ const EMAIL_RULES: { rule: ComplianceRuleId; label: string }[] = [
 
 const PANEL_ONLY_RULES: ComplianceRuleId[] = ['noDieselActivity', 'dieselWithoutProduction'];
 
-/** Orden de secciones en hallazgos */
 const FINDING_ORDER: ComplianceRuleId[] = [
   'missingProduction',
   'missingMaterialEntries',
@@ -73,14 +75,15 @@ const RULE_SECTION_TITLE: Partial<Record<ComplianceRuleId, string>> = {
   dieselWithoutProduction: 'Diesel vs producción (info)',
 };
 
-export default function DailyCompliancePage() {
-  const { profile } = useAuthSelectors();
+function DailyComplianceContent() {
   const [date, setDate] = useState(defaultYmd);
   const [plantFilter, setPlantFilter] = useState<string>('all');
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<DailyComplianceReport | null>(null);
+
+  // Recipients preview dialog
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewPlant, setPreviewPlant] = useState<string | null>(null);
@@ -90,11 +93,10 @@ export default function DailyCompliancePage() {
     dosificadoresEnSistema: string[];
   } | null>(null);
 
-  const allowed =
-    profile?.role === 'EXECUTIVE' ||
-    profile?.role === 'ADMIN_OPERATIONS' ||
-    profile?.role === 'PLANT_MANAGER' ||
-    profile?.role === 'QUALITY_TEAM';
+  // Email composer
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerPlant, setComposerPlant] = useState<string>('');
+  const [composerCategory, setComposerCategory] = useState<ComplianceRuleId>('missingChecklist');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,7 +105,7 @@ export default function DailyCompliancePage() {
       const res = await fetch(`/api/compliance/daily/report?date=${date}`);
       if (res.status === 404) {
         setReport(null);
-        setError('No hay corrida guardada para esta fecha. Ejecuta "Calcular ahora".');
+        setError('No hay corrida guardada para esta fecha.');
         return;
       }
       const json = await res.json();
@@ -123,9 +125,7 @@ export default function DailyCompliancePage() {
     }
   }, [date]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const runNow = async () => {
     setRunning(true);
@@ -149,27 +149,10 @@ export default function DailyCompliancePage() {
     }
   };
 
-  const sendDispute = async (plantCode: string, category: ComplianceRuleId) => {
-    try {
-      const res = await fetch('/api/compliance/daily/dispute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetDate: date, plantCode, category }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        toast.error(json.error || 'No se pudo enviar');
-        return;
-      }
-      const to = (json.to as string[] | undefined)?.join(', ') || '—';
-      const cc = (json.cc as string[] | undefined)?.join(', ') || '—';
-      toast.success('Correo enviado', {
-        description: `Para: ${to}\nCC: ${cc}`,
-        duration: 8000,
-      });
-    } catch {
-      toast.error('Error de red');
-    }
+  const openComposer = (plantCode: string, category: ComplianceRuleId) => {
+    setComposerPlant(plantCode);
+    setComposerCategory(category);
+    setComposerOpen(true);
   };
 
   const openRecipientPreview = async (plantCode: string) => {
@@ -200,27 +183,14 @@ export default function DailyCompliancePage() {
     }
   };
 
-  if (!allowed) {
-    return (
-      <div className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-        <p className="text-stone-600">No tienes permiso para ver esta sección.</p>
-        <Link href="/production-control" className="mt-4 inline-block text-sm text-blue-600 underline">
-          Volver
-        </Link>
-      </div>
-    );
-  }
-
   const plants = report?.plants ?? [];
   const plantCodes = ['all', ...plants.map((p) => p.plantCode)];
-
   const visiblePlants =
-    plantFilter === 'all'
-      ? plants
-      : plants.filter((p) => p.plantCode === plantFilter);
+    plantFilter === 'all' ? plants : plants.filter((p) => p.plantCode === plantFilter);
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" asChild>
           <Link href="/production-control" className="gap-1">
@@ -234,15 +204,13 @@ export default function DailyCompliancePage() {
       </div>
 
       <p className="max-w-3xl text-sm text-stone-600">
-        Calcula hallazgos entre cotizador y mantenimiento, revisa por planta y envía correos de
-        seguimiento. Abajo ves la nómina real de correos y reglas por región; más abajo ajustas solo
-        extras por planta y el digest.
+        Revisa hallazgos entre cotizador y mantenimiento, personaliza y envía correos de seguimiento, y rastrea incidentes hasta su resolución.
       </p>
 
       <ComplianceRoutingReferenceCard />
-
       <ComplianceEmailSettingsCard />
 
+      {/* Date & filter controls */}
       <Card className="border-stone-200">
         <CardHeader>
           <CardTitle>Fecha y filtros</CardTitle>
@@ -286,111 +254,138 @@ export default function DailyCompliancePage() {
         </CardContent>
       </Card>
 
+      {/* Error / empty state */}
       {error ? (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {error}
+        <div className="flex flex-wrap items-center gap-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="flex-1">{error}</span>
+          {error.includes('No hay corrida') && (
+            <Button size="sm" onClick={() => void runNow()} disabled={running}>
+              {running ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              Calcular ahora
+            </Button>
+          )}
         </div>
       ) : null}
 
-      {report
-        ? visiblePlants.map((plant) => {
-            const byRule = report.byPlantCategory[plant.plantId] ?? {};
-            const findings = report.findings.filter((f) => f.plantId === plant.plantId);
-            return (
-              <Card key={plant.plantId} className="border-stone-200">
-                <CardHeader>
-                  <CardTitle>
-                    {plant.plantCode} — {plant.plantName}
-                  </CardTitle>
-                  <CardDescription>
-                    Producción CONCRETO: {plant.concretoRemisionCount} remisiones,{' '}
-                    {plant.producedConcreteM3.toFixed(1)} m³ · Día operativo:{' '}
-                    {plant.operatingDay ? 'sí' : 'no'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void openRecipientPreview(plant.plantCode)}
-                    >
-                      <Users className="h-3.5 w-3.5" />
-                      <span className="ml-1.5">Quién recibe (vista previa)</span>
-                    </Button>
-                  </div>
-                  <p className="text-xs text-stone-500">
-                    Cada botón envía <strong>un correo</strong> con todos los ítems de esa categoría. El número
-                    entre paréntesis es cantidad de hallazgos, no de correos.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {EMAIL_RULES.map((er) => {
-                      const list = byRule[er.rule] ?? [];
-                      const disabled = list.length === 0;
-                      return (
+      {/* Main content tabs */}
+      <Tabs defaultValue="hallazgos">
+        <TabsList className="mb-4">
+          <TabsTrigger value="hallazgos">Hallazgos</TabsTrigger>
+          <TabsTrigger value="incidentes">Incidentes enviados</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="hallazgos" className="space-y-4">
+          {report
+            ? visiblePlants.map((plant) => {
+                const byRule = report.byPlantCategory[plant.plantId] ?? {};
+                const findings = report.findings.filter((f) => f.plantId === plant.plantId);
+                return (
+                  <Card key={plant.plantId} className="border-stone-200">
+                    <CardHeader>
+                      <CardTitle>
+                        {plant.plantCode} — {plant.plantName}
+                      </CardTitle>
+                      <CardDescription>
+                        Producción CONCRETO: {plant.concretoRemisionCount} remisiones,{' '}
+                        {plant.producedConcreteM3.toFixed(1)} m³ · Día operativo:{' '}
+                        {plant.operatingDay ? 'sí' : 'no'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Recipient preview + email action buttons */}
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
-                          key={er.rule}
                           type="button"
-                          variant="outline"
+                          variant="secondary"
                           size="sm"
-                          disabled={disabled}
-                          title={`${list.length} hallazgo(s) en un solo correo`}
-                          onClick={() => void sendDispute(plant.plantCode, er.rule)}
+                          onClick={() => void openRecipientPreview(plant.plantCode)}
                         >
-                          <Mail className="h-3.5 w-3.5" />
-                          <span className="ml-1.5">
-                            {er.label}
-                            {disabled ? '' : ` (${list.length})`}
-                          </span>
+                          <Users className="h-3.5 w-3.5" />
+                          <span className="ml-1.5">Quién recibe</span>
                         </Button>
-                      );
-                    })}
-                  </div>
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        Cada botón abre el compositor para <strong>un correo</strong> con todos los ítems de esa categoría. El número entre paréntesis es la cantidad de hallazgos.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {EMAIL_RULES.map((er) => {
+                          const list = byRule[er.rule] ?? [];
+                          const disabled = list.length === 0;
+                          return (
+                            <Button
+                              key={er.rule}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={disabled}
+                              title={disabled ? 'Sin hallazgos' : `${list.length} hallazgo(s) — clic para redactar correo`}
+                              onClick={() => openComposer(plant.plantCode, er.rule)}
+                            >
+                              <Mail className="h-3.5 w-3.5" />
+                              <span className="ml-1.5">
+                                {er.label}
+                                {disabled ? '' : ` (${list.length})`}
+                              </span>
+                            </Button>
+                          );
+                        })}
+                      </div>
 
-                  <div className="space-y-6 text-sm">
-                    {findings.length === 0 ? (
-                      <p className="text-stone-500">Sin hallazgos para esta planta.</p>
-                    ) : (
-                      FINDING_ORDER.map((rule) => {
-                        const list = findings.filter((f) => f.rule === rule);
-                        if (!list.length) return null;
-                        const panelOnly = PANEL_ONLY_RULES.includes(rule);
-                        return (
-                          <div key={rule}>
-                            <div className="mb-2 flex flex-wrap items-baseline gap-2 border-b border-stone-100 pb-1">
-                              <h4 className="text-sm font-semibold text-stone-800">
-                                {RULE_SECTION_TITLE[rule] ?? rule}
-                              </h4>
-                              {panelOnly ? (
-                                <span className="text-xs text-stone-500">(solo panel, sin correo)</span>
-                              ) : null}
-                            </div>
-                            <div className="space-y-2">
-                              {list.map((f) => (
-                                <ComplianceFindingRow key={f.findingKey} f={f} />
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })
-        : null}
+                      {/* Findings detail */}
+                      <div className="space-y-6 text-sm">
+                        {findings.length === 0 ? (
+                          <p className="text-stone-500">Sin hallazgos para esta planta.</p>
+                        ) : (
+                          FINDING_ORDER.map((rule) => {
+                            const list = findings.filter((f) => f.rule === rule);
+                            if (!list.length) return null;
+                            const panelOnly = PANEL_ONLY_RULES.includes(rule);
+                            return (
+                              <div key={rule}>
+                                <div className="mb-2 flex flex-wrap items-baseline gap-2 border-b border-stone-100 pb-1">
+                                  <h4 className="text-sm font-semibold text-stone-800">
+                                    {RULE_SECTION_TITLE[rule] ?? rule}
+                                  </h4>
+                                  {panelOnly ? (
+                                    <span className="text-xs text-stone-500">(solo panel, sin correo)</span>
+                                  ) : null}
+                                </div>
+                                <div className="space-y-2">
+                                  {list.map((f) => (
+                                    <ComplianceFindingRow key={f.findingKey} f={f} />
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            : !loading && !error && (
+                <div className="rounded-lg border border-dashed border-stone-200 py-12 text-center text-sm text-stone-400">
+                  Selecciona una fecha y ejecuta el cálculo para ver hallazgos.
+                </div>
+              )}
+        </TabsContent>
 
+        <TabsContent value="incidentes">
+          <ComplianceIncidentsTab
+            dateFrom={date}
+            plantCode={plantFilter}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Recipients preview dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              Destinatarios — {previewPlant ?? ''}
-            </DialogTitle>
+            <DialogTitle>Destinatarios — {previewPlant ?? ''}</DialogTitle>
             <DialogDescription>
-              Resultado con la política vigente, overrides guardados y dosificadores activos en
-              cotizador.
+              Resultado con la política vigente, overrides guardados y dosificadores activos.
             </DialogDescription>
           </DialogHeader>
           {previewLoading ? (
@@ -403,9 +398,7 @@ export default function DailyCompliancePage() {
                 <div className="font-medium text-stone-800">Para</div>
                 <ul className="mt-1 list-inside list-disc text-stone-700">
                   {(previewData.to?.length ? previewData.to : ['(ninguno)']).map((e) => (
-                    <li key={e} className="font-mono text-xs">
-                      {e}
-                    </li>
+                    <li key={e} className="font-mono text-xs">{e}</li>
                   ))}
                 </ul>
               </div>
@@ -413,14 +406,12 @@ export default function DailyCompliancePage() {
                 <div className="font-medium text-stone-800">Copia (CC)</div>
                 <ul className="mt-1 list-inside list-disc text-stone-700">
                   {(previewData.cc?.length ? previewData.cc : ['(ninguno)']).map((e) => (
-                    <li key={e} className="font-mono text-xs">
-                      {e}
-                    </li>
+                    <li key={e} className="font-mono text-xs">{e}</li>
                   ))}
                 </ul>
               </div>
               <div>
-                <div className="font-medium text-stone-800">Dosificadores en sistema (cotizador)</div>
+                <div className="font-medium text-stone-800">Dosificadores en sistema</div>
                 <p className="mt-1 font-mono text-xs text-stone-600">
                   {(previewData.dosificadoresEnSistema ?? []).join(', ') || '—'}
                 </p>
@@ -429,6 +420,33 @@ export default function DailyCompliancePage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      {/* Email composer modal */}
+      {composerOpen && (
+        <ComplianceEmailComposer
+          open={composerOpen}
+          onClose={() => setComposerOpen(false)}
+          onSent={(disputeId, to, cc) => {
+            const toStr = to.join(', ') || '—';
+            const ccStr = cc.join(', ') || '—';
+            toast.success('Correo enviado', {
+              description: `Para: ${toStr}\nCC: ${ccStr}${disputeId ? `\nIncidente: ${disputeId.slice(0, 8)}…` : ''}`,
+              duration: 10000,
+            });
+          }}
+          plantCode={composerPlant}
+          category={composerCategory}
+          date={date}
+        />
+      )}
     </div>
+  );
+}
+
+export default function DailyCompliancePage() {
+  return (
+    <RoleGuard allowedRoles={['EXECUTIVE']}>
+      <DailyComplianceContent />
+    </RoleGuard>
   );
 }

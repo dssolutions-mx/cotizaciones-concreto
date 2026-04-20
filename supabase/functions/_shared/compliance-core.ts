@@ -158,6 +158,8 @@ type RemRow = {
   conductor: string | null;
   volumen_fabricado: string | number | null;
   remision_number: string | null;
+  hora_carga: string | null;
+  created_by: string | null;
 };
 
 export async function runComplianceCheck(
@@ -187,7 +189,7 @@ export async function runComplianceCheck(
   const { data: remisiones, error: remErr } = await cot
     .from('remisiones')
     .select(
-      'id, plant_id, order_id, fecha, tipo_remision, unidad, conductor, volumen_fabricado, remision_number',
+      'id, plant_id, order_id, fecha, tipo_remision, unidad, conductor, volumen_fabricado, remision_number, hora_carga, created_by',
     )
     .eq('fecha', input.targetDate);
   if (remErr) throw remErr;
@@ -368,6 +370,10 @@ export async function runComplianceCheck(
     string,
     {
       remisionIds: string[];
+      remisionNumbers: string[];
+      drivers: string[];
+      horaCargas: string[];
+      createdBys: string[];
       totalM3: number;
       sample: RemRow;
       asset: AssetRow;
@@ -412,6 +418,7 @@ export async function runComplianceCheck(
     }
 
     if (concreto.length > 0 && !plantsWithEntry.has(p.id)) {
+      const concM3 = concreto.reduce((s, r) => s + Number(r.volumen_fabricado ?? 0), 0);
       findings.push({
         rule: 'missingMaterialEntries',
         severity: 'high',
@@ -419,11 +426,34 @@ export async function runComplianceCheck(
         plantCode: p.code,
         findingKey: `${p.id}:missingMaterialEntries`,
         message: `Hay producción pero no hay entradas de material registradas`,
-        details: {},
+        details: {
+          concretoRemisionCount: concreto.length,
+          concretoM3: concM3,
+        },
       });
     }
 
     const orderIdsForPlant = [...new Set(concreto.map((r) => r.order_id))] as string[];
+
+    // Pre-aggregate per-order data for richer findings
+    const orderAgg = new Map<string, {
+      remisionNumbers: string[];
+      drivers: string[];
+      createdBys: string[];
+      m3Total: number;
+      count: number;
+    }>();
+    for (const r of concreto) {
+      if (!r.order_id) continue;
+      const agg = orderAgg.get(r.order_id) ?? { remisionNumbers: [], drivers: [], createdBys: [], m3Total: 0, count: 0 };
+      if (r.remision_number) agg.remisionNumbers.push(r.remision_number);
+      if (r.conductor) agg.drivers.push(r.conductor);
+      if (r.created_by) agg.createdBys.push(r.created_by);
+      agg.m3Total += Number(r.volumen_fabricado ?? 0);
+      agg.count += 1;
+      orderAgg.set(r.order_id, agg);
+    }
+
     for (const oid of orderIdsForPlant) {
       const items = orderItemsMap.get(oid) ?? [];
       const needsPump = items.some((i) => i.has_pump_service);
@@ -432,6 +462,7 @@ export async function runComplianceCheck(
         (r) => r.order_id === oid && r.tipo_remision === 'BOMBEO',
       );
       if (!hasBombeo) {
+        const agg = orderAgg.get(oid);
         findings.push({
           rule: 'missingPumping',
           severity: 'high',
@@ -439,7 +470,14 @@ export async function runComplianceCheck(
           plantCode: p.code,
           findingKey: `${p.id}:missingPumping:${oid}`,
           message: `Pedido requiere bombeo pero no hay remisión BOMBEO`,
-          details: { orderId: oid },
+          details: {
+            orderId: oid,
+            remisionNumbers: agg?.remisionNumbers ?? [],
+            drivers: [...new Set(agg?.drivers ?? [])],
+            createdBys: [...new Set(agg?.createdBys ?? [])],
+            concretoM3: agg?.m3Total ?? 0,
+            concretoRemisionCount: agg?.count ?? 0,
+          },
         });
       }
     }
@@ -447,6 +485,7 @@ export async function runComplianceCheck(
     for (const oid of orderIdsForPlant) {
       const evc = evidenceByOrder.get(oid) ?? 0;
       if (evc === 0) {
+        const agg = orderAgg.get(oid);
         findings.push({
           rule: 'missingEvidence',
           severity: 'high',
@@ -454,7 +493,14 @@ export async function runComplianceCheck(
           plantCode: p.code,
           findingKey: `${p.id}:missingEvidence:${oid}`,
           message: `Pedido sin evidencia de concreto cargada`,
-          details: { orderId: oid },
+          details: {
+            orderId: oid,
+            remisionNumbers: agg?.remisionNumbers ?? [],
+            drivers: [...new Set(agg?.drivers ?? [])],
+            createdBys: [...new Set(agg?.createdBys ?? [])],
+            m3Total: agg?.m3Total ?? 0,
+            remisionCount: agg?.count ?? 0,
+          },
         });
       }
     }
@@ -508,7 +554,14 @@ export async function runComplianceCheck(
         plantCode: p.code,
         findingKey: `${p.id}:unknown:${nk}`,
         message: `Unidad ${rawU} no registrada en mantenimiento`,
-        details: { unidad: rawU, remisionId: r.id, canonical: canon },
+        details: {
+          unidad: rawU,
+          remisionId: r.id,
+          remisionNumber: r.remision_number ?? null,
+          canonical: canon,
+          driver: r.conductor ?? null,
+          horaCarga: r.hora_carga ?? null,
+        },
       });
       continue;
     }
@@ -518,10 +571,26 @@ export async function runComplianceCheck(
     if (!hasCc) {
       const ex = missingChecklistMerge.get(mergeKey);
       const remisionIds = ex ? [...ex.remisionIds, r.id] : [r.id];
+      const remisionNumbers = ex
+        ? [...ex.remisionNumbers, r.remision_number ?? '']
+        : [r.remision_number ?? ''];
+      const drivers = ex
+        ? [...ex.drivers, r.conductor ?? '']
+        : [r.conductor ?? ''];
+      const horaCargas = ex
+        ? [...ex.horaCargas, r.hora_carga ?? '']
+        : [r.hora_carga ?? ''];
+      const createdBys = ex
+        ? [...ex.createdBys, r.created_by ?? '']
+        : [r.created_by ?? ''];
       const totalM3 =
         (ex?.totalM3 ?? 0) + Number(r.volumen_fabricado ?? 0);
       missingChecklistMerge.set(mergeKey, {
         remisionIds,
+        remisionNumbers,
+        drivers,
+        horaCargas,
+        createdBys,
         totalM3,
         sample: r,
         asset,
@@ -544,6 +613,9 @@ export async function runComplianceCheck(
           driver,
           assignedOperator: opName,
           remisionNumber: r.remision_number,
+          horaCarga: r.hora_carga ?? null,
+          orderId: r.order_id ?? null,
+          createdBy: r.created_by ?? null,
         },
       });
     }
@@ -553,6 +625,9 @@ export async function runComplianceCheck(
     const homeCode = [...mntPlantByCode.entries()].find(
       ([, v]) => v.id === row.asset.plant_id,
     )?.[0];
+    const uniqueDrivers = [...new Set(row.drivers.filter(Boolean))];
+    const uniqueCreatedBys = [...new Set(row.createdBys.filter(Boolean))];
+    const sortedHoras = row.horaCargas.filter(Boolean).sort();
     findings.push({
       rule: 'missingChecklist',
       severity: 'high',
@@ -564,6 +639,12 @@ export async function runComplianceCheck(
         assetId: row.asset.asset_id,
         assetUuid: row.asset.id,
         remisionIds: row.remisionIds,
+        remisionNumbers: row.remisionNumbers.filter(Boolean),
+        drivers: uniqueDrivers,
+        primaryOperator: primaryOperatorByAssetUuid.get(row.asset.id) ?? null,
+        horaFirst: sortedHoras[0] ?? null,
+        horaLast: sortedHoras[sortedHoras.length - 1] ?? null,
+        createdBys: uniqueCreatedBys,
         totalM3: row.totalM3,
         homePlantCode: homeCode ?? null,
       },
