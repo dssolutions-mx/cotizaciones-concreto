@@ -26,6 +26,7 @@ import {
   ClipboardPlus,
   ChevronRight,
   FileStack,
+  ShieldAlert,
 } from 'lucide-react'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -580,6 +581,11 @@ export default function DosificadorDashboard() {
               { href: '/production-control/cross-plant', label: 'Producción cruzada', Icon: ArrowLeftRight },
               { href: '/production-control/reloj-checador', label: 'Reloj checador', Icon: ClockIcon },
               { href: '/production-control/remisiones', label: 'Remisiones', Icon: FileText },
+              {
+                href: '/production-control/daily-compliance',
+                label: 'Compliance diario',
+                Icon: ShieldAlert,
+              },
               {
                 href: '/production-control/evidencia-concreto',
                 label: 'Evidencia remisiones (concreto)',

@@ -37,6 +37,8 @@ export interface Order {
   delivery_time: string;
   requires_invoice: boolean;
   special_requirements?: string | null;
+  /** Arkik Excel "Comentarios Internos" — internal-only, not shown on client-facing docs by default */
+  comentarios_internos?: string | null;
   total_amount: number;
   credit_status: CreditStatus;
   credit_validated_by?: string | null;

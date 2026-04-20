@@ -110,6 +110,7 @@ const ORDER_SELECT = `
   construction_site,
   elemento,
   special_requirements,
+  comentarios_internos,
   requires_invoice,
   total_amount,
   final_amount,
@@ -248,6 +249,51 @@ async function fetchRemisionesByIds(
 }
 
 // ---------------------------------------------------------------------------
+// Arkik remision_reassignments → display line per remisión number
+// ---------------------------------------------------------------------------
+
+const REASSIGNMENT_CHUNK = 150;
+
+/** Exported for Finanzas Ventas and other remisión lists (batched by remisión number). */
+export async function fetchArkikReassignmentNotesByRemisionNumber(
+  remisionNumbers: string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(remisionNumbers.map(String).filter(Boolean))];
+  if (!unique.length) return new Map();
+
+  const byRowId = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < unique.length; i += REASSIGNMENT_CHUNK) {
+    const chunk = unique.slice(i, i + REASSIGNMENT_CHUNK);
+    const [{ data: asSource }, { data: asTarget }] = await Promise.all([
+      supabase.from('remision_reassignments').select('*').in('source_remision_number', chunk),
+      supabase.from('remision_reassignments').select('*').in('target_remision_number', chunk),
+    ]);
+    for (const row of [...(asSource || []), ...(asTarget || [])]) {
+      const r = row as { id: string };
+      if (r.id) byRowId.set(r.id, row as Record<string, unknown>);
+    }
+  }
+
+  const linesByRemision = new Map<string, Set<string>>();
+  const addLine = (remNum: string, line: string) => {
+    if (!linesByRemision.has(remNum)) linesByRemision.set(remNum, new Set());
+    linesByRemision.get(remNum)!.add(line);
+  };
+
+  for (const row of byRowId.values()) {
+    const src = String(row.source_remision_number ?? '');
+    const tgt = String(row.target_remision_number ?? '');
+    const reason = String(row.reason ?? '').trim() || '—';
+    if (src) addLine(src, `→ ${tgt}: ${reason}`);
+    if (tgt) addLine(tgt, `← ${src}: ${reason}`);
+  }
+
+  return new Map(
+    [...linesByRemision.entries()].map(([k, set]) => [k, [...set].join(' | ')]),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Core enrichment → ReportRemisionData[]
 // ---------------------------------------------------------------------------
 
@@ -264,19 +310,26 @@ async function enrichAndBuild(
   // Delegate ALL pricing to the canonical helper — one view lookup for the batch
   const enrichedMap = await enrichRemisiones({ remisiones, ordersById, orderItems });
 
+  const reassignmentMap = await fetchArkikReassignmentNotesByRemisionNumber(
+    remisiones.map((r: any) => String(r.remision_number)),
+  );
+
   const enrichedRemisiones: ReportRemisionData[] = remisiones.map((remision: any) => {
     const order = ordersById.get(String(remision.order_id));
     const client = order?.clients;
     const pricing = enrichedMap.get(String(remision.id));
+    const rnum = String(remision.remision_number);
 
     return {
       ...remision,
       master_code: getDisplayProductCode(remision),
+      arkik_reassignment_note: reassignmentMap.get(rnum),
       order: order ? {
         order_number: order.order_number,
         construction_site: order.construction_site,
         elemento: order.elemento,
         special_requirements: order.special_requirements,
+        comentarios_internos: order.comentarios_internos,
         order_status: order.order_status,
         requires_invoice: order.requires_invoice,
         total_amount: order.total_amount,
@@ -417,6 +470,7 @@ export class ReportDataService {
           construction_site,
           elemento,
           special_requirements,
+          comentarios_internos,
           requires_invoice,
           total_amount,
           final_amount,
@@ -771,6 +825,9 @@ export class ReportDataService {
           case 'business_name': out.business_name = item.client?.business_name; break;
           case 'client_rfc': out.client_rfc = item.client?.rfc; break;
           case 'elemento': out.elemento = item.order?.elemento; break;
+          case 'special_requirements': out.special_requirements = item.order?.special_requirements; break;
+          case 'comentarios_internos': out.comentarios_internos = item.order?.comentarios_internos; break;
+          case 'arkik_reassignment': out.arkik_reassignment = item.arkik_reassignment_note; break;
           default: {
             const val = col.split('.').reduce((o: any, k) => o?.[k], item);
             if (val !== undefined) out[col] = val;

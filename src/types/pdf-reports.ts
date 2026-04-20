@@ -135,6 +135,8 @@ export interface ReportRemisionData {
     construction_site: string;
     elemento?: string;
     special_requirements?: string | null;
+    /** Arkik Comentarios Internos (internal order notes). */
+    comentarios_internos?: string | null;
     order_status?: string | null;
     requires_invoice: boolean;
     total_amount: number;
@@ -142,6 +144,9 @@ export interface ReportRemisionData {
     invoice_amount?: number;
     client_id: string;
   };
+
+  /** Human-readable Arkik material reassignment context for this remisión (from remision_reassignments). */
+  arkik_reassignment_note?: string;
   
   client?: {
     id: string;
@@ -447,6 +452,20 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     id: 'special_requirements',
     label: 'Observaciones',
     field: 'order.special_requirements',
+    type: 'text',
+    width: '18%'
+  },
+  {
+    id: 'comentarios_internos',
+    label: 'Comentarios internos',
+    field: 'order.comentarios_internos',
+    type: 'text',
+    width: '16%'
+  },
+  {
+    id: 'arkik_reassignment',
+    label: 'Reasignación (Arkik)',
+    field: 'arkik_reassignment_note',
     type: 'text',
     width: '18%'
   },

@@ -4,6 +4,24 @@ import { StagingRemision, OrderSuggestion } from '@/types/arkik';
 import { Order, OrderItem } from '@/types/orders';
 import { hasStrictRecipeMatch } from './arkikMatchingUtils';
 
+/** Merge comma-separated order text fields with distinct tokens (Arkik append on existing order). */
+function mergeCommaSeparatedOrderField(
+  existing: string | null | undefined,
+  additions: (string | undefined)[]
+): string | undefined {
+  const set = new Set<string>();
+  const push = (s: string | null | undefined) => {
+    if (!s) return;
+    for (const part of s.split(',')) {
+      const t = part.trim();
+      if (t) set.add(t);
+    }
+  };
+  push(existing);
+  for (const a of additions) push(a);
+  return set.size ? Array.from(set).join(', ') : undefined;
+}
+
 export interface ExistingOrderMatch {
   order: Order;
   orderItems: OrderItem[];
@@ -908,6 +926,47 @@ export class ArkikOrderMatcher {
           } else {
             console.log(`[ArkikOrderMatcher] No materials to create for these remisiones`);
           }
+        }
+
+        // Merge Arkik order annotations from newly attached remisiones (externos, internos, elementos)
+        try {
+          const { data: orderRow, error: orderFetchErr } = await supabase
+            .from('orders')
+            .select('special_requirements, elemento, comentarios_internos')
+            .eq('id', orderId)
+            .single();
+          if (!orderFetchErr && orderRow) {
+            const nextInt = mergeCommaSeparatedOrderField(
+              orderRow.comentarios_internos,
+              remisionesToProcess.map((r) => r.comentarios_internos)
+            );
+            const nextExt = mergeCommaSeparatedOrderField(
+              orderRow.special_requirements,
+              remisionesToProcess.map((r) => r.comentarios_externos)
+            );
+            const nextElem = mergeCommaSeparatedOrderField(
+              orderRow.elemento,
+              remisionesToProcess.map((r) => r.elementos)
+            );
+            const patch: Record<string, string | undefined> = {};
+            if (nextInt !== undefined && nextInt !== orderRow.comentarios_internos) {
+              patch.comentarios_internos = nextInt;
+            }
+            if (nextExt !== undefined && nextExt !== orderRow.special_requirements) {
+              patch.special_requirements = nextExt;
+            }
+            if (nextElem !== undefined && nextElem !== orderRow.elemento) {
+              patch.elemento = nextElem;
+            }
+            if (Object.keys(patch).length > 0) {
+              const { error: updErr } = await supabase.from('orders').update(patch).eq('id', orderId);
+              if (updErr) {
+                console.warn('[ArkikOrderMatcher] Could not merge Arkik order annotations:', updErr);
+              }
+            }
+          }
+        } catch (mergeErr) {
+          console.warn('[ArkikOrderMatcher] Order annotation merge failed:', mergeErr);
         }
 
         // OPTIMIZATION: Skip individual recalculation when in bulk mode

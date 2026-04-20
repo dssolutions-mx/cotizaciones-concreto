@@ -159,6 +159,13 @@ function cellValue(item: ReportRemisionData, col: ReportColumn, rowIdx: number):
     case 'slump': return item.recipe?.slump ?? '';
     case 'requires_invoice': return item.order?.requires_invoice ? 'Sí' : 'No';
     case 'client_rfc': return item.client?.rfc ?? '';
+    case 'special_requirements': return item.order?.special_requirements ?? '';
+    case 'comentarios_internos': return item.order?.comentarios_internos ?? '';
+    case 'arkik_reassignment': return item.arkik_reassignment_note ?? '';
+    case 'order_status': return item.order?.order_status ?? '';
+    case 'tipo_remision': return item.tipo_remision ?? '';
+    case 'recipe_notes': return item.recipe?.notes ?? '';
+    case 'age_days': return item.recipe?.age_days ?? '';
     default: return '';
   }
 }

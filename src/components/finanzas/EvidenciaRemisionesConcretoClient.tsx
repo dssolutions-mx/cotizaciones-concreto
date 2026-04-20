@@ -15,6 +15,7 @@ import {
   X,
   FileSpreadsheet,
   Archive,
+  Shuffle,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -68,6 +69,13 @@ import {
   buildConcreteEvidenceExcelArrayBuffer,
   type ConcreteEvidenceExportMeta,
 } from '@/lib/finanzas/buildConcreteEvidenceExcel'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { fetchArkikReassignmentNotesByRemisionNumber } from '@/services/reportDataService'
 
 type EvidenceStatus = 'all' | 'needs_evidence' | 'has_evidence' | 'no_remisiones'
 
@@ -121,6 +129,13 @@ const EVIDENCE_STATUS_EXPORT_LABEL: Record<EvidenceStatus, string> = {
 const MAX_BULK_ZIP_ORDERS = 25
 const MAX_BULK_ZIP_FILES = 200
 
+function rowHasArkikReassignment(r: Row, m: Map<string, string>): boolean {
+  for (const n of r.remision_numbers || []) {
+    if (m.get(String(n).trim())) return true
+  }
+  return false
+}
+
 function rowToSummary(r: Row): OrderSummary {
   return {
     order_id: r.order_id,
@@ -172,6 +187,9 @@ export default function EvidenciaRemisionesConcretoClient() {
   const [zipOrderSelection, setZipOrderSelection] = useState<Set<string>>(() => new Set())
   const { getSignedUrl } = useSignedUrls('remision-documents', 3600)
   const [rows, setRows] = useState<Row[]>([])
+  const [reassignmentByRemisionPage, setReassignmentByRemisionPage] = useState<Map<string, string>>(
+    () => new Map()
+  )
   const [total, setTotal] = useState(0)
   const [truncated, setTruncated] = useState(false)
   const [search, setSearch] = useState('')
@@ -297,6 +315,28 @@ export default function EvidenciaRemisionesConcretoClient() {
     if (!hydratedFromUrl) return
     void fetchPage(0, false)
   }, [from, to, evidenceStatus, plantId, clientId, hydratedFromUrl, isPlantManager, currentPlant?.id, fetchPage])
+
+  useEffect(() => {
+    let cancelled = false
+    const nums = Array.from(
+      new Set(
+        rows
+          .flatMap((r) => r.remision_numbers || [])
+          .map((n) => String(n).trim())
+          .filter(Boolean),
+      ),
+    )
+    if (!nums.length) {
+      setReassignmentByRemisionPage(new Map())
+      return
+    }
+    fetchArkikReassignmentNotesByRemisionNumber(nums).then((m) => {
+      if (!cancelled) setReassignmentByRemisionPage(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [rows])
 
   const selectedRow = useMemo(
     () => rows.find((r) => r.order_id === selectedOrderId) || null,
@@ -604,6 +644,7 @@ export default function EvidenciaRemisionesConcretoClient() {
   }, [clients, clientSearchTerm])
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-[#f5f3f0]">
       <header className="shrink-0 border-b border-stone-200/70 bg-[#f5f3f0]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-6 py-3 flex flex-wrap items-start justify-between gap-3">
@@ -942,7 +983,28 @@ export default function EvidenciaRemisionesConcretoClient() {
                             {r.construction_site || '—'}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
-                            {r.concrete_remisiones_count}
+                            <span className="inline-flex items-center justify-end gap-1 w-full">
+                              <span>{r.concrete_remisiones_count}</span>
+                              {rowHasArkikReassignment(r, reassignmentByRemisionPage) ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex p-0 border-0 bg-transparent cursor-help shrink-0"
+                                      aria-label="Reasignación Arkik"
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => e.stopPropagation()}
+                                    >
+                                      <Shuffle className="h-3.5 w-3.5 text-amber-600" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-sm text-xs">
+                                    Hay reasignación de material Arkik en al menos una remisión de este pedido.
+                                    Abra el pedido y revise la lista en el panel derecho (icono junto a cada remisión).
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </span>
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                             {r.concrete_volume_sum != null
@@ -1052,5 +1114,6 @@ export default function EvidenciaRemisionesConcretoClient() {
         </SheetContent>
       </Sheet>
     </div>
+    </TooltipProvider>
   )
 }

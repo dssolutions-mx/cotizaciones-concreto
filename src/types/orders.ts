@@ -80,6 +80,7 @@ export interface Order {
   delivery_date: string;
   delivery_time: string;
   special_requirements?: string;
+  comentarios_internos?: string | null;
   preliminary_amount: number | null;
   final_amount: number | null;
   invoice_amount: number | null;

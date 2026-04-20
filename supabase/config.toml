@@ -278,6 +278,10 @@ enabled = false
 [functions.credit-validation-notification]
 verify_jwt = true
 
+# Cron hits this with x-compliance-secret only (no Supabase JWT). See docs/COMPLIANCE_PG_CRON.sql.
+[functions.daily-compliance-check]
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Configure one of the supported request policies: `oneshot`, `per_worker`.

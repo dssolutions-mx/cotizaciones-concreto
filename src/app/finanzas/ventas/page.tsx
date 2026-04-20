@@ -57,6 +57,7 @@ import {
 
 // Import hooks
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
+import { fetchArkikReassignmentNotesByRemisionNumber } from '@/services/reportDataService';
 import { useSalesAgentData } from '@/hooks/useSalesAgentData';
 
 // Import quality service
@@ -331,6 +332,29 @@ export default function VentasDashboard() {
     [...filteredRemisiones, ...virtualVacioDeOllaRemisiones],
     [filteredRemisiones, virtualVacioDeOllaRemisiones]
   );
+
+  const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const nums = Array.from(
+      new Set(
+        filteredRemisionesWithVacioDeOlla
+          .map((r) => String(r.remision_number ?? '').trim())
+          .filter(Boolean),
+      ),
+    );
+    if (nums.length === 0) {
+      setReassignmentByRemision(new Map());
+      return;
+    }
+    fetchArkikReassignmentNotesByRemisionNumber(nums).then((map) => {
+      if (!cancelled) setReassignmentByRemision(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredRemisionesWithVacioDeOlla]);
 
   // Calculate summary metrics using the utility with sophisticated price matching
   // IMPORTANT: Calculate with combined remisiones (including vacío de olla)
@@ -1251,6 +1275,7 @@ export default function VentasDashboard() {
               includeVAT={includeVAT}
               onExportToExcel={exportToExcel}
               pricingMap={pricingMap}
+              reassignmentByRemision={reassignmentByRemision}
             />
           )}
         </div>

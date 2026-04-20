@@ -7,8 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download } from "lucide-react";
+import { Download, Shuffle } from "lucide-react";
 import { findProductPrice } from '@/utils/salesDataProcessor';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface SalesDataTableProps {
   loading: boolean;
@@ -19,6 +20,8 @@ interface SalesDataTableProps {
   includeVAT: boolean;
   onExportToExcel: () => void;
   pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }>;
+  /** One-line Arkik material-transfer context per remisión number (from `remision_reassignments`). */
+  reassignmentByRemision?: Map<string, string>;
 }
 
 export const SalesDataTable: React.FC<SalesDataTableProps> = ({
@@ -30,6 +33,7 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
   includeVAT,
   onExportToExcel,
   pricingMap,
+  reassignmentByRemision,
 }) => {
   // Extract all order items from salesData for sophisticated price matching
   // Note: order items include quote_details relationship which contains recipe_id
@@ -48,7 +52,13 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
     return <div className="h-64 w-full animate-pulse bg-gray-200 rounded" />;
   }
 
+  const remisionReassignmentNote = (num: string | number | undefined) => {
+    if (num === undefined || num === null) return undefined;
+    return reassignmentByRemision?.get(String(num).trim());
+  };
+
   return (
+    <TooltipProvider delayDuration={200}>
     <Tabs defaultValue="remisiones" className="w-full">
       <div className="flex justify-between items-center mb-4">
         <TabsList className="grid grid-cols-2">
@@ -120,6 +130,16 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
                           <TableCell className="font-medium">
                             <div className="flex items-center">
                               <span>{remision.remision_number}</span>
+                              {remisionReassignmentNote(remision.remision_number) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Shuffle className="h-3.5 w-3.5 ml-1 text-amber-600 shrink-0 cursor-help" aria-label="Reasignación Arkik" />
+                                  </TooltipTrigger>
+                                  <TooltipContent className="max-w-sm text-xs">
+                                    {remisionReassignmentNote(remision.remision_number)}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
                               {order?.requires_invoice ?
                                 <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 hover:bg-blue-50">Fiscal</Badge> :
                                 <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50">Efectivo</Badge>
@@ -184,6 +204,16 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
                         <TableCell className="font-medium">
                           <div className="flex items-center">
                             <span>{remision.remision_number}</span>
+                            {remisionReassignmentNote(remision.remision_number) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Shuffle className="h-3.5 w-3.5 ml-1 text-amber-600 shrink-0 cursor-help" aria-label="Reasignación Arkik" />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm text-xs">
+                                  {remisionReassignmentNote(remision.remision_number)}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
                             {order?.requires_invoice ?
                               <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 hover:bg-blue-50">Fiscal</Badge> :
                               <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50">Efectivo</Badge>
@@ -333,5 +363,6 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
         </div>
       </TabsContent>
     </Tabs>
+    </TooltipProvider>
   );
 };

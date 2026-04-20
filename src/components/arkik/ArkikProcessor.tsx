@@ -1734,6 +1734,7 @@ Fin del reporte
           suggested_site_name: undefined,
           comentarios_externos: String(row.comentarios_externos || ''),
           comentarios_internos: String(row.comentarios_internos || ''),
+          elementos: String(row.elementos || ''),
           punto_entrega: String(row.punto_entrega || ''),
           camion: String(row.placas || ''),
           orden_original: undefined,
@@ -2849,10 +2850,11 @@ Fin del reporte
                          )}
                          
                          <h4 className="font-semibold text-lg text-gray-900 mb-1">
-                           {suggestion.comentarios_externos?.length > 0 
-                             ? suggestion.comentarios_externos[0]
-                             : 'Sin elemento especificado'
-                           }
+                           {suggestion.elementos?.length
+                             ? suggestion.elementos.join(', ')
+                             : suggestion.comentarios_externos?.length
+                               ? suggestion.comentarios_externos[0]
+                               : 'Sin elemento especificado'}
                          </h4>
                          
                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 mb-3">
@@ -2902,12 +2904,27 @@ Fin del reporte
                            return null;
                          })()}
                          
-                         {/* Elemento (Comentarios Externos) */}
+                         {suggestion.elementos && suggestion.elementos.length > 0 && (
+                           <div className="mb-3">
+                             <span className="text-sm font-medium text-gray-700">Elementos (Excel):</span>
+                             <div className="text-sm text-gray-600 mt-1">
+                               {suggestion.elementos.join(', ')}
+                             </div>
+                           </div>
+                         )}
                          {suggestion.comentarios_externos && suggestion.comentarios_externos.length > 0 && (
                            <div className="mb-3">
-                             <span className="text-sm font-medium text-gray-700">Elemento:</span>
+                             <span className="text-sm font-medium text-gray-700">Comentarios externos (observaciones):</span>
                              <div className="text-sm text-gray-600 mt-1">
                                {suggestion.comentarios_externos.join(', ')}
+                             </div>
+                           </div>
+                         )}
+                         {suggestion.comentarios_internos && suggestion.comentarios_internos.length > 0 && (
+                           <div className="mb-3">
+                             <span className="text-sm font-medium text-gray-700">Comentarios internos:</span>
+                             <div className="text-sm text-gray-600 mt-1">
+                               {suggestion.comentarios_internos.join(', ')}
                              </div>
                            </div>
                          )}

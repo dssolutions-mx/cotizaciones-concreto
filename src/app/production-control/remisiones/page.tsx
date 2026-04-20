@@ -10,10 +10,17 @@ import {
 } from '@/components/ui/table';
 import {
   ArrowLeftRight, CheckCircle2, Clock, RefreshCw, Factory,
-  FileText, Building2, Truck, Search, CalendarDays, Trash2,
+  FileText, Building2, Truck, Search, CalendarDays, Trash2, Shuffle,
 } from 'lucide-react';
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import { usePlantContext } from '@/contexts/PlantContext';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { fetchArkikReassignmentNotesByRemisionNumber } from '@/services/reportDataService';
 
 interface RegularRemision {
   id: string;
@@ -80,8 +87,38 @@ export default function RemisionesLogPage() {
   const [dateTo, setDateTo] = useState(todayISO());
   const [search, setSearch] = useState('');
   const [activeSection, setActiveSection] = useState<'all' | 'regular' | 'cross-plant' | 'arkik-waste'>('all');
+  const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(() => new Map());
 
   useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!data) {
+      setReassignmentByRemision(new Map());
+      return;
+    }
+    const nums = Array.from(
+      new Set(
+        [
+          ...data.regular.map((r) => r.remision_number),
+          ...data.crossPlant.map((r) => r.remision_number),
+          ...data.arkik_waste.map((w) => w.remision_number),
+        ]
+          .map((n) => String(n).trim())
+          .filter(Boolean),
+      ),
+    );
+    if (nums.length === 0) {
+      setReassignmentByRemision(new Map());
+      return;
+    }
+    fetchArkikReassignmentNotesByRemisionNumber(nums).then((m) => {
+      if (!cancelled) setReassignmentByRemision(m);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
 
   const fetchData = useCallback(async (plantId?: string, from?: string, to?: string) => {
     const id = plantId || currentPlant?.id;
@@ -144,9 +181,12 @@ export default function RemisionesLogPage() {
     (w.notes || '').toLowerCase().includes(search.toLowerCase()),
   );
 
+  const reassignmentNote = (num: string) => reassignmentByRemision.get(String(num).trim());
+
   if (!mounted) return null;
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="min-h-screen bg-gray-50">
       <div className="container mx-auto p-6 max-w-6xl space-y-6">
         <InventoryBreadcrumb />
@@ -318,7 +358,19 @@ export default function RemisionesLogPage() {
                   <TableBody>
                     {filteredArkikWaste.map(w => (
                       <TableRow key={w.id} className="hover:bg-red-50/20">
-                        <TableCell className="font-medium text-sm">#{w.remision_number}</TableCell>
+                        <TableCell className="font-medium text-sm">
+                          <span className="inline-flex items-center gap-1">
+                            #{w.remision_number}
+                            {reassignmentNote(w.remision_number) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Shuffle className="h-3.5 w-3.5 text-amber-600 shrink-0 cursor-help" aria-label="Reasignación Arkik" />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm text-xs">{reassignmentNote(w.remision_number)}</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </span>
+                        </TableCell>
                         <TableCell className="text-sm text-gray-600">{w.fecha}</TableCell>
                         <TableCell className="text-sm">
                           <span className="font-mono text-gray-800">{w.material_code}</span>
@@ -395,6 +447,14 @@ export default function RemisionesLogPage() {
                           <div className="flex items-center gap-1.5">
                             <ArrowLeftRight className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                             #{r.remision_number}
+                            {reassignmentNote(r.remision_number) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Shuffle className="h-3.5 w-3.5 text-amber-600 shrink-0 cursor-help" aria-label="Reasignación Arkik" />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm text-xs">{reassignmentNote(r.remision_number)}</TooltipContent>
+                              </Tooltip>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-sm text-gray-600">{r.fecha}</TableCell>
@@ -484,7 +544,17 @@ export default function RemisionesLogPage() {
                     {filteredRegular.map(r => (
                       <TableRow key={r.id} className="hover:bg-blue-50/20">
                         <TableCell className="font-medium text-sm">
-                          #{r.remision_number}
+                          <span className="inline-flex items-center gap-1">
+                            #{r.remision_number}
+                            {reassignmentNote(r.remision_number) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Shuffle className="h-3.5 w-3.5 text-amber-600 shrink-0 cursor-help" aria-label="Reasignación Arkik" />
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-sm text-xs">{reassignmentNote(r.remision_number)}</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-sm text-gray-600">{r.fecha}</TableCell>
                         <TableCell>
@@ -534,5 +604,6 @@ export default function RemisionesLogPage() {
         )}
       </div>
     </div>
+    </TooltipProvider>
   );
 }

@@ -8,6 +8,26 @@ export interface OrderGroupingOptions {
   manualAssignments?: Map<string, string>; // remision_number -> order_id
 }
 
+function collectArkikCommentFields(remisiones: StagingRemision[]): {
+  comentarios_externos: string[];
+  comentarios_internos: string[];
+  elementos: string[];
+} {
+  const ext = new Set<string>();
+  const int = new Set<string>();
+  const elem = new Set<string>();
+  for (const r of remisiones) {
+    if (r.comentarios_externos?.trim()) ext.add(r.comentarios_externos.trim());
+    if (r.comentarios_internos?.trim()) int.add(r.comentarios_internos.trim());
+    if (r.elementos?.trim()) elem.add(r.elementos.trim());
+  }
+  return {
+    comentarios_externos: Array.from(ext),
+    comentarios_internos: Array.from(int),
+    elementos: Array.from(elem),
+  };
+}
+
 export class ArkikOrderGrouper {
   groupRemisiones(
     remisiones: StagingRemision[], 
@@ -155,11 +175,20 @@ export class ArkikOrderGrouper {
   ): OrderSuggestion {
     remisiones.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
     const firstRemision = remisiones[0];
+    const { comentarios_externos, comentarios_internos, elementos } = collectArkikCommentFields(remisiones);
+    const recipeCodes = new Set<string>();
+    const validationIssues: ValidationError[] = [];
+    remisiones.forEach(r => {
+      if (r.recipe_code) recipeCodes.add(r.recipe_code);
+      validationIssues.push(...r.validation_errors);
+    });
 
     return {
       id: `manual-${orderId}-${Date.now()}`,
+      group_key: `manual_${orderId}`,
       client_id: firstRemision.client_id!,
       construction_site_id: firstRemision.construction_site_id!,
+      obra_name: firstRemision.obra_name || '',
       construction_site: firstRemision.obra_name || '',
       delivery_date: firstRemision.fecha.toISOString().split('T')[0],
       delivery_time: firstRemision.hora_carga.toTimeString().split(' ')[0],
@@ -168,17 +197,26 @@ export class ArkikOrderGrouper {
       remisiones: remisiones,
       cliente_name: firstRemision.cliente_name || '',
       total_volume: remisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0),
-      total_amount: remisiones.reduce((sum, r) => sum + (r.unit_price * r.volumen_fabricado), 0),
+      total_amount: remisiones.reduce((sum, r) => sum + (r.unit_price! * r.volumen_fabricado), 0),
       prod_comercial: firstRemision.prod_comercial,
       prod_tecnico: firstRemision.prod_tecnico,
-      elementos: firstRemision.elementos,
       bombeable: firstRemision.bombeable,
-      
+      comentarios_externos,
+      comentarios_internos,
+      elementos,
+      date_range: {
+        start: remisiones[0].fecha,
+        end: remisiones[remisiones.length - 1].fecha,
+      },
+      suggested_name: `${firstRemision.obra_name || 'Pedido'} — asignación manual`,
+      recipe_codes: recipeCodes,
+      validation_issues: validationIssues,
+
       // Manual assignment specific fields
       existing_order_id: orderId,
       is_existing_order: true,
       match_score: 1.0, // Manual assignment gets perfect score
-      match_reasons: ['Asignación manual']
+      match_reasons: ['Asignación manual'],
     };
   }
 
@@ -189,12 +227,11 @@ export class ArkikOrderGrouper {
     const remisiones = match.matchedRemisiones;
     remisiones.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
     
-    const comentarios = new Set<string>();
     const recipeCodes = new Set<string>();
     const validationIssues: ValidationError[] = [];
+    const { comentarios_externos, comentarios_internos, elementos } = collectArkikCommentFields(remisiones);
 
     remisiones.forEach(r => {
-      if (r.comentarios_externos) comentarios.add(r.comentarios_externos);
       if (r.recipe_code) recipeCodes.add(r.recipe_code);
       validationIssues.push(...r.validation_errors);
     });
@@ -204,7 +241,9 @@ export class ArkikOrderGrouper {
       client_id: match.order.client_id,
       construction_site_id: match.order.construction_site_id,
       obra_name: match.order.construction_site,
-      comentarios_externos: Array.from(comentarios),
+      comentarios_externos,
+      comentarios_internos,
+      elementos,
       date_range: { 
         start: remisiones[0].fecha, 
         end: remisiones[remisiones.length - 1].fecha 
@@ -240,23 +279,25 @@ export class ArkikOrderGrouper {
 
   private createOrderSuggestion(groupKey: string, remisiones: StagingRemision[]): OrderSuggestion {
     remisiones.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
-    const comentarios = new Set<string>();
     const recipeCodes = new Set<string>();
     const validationIssues: ValidationError[] = [];
+    const { comentarios_externos, comentarios_internos, elementos } = collectArkikCommentFields(remisiones);
 
     remisiones.forEach(r => {
-      if (r.comentarios_externos) comentarios.add(r.comentarios_externos);
       if (r.recipe_code) recipeCodes.add(r.recipe_code);
       validationIssues.push(...r.validation_errors);
     });
 
-    const suggestedName = this.generateOrderName(remisiones[0], comentarios);
+    const externalsSet = new Set(comentarios_externos);
+    const suggestedName = this.generateOrderName(remisiones[0], externalsSet);
     return {
       group_key: groupKey,
       client_id: remisiones[0].client_id || '',
       construction_site_id: remisiones[0].construction_site_id,
       obra_name: remisiones[0].obra_name,
-      comentarios_externos: Array.from(comentarios),
+      comentarios_externos,
+      comentarios_internos,
+      elementos,
       date_range: { start: remisiones[0].fecha, end: remisiones[remisiones.length - 1].fecha },
       remisiones,
       total_volume: remisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0),

@@ -123,6 +123,8 @@ function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
     case 'client_rfc': return item.client?.rfc ?? '—';
     case 'contact_name': return item.client?.contact_name ?? '—';
     case 'special_requirements': return item.order?.special_requirements ?? '—';
+    case 'comentarios_internos': return item.order?.comentarios_internos ?? '—';
+    case 'arkik_reassignment': return item.arkik_reassignment_note ?? '—';
     case 'order_status': return item.order?.order_status ?? '—';
     case 'tipo_remision': return item.tipo_remision ?? '—';
     case 'recipe_notes': return item.recipe?.notes ?? '—';

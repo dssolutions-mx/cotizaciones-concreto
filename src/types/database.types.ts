@@ -112,6 +112,222 @@ export interface Database {
           }
         ]
       }
+      compliance_daily_runs: {
+        Row: {
+          id: string
+          target_date: string
+          executed_at: string
+          triggered_by: string | null
+          report: Json
+          summary: Json
+        }
+        Insert: {
+          id?: string
+          target_date: string
+          executed_at?: string
+          triggered_by?: string | null
+          report?: Json
+          summary?: Json
+        }
+        Update: {
+          id?: string
+          target_date?: string
+          executed_at?: string
+          triggered_by?: string | null
+          report?: Json
+          summary?: Json
+        }
+        Relationships: []
+      }
+      compliance_daily_disputes: {
+        Row: {
+          id: string
+          run_id: string | null
+          plant_id: string | null
+          category: string
+          finding_key: string | null
+          recipients: Json | null
+          subject: string | null
+          body: string | null
+          sent_at: string | null
+          sent_by: string | null
+          status: string
+          operator_id: string | null
+          payroll_day_date: string | null
+          resolution_notes: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+        }
+        Insert: {
+          id?: string
+          run_id?: string | null
+          plant_id?: string | null
+          category: string
+          finding_key?: string | null
+          recipients?: Json | null
+          subject?: string | null
+          body?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string
+          operator_id?: string | null
+          payroll_day_date?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Update: {
+          id?: string
+          run_id?: string | null
+          plant_id?: string | null
+          category?: string
+          finding_key?: string | null
+          recipients?: Json | null
+          subject?: string | null
+          body?: string | null
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string
+          operator_id?: string | null
+          payroll_day_date?: string | null
+          resolution_notes?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Relationships: []
+      }
+      plant_operating_days: {
+        Row: {
+          plant_id: string
+          mon: boolean
+          tue: boolean
+          wed: boolean
+          thu: boolean
+          fri: boolean
+          sat: boolean
+          sun: boolean
+          updated_at: string | null
+        }
+        Insert: {
+          plant_id: string
+          mon?: boolean
+          tue?: boolean
+          wed?: boolean
+          thu?: boolean
+          fri?: boolean
+          sat?: boolean
+          sun?: boolean
+          updated_at?: string | null
+        }
+        Update: {
+          plant_id?: string
+          mon?: boolean
+          tue?: boolean
+          wed?: boolean
+          thu?: boolean
+          fri?: boolean
+          sat?: boolean
+          sun?: boolean
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      compliance_unit_aliases: {
+        Row: {
+          id: string
+          remision_unit_name: string
+          canonical_asset_id: string
+          notes: string | null
+          created_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          remision_unit_name: string
+          canonical_asset_id: string
+          notes?: string | null
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          remision_unit_name?: string
+          canonical_asset_id?: string
+          notes?: string | null
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      compliance_unit_exemptions: {
+        Row: {
+          id: string
+          unit_name: string
+          reason: string | null
+          created_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          unit_name: string
+          reason?: string | null
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          unit_name?: string
+          reason?: string | null
+          created_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
+      compliance_email_settings: {
+        Row: {
+          id: number
+          digest_recipients: string
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          digest_recipients?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          digest_recipients?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      compliance_plant_email_overrides: {
+        Row: {
+          plant_id: string
+          dosificador_email: string | null
+          jefe_planta_email: string | null
+          extra_cc: string[]
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          plant_id: string
+          dosificador_email?: string | null
+          jefe_planta_email?: string | null
+          extra_cc?: string[]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          plant_id?: string
+          dosificador_email?: string | null
+          jefe_planta_email?: string | null
+          extra_cc?: string[]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

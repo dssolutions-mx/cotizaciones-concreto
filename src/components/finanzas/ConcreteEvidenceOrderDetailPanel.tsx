@@ -17,6 +17,7 @@ import {
   Copy,
   Check,
   Archive,
+  Shuffle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -39,6 +40,13 @@ import { useSignedUrls } from '@/hooks/useSignedUrls'
 import { parseJsonResponse } from '@/lib/http/safeJsonResponse'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { fetchArkikReassignmentNotesByRemisionNumber } from '@/services/reportDataService'
 import {
   compareRemisionSets,
   extractRemisionNumbersFromPdfArrayBuffer,
@@ -133,6 +141,9 @@ export default function ConcreteEvidenceOrderDetailPanel({
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [selectedZipIds, setSelectedZipIds] = useState<Set<string>>(() => new Set())
   const [zipBusy, setZipBusy] = useState(false)
+  const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(
+    () => new Map()
+  )
 
   const load = useCallback(async () => {
     if (!orderId) {
@@ -173,6 +184,23 @@ export default function ConcreteEvidenceOrderDetailPanel({
   useEffect(() => {
     setSelectedZipIds(new Set())
   }, [orderId])
+
+  useEffect(() => {
+    let cancelled = false
+    const nums = Array.from(
+      new Set(remisiones.map((r) => String(r.remision_number).trim()).filter(Boolean)),
+    )
+    if (!nums.length) {
+      setReassignmentByRemision(new Map())
+      return
+    }
+    fetchArkikReassignmentNotesByRemisionNumber(nums).then((m) => {
+      if (!cancelled) setReassignmentByRemision(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [remisiones])
 
   const zippableEvidenceList = useMemo(
     () => evidence.filter((e) => isConcreteEvidenceFileZippable(e.mime_type, e.original_name)),
@@ -422,6 +450,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
       /\.(png|jpe?g|gif|webp)$/i.test(previewFile.original_name || ''))
 
   return (
+    <TooltipProvider delayDuration={200}>
     <>
       <div
         className={cn(
@@ -509,12 +538,32 @@ export default function ConcreteEvidenceOrderDetailPanel({
                     ) : (
                       remisiones.map((r) => {
                         const horaTxt = formatHoraCargaForDisplay(r.hora_carga)
+                        const rk = String(r.remision_number).trim()
+                        const reasNote = reassignmentByRemision.get(rk)
                         return (
                           <li
                             key={r.id}
                             className="rounded border border-stone-200/60 bg-background px-2 py-1.5 text-xs"
                           >
-                            <div className="font-medium text-stone-900">{r.remision_number}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-stone-900">{r.remision_number}</span>
+                              {reasNote ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="inline-flex p-0 border-0 bg-transparent cursor-help text-amber-600"
+                                      aria-label="Reasignación Arkik"
+                                    >
+                                      <Shuffle className="h-3.5 w-3.5 shrink-0" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="max-w-sm text-xs">
+                                    {reasNote}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : null}
+                            </div>
                             <div className="text-muted-foreground text-[11px]">
                               <span>{formatRemisionFechaForDisplay(r.fecha)}</span>
                               {horaTxt ? (
@@ -797,6 +846,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
         </DialogContent>
       </Dialog>
     </>
+    </TooltipProvider>
   )
 }
 

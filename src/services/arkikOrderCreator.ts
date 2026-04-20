@@ -1,6 +1,13 @@
 import { supabase } from '@/lib/supabase/client';
 import type { OrderSuggestion, StagingRemision } from '@/types/arkik';
 
+/** Distinct non-empty strings joined for order text fields (Arkik Excel columns). */
+function joinDistinctCsv(values: string[] | undefined): string | undefined {
+  if (!values?.length) return undefined;
+  const parts = [...new Set(values.map((v) => v.trim()).filter(Boolean))];
+  return parts.length ? parts.join(', ') : undefined;
+}
+
 // Helper functions for date formatting without timezone conversion
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
@@ -203,6 +210,7 @@ interface OrderCreationData {
   plant_id: string;
   auto_generated: true;
   elemento?: string;
+  comentarios_internos?: string;
 }
 
 interface OrderItemData {
@@ -709,7 +717,7 @@ async function createSingleOrder(
       requires_invoice: true, // Default to TRUE for all Arkik orders
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
-      special_requirements: suggestion.comentarios_externos.join(', ') || undefined,
+      special_requirements: joinDistinctCsv(suggestion.comentarios_externos),
       total_amount: totalAmount,
       credit_status: 'approved',
       order_status: 'created',
@@ -719,7 +727,8 @@ async function createSingleOrder(
       invoice_amount: undefined,
       plant_id: plantId,
       auto_generated: true,
-      elemento: suggestion.comentarios_externos[0] || undefined
+      elemento: joinDistinctCsv(suggestion.elementos),
+      comentarios_internos: joinDistinctCsv(suggestion.comentarios_internos),
     };
 
     const { data: createdOrder, error: orderError } = await supabase
@@ -1220,7 +1229,7 @@ async function createSingleOrderWithoutBalanceUpdate(
       requires_invoice: true, // Set to TRUE by default for Arkik orders
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
-      special_requirements: suggestion.comentarios_externos.join(', ') || undefined,
+      special_requirements: joinDistinctCsv(suggestion.comentarios_externos),
       total_amount: totalAmount,
       credit_status: 'approved',
       order_status: 'created',
@@ -1230,7 +1239,8 @@ async function createSingleOrderWithoutBalanceUpdate(
       invoice_amount: undefined,
       plant_id: plantId,
       auto_generated: true,
-      elemento: suggestion.comentarios_externos[0] || undefined
+      elemento: joinDistinctCsv(suggestion.elementos),
+      comentarios_internos: joinDistinctCsv(suggestion.comentarios_internos),
     };
 
     // Attempt to create order with retry mechanism for duplicate key errors

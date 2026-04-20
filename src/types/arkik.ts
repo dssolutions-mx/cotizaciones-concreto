@@ -273,6 +273,10 @@ export interface OrderSuggestion {
   construction_site_id?: string;
   obra_name: string;
   comentarios_externos: string[];
+  /** Distinct non-empty Comentarios Internos from grouped remisiones (Excel → orders.comentarios_internos). */
+  comentarios_internos: string[];
+  /** Distinct non-empty Elementos column values (Excel → orders.elemento). */
+  elementos: string[];
   date_range: { start: Date; end: Date };
   remisiones: StagingRemision[];
   total_volume: number;
@@ -285,6 +289,18 @@ export interface OrderSuggestion {
   match_score?: number;
   match_reasons?: string[];
   is_existing_order?: boolean;
+  /** Present on some manual-assignment suggestions (legacy UI). */
+  id?: string;
+  construction_site?: string;
+  delivery_date?: string;
+  delivery_time?: string;
+  quote_id?: string;
+  quote_detail_id?: string;
+  cliente_name?: string;
+  total_amount?: number;
+  prod_comercial?: string;
+  prod_tecnico?: string;
+  bombeable?: boolean;
 }
 
 export interface PlantMaterialMapping {
