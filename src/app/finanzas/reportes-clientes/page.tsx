@@ -78,8 +78,7 @@ import {
 import { formatCurrency } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { toast } from 'sonner';
-import { buildDeliveryReceiptExcel, downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
+import { buildDeliveryReceiptExcel, downloadExcelBuffer, buildAdditionalProductPseudoRows, computeFIFOPumpingAllocation } from '@/lib/reports/deliveryReceiptExcel';
 import {
   buildEvidenceBundle,
   countEvidenceFiles,
@@ -148,11 +147,28 @@ function PumpingPill({ tipo }: { tipo?: string | null }) {
     </span>
   );
 }
+function AdditionalPill({ tipo }: { tipo?: string | null }) {
+  if (String(tipo ?? '').toUpperCase() !== 'ADICIONAL') return null;
+  return (
+    <span className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-50 text-amber-800 border-amber-300">
+      Adic.
+    </span>
+  );
+}
+
+function isPumpingRowPage(item: ReportRemisionData): boolean {
+  const t = String(item.tipo_remision ?? '').toUpperCase();
+  return t === 'BOMBEO' || t === 'VACÍO DE OLLA' || t === 'VACIO DE OLLA';
+}
+function isAdditionalRowPage(item: ReportRemisionData): boolean {
+  return String(item.tipo_remision ?? '').toUpperCase() === 'ADICIONAL';
+}
 
 function cellDisplay(
   item: ReportRemisionData,
   col: ReportColumn,
-  pumpingByOrderId?: Map<string, ReportRemisionData[]>,
+  fifoAllocationMap?: Map<string, number>,
+  additionalsByOrderId?: Map<string, { total_per_m3: number; labels: string[] }>,
 ): string {
   switch (col.id) {
     case 'row_number': return '';
@@ -165,7 +181,15 @@ function cellDisplay(
     case 'unidad_cr': case 'unidad': return item.unidad ?? '—';
     case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '—';
     case 'volumen_fabricado': return fmtNum(item.volumen_fabricado);
-    case 'unit_price': return fmtCurr(item.unit_price);
+    case 'unit_price': {
+      const base = item.unit_price;
+      if (!isAdditionalRowPage(item) && !isPumpingRowPage(item)) {
+        const info = additionalsByOrderId?.get(String(item.order_id ?? ''));
+        if (info && info.total_per_m3 > 0)
+          return fmtCurr((base ?? 0) + info.total_per_m3);
+      }
+      return fmtCurr(base);
+    }
     case 'line_total': return fmtCurr(item.line_total);
     case 'vat_amount': return fmtCurr(item.vat_amount);
     case 'final_total': return fmtCurr(item.final_total);
@@ -185,11 +209,18 @@ function cellDisplay(
     case 'max_aggregate_size': return item.recipe?.max_aggregate_size != null ? `${item.recipe.max_aggregate_size}` : '—';
     case 'slump': return item.recipe?.slump != null ? `${item.recipe.slump}` : '—';
     case 'serv_bombeo': {
-      const tipo = String(item.tipo_remision ?? '').toUpperCase();
-      if (tipo && tipo !== 'CONCRETO') return fmtCurr(item.line_total);
-      const pumps = pumpingByOrderId?.get(String(item.order_id ?? ''));
-      if (!pumps || pumps.length === 0) return '—';
-      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+      if (isPumpingRowPage(item)) return fmtCurr(item.line_total);
+      if (isAdditionalRowPage(item)) return '—';
+      // Concrete row: show FIFO-allocated pumping cost for this remision.
+      const mapKey = `${String(item.order_id ?? '')}:${String(item.id ?? '')}`;
+      const allocated = fifoAllocationMap?.get(mapKey);
+      return allocated != null && allocated > 0 ? fmtCurr(allocated) : '—';
+    }
+    case 'adicional_m3': {
+      if (isAdditionalRowPage(item) || isPumpingRowPage(item)) return '—';
+      const info = additionalsByOrderId?.get(String(item.order_id ?? ''));
+      if (!info || info.total_per_m3 === 0) return '—';
+      return info.labels.length === 1 ? info.labels[0] : info.labels.join(' + ');
     }
     default: return '—';
   }
@@ -875,14 +906,19 @@ export default function ReportesClientesPage() {
         plantIds: selectedPlantIds.length ? selectedPlantIds : undefined,
       };
       const { data, summary } = await ReportDataService.fetchReportData(filter);
-      const tipoRank = (t?: string) => (String(t ?? '').toUpperCase() === 'CONCRETO' ? 0 : 1);
+      const tipoRankFetch = (t?: string) => {
+        const u = String(t ?? '').toUpperCase();
+        if (u === 'ADICIONAL') return 2;
+        if (u !== 'CONCRETO' && u !== '') return 1; // BOMBEO / VACÍO DE OLLA
+        return 0;
+      };
       const sorted = [...data].sort((a, b) => {
-        // Group by order so pumping rows can be kept with their concrete deliveries
+        // Group by order so auxiliary rows stay with their concrete deliveries
         const ao = String(a.order?.order_number ?? a.order_id ?? '');
         const bo = String(b.order?.order_number ?? b.order_id ?? '');
         if (ao !== bo) return ao.localeCompare(bo);
-        // Concrete rows before pumping within the same order
-        const tr = tipoRank(a.tipo_remision) - tipoRank(b.tipo_remision);
+        // Concrete → pumping → additional
+        const tr = tipoRankFetch(a.tipo_remision) - tipoRankFetch(b.tipo_remision);
         if (tr !== 0) return tr;
         const av = new Date(a.fecha).getTime();
         const bv = new Date(b.fecha).getTime();
@@ -892,26 +928,31 @@ export default function ReportesClientesPage() {
       setReportSummary(summary);
       lastReportFetchKeyRef.current = [...selectedRemisionIds].sort().join(',');
 
-      // Auto-append 'Bombeo' column when the selection has pumping AND the
-      // user is still on the pristine default plantilla. If they've customised
-      // columns (reorder / add / remove), we don't touch their layout — they
-      // can add "Bombeo" manually from Step 2.
-      const hasPumping = sorted.some(
-        (r) => String(r.tipo_remision ?? '').toUpperCase() !== 'CONCRETO' && r.tipo_remision,
+      // Auto-append smart columns whenever the data warrants it.
+      const hasPumping = sorted.some((r) => {
+        const t = String(r.tipo_remision ?? '').toUpperCase();
+        return (t === 'BOMBEO' || t === 'VACÍO DE OLLA' || t === 'VACIO DE OLLA');
+      });
+      const hasAdditionals = sorted.some(
+        (r) => (r.order?.additional_products?.length ?? 0) > 0,
       );
-      if (hasPumping) {
-        setOrderedCols((cols) => {
-          if (cols.some((c) => c.id === 'serv_bombeo')) return cols;
-          const currentIds = cols.map((c) => c.id);
-          const defaultIds = DEFAULT_COLUMN_SETS.company_standard;
-          const onDefault =
-            currentIds.length === defaultIds.length &&
-            currentIds.every((id, i) => id === defaultIds[i]);
-          if (!onDefault) return cols;
-          const bombeoCol = AVAILABLE_COLUMNS.find((c) => c.id === 'serv_bombeo');
-          return bombeoCol ? [...cols, bombeoCol] : cols;
-        });
-      }
+
+      // Auto-append smart columns when the data warrants it and the column
+      // isn't already visible. No strict default-check — if pumping/additionals
+      // exist they should always surface, regardless of how the user has
+      // customised the column order.
+      setOrderedCols((cols) => {
+        let next = cols;
+        if (hasPumping && !next.some((c) => c.id === 'serv_bombeo')) {
+          const col = AVAILABLE_COLUMNS.find((c) => c.id === 'serv_bombeo');
+          if (col) next = [...next, col];
+        }
+        if (hasAdditionals && !next.some((c) => c.id === 'adicional_m3')) {
+          const col = AVAILABLE_COLUMNS.find((c) => c.id === 'adicional_m3');
+          if (col) next = [...next, col];
+        }
+        return next;
+      });
     } catch (e: any) {
       setReportError(e.message ?? 'Error al cargar reporte');
     } finally {
@@ -1090,18 +1131,50 @@ export default function ReportesClientesPage() {
     evidenceAbortRef.current?.abort();
   }, []);
 
-  // ── Pumping map for preview cell rendering ────────────────────────────────
-  const pumpingByOrderId = useMemo(() => {
-    const m = new Map<string, ReportRemisionData[]>();
+  // ── FIFO pumping allocation map for preview cell rendering ───────────────
+  // Maps `${order_id}:${remision_id}` → allocated pumping cost per concrete row.
+  const fifoAllocationMap = useMemo(
+    () => computeFIFOPumpingAllocation(reportData),
+    [reportData],
+  );
+
+  // ── Additional-products map for preview "Adicional/m³" column ────────────
+  const additionalsByOrderId = useMemo(() => {
+    const fmtCurrLocal = (n: number) =>
+      `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const m = new Map<string, { total_per_m3: number; labels: string[] }>();
     for (const r of reportData) {
-      const tipo = String(r.tipo_remision ?? '').toUpperCase();
-      if (!tipo || tipo === 'CONCRETO') continue;
       const key = String(r.order_id ?? '');
-      if (!key) continue;
-      if (!m.has(key)) m.set(key, []);
-      m.get(key)!.push(r);
+      if (!key || m.has(key)) continue;
+      const addl = r.order?.additional_products ?? [];
+      if (!addl.length) continue;
+      const perM3 = addl.filter((a) => a.billing_type === 'PER_M3');
+      const total_per_m3 = perM3.reduce((s, a) => s + a.unit_price, 0);
+      // Label is amount-only — internal codes are noise to clients
+      const labels = perM3.length > 0 ? [`+${fmtCurrLocal(total_per_m3)}/m³`] : [];
+      m.set(key, { total_per_m3, labels });
     }
     return m;
+  }, [reportData]);
+
+  // ── Preview rows: original service data + additional-product pseudo-rows ──
+  const previewRows = useMemo(() => {
+    const pseudo = buildAdditionalProductPseudoRows(reportData);
+    const all = [...reportData, ...pseudo];
+    const tipoRankPreview = (t?: string) => {
+      const u = String(t ?? '').toUpperCase();
+      if (u === 'ADICIONAL') return 2;
+      if (u !== 'CONCRETO' && u !== '') return 1;
+      return 0;
+    };
+    return all.sort((a, b) => {
+      const ao = String(a.order?.order_number ?? a.order_id ?? '');
+      const bo = String(b.order?.order_number ?? b.order_id ?? '');
+      if (ao !== bo) return ao.localeCompare(bo, 'es-MX');
+      const tr = tipoRankPreview(a.tipo_remision) - tipoRankPreview(b.tipo_remision);
+      if (tr !== 0) return tr;
+      return (a.fecha ?? '').localeCompare(b.fecha ?? '');
+    });
   }, [reportData]);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1479,7 +1552,7 @@ export default function ReportesClientesPage() {
                 </p>
               </div>
               {reportData.length > 0 && (
-                <span className="text-xs text-stone-500">{reportData.length} registros</span>
+                <span className="text-xs text-stone-500">{previewRows.length} registros</span>
               )}
             </CardHeader>
             <CardContent className="p-0">
@@ -1512,29 +1585,39 @@ export default function ReportesClientesPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {reportData.slice(0, 50).map((row, i) => (
-                        <TableRow key={row.id ?? i} className="hover:bg-stone-50/60">
+                      {previewRows.slice(0, 60).map((row, i) => {
+                        const isAddl = String(row.tipo_remision ?? '').toUpperCase() === 'ADICIONAL';
+                        const isPump = String(row.tipo_remision ?? '').toUpperCase() === 'BOMBEO' || String(row.tipo_remision ?? '').toUpperCase() === 'VACÍO DE OLLA';
+                        const rowCls = isAddl
+                          ? 'bg-amber-50/70 hover:bg-amber-50'
+                          : isPump
+                          ? 'bg-blue-50/50 hover:bg-blue-50/70'
+                          : 'hover:bg-stone-50/60';
+                        return (
+                        <TableRow key={row.id ?? i} className={rowCls}>
                           {orderedCols.map((col) => {
                             const isNum = col.type === 'currency' || col.type === 'number';
                             const isRemCol = col.id === 'remision_number';
                             return (
                               <TableCell
                                 key={col.id}
-                                className={`py-2 text-xs ${isNum ? 'text-right font-mono tabular-nums text-stone-700' : 'text-stone-600'}`}
+                                className={`py-2 text-xs ${isNum ? 'text-right font-mono tabular-nums text-stone-700' : 'text-stone-600'} ${isAddl ? 'italic text-amber-800' : ''} ${isPump ? 'italic text-blue-800' : ''}`}
                               >
                                 {isRemCol ? (
                                   <span className="inline-flex items-center gap-1.5">
-                                    <span>{cellDisplay(row, col, pumpingByOrderId)}</span>
+                                    <span>{cellDisplay(row, col, fifoAllocationMap, additionalsByOrderId)}</span>
                                     <PumpingPill tipo={row.tipo_remision} />
+                                    <AdditionalPill tipo={row.tipo_remision} />
                                   </span>
                                 ) : (
-                                  cellDisplay(row, col, pumpingByOrderId)
+                                  cellDisplay(row, col, fifoAllocationMap, additionalsByOrderId)
                                 )}
                               </TableCell>
                             );
                           })}
                         </TableRow>
-                      ))}
+                        );
+                      })}
                     </TableBody>
                   </Table>
                   {reportData.length > 50 && (

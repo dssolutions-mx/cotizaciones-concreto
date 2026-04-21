@@ -67,11 +67,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: { remision_ids: [], plant_ids: [] } })
     }
 
+    // All remision rows for these orders (concreto, bombeo, vacío, etc.) so "Reporte cliente"
+    // matches selección manual en reportes-clientes (árbol incluye todos los tipos).
     const { data: rems, error: rErr } = await supabase
       .from('remisiones')
       .select('id')
       .in('order_id', allowedOrderIds)
-      .eq('tipo_remision', 'CONCRETO')
 
     if (rErr) {
       return NextResponse.json({ error: 'Error al cargar remisiones' }, { status: 500 })

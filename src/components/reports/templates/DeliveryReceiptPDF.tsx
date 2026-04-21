@@ -10,6 +10,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { ReportRemisionData, ReportSummary, ReportColumn } from '@/types/pdf-reports';
 import { DC_DOCUMENT_THEME as C, getDocumentContact, DC_DOCUMENT_TYPOGRAPHY as T } from '@/lib/reports/branding';
+import { computeFIFOPumpingAllocation } from '@/lib/reports/deliveryReceiptExcel';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,19 +232,23 @@ const fmtDate = (d?: string) => {
 
 function isPumpingRow(item: ReportRemisionData): boolean {
   const t = String(item.tipo_remision ?? '').toUpperCase();
-  return t !== '' && t !== 'CONCRETO';
+  return t === 'BOMBEO' || t === 'VACÍO DE OLLA' || t === 'VACIO DE OLLA';
+}
+function isAdditionalPDFRow(item: ReportRemisionData): boolean {
+  return String(item.tipo_remision ?? '').toUpperCase() === 'ADICIONAL';
 }
 
-function computePumpingByOrderId(
+
+function computeAdditionalM3ByOrderId(
   data: ReportRemisionData[],
-): Map<string, ReportRemisionData[]> {
-  const m = new Map<string, ReportRemisionData[]>();
+): Map<string, number> {
+  const m = new Map<string, number>();
   for (const r of data) {
-    if (!isPumpingRow(r)) continue;
     const key = String(r.order_id ?? '');
-    if (!key) continue;
-    if (!m.has(key)) m.set(key, []);
-    m.get(key)!.push(r);
+    if (!key || m.has(key)) continue;
+    const perM3 = (r.order?.additional_products ?? []).filter((a) => a.billing_type === 'PER_M3');
+    if (perM3.length === 0) continue;
+    m.set(key, perM3.reduce((s, a) => s + a.unit_price, 0));
   }
   return m;
 }
@@ -252,7 +257,8 @@ function cellValue(
   item: ReportRemisionData,
   col: ReportColumn,
   rowIndex: number,
-  pumpingByOrderId?: Map<string, ReportRemisionData[]>,
+  fifoAllocationMap?: Map<string, number>,
+  additionalM3ByOrderId?: Map<string, number>,
 ): string {
   switch (col.id) {
     case 'row_number': return String(rowIndex + 1);
@@ -266,7 +272,14 @@ function cellValue(
     case 'unidad': return item.unidad ?? '';
     case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '';
     case 'volumen_fabricado': return fmtDecimal(item.volumen_fabricado);
-    case 'unit_price': return fmtCurrency(item.unit_price);
+    case 'unit_price': {
+      const base = item.unit_price ?? 0;
+      if (!isPumpingRow(item) && !isAdditionalPDFRow(item)) {
+        const addon = additionalM3ByOrderId?.get(String(item.order_id ?? '')) ?? 0;
+        if (addon > 0) return fmtCurrency(base + addon);
+      }
+      return fmtCurrency(item.unit_price);
+    }
     case 'line_total': return fmtCurrency(item.line_total);
     case 'vat_amount': return fmtCurrency(item.vat_amount);
     case 'final_total': return fmtCurrency(item.final_total);
@@ -285,9 +298,19 @@ function cellValue(
     case 'age_days': return item.recipe?.age_days != null ? `${item.recipe.age_days}` : '';
     case 'serv_bombeo': {
       if (isPumpingRow(item)) return fmtCurrency(item.line_total);
-      const pumps = pumpingByOrderId?.get(String(item.order_id ?? ''));
-      if (!pumps || pumps.length === 0) return '';
-      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+      if (isAdditionalPDFRow(item)) return '';
+      // Concrete row: FIFO-allocated pumping cost for this remision.
+      const mapKey = `${String(item.order_id ?? '')}:${String(item.id ?? '')}`;
+      const allocated = fifoAllocationMap?.get(mapKey);
+      return allocated != null && allocated > 0 ? fmtCurrency(allocated) : '';
+    }
+    case 'adicional_m3': {
+      if (isAdditionalPDFRow(item) || isPumpingRow(item)) return '';
+      const addon = additionalM3ByOrderId?.get(String(item.order_id ?? '')) ?? 0;
+      if (addon === 0) return '';
+      const fmtMoney = (v: number) =>
+        `$${v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `+${fmtMoney(addon)}/m³`;
     }
     default: return '';
   }
@@ -438,13 +461,15 @@ function DataRow({
   columns,
   widths,
   index,
-  pumpingByOrderId,
+  fifoAllocationMap,
+  additionalM3ByOrderId,
 }: {
   item: ReportRemisionData;
   columns: ReportColumn[];
   widths: string[];
   index: number;
-  pumpingByOrderId?: Map<string, ReportRemisionData[]>;
+  fifoAllocationMap?: Map<string, number>;
+  additionalM3ByOrderId?: Map<string, number>;
 }) {
   const isAlt = index % 2 === 1;
   return (
@@ -457,7 +482,7 @@ function DataRow({
             { width: widths[ci] },
           ]}
         >
-          {cellValue(item, col, index, pumpingByOrderId)}
+          {cellValue(item, col, index, fifoAllocationMap, additionalM3ByOrderId)}
         </Text>
       ))}
     </View>
@@ -562,7 +587,8 @@ function Footer({ config }: { config: DeliveryReceiptTemplateConfig }) {
 
 export function DeliveryReceiptPDF({ data, summary, config }: PDFProps) {
   const widths = computeColWidths(config.columns);
-  const pumpingByOrderId = computePumpingByOrderId(data);
+  const fifoAllocationMap = computeFIFOPumpingAllocation(data);
+  const additionalM3ByOrderId = computeAdditionalM3ByOrderId(data);
   const groups = groupData(data, config.groupBy);
   const showGroupHeaders = config.groupBy !== 'none';
   const orientation = config.orientation === 'landscape' ? 'landscape' : 'portrait';
@@ -599,7 +625,8 @@ export function DeliveryReceiptPDF({ data, summary, config }: PDFProps) {
                   columns={config.columns}
                   widths={widths}
                   index={idx}
-                  pumpingByOrderId={pumpingByOrderId}
+                  fifoAllocationMap={fifoAllocationMap}
+                  additionalM3ByOrderId={additionalM3ByOrderId}
                 />
               );
             })}

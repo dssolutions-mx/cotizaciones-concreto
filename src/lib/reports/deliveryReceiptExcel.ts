@@ -181,18 +181,65 @@ function isAdditionalRow(r: ReportRemisionData): boolean {
   return String(r.tipo_remision ?? '').toUpperCase() === 'ADICIONAL';
 }
 
-/** Build a map: order_id → pumping remisiones in that order (so concrete rows
- *  can reference their pumping siblings). */
-function computePumpingByOrderId(data: ReportRemisionData[]): Map<string, ReportRemisionData[]> {
-  const m = new Map<string, ReportRemisionData[]>();
+/**
+ * FIFO pumping cost allocation per concrete remision.
+ *
+ * For each order that has pumping remisiones:
+ *   - Compute total pumped volume (sum of pumping row volumen_fabricado).
+ *   - Compute blended pumping rate = total pumping line_total / total pumped vol.
+ *   - Sort concrete rows by fecha ascending (FIFO).
+ *   - Walk through concrete rows allocating min(row_vol, remaining_pumped) × rate.
+ *   - Rows beyond the pumped volume receive no allocation (key absent from map).
+ *
+ * Returns Map keyed by `${order_id}:${remision_id}` → allocated cost (number).
+ * Exported so page.tsx can reuse without duplicating the logic.
+ */
+export function computeFIFOPumpingAllocation(
+  data: ReportRemisionData[],
+): Map<string, number> {
+  const result = new Map<string, number>();
+
+  // Aggregate pumping totals per order
+  const pumpingByOrder = new Map<string, { vol: number; cost: number }>();
+  const concreteByOrder = new Map<string, ReportRemisionData[]>();
+
   for (const r of data) {
-    if (!isPumpingRow(r)) continue;
     const key = String(r.order_id ?? '');
     if (!key) continue;
-    if (!m.has(key)) m.set(key, []);
-    m.get(key)!.push(r);
+    if (isPumpingRow(r)) {
+      const p = pumpingByOrder.get(key) ?? { vol: 0, cost: 0 };
+      p.vol += r.volumen_fabricado ?? 0;
+      p.cost += r.line_total ?? 0;
+      pumpingByOrder.set(key, p);
+    } else if (!isAdditionalRow(r)) {
+      // Real concrete remision
+      if (!concreteByOrder.has(key)) concreteByOrder.set(key, []);
+      concreteByOrder.get(key)!.push(r);
+    }
   }
-  return m;
+
+  pumpingByOrder.forEach((pump, orderId) => {
+    if (pump.vol <= 0 || pump.cost <= 0) return;
+    const concretes = concreteByOrder.get(orderId);
+    if (!concretes || !concretes.length) return;
+
+    const rate = pump.cost / pump.vol; // $/m³ blended rate
+    // FIFO: sort ascending by date so earlier deliveries consume pumping first
+    const sorted = [...concretes].sort((a, b) =>
+      (a.fecha ?? '').localeCompare(b.fecha ?? ''),
+    );
+
+    let remaining = pump.vol;
+    for (const row of sorted) {
+      if (remaining <= 0) break;
+      const vol = row.volumen_fabricado ?? 0;
+      const covered = Math.min(vol, remaining);
+      remaining -= covered;
+      result.set(`${orderId}:${String(row.id ?? '')}`, covered * rate);
+    }
+  });
+
+  return result;
 }
 
 interface AdditionalOrderInfo {
@@ -216,7 +263,8 @@ function computeAdditionalsByOrderId(data: ReportRemisionData[]): Map<string, Ad
     if (!addl.length) continue;
     const perM3 = addl.filter((a) => a.billing_type === 'PER_M3');
     const total_per_m3 = perM3.reduce((s, a) => s + a.unit_price, 0);
-    const labels = perM3.map((a) => `+${fmtCurr(a.unit_price)}/m³ (${a.code})`);
+    // Label shows only the amount — code is internal noise to clients
+    const labels = perM3.length > 0 ? [`+${fmtCurr(total_per_m3)}/m³`] : [];
     m.set(key, { total_per_m3, labels, all: addl });
   }
   return m;
@@ -277,7 +325,7 @@ function cellValue(
   item: ReportRemisionData,
   col: ReportColumn,
   rowIdx: number,
-  pumpingByOrderId: Map<string, ReportRemisionData[]>,
+  fifoAllocationMap: Map<string, number>,
   additionalsByOrderId: Map<string, AdditionalOrderInfo>,
 ): string | number | Date {
   switch (col.id) {
@@ -294,7 +342,14 @@ function cellValue(
     case 'unidad': return item.unidad ?? '';
     case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '';
     case 'volumen_fabricado': return item.volumen_fabricado ?? 0;
-    case 'unit_price': return item.unit_price ?? 0;
+    case 'unit_price': {
+      const base = item.unit_price ?? 0;
+      if (!isAdditionalRow(item) && !isPumpingRow(item)) {
+        const info = additionalsByOrderId.get(String(item.order_id ?? ''));
+        if (info && info.total_per_m3 > 0) return base + info.total_per_m3;
+      }
+      return base;
+    }
     case 'line_total': return item.line_total ?? 0;
     case 'vat_amount': return item.vat_amount ?? 0;
     case 'final_total': return item.final_total ?? 0;
@@ -312,15 +367,16 @@ function cellValue(
     case 'recipe_notes': return item.recipe?.notes ?? '';
     case 'age_days': return item.recipe?.age_days ?? '';
     case 'serv_bombeo': {
-      // Pumping row itself: emit its own line_total as a number so the row
-      // loop can apply currency formatting.
+      // Pumping row itself: emit its own line_total so the row-loop can
+      // apply currency formatting and bold the actual service charge.
       if (isPumpingRow(item)) return item.line_total ?? 0;
       // Additional pseudo-rows don't participate in the bombeo column.
       if (isAdditionalRow(item)) return '';
-      // Concrete row: show the pumping remisión number(s) for the same order.
-      const pumps = pumpingByOrderId.get(String(item.order_id ?? ''));
-      if (!pumps || pumps.length === 0) return '';
-      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+      // Concrete row: show the FIFO-allocated pumping cost for this remision.
+      // Rows that fall outside the pumped volume remain empty.
+      const mapKey = `${String(item.order_id ?? '')}:${String(item.id ?? '')}`;
+      const allocated = fifoAllocationMap.get(mapKey);
+      return allocated != null && allocated > 0 ? allocated : '';
     }
     case 'adicional_m3': {
       // Additional pseudo-row: empty (the row IS the additional; value in line_total).
@@ -414,23 +470,42 @@ function buildRemisionesSheet(
   });
 
   // ── Rows 9+: Data ─────────────────────────────────────────────────────────
-  const pumpingByOrderId = computePumpingByOrderId(data);
-  data.forEach((item, ri) => {
+  // 1. Pre-compute lookup maps from the original service data.
+  const fifoAllocationMap = computeFIFOPumpingAllocation(data);
+  const additionalsByOrderId = computeAdditionalsByOrderId(data);
+
+  // 2. Merge additional-product pseudo-rows and sort:
+  //    concrete first → pumping (blue) → additional (amber), then by date within tier.
+  const pseudoRows = buildAdditionalProductPseudoRows(data);
+  const allRows = [...data, ...pseudoRows].sort((a, b) => {
+    // Primary: order
+    const oa = a.order?.order_number ?? '';
+    const ob = b.order?.order_number ?? '';
+    const orderCmp = oa.localeCompare(ob, 'es-MX');
+    if (orderCmp !== 0) return orderCmp;
+    // Secondary: row type rank (CONCRETO=0, pumping=1, ADICIONAL=2)
+    const rankA = isAdditionalRow(a) ? 2 : isPumpingRow(a) ? 1 : 0;
+    const rankB = isAdditionalRow(b) ? 2 : isPumpingRow(b) ? 1 : 0;
+    if (rankA !== rankB) return rankA - rankB;
+    // Tertiary: date
+    return (a.fecha ?? '').localeCompare(b.fecha ?? '');
+  });
+
+  allRows.forEach((item, ri) => {
     const dataRow = ws.getRow(9 + ri);
     dataRow.height = 14;
+    const additional = isAdditionalRow(item);
     const pumping = isPumpingRow(item);
     const isAlt = ri % 2 === 1;
-    const style = pumping ? pumpingRowStyle() : dataStyle(isAlt);
+    const style = additional ? additionalRowStyle() : pumping ? pumpingRowStyle() : dataStyle(isAlt);
     cols.forEach((col, ci) => {
       const cell = dataRow.getCell(ci + 1);
-      const value = cellValue(item, col, ri, pumpingByOrderId);
+      const value = cellValue(item, col, ri, fifoAllocationMap, additionalsByOrderId);
       cell.value = value as ExcelJS.CellValue;
       cell.numFmt = numFmtForCol(col);
       Object.assign(cell, style);
-      // Bombeo column holds mixed types — numbers on pumping rows (currency),
-      // strings on concrete rows (remisión list). Apply currency + right-align
-      // only for the numeric variant; leave concrete rows left-aligned text.
-      if (col.id === 'serv_bombeo') {
+      // Mixed-type columns: apply currency + right-align for numeric values only.
+      if (col.id === 'serv_bombeo' || col.id === 'adicional_m3') {
         if (typeof value === 'number') {
           cell.numFmt = FMT.currency;
           cell.alignment = { horizontal: 'right', vertical: 'middle' };
@@ -446,30 +521,31 @@ function buildRemisionesSheet(
     });
   });
 
-  const lastDataRow = 8 + data.length;
+  const lastDataRow = 8 + allRows.length;
 
   // ── Grand total row ───────────────────────────────────────────────────────
   const totalRow = ws.getRow(lastDataRow + 1);
   totalRow.height = 18;
   const totalStyle = grandTotalStyle();
+  const concreteRows = allRows.filter((r) => !isPumpingRow(r) && !isAdditionalRow(r));
   cols.forEach((col, ci) => {
     const cell = totalRow.getCell(ci + 1);
     Object.assign(cell, totalStyle);
     if (ci === 0) {
-      cell.value = `TOTAL (${data.length} remisiones)`;
+      cell.value = `TOTAL (${concreteRows.length} remisiones)`;
       cell.font = { ...totalStyle.font, size: 9 };
       cell.alignment = { horizontal: 'left', vertical: 'middle' };
     } else if (col.id === 'volumen_fabricado') {
-      cell.value = data.reduce((s, r) => s + (r.volumen_fabricado ?? 0), 0);
+      cell.value = allRows.reduce((s, r) => s + (r.volumen_fabricado ?? 0), 0);
       cell.numFmt = FMT.currencyNoSign;
     } else if (col.id === 'line_total') {
-      cell.value = data.reduce((s, r) => s + (r.line_total ?? 0), 0);
+      cell.value = allRows.reduce((s, r) => s + (r.line_total ?? 0), 0);
       cell.numFmt = FMT.currency;
     } else if (col.id === 'vat_amount') {
-      cell.value = data.reduce((s, r) => s + (r.vat_amount ?? 0), 0);
+      cell.value = allRows.reduce((s, r) => s + (r.vat_amount ?? 0), 0);
       cell.numFmt = FMT.currency;
     } else if (col.id === 'final_total') {
-      cell.value = data.reduce((s, r) => s + (r.final_total ?? 0), 0);
+      cell.value = allRows.reduce((s, r) => s + (r.final_total ?? 0), 0);
       cell.numFmt = FMT.currency;
     }
   });
@@ -543,8 +619,19 @@ function buildResumenSheet(
     Object.assign(c, columnHeaderStyle());
   });
 
-  // Group data
-  const grouped = new Map<string, { count: number; vol: number; sub: number; vat: number; total: number; pumpingTotal: number; pumpingCount: number }>();
+  const fmtCurr = (n: number) =>
+    `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Group data (iterate original service data — pseudo-rows are counted separately)
+  type GroupEntry = {
+    count: number; vol: number; sub: number; vat: number; total: number;
+    pumpingTotal: number; pumpingCount: number;
+    additionalLines: AdditionalProductLine[]; additionalTotal: number;
+    orderId: string;
+  };
+  const grouped = new Map<string, GroupEntry>();
+  const seenOrdersResumen = new Set<string>();
+
   for (const r of data) {
     const key =
       cfg.groupBy === 'order'
@@ -552,7 +639,12 @@ function buildResumenSheet(
         : cfg.groupBy === 'construction_site'
         ? (r.order?.construction_site ?? 'Sin Obra')
         : 'Total General';
-    if (!grouped.has(key)) grouped.set(key, { count: 0, vol: 0, sub: 0, vat: 0, total: 0, pumpingTotal: 0, pumpingCount: 0 });
+    if (!grouped.has(key)) grouped.set(key, {
+      count: 0, vol: 0, sub: 0, vat: 0, total: 0,
+      pumpingTotal: 0, pumpingCount: 0,
+      additionalLines: [], additionalTotal: 0,
+      orderId: String(r.order_id ?? ''),
+    });
     const g = grouped.get(key)!;
     g.count += 1;
     g.vol += r.volumen_fabricado ?? 0;
@@ -562,6 +654,16 @@ function buildResumenSheet(
     if (isPumpingRow(r)) {
       g.pumpingTotal += r.line_total ?? 0;
       g.pumpingCount += 1;
+    }
+    // Gather additional products once per order (they're order-level)
+    const orderId = String(r.order_id ?? '');
+    if (!seenOrdersResumen.has(orderId)) {
+      const addl = r.order?.additional_products ?? [];
+      if (addl.length) {
+        seenOrdersResumen.add(orderId);
+        g.additionalLines.push(...addl);
+        g.additionalTotal += addl.reduce((s, a) => s + a.total_price, 0);
+      }
     }
   }
 
@@ -581,18 +683,52 @@ function buildResumenSheet(
       if (ci > 0) c.alignment = { horizontal: 'right', vertical: 'middle' };
     });
 
-    // Pumping caption line: only emit when this group had pumping service.
+    // Pumping caption line
     if (g.pumpingCount > 0) {
       const caption = ws.getRow(rowIdx++);
       caption.height = 13;
       ws.mergeCells(caption.number, 1, caption.number, 6);
       const cc = ws.getCell(caption.number, 1);
-      const fmtCurr = (n: number) => `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       cc.value = `Incluye bombeo: ${fmtCurr(g.pumpingTotal)} (${g.pumpingCount} remisi${g.pumpingCount === 1 ? 'ón' : 'ones'})`;
       cc.font = { italic: true, size: 9, name: 'Calibri', color: { argb: argb(C.navy) } };
       cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.pumpingRowTint) } };
       cc.alignment = { horizontal: 'right', vertical: 'middle' };
       cc.border = { bottom: { style: 'hair', color: { argb: argb(C.borderLight) } } };
+    }
+
+    // Additional-products caption + indented breakdown
+    if (g.additionalLines.length > 0) {
+      // Header line: "Adicionales: $X (N productos)"
+      const captionRow = ws.getRow(rowIdx++);
+      captionRow.height = 13;
+      ws.mergeCells(captionRow.number, 1, captionRow.number, 6);
+      const hc = ws.getCell(captionRow.number, 1);
+      hc.value = `Adicionales: ${fmtCurr(g.additionalTotal)} (${g.additionalLines.length} producto${g.additionalLines.length === 1 ? '' : 's'})`;
+      hc.font = { italic: true, size: 9, name: 'Calibri', color: { argb: argb(C.additionalRowText) } };
+      hc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.additionalRowTint) } };
+      hc.alignment = { horizontal: 'right', vertical: 'middle' };
+      hc.border = { bottom: { style: 'hair', color: { argb: argb(C.borderLight) } } };
+
+      // Indented detail lines, one per additional product
+      for (const ap of g.additionalLines) {
+        const detailRow = ws.getRow(rowIdx++);
+        detailRow.height = 12;
+        ws.mergeCells(detailRow.number, 1, detailRow.number, 6);
+        const dc = ws.getCell(detailRow.number, 1);
+        let detail: string;
+        if (ap.billing_type === 'PER_M3') {
+          detail = `    ${ap.name} (${ap.code}) — ${fmtCurr(ap.unit_price)}/m³ = ${fmtCurr(ap.total_price)}`;
+        } else if (ap.billing_type === 'PER_ORDER_FIXED') {
+          detail = `    ${ap.name} (${ap.code}) — fijo = ${fmtCurr(ap.total_price)}`;
+        } else {
+          detail = `    ${ap.name} (${ap.code}) — ${ap.volume} × ${fmtCurr(ap.unit_price)} = ${fmtCurr(ap.total_price)}`;
+        }
+        dc.value = detail;
+        dc.font = { italic: true, size: 8, name: 'Calibri', color: { argb: argb(C.additionalRowText) } };
+        dc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.additionalRowTint) } };
+        dc.alignment = { horizontal: 'left', vertical: 'middle' };
+        dc.border = { bottom: { style: 'hair', color: { argb: argb(C.borderLight) } } };
+      }
     }
   });
 
