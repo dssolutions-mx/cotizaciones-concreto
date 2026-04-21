@@ -194,7 +194,15 @@ function loadPrefs(): ReportDefinitionPersisted | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw);
-    if (p?.v === 2) return p as ReportDefinitionPersistedV2;
+    if (p?.v === 2) {
+      // If a v2 still points to recipe_notes as 13th column (intermediate save),
+      // swap it for comentarios_internos.
+      const v2 = p as ReportDefinitionPersistedV2;
+      const migrated = (v2.columnIdsOrdered ?? []).map((id: string) =>
+        id === 'recipe_notes' ? 'comentarios_internos' : id
+      );
+      return { ...v2, columnIdsOrdered: migrated };
+    }
     if (p?.v === 1) {
       const v1 = p as ReportDefinitionPersistedV1;
       // Detect the exact v1 default 11-column set → replace with v2 default.
@@ -382,10 +390,20 @@ function SelectionTree({
                             {oState === 'some' && <Minus className="h-3 w-3 text-stone-500" />}
                           </div>
                           <div className="min-w-0 flex-1" onClick={() => toggleOrder(order.id)}>
-                            <span className="text-xs font-medium text-stone-800">
-                              {order.order_number}
-                            </span>
-                            <span className="ml-2 text-xs text-stone-500">{order.construction_site}</span>
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-xs font-medium text-stone-800">
+                                {order.order_number}
+                              </span>
+                              <span className="text-xs text-stone-500">{order.construction_site}</span>
+                              {order.elemento && (
+                                <span className="text-xs text-stone-400">· {order.elemento}</span>
+                              )}
+                            </div>
+                            {order.special_requirements && (
+                              <p className="mt-0.5 truncate text-[11px] leading-tight text-stone-400">
+                                {order.special_requirements}
+                              </p>
+                            )}
                           </div>
                           <div className="text-right">
                             <div className="text-xs text-stone-500">{order.total_remisiones} rem.</div>

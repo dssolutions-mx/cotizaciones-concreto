@@ -42,6 +42,7 @@ export interface SelectableOrder {
   order_number: string;
   construction_site: string;
   elemento?: string;
+  special_requirements?: string | null;
   client_id: string;
   client_name: string;
   total_remisiones: number;
@@ -583,9 +584,9 @@ export const DEFAULT_COLUMN_SETS = {
     'volumen_fabricado',    // M3
     'unit_price',           // P.U
     'line_total',           // Subtotal
-    'special_requirements', // Observaciones
-    'placement_type',       // Tipo Colocación
-    'recipe_notes',         // Comentarios internos
+    'special_requirements',   // Observaciones
+    'placement_type',         // Tipo Colocación
+    'comentarios_internos',   // Comentarios internos (order-level)
   ]
 };
 

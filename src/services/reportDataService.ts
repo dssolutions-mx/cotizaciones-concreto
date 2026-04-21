@@ -558,6 +558,7 @@ export class ReportDataService {
           order_number: order.order_number,
           construction_site: order.construction_site,
           elemento: order.elemento,
+          special_requirements: order.special_requirements,
           client_id: client.id,
           client_name: client.business_name,
           total_remisiones: 0,
