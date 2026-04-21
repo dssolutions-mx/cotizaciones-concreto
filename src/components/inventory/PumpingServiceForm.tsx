@@ -286,11 +286,10 @@ export default function PumpingServiceForm() {
 
   const handleRemisionSelect = (remision: RemisionOption) => {
     setSelectedRemision(remision);
-    // Prefill the form with the selected remision's details
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      remisionNumber: remision.remision_number, // Use exact same remision number (HARDCODED)
-      fecha: remision.fecha // Use the concrete remision's date
+      remisionNumber: '',
+      fecha: remision.fecha,
     }));
     setRemisionSearchOpen(false);
   };
@@ -304,7 +303,7 @@ export default function PumpingServiceForm() {
     // Reset the form data when going back
     setFormData(prev => ({
       ...prev,
-      remisionNumber: '', // Will be set when new remision is selected
+      remisionNumber: '',
       fecha: new Date().toISOString().split('T')[0],
       horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5),
       volumen: '',
@@ -549,8 +548,11 @@ export default function PumpingServiceForm() {
       return;
     }
 
-    if (!formData.remisionNumber || !formData.fecha || !formData.horaCarga || !formData.volumen) {
-      showError('Por favor, completa todos los campos obligatorios (Nº Remisión, Fecha, Hora de Carga, Volumen)');
+    const pumpingRemisionNumber = formData.remisionNumber.trim();
+    if (!pumpingRemisionNumber || !formData.fecha || !formData.horaCarga || !formData.volumen) {
+      showError(
+        'Por favor, completa todos los campos obligatorios (Nº remisión de bombeo, Fecha, Hora de Carga, Volumen)'
+      );
       return;
     }
 
@@ -613,7 +615,7 @@ export default function PumpingServiceForm() {
       // 2. Prepare the payload for the pumping service remision
       const remisionPayload: any = {
         order_id: selectedOrder.id, // Use the selected order
-        remision_number: formData.remisionNumber,
+        remision_number: pumpingRemisionNumber,
         fecha: formData.fecha,
         hora_carga: formData.horaCarga + ':00', // Add seconds to match database format
         volumen_fabricado: volumen,
@@ -959,22 +961,37 @@ export default function PumpingServiceForm() {
                 </CardContent>
               </Card>
 
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertTitle>Número de remisión de bombeo</AlertTitle>
+                <AlertDescription className="text-sm">
+                  Antes este campo se llenaba solo con el número de la remisión de concreto. Ahora debe
+                  escribirse el número que viene en la{' '}
+                  <strong>remisión o ticket físico del servicio de bombeo</strong> (no el de concreto).
+                  La remisión de concreto que eligió arriba solo ayuda a enlazar el pedido.
+                </AlertDescription>
+              </Alert>
+
               {/* Remision Form */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Remision Number */}
                 <div>
-                  <Label htmlFor="remisionNumber" className="mb-1">Número de Remisión *</Label>
+                  <Label htmlFor="remisionNumber" className="mb-1">
+                    Número de remisión de bombeo *
+                  </Label>
                   <Input
                     id="remisionNumber"
                     name="remisionNumber"
                     value={formData.remisionNumber}
                     onChange={handleInputChange}
                     required
-                    disabled
-                    className="bg-gray-100 border-gray-300 text-gray-600 cursor-not-allowed"
+                    autoComplete="off"
+                    placeholder="Tal como aparece en la remisión de bombeo"
+                    className="mt-1"
                   />
                   <p className="text-xs text-gray-600 mt-1">
-                    Número de remisión idéntico al de concreto (no modificable)
+                    Use exactamente el folio de la remisión de bombeo. No use el número de remisión de
+                    concreto salvo que en el papel sea el mismo.
                   </p>
                 </div>
 
@@ -1064,16 +1081,18 @@ export default function PumpingServiceForm() {
                 </div>
                 <div className="text-sm text-blue-600 mt-1 space-y-1">
                   <p>
-                    <strong>Remisión de concreto:</strong> {selectedRemision.remision_number}
+                    <strong>Remisión de concreto (referencia):</strong> {selectedRemision.remision_number}
                   </p>
                   <p>
                     <strong>Orden:</strong> {selectedOrder.order_number}
                   </p>
                   <p>
-                    <strong>Remisión de bombeo:</strong> {formData.remisionNumber}
+                    <strong>Remisión de bombeo (registrada):</strong>{' '}
+                    {formData.remisionNumber.trim() || '—'}
                   </p>
                   <p className="text-xs text-gray-500 italic mt-2">
-                    El número de remisión es idéntico para mantener la relación con el concreto entregado
+                    Debe reflejar el ticket de bombeo. Ya no se copia el de concreto: si difieren,
+                    registre el de bombeo.
                   </p>
                 </div>
               </div>

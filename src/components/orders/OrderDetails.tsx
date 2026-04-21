@@ -13,7 +13,8 @@ import type { UserRole } from '@/store/auth/types';
 import { renderTracker } from '@/lib/performance/renderTracker';
 import { formatTimestamp } from '@/lib/utils';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
-import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
+import RemisionesList from '@/components/remisiones/RemisionesList';
+import { formatRemisionesForAccounting } from '@/lib/remisiones/accountingClipboard';
 import OrderDetailsBalance from './OrderDetailsBalance';
 import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
@@ -33,6 +34,7 @@ import { Copy, CalculatorIcon, Beaker } from 'lucide-react';
 import QualityOverview from './QualityOverview';
 import CreditContextPanel from '@/components/credit/CreditContextPanel';
 import { supabase } from '@/lib/supabase';
+import { fetchCatalogAdditionalProducts } from '@/lib/finanzas/additionalProductsCatalog';
 import { masterRecipeService } from '@/lib/services/masterRecipeService';
 import { toast } from 'sonner';
 
@@ -958,162 +960,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const loadAvailableAdditionalProducts = async () => {
     try {
       setLoadingAdditionalProducts(true);
-      
+
       if (!order?.client_id || !order?.construction_site) {
-        console.log('Cannot load additional products: missing client_id or construction_site');
         setAvailableAdditionalProducts([]);
         return [];
       }
-      
-      console.log(`Loading additional products for Client: ${order.client_id}, Site: ${order.construction_site}`);
-      
-      // 1. First, check if the order has a specific quote_id and fetch it
-      const orderQuoteId = (order as any)?.quote_id;
-      let orderQuote: any = null;
-      
-      if (orderQuoteId) {
-        console.log(`Order has quote_id: ${orderQuoteId}, fetching that quote first`);
-        const { data: orderQuoteData, error: orderQuoteError } = await supabase
-          .from('quotes')
-          .select('id, quote_number, created_at, status')
-          .eq('id', orderQuoteId)
-          .single();
-        
-        if (!orderQuoteError && orderQuoteData) {
-          orderQuote = orderQuoteData;
-          console.log(`Found order's quote: ${orderQuote.quote_number}, status: ${orderQuote.status}`);
-        }
-      }
-      
-      // 2. Fetch all approved quotes for this client/site, ordered by created_at DESC
-      const { data: allApprovedQuotes, error: approvedQuotesError } = await supabase
-        .from('quotes')
-        .select('id, quote_number, created_at, status')
-        .eq('client_id', order.client_id)
-        .eq('construction_site', order.construction_site)
-        .eq('status', 'APPROVED')
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      
-      if (approvedQuotesError) {
-        console.error('Error fetching approved quotes for additional products:', approvedQuotesError);
-      }
-      
-      // 3. Combine quotes: order's quote first (if exists and not already in approved list), then approved quotes
-      const allQuotes: any[] = [];
-      const quoteIdSet = new Set<string>();
-      
-      // Add order's quote first if it exists and has additional products
-      if (orderQuote && !quoteIdSet.has(orderQuote.id)) {
-        allQuotes.push(orderQuote);
-        quoteIdSet.add(orderQuote.id);
-        console.log(`Added order's quote ${orderQuote.quote_number} to quote list`);
-      }
-      
-      // Add approved quotes (excluding order's quote if it was already added)
-      if (allApprovedQuotes) {
-        allApprovedQuotes.forEach(q => {
-          if (!quoteIdSet.has(q.id)) {
-            allQuotes.push(q);
-            quoteIdSet.add(q.id);
-          }
-        });
-      }
-      
-      if (allQuotes.length === 0) {
-        console.log('No quotes found for additional products');
-        setAvailableAdditionalProducts([]);
-        return [];
-      }
-      
-      console.log(`Found ${allQuotes.length} quotes to check for additional products (order's quote + approved quotes)`);
-      
-      // 4. Fetch additional products from these quotes
-      const quoteIdsForAdditional = allQuotes.map(q => q.id);
-      
-      // Create a map of quote_id to quote order (0 = order's quote if exists, then newest approved, etc.)
-      // Order's quote gets priority (index 0) if it exists
-      const quoteOrderMap = new Map(quoteIdsForAdditional.map((id, index) => [id, index]));
-      
-      const { data: allAdditionalProducts, error: additionalProductsError } = await supabase
-        .from('quote_additional_products')
-        .select(`
-          id,
-          quote_id,
-          additional_product_id,
-          quantity,
-          base_price,
-          margin_percentage,
-          unit_price,
-          total_price,
-          billing_type,
-          notes,
-          additional_products (
-            id,
-            name,
-            code,
-            unit,
-            billing_type
-          )
-        `)
-        .in('quote_id', quoteIdsForAdditional);
-      
-      if (additionalProductsError) {
-        console.error('Error fetching additional products:', additionalProductsError);
-        setAvailableAdditionalProducts([]);
-        return [];
-      }
-      
-      if (!allAdditionalProducts || allAdditionalProducts.length === 0) {
-        console.log('No additional products found in approved quotes');
-        setAvailableAdditionalProducts([]);
-        return [];
-      }
-      
-      // 3. Keep only the most recent price per additional_product_id
-      // Sort by quote order (newest first) based on the created_at ordering from allApprovedQuotes
-      const sortedProducts = allAdditionalProducts.sort((a, b) => {
-        const orderA = quoteOrderMap.get(a.quote_id) ?? 999999;
-        const orderB = quoteOrderMap.get(b.quote_id) ?? 999999;
-        return orderA - orderB;
+
+      const additionalProductsArray = await fetchCatalogAdditionalProducts(supabase, {
+        clientId: order.client_id,
+        constructionSite: order.construction_site,
+        orderQuoteId: (order as { quote_id?: string | null }).quote_id ?? null,
       });
-      
-      // Process in order (newest quotes first) and keep only the first occurrence of each additional_product_id
-      const latestAdditionalProducts: Map<string, any> = new Map();
-      for (const ap of sortedProducts) {
-        const productId = ap.additional_product_id;
-        if (!latestAdditionalProducts.has(productId)) {
-          latestAdditionalProducts.set(productId, ap);
-        }
-      }
-      
-      console.log(`Found ${latestAdditionalProducts.size} unique additional products from ${allAdditionalProducts.length} total entries`);
-      
-      // Log which quote each additional product came from for debugging
-      Array.from(latestAdditionalProducts.values()).forEach((ap: any) => {
-        const quoteIndex = quoteOrderMap.get(ap.quote_id);
-        const quote = allQuotes.find(q => q.id === ap.quote_id);
-        console.log(`Additional product ${ap.additional_products?.name}: Using price $${ap.unit_price} from quote ${quote?.quote_number || ap.quote_id} (index: ${quoteIndex}, newest: ${quoteIndex === 0 ? 'YES' : 'NO'}, status: ${quote?.status || 'unknown'})`);
-      });
-      
-      // 4. Map to AdditionalProduct interface
-      const additionalProductsArray: AdditionalProduct[] = Array.from(latestAdditionalProducts.values()).map((ap: any) => ({
-        id: ap.id,
-        quoteAdditionalProductId: ap.id,
-        additionalProductId: ap.additional_product_id,
-        name: ap.additional_products?.name || 'Unknown',
-        code: ap.additional_products?.code || 'Unknown',
-        unit: ap.additional_products?.unit || 'unit',
-        quantity: ap.quantity,
-        unitPrice: ap.unit_price,
-        totalPrice: ap.total_price,
-        quoteId: ap.quote_id,
-        billingType: (ap.billing_type || ap.additional_products?.billing_type || 'PER_M3') as 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT',
-      }));
-      
-      setAvailableAdditionalProducts(additionalProductsArray);
-      console.log('Loaded additional products:', additionalProductsArray);
-      return additionalProductsArray;
+
+      setAvailableAdditionalProducts(additionalProductsArray as AdditionalProduct[]);
+      return additionalProductsArray as AdditionalProduct[];
     } catch (error) {
       console.error('Error loading additional products:', error);
       toast.error('Error al cargar los productos adicionales disponibles');

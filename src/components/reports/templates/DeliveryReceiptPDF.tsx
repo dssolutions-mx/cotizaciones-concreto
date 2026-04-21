@@ -229,7 +229,31 @@ const fmtDate = (d?: string) => {
   try { return format(new Date(d + 'T12:00:00'), 'dd/MM/yy'); } catch { return d; }
 };
 
-function cellValue(item: ReportRemisionData, col: ReportColumn, rowIndex: number): string {
+function isPumpingRow(item: ReportRemisionData): boolean {
+  const t = String(item.tipo_remision ?? '').toUpperCase();
+  return t !== '' && t !== 'CONCRETO';
+}
+
+function computePumpingByOrderId(
+  data: ReportRemisionData[],
+): Map<string, ReportRemisionData[]> {
+  const m = new Map<string, ReportRemisionData[]>();
+  for (const r of data) {
+    if (!isPumpingRow(r)) continue;
+    const key = String(r.order_id ?? '');
+    if (!key) continue;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key)!.push(r);
+  }
+  return m;
+}
+
+function cellValue(
+  item: ReportRemisionData,
+  col: ReportColumn,
+  rowIndex: number,
+  pumpingByOrderId?: Map<string, ReportRemisionData[]>,
+): string {
   switch (col.id) {
     case 'row_number': return String(rowIndex + 1);
     case 'fecha': return fmtDate(item.fecha);
@@ -259,6 +283,12 @@ function cellValue(item: ReportRemisionData, col: ReportColumn, rowIndex: number
     case 'tipo_remision': return item.tipo_remision ?? '';
     case 'recipe_notes': return item.recipe?.notes ?? '';
     case 'age_days': return item.recipe?.age_days != null ? `${item.recipe.age_days}` : '';
+    case 'serv_bombeo': {
+      if (isPumpingRow(item)) return fmtCurrency(item.line_total);
+      const pumps = pumpingByOrderId?.get(String(item.order_id ?? ''));
+      if (!pumps || pumps.length === 0) return '';
+      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+    }
     default: return '';
   }
 }
@@ -408,11 +438,13 @@ function DataRow({
   columns,
   widths,
   index,
+  pumpingByOrderId,
 }: {
   item: ReportRemisionData;
   columns: ReportColumn[];
   widths: string[];
   index: number;
+  pumpingByOrderId?: Map<string, ReportRemisionData[]>;
 }) {
   const isAlt = index % 2 === 1;
   return (
@@ -425,7 +457,7 @@ function DataRow({
             { width: widths[ci] },
           ]}
         >
-          {cellValue(item, col, index)}
+          {cellValue(item, col, index, pumpingByOrderId)}
         </Text>
       ))}
     </View>
@@ -530,6 +562,7 @@ function Footer({ config }: { config: DeliveryReceiptTemplateConfig }) {
 
 export function DeliveryReceiptPDF({ data, summary, config }: PDFProps) {
   const widths = computeColWidths(config.columns);
+  const pumpingByOrderId = computePumpingByOrderId(data);
   const groups = groupData(data, config.groupBy);
   const showGroupHeaders = config.groupBy !== 'none';
   const orientation = config.orientation === 'landscape' ? 'landscape' : 'portrait';
@@ -566,6 +599,7 @@ export function DeliveryReceiptPDF({ data, summary, config }: PDFProps) {
                   columns={config.columns}
                   widths={widths}
                   index={idx}
+                  pumpingByOrderId={pumpingByOrderId}
                 />
               );
             })}

@@ -95,6 +95,23 @@ function dataStyle(isAlt: boolean): Partial<ExcelJS.Style> {
   };
 }
 
+/** Pumping / auxiliary-service row variant: navy italic on a subtle blue tint.
+ *  Same weight as dataStyle so the table's visual rhythm is preserved. */
+function pumpingRowStyle(): Partial<ExcelJS.Style> {
+  return {
+    font: { size: 9, name: 'Calibri', italic: true, color: { argb: argb(C.navy) } },
+    fill: {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: argb(C.pumpingRowTint) },
+    },
+    alignment: { vertical: 'middle' },
+    border: {
+      bottom: { style: 'hair', color: { argb: argb(C.borderLight) } },
+    },
+  };
+}
+
 function subtotalStyle(): Partial<ExcelJS.Style> {
   return {
     font: { bold: true, size: 9, name: 'Calibri', color: { argb: argb(C.navy) } },
@@ -134,7 +151,36 @@ function numFmtForCol(col: ReportColumn): string {
 // Cell value extraction
 // ---------------------------------------------------------------------------
 
-function cellValue(item: ReportRemisionData, col: ReportColumn, rowIdx: number): string | number | Date {
+/**
+ * Returns true when a remision represents a pumping / auxiliary service
+ * rather than a concrete delivery. Canonical values are CONCRETO / BOMBEO /
+ * VACÍO DE OLLA — anything not CONCRETO is treated as auxiliary.
+ */
+function isPumpingRow(r: ReportRemisionData): boolean {
+  const t = String(r.tipo_remision ?? '').toUpperCase();
+  return t !== '' && t !== 'CONCRETO';
+}
+
+/** Build a map: order_id → pumping remisiones in that order (so concrete rows
+ *  can reference their pumping siblings). */
+function computePumpingByOrderId(data: ReportRemisionData[]): Map<string, ReportRemisionData[]> {
+  const m = new Map<string, ReportRemisionData[]>();
+  for (const r of data) {
+    if (!isPumpingRow(r)) continue;
+    const key = String(r.order_id ?? '');
+    if (!key) continue;
+    if (!m.has(key)) m.set(key, []);
+    m.get(key)!.push(r);
+  }
+  return m;
+}
+
+function cellValue(
+  item: ReportRemisionData,
+  col: ReportColumn,
+  rowIdx: number,
+  pumpingByOrderId: Map<string, ReportRemisionData[]>,
+): string | number | Date {
   switch (col.id) {
     case 'row_number': return rowIdx + 1;
     case 'fecha': {
@@ -166,6 +212,15 @@ function cellValue(item: ReportRemisionData, col: ReportColumn, rowIdx: number):
     case 'tipo_remision': return item.tipo_remision ?? '';
     case 'recipe_notes': return item.recipe?.notes ?? '';
     case 'age_days': return item.recipe?.age_days ?? '';
+    case 'serv_bombeo': {
+      // Pumping row itself: emit its own line_total as a number so the row
+      // loop can apply currency formatting.
+      if (isPumpingRow(item)) return item.line_total ?? 0;
+      // Concrete row: show the pumping remisión number(s) for the same order.
+      const pumps = pumpingByOrderId.get(String(item.order_id ?? ''));
+      if (!pumps || pumps.length === 0) return '';
+      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+    }
     default: return '';
   }
 }
@@ -250,17 +305,31 @@ function buildRemisionesSheet(
   });
 
   // ── Rows 9+: Data ─────────────────────────────────────────────────────────
+  const pumpingByOrderId = computePumpingByOrderId(data);
   data.forEach((item, ri) => {
     const dataRow = ws.getRow(9 + ri);
     dataRow.height = 14;
+    const pumping = isPumpingRow(item);
     const isAlt = ri % 2 === 1;
-    const style = dataStyle(isAlt);
+    const style = pumping ? pumpingRowStyle() : dataStyle(isAlt);
     cols.forEach((col, ci) => {
       const cell = dataRow.getCell(ci + 1);
-      cell.value = cellValue(item, col, ri) as ExcelJS.CellValue;
+      const value = cellValue(item, col, ri, pumpingByOrderId);
+      cell.value = value as ExcelJS.CellValue;
       cell.numFmt = numFmtForCol(col);
       Object.assign(cell, style);
-      if (col.type === 'currency' || col.format === 'currency' || col.format === 'decimal') {
+      // Bombeo column holds mixed types — numbers on pumping rows (currency),
+      // strings on concrete rows (remisión list). Apply currency + right-align
+      // only for the numeric variant; leave concrete rows left-aligned text.
+      if (col.id === 'serv_bombeo') {
+        if (typeof value === 'number') {
+          cell.numFmt = FMT.currency;
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        } else {
+          cell.numFmt = '@';
+          cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        }
+      } else if (col.type === 'currency' || col.format === 'currency' || col.format === 'decimal') {
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
       } else if (col.type === 'number' || col.format === 'integer') {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -366,7 +435,7 @@ function buildResumenSheet(
   });
 
   // Group data
-  const grouped = new Map<string, { count: number; vol: number; sub: number; vat: number; total: number }>();
+  const grouped = new Map<string, { count: number; vol: number; sub: number; vat: number; total: number; pumpingTotal: number; pumpingCount: number }>();
   for (const r of data) {
     const key =
       cfg.groupBy === 'order'
@@ -374,13 +443,17 @@ function buildResumenSheet(
         : cfg.groupBy === 'construction_site'
         ? (r.order?.construction_site ?? 'Sin Obra')
         : 'Total General';
-    if (!grouped.has(key)) grouped.set(key, { count: 0, vol: 0, sub: 0, vat: 0, total: 0 });
+    if (!grouped.has(key)) grouped.set(key, { count: 0, vol: 0, sub: 0, vat: 0, total: 0, pumpingTotal: 0, pumpingCount: 0 });
     const g = grouped.get(key)!;
     g.count += 1;
     g.vol += r.volumen_fabricado ?? 0;
     g.sub += r.line_total ?? 0;
     g.vat += r.vat_amount ?? 0;
     g.total += r.final_total ?? 0;
+    if (isPumpingRow(r)) {
+      g.pumpingTotal += r.line_total ?? 0;
+      g.pumpingCount += 1;
+    }
   }
 
   let rowIdx = 6;
@@ -398,6 +471,20 @@ function buildResumenSheet(
       Object.assign(c, s);
       if (ci > 0) c.alignment = { horizontal: 'right', vertical: 'middle' };
     });
+
+    // Pumping caption line: only emit when this group had pumping service.
+    if (g.pumpingCount > 0) {
+      const caption = ws.getRow(rowIdx++);
+      caption.height = 13;
+      ws.mergeCells(caption.number, 1, caption.number, 6);
+      const cc = ws.getCell(caption.number, 1);
+      const fmtCurr = (n: number) => `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      cc.value = `Incluye bombeo: ${fmtCurr(g.pumpingTotal)} (${g.pumpingCount} remisi${g.pumpingCount === 1 ? 'ón' : 'ones'})`;
+      cc.font = { italic: true, size: 9, name: 'Calibri', color: { argb: argb(C.navy) } };
+      cc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.pumpingRowTint) } };
+      cc.alignment = { horizontal: 'right', vertical: 'middle' };
+      cc.border = { bottom: { style: 'hair', color: { argb: argb(C.borderLight) } } };
+    }
   });
 
   // Recipe breakdown

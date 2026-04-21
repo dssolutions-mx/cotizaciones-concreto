@@ -92,6 +92,8 @@ type ConcreteRemRow = {
   volumen_fabricado?: number | null
   unidad?: string | null
   conductor?: string | null
+  /** Literal variant `recipes.recipe_code` (recipe version string), from API */
+  recipe_version?: string | null
 }
 
 type PumpingEvidenceDocRow = {
@@ -766,6 +768,21 @@ export default function ConcreteEvidenceOrderDetailPanel({
                                 </span>
                               )}
                             </div>
+                            {r.recipe_version ? (
+                              <div className="mt-1 font-mono text-xs text-stone-900 leading-snug break-all">
+                                {r.recipe_version}
+                              </div>
+                            ) : null}
+                            {r.conductor ? (
+                              <div className="mt-1">
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[11px] font-normal px-1.5 py-0 h-auto border-stone-200"
+                                >
+                                  Conductor: {r.conductor}
+                                </Badge>
+                              </div>
+                            ) : null}
                           </li>
                         )
                       })

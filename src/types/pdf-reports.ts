@@ -503,6 +503,18 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     width: '10%'
   },
 
+  // Pumping service linkage (computed at render-time — not a DB field)
+  //   - Concrete row of an order that has pumping: pumping remisión number(s)
+  //   - Pumping row itself: that row's line_total formatted as currency
+  //   - Concrete row of an order with no pumping: empty
+  {
+    id: 'serv_bombeo',
+    label: 'Bombeo',
+    field: 'serv_bombeo',
+    type: 'text',
+    width: '10%'
+  },
+
   // Recipe annotations
   {
     id: 'recipe_notes',

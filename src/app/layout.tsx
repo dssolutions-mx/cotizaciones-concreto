@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, ErrorInfo } from 'react';
+import { DM_Sans, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -66,6 +67,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BotIdClientGate } from '@/components/security/BotIdClientGate';
 
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+})
+
+const jetMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '600'],
+  variable: '--font-jet-mono',
+})
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -1369,10 +1380,7 @@ const protectedRoutes = [
 
 // Componente principal
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Use system fonts via global CSS; no extra class needed
-  const fontClassName = '';
-
-  // We no longer need pathname or isLandingRoute check here
+  const fontClassName = cn(dmSans.className, jetMono.variable)
 
   return (
     <html lang="es" suppressHydrationWarning className={fontClassName}>

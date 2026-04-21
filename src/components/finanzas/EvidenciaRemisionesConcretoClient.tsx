@@ -1,6 +1,14 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState, startTransition } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+  useSyncExternalStore,
+} from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { format, subDays } from 'date-fns'
@@ -16,6 +24,9 @@ import {
   FileSpreadsheet,
   Archive,
   Shuffle,
+  HelpCircle,
+  Copy,
+  FileText,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -81,8 +92,24 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { fetchArkikReassignmentNotesByRemisionNumber } from '@/services/reportDataService'
+import {
+  formatRemisionesForAccounting,
+  mergeAccountingTsvBlocks,
+} from '@/lib/remisiones/accountingClipboard'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
-type EvidenceStatus = 'all' | 'needs_evidence' | 'has_evidence' | 'no_remisiones'
+export const REPORTES_CLIENTES_PRESELECT_KEY = 'reportes_clientes.preselect'
+
+type TriFilter = 'with' | 'without' | 'all'
+
+type LegacyEvidenceStatus = 'all' | 'needs_evidence' | 'has_evidence' | 'no_remisiones'
 
 type EvidenceFile = {
   id: string
@@ -124,11 +151,72 @@ const STATUS_BADGE = {
 /** Max pedidos per Excel (evita miles de requests y archivos enormes). */
 const CONCRETE_EVIDENCE_EXPORT_MAX_ORDERS = 8000
 
-const EVIDENCE_STATUS_EXPORT_LABEL: Record<EvidenceStatus, string> = {
-  all: 'Todos',
-  needs_evidence: 'Con remisiones y sin evidencia',
-  has_evidence: 'Con remisiones y con evidencia',
-  no_remisiones: 'Sin remisiones de concreto',
+function buildFilterExportLabel(he: TriFilter, hr: TriFilter): string {
+  const ev =
+    he === 'all' ? 'Cualquier evidencia' : he === 'with' ? 'Con evidencia' : 'Sin evidencia'
+  const re =
+    hr === 'all' ? 'Cualquier remisión' : hr === 'with' ? 'Con remisiones' : 'Sin remisiones'
+  return `${ev} · ${re}`
+}
+
+function legacyToTriPair(
+  s: LegacyEvidenceStatus
+): { he: TriFilter; hr: TriFilter } {
+  switch (s) {
+    case 'needs_evidence':
+      return { he: 'without', hr: 'with' }
+    case 'has_evidence':
+      return { he: 'with', hr: 'all' }
+    case 'no_remisiones':
+      return { he: 'all', hr: 'without' }
+    default:
+      return { he: 'all', hr: 'all' }
+  }
+}
+
+function parseTriFromParams(params: URLSearchParams, key: string): TriFilter | null {
+  const raw = (params.get(key) || '').trim().toLowerCase()
+  if (raw === 'with' || raw === 'without' || raw === 'all') return raw
+  return null
+}
+
+function parseFiltersFromUrl(params: URLSearchParams): { he: TriFilter; hr: TriFilter } {
+  const he = parseTriFromParams(params, 'has_evidence')
+  const hr = parseTriFromParams(params, 'has_remisiones')
+  if (he !== null || hr !== null) {
+    return { he: he ?? 'all', hr: hr ?? 'all' }
+  }
+  return legacyToTriPair(parseLegacyEvidenceStatusFromSearch(params))
+}
+
+function parseLegacyEvidenceStatusFromSearch(params: URLSearchParams): LegacyEvidenceStatus {
+  const legacy =
+    params.get('missing_only') === '1' || params.get('missing_only') === 'true'
+  const raw = (params.get('evidence_status') || '').trim().toLowerCase()
+  if (legacy) return 'needs_evidence'
+  if (
+    raw === 'needs_evidence' ||
+    raw === 'has_evidence' ||
+    raw === 'no_remisiones' ||
+    raw === 'all'
+  ) {
+    return raw as LegacyEvidenceStatus
+  }
+  return 'all'
+}
+
+function parsePlantIdsFromUrl(params: URLSearchParams): string[] {
+  const csv = params.get('plant_ids')
+  const out: string[] = []
+  if (csv) {
+    for (const s of csv.split(',')) {
+      const t = s.trim()
+      if (t) out.push(t)
+    }
+  }
+  const single = params.get('plant_id')?.trim()
+  if (single) out.push(single)
+  return [...new Set(out)]
 }
 
 const MAX_BULK_ZIP_ORDERS = 25
@@ -157,15 +245,18 @@ function rowToSummary(r: Row): OrderSummary {
   }
 }
 
-function parseEvidenceStatusFromSearch(params: URLSearchParams): EvidenceStatus {
-  const legacy =
-    params.get('missing_only') === '1' || params.get('missing_only') === 'true'
-  const raw = (params.get('evidence_status') || '').trim().toLowerCase()
-  if (legacy) return 'needs_evidence'
-  if (raw === 'needs_evidence' || raw === 'has_evidence' || raw === 'no_remisiones' || raw === 'all') {
-    return raw as EvidenceStatus
-  }
-  return 'all'
+/** Desktop: docked detail panel; mobile: sheet (see Sheet below). */
+function useMediaQueryMdUp() {
+  return useSyncExternalStore(
+    (onStoreChange) => {
+      if (typeof window === 'undefined') return () => {}
+      const mq = window.matchMedia('(min-width: 768px)')
+      mq.addEventListener('change', onStoreChange)
+      return () => mq.removeEventListener('change', onStoreChange)
+    },
+    () => (typeof window !== 'undefined' ? window.matchMedia('(min-width: 768px)').matches : false),
+    () => false
+  )
 }
 
 export default function EvidenciaRemisionesConcretoClient() {
@@ -184,13 +275,20 @@ export default function EvidenciaRemisionesConcretoClient() {
 
   const [from, setFrom] = useState(() => format(subDays(new Date(), 30), 'yyyy-MM-dd'))
   const [to, setTo] = useState(() => format(new Date(), 'yyyy-MM-dd'))
-  const [plantId, setPlantId] = useState<string>('')
+  /** Empty = todas las plantas (no filtro). */
+  const [selectedPlantIds, setSelectedPlantIds] = useState<string[]>([])
+  const [plantPopoverOpen, setPlantPopoverOpen] = useState(false)
   const [clientId, setClientId] = useState<string>('')
-  const [evidenceStatus, setEvidenceStatus] = useState<EvidenceStatus>('all')
+  const [hasEvidenceFilter, setHasEvidenceFilter] = useState<TriFilter>('all')
+  const [hasRemisionesFilter, setHasRemisionesFilter] = useState<TriFilter>('all')
   const [loading, setLoading] = useState(false)
   const [excelBusy, setExcelBusy] = useState(false)
   const [bulkZipBusy, setBulkZipBusy] = useState(false)
-  const [zipOrderSelection, setZipOrderSelection] = useState<Set<string>>(() => new Set())
+  const [accountingBusy, setAccountingBusy] = useState(false)
+  const [reportNavBusy, setReportNavBusy] = useState(false)
+  const [zipConfirmOpen, setZipConfirmOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set())
   const [rows, setRows] = useState<Row[]>([])
   const [reassignmentByRemisionPage, setReassignmentByRemisionPage] = useState<Map<string, string>>(
     () => new Map()
@@ -199,8 +297,8 @@ export default function EvidenciaRemisionesConcretoClient() {
   const [truncated, setTruncated] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(false)
   const [hydratedFromUrl, setHydratedFromUrl] = useState(false)
+  const isMdUp = useMediaQueryMdUp()
 
   const [clients, setClients] = useState<ClientEnriched[]>([])
   const [clientsLoading, setClientsLoading] = useState(true)
@@ -239,43 +337,67 @@ export default function EvidenciaRemisionesConcretoClient() {
       const p = new URLSearchParams()
       p.set('date_from', from)
       p.set('date_to', to)
-      const effectivePid = isPlantManager ? currentPlant?.id : plantId || null
-      if (effectivePid) p.set('plant_id', effectivePid)
+      if (isPlantManager && currentPlant?.id) {
+        p.set('plant_id', currentPlant.id)
+      } else if (selectedPlantIds.length === 1) {
+        p.set('plant_id', selectedPlantIds[0])
+      } else if (selectedPlantIds.length > 1) {
+        p.set('plant_ids', selectedPlantIds.join(','))
+      }
       if (clientId) p.set('client_id', clientId)
-      if (evidenceStatus !== 'all') p.set('evidence_status', evidenceStatus)
+      if (hasEvidenceFilter !== 'all') p.set('has_evidence', hasEvidenceFilter)
+      if (hasRemisionesFilter !== 'all') p.set('has_remisiones', hasRemisionesFilter)
       if (oid) p.set('order_id', oid)
       const q = p.toString()
       startTransition(() => {
         router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false })
       })
     },
-    [from, to, plantId, clientId, evidenceStatus, selectedOrderId, pathname, router, isPlantManager, currentPlant?.id]
+    [
+      from,
+      to,
+      selectedPlantIds,
+      clientId,
+      hasEvidenceFilter,
+      hasRemisionesFilter,
+      selectedOrderId,
+      pathname,
+      router,
+      isPlantManager,
+      currentPlant?.id,
+    ]
   )
 
   useEffect(() => {
     const df = searchParams.get('date_from')
     const dt = searchParams.get('date_to')
-    const pid = searchParams.get('plant_id')
     const cid = searchParams.get('client_id')
     const oid = searchParams.get('order_id')
     if (df) setFrom(df)
     if (dt) setTo(dt)
-    if (pid && !isPlantManager) setPlantId(pid)
     if (cid) setClientId(cid)
-    setEvidenceStatus(parseEvidenceStatusFromSearch(searchParams))
-    if (oid) setSelectedOrderId(oid)
+    const { he, hr } = parseFiltersFromUrl(searchParams)
+    setHasEvidenceFilter(he)
+    setHasRemisionesFilter(hr)
+    if (!isPlantManager) {
+      const pids = parsePlantIdsFromUrl(searchParams)
+      setSelectedPlantIds(pids)
+    }
+    if (oid) {
+      setSelectedOrderId(oid)
+    }
     setHydratedFromUrl(true)
   }, [searchParams, isPlantManager])
 
   useEffect(() => {
     if (isPlantManager && currentPlant?.id) {
-      setPlantId(currentPlant.id)
+      setSelectedPlantIds([currentPlant.id])
     }
   }, [isPlantManager, currentPlant?.id])
 
   useEffect(() => {
-    setZipOrderSelection(new Set())
-  }, [from, to, plantId, clientId, evidenceStatus, isPlantManager, currentPlant?.id])
+    setSelectedOrderIds(new Set())
+  }, [from, to, selectedPlantIds, clientId, hasEvidenceFilter, hasRemisionesFilter, isPlantManager, currentPlant?.id])
 
   const fetchPage = useCallback(
     async (offset: number, append: boolean) => {
@@ -284,13 +406,19 @@ export default function EvidenciaRemisionesConcretoClient() {
         const sp = new URLSearchParams({
           date_from: from,
           date_to: to,
-          evidence_status: evidenceStatus,
           limit: '100',
           offset: String(offset),
           include_summary: 'false',
         })
-        const effectivePid = isPlantManager ? currentPlant?.id : plantId || null
-        if (effectivePid) sp.set('plant_id', effectivePid)
+        if (hasEvidenceFilter !== 'all') sp.set('has_evidence', hasEvidenceFilter)
+        if (hasRemisionesFilter !== 'all') sp.set('has_remisiones', hasRemisionesFilter)
+        if (isPlantManager && currentPlant?.id) {
+          sp.set('plant_id', currentPlant.id)
+        } else if (selectedPlantIds.length === 1) {
+          sp.set('plant_id', selectedPlantIds[0])
+        } else if (selectedPlantIds.length > 1) {
+          sp.set('plant_ids', selectedPlantIds.join(','))
+        }
         if (clientId) sp.set('client_id', clientId)
 
         const res = await fetch(`/api/finanzas/concrete-evidence?${sp.toString()}`)
@@ -313,13 +441,33 @@ export default function EvidenciaRemisionesConcretoClient() {
         setLoading(false)
       }
     },
-    [from, to, evidenceStatus, plantId, clientId, isPlantManager, currentPlant?.id]
+    [
+      from,
+      to,
+      hasEvidenceFilter,
+      hasRemisionesFilter,
+      selectedPlantIds,
+      clientId,
+      isPlantManager,
+      currentPlant?.id,
+    ]
   )
 
   useEffect(() => {
     if (!hydratedFromUrl) return
     void fetchPage(0, false)
-  }, [from, to, evidenceStatus, plantId, clientId, hydratedFromUrl, isPlantManager, currentPlant?.id, fetchPage])
+  }, [
+    from,
+    to,
+    hasEvidenceFilter,
+    hasRemisionesFilter,
+    selectedPlantIds,
+    clientId,
+    hydratedFromUrl,
+    isPlantManager,
+    currentPlant?.id,
+    fetchPage,
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -367,40 +515,53 @@ export default function EvidenciaRemisionesConcretoClient() {
     })
   }, [rows, search])
 
-  const zipSelectableOnPage = useMemo(
-    () => filteredRows.filter((r) => r.evidence_count > 0),
+  const selectableOnPage = useMemo(
+    () => filteredRows.filter((r) => r.concrete_remisiones_count > 0),
     [filteredRows]
   )
-  const zipAllOnPageSelected =
-    zipSelectableOnPage.length > 0 && zipSelectableOnPage.every((r) => zipOrderSelection.has(r.order_id))
-  const zipSomeOnPageSelected = zipSelectableOnPage.some((r) => zipOrderSelection.has(r.order_id))
+  const allOnPageSelected =
+    selectableOnPage.length > 0 && selectableOnPage.every((r) => selectedOrderIds.has(r.order_id))
+  const someOnPageSelected = selectableOnPage.some((r) => selectedOrderIds.has(r.order_id))
 
-  const toggleZipSelectAllOnPage = () => {
-    if (zipAllOnPageSelected) {
-      setZipOrderSelection((prev) => {
+  const toggleSelectAllOnPage = () => {
+    if (allOnPageSelected) {
+      setSelectedOrderIds((prev) => {
         const next = new Set(prev)
-        for (const r of zipSelectableOnPage) next.delete(r.order_id)
+        for (const r of selectableOnPage) next.delete(r.order_id)
         return next
       })
     } else {
-      setZipOrderSelection((prev) => {
+      setSelectedOrderIds((prev) => {
         const next = new Set(prev)
-        for (const r of zipSelectableOnPage) next.add(r.order_id)
+        for (const r of selectableOnPage) next.add(r.order_id)
         return next
       })
     }
   }
 
   const downloadBulkEvidenceZip = async () => {
-    const ids = [...zipOrderSelection]
+    const ids = [...selectedOrderIds]
     if (ids.length === 0) {
-      toast.error('Seleccione pedidos con evidencia (casilla en la tabla)')
+      toast.error('Seleccione al menos un pedido')
       return
     }
     if (ids.length > MAX_BULK_ZIP_ORDERS) {
       toast.error(`Máximo ${MAX_BULK_ZIP_ORDERS} pedidos por ZIP`)
       return
     }
+    const noEvidence = ids.filter((id) => {
+      const row = rows.find((x) => x.order_id === id)
+      return row && row.evidence_count === 0
+    })
+    if (noEvidence.length > 0) {
+      setZipConfirmOpen(true)
+      return
+    }
+    await runBulkZipDownload(ids)
+  }
+
+  const runBulkZipDownload = async (ids: string[]) => {
+    setZipConfirmOpen(false)
     setBulkZipBusy(true)
     let fileCount = 0
     try {
@@ -479,13 +640,19 @@ export default function EvidenciaRemisionesConcretoClient() {
         const sp = new URLSearchParams({
           date_from: from,
           date_to: to,
-          evidence_status: evidenceStatus,
           limit: String(limit),
           offset: String(offset),
           include_summary: 'false',
         })
-        const effectivePid = isPlantManager ? currentPlant?.id : plantId || null
-        if (effectivePid) sp.set('plant_id', effectivePid)
+        if (hasEvidenceFilter !== 'all') sp.set('has_evidence', hasEvidenceFilter)
+        if (hasRemisionesFilter !== 'all') sp.set('has_remisiones', hasRemisionesFilter)
+        if (isPlantManager && currentPlant?.id) {
+          sp.set('plant_id', currentPlant.id)
+        } else if (selectedPlantIds.length === 1) {
+          sp.set('plant_id', selectedPlantIds[0])
+        } else if (selectedPlantIds.length > 1) {
+          sp.set('plant_ids', selectedPlantIds.join(','))
+        }
         if (clientId) sp.set('client_id', clientId)
 
         const res = await fetch(`/api/finanzas/concrete-evidence?${sp.toString()}`)
@@ -540,16 +707,19 @@ export default function EvidenciaRemisionesConcretoClient() {
         return
       }
 
-      const plantLabel = isPlantManager
-        ? currentPlant
-          ? [currentPlant.code, currentPlant.name].filter(Boolean).join(' — ') || currentPlant.name
-          : 'Planta (sesión)'
-        : plantId
-          ? (() => {
-              const p = plantList.find((x) => x.id === plantId)
-              return p ? [p.code, p.name].filter(Boolean).join(' — ') || p.name : plantId
-            })()
-          : 'Todas las plantas'
+      const plantLabel = (() => {
+        if (isPlantManager) {
+          return currentPlant
+            ? [currentPlant.code, currentPlant.name].filter(Boolean).join(' — ') || currentPlant.name
+            : 'Planta (sesión)'
+        }
+        if (selectedPlantIds.length === 0) return 'Todas las plantas'
+        if (selectedPlantIds.length === 1) {
+          const p = plantList.find((x) => x.id === selectedPlantIds[0])
+          return p ? [p.code, p.name].filter(Boolean).join(' — ') || p.name : selectedPlantIds[0]
+        }
+        return `${selectedPlantIds.length} plantas`
+      })()
 
       const cappedAtMax = accumulated.length >= maxOrders && apiTotal > accumulated.length
 
@@ -559,7 +729,7 @@ export default function EvidenciaRemisionesConcretoClient() {
         dateTo: to,
         plantLabel,
         clientLabel: selectedClient?.business_name ?? 'Todos los clientes',
-        evidenceStatusLabel: EVIDENCE_STATUS_EXPORT_LABEL[evidenceStatus],
+        evidenceStatusLabel: buildFilterExportLabel(hasEvidenceFilter, hasRemisionesFilter),
         searchText: search.trim(),
         totalMatchingFilters: apiTotal,
         rowsInFile: list.length,
@@ -616,11 +786,167 @@ export default function EvidenciaRemisionesConcretoClient() {
     }
   }
 
+  const selectionStats = useMemo(() => {
+    let m3 = 0
+    let rems = 0
+    for (const id of selectedOrderIds) {
+      const r = rows.find((x) => x.order_id === id)
+      if (r) {
+        rems += r.concrete_remisiones_count
+        m3 += r.concrete_volume_sum ?? 0
+      }
+    }
+    return { orders: selectedOrderIds.size, m3, rems }
+  }, [selectedOrderIds, rows])
+
+  const handleCopyAccounting = useCallback(async () => {
+    const ids = [...selectedOrderIds]
+    if (ids.length === 0) {
+      toast.error('Seleccione al menos un pedido')
+      return
+    }
+    setAccountingBusy(true)
+    try {
+      const res = await fetch('/api/finanzas/accounting-clipboard-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_ids: ids }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error')
+      const orders = json.data?.orders as Array<{
+        order_id: string
+        requires_invoice: boolean
+        construction_site: string
+        has_empty_truck_charge: boolean
+        remisiones: any[]
+        order_products: any[]
+      }>
+      if (!orders?.length) {
+        toast.error('No se pudieron cargar datos de los pedidos')
+        return
+      }
+      const blocks = orders.map((o) =>
+        formatRemisionesForAccounting(
+          o.remisiones,
+          o.requires_invoice,
+          o.construction_site,
+          o.has_empty_truck_charge,
+          o.order_products
+        )
+      )
+      const merged = mergeAccountingTsvBlocks(blocks)
+      if (!merged) {
+        toast.error('No hay remisiones para copiar')
+        return
+      }
+      await navigator.clipboard.writeText(merged)
+      let remCount = 0
+      for (const o of orders) {
+        remCount += (o.remisiones || []).filter((r: any) => r.tipo_remision === 'CONCRETO' || r.tipo_remision === 'BOMBEO').length
+      }
+      toast.success(`Copiado: ${remCount} remisiones de ${orders.length} pedido(s)`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al copiar')
+    } finally {
+      setAccountingBusy(false)
+    }
+  }, [selectedOrderIds])
+
+  const handleReporteCliente = useCallback(async () => {
+    const ids = [...selectedOrderIds]
+    if (ids.length === 0) {
+      toast.error('Seleccione al menos un pedido')
+      return
+    }
+    setReportNavBusy(true)
+    try {
+      const sp = new URLSearchParams({ order_ids: ids.join(',') })
+      const res = await fetch(`/api/finanzas/concrete-remision-ids?${sp.toString()}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error')
+      const remisionIds: string[] = json.data?.remision_ids || []
+      if (!remisionIds.length) {
+        toast.error('No hay remisiones de concreto en los pedidos seleccionados')
+        return
+      }
+      const plantIdsForReport = isPlantManager && currentPlant?.id
+        ? [currentPlant.id]
+        : selectedPlantIds.length > 0
+          ? selectedPlantIds
+          : currentPlant?.id
+            ? [currentPlant.id]
+            : []
+      const payload = {
+        source: 'evidencia' as const,
+        dateRange: {
+          from: new Date(from + 'T12:00:00').toISOString(),
+          to: new Date(to + 'T12:00:00').toISOString(),
+        },
+        plantIds: plantIdsForReport,
+        remisionIds,
+        orderIds: ids,
+      }
+      sessionStorage.setItem(REPORTES_CLIENTES_PRESELECT_KEY, JSON.stringify(payload))
+      router.push('/finanzas/reportes-clientes?from=evidencia&step=columns')
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al preparar reporte')
+    } finally {
+      setReportNavBusy(false)
+    }
+  }, [selectedOrderIds, from, to, isPlantManager, currentPlant?.id, selectedPlantIds, router])
+
+  const copyAccountingRef = useRef(handleCopyAccounting)
+  const reportClienteRef = useRef(handleReporteCliente)
+  const downloadZipRef = useRef<() => void>(() => {})
+  const toggleAllRef = useRef<() => void>(() => {})
+  copyAccountingRef.current = handleCopyAccounting
+  reportClienteRef.current = handleReporteCliente
+  downloadZipRef.current = () => void downloadBulkEvidenceZip()
+  toggleAllRef.current = () => toggleSelectAllOnPage()
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault()
+        setShortcutsOpen((o) => !o)
+        return
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault()
+        toggleAllRef.current()
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        if (e.metaKey || e.ctrlKey) return
+        e.preventDefault()
+        void copyAccountingRef.current()
+      }
+      if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault()
+        void reportClienteRef.current()
+      }
+      if (e.key === 'z' || e.key === 'Z') {
+        e.preventDefault()
+        void downloadZipRef.current()
+      }
+      if (e.key === 'Escape') {
+        setSelectedOrderIds(new Set())
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const closeDetailPanel = useCallback(() => {
+    setSelectedOrderId(null)
+    pushUrl(null)
+  }, [pushUrl])
+
   const selectRow = (r: Row) => {
     setSelectedOrderId(r.order_id)
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-      setMobileSheetOpen(true)
-    }
     pushUrl(r.order_id)
   }
 
@@ -643,61 +969,40 @@ export default function EvidenciaRemisionesConcretoClient() {
 
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-[#f5f3f0]">
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-[#f5f3f0] text-[17px] text-stone-900">
       <header className="shrink-0 border-b border-stone-200/70 bg-[#f5f3f0]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-6 py-3 flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-lg font-semibold tracking-tight text-stone-900">
+              <h1 className="text-2xl font-semibold tracking-tight text-stone-900">
                 Evidencia remisiones (concreto)
               </h1>
               <ConcreteEvidenceHelpSheet />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-11 w-11 shrink-0 border-stone-300 bg-white"
+                aria-label="Atajos de teclado"
+                onClick={() => setShortcutsOpen(true)}
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Button>
             </div>
-            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-              Revise pedidos, remisiones de concreto y archivos de respaldo; el panel derecho permanece
-              visible al desplazar la tabla.
+            <p className="text-base text-stone-700 mt-2 max-w-3xl leading-relaxed">
+              Revise pedidos y evidencia; seleccione filas y use la barra inferior para Excel, ZIP, copiar a
+              contabilidad o reporte de cliente.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="h-8 border-stone-300 bg-white" asChild>
+            <Button variant="outline" size="lg" className="h-12 min-w-[44px] border-stone-300 bg-white text-base" asChild>
               <Link href="/finanzas">← Finanzas</Link>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 border-stone-300 bg-white"
-              disabled={loading || excelBusy || total === 0}
-              onClick={() => void exportExcel()}
-            >
-              {excelBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4" />
-              )}
-              Descargar Excel
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 border-stone-300 bg-white"
-              disabled={loading || bulkZipBusy || zipOrderSelection.size === 0}
-              onClick={() => void downloadBulkEvidenceZip()}
-              title={`Hasta ${MAX_BULK_ZIP_ORDERS} pedidos y ${MAX_BULK_ZIP_FILES} archivos PDF/imagen`}
-            >
-              {bulkZipBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Archive className="h-4 w-4" />
-              )}
-              ZIP pedidos ({zipOrderSelection.size})
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row lg:items-start min-h-0 max-w-[1600px] mx-auto w-full">
+      <div className="flex-1 flex flex-col md:flex-row md:items-stretch min-h-0 max-w-[1600px] mx-auto w-full pb-36">
         <div className="flex-1 min-w-0 flex flex-col min-h-0 px-4 md:px-6 pb-4 pt-4">
           <Card className="border-stone-200/80 shadow-sm shrink-0">
             <CardHeader className="pb-3 space-y-0">
@@ -725,25 +1030,95 @@ export default function EvidenciaRemisionesConcretoClient() {
                   className="min-h-10 w-[160px] bg-white"
                 />
               </div>
-              <div className="space-y-1.5 min-w-[200px]">
-                <Label>Planta</Label>
-                <Select
-                  value={isPlantManager ? currentPlant?.id || '_all' : plantId || '_all'}
-                  onValueChange={(v) => setPlantId(v === '_all' ? '' : v)}
-                  disabled={isPlantManager}
-                >
-                  <SelectTrigger className="min-h-10 bg-white border-stone-300">
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_all">Todas las plantas</SelectItem>
-                    {plantList.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.code ? `${p.code} — ${p.name}` : p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-1.5 min-w-[220px] max-w-md">
+                <Label>Plantas</Label>
+                {isPlantManager ? (
+                  <p className="text-base min-h-12 px-3 py-2 rounded-md border border-stone-300 bg-stone-50">
+                    {currentPlant
+                      ? [currentPlant.code, currentPlant.name].filter(Boolean).join(' — ') || currentPlant.name
+                      : '—'}
+                  </p>
+                ) : (
+                  <Popover open={plantPopoverOpen} onOpenChange={setPlantPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-12 w-full justify-between font-normal bg-white border-stone-300 text-base"
+                      >
+                        <span className="truncate text-left">
+                          {selectedPlantIds.length === 0
+                            ? 'Todas las plantas'
+                            : `${selectedPlantIds.length} seleccionada(s)`}
+                        </span>
+                        <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80 p-0" align="start">
+                      <div className="border-b px-3 py-2 flex items-center gap-2">
+                        <Checkbox
+                          id="plant-all"
+                          checked={selectedPlantIds.length === 0}
+                          onCheckedChange={(c) => {
+                            if (c === true) setSelectedPlantIds([])
+                          }}
+                          className="border-stone-400"
+                        />
+                        <label htmlFor="plant-all" className="text-base cursor-pointer">
+                          Todas las plantas
+                        </label>
+                      </div>
+                      <Command>
+                        <CommandList className="max-h-56">
+                          <CommandGroup>
+                            {plantList.map((p) => {
+                              const checked = selectedPlantIds.includes(p.id)
+                              return (
+                                <CommandItem
+                                  key={p.id}
+                                  value={p.id}
+                                  onSelect={() => {
+                                    setSelectedPlantIds((prev) => {
+                                      const next = new Set(prev)
+                                      if (next.has(p.id)) next.delete(p.id)
+                                      else next.add(p.id)
+                                      return [...next]
+                                    })
+                                  }}
+                                  className="flex items-center gap-2 cursor-pointer"
+                                >
+                                  <Checkbox checked={checked} className="pointer-events-none" />
+                                  <span className="text-base">
+                                    {p.code ? `${p.code} — ${p.name}` : p.name}
+                                  </span>
+                                </CommandItem>
+                              )
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                )}
+                {!isPlantManager && selectedPlantIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {selectedPlantIds.map((id) => {
+                      const p = plantList.find((x) => x.id === id)
+                      const label = p ? (p.code ? `${p.code} — ${p.name}` : p.name) : id.slice(0, 8)
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-white px-2 py-1 text-sm"
+                          onClick={() => setSelectedPlantIds((prev) => prev.filter((x) => x !== id))}
+                        >
+                          {label}
+                          <X className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5 min-w-[220px]">
                 <Label>Cliente</Label>
@@ -820,20 +1195,35 @@ export default function EvidenciaRemisionesConcretoClient() {
                   </button>
                 )}
               </div>
-              <div className="space-y-1.5 min-w-[240px]">
-                <Label>Estado evidencia</Label>
+              <div className="space-y-1.5 min-w-[200px]">
+                <Label>Evidencia (archivos)</Label>
                 <Select
-                  value={evidenceStatus}
-                  onValueChange={(v) => setEvidenceStatus(v as EvidenceStatus)}
+                  value={hasEvidenceFilter}
+                  onValueChange={(v) => setHasEvidenceFilter(v as TriFilter)}
                 >
-                  <SelectTrigger className="min-h-10 bg-white border-stone-300">
+                  <SelectTrigger className="min-h-12 bg-white border-stone-300 text-base">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    <SelectItem value="needs_evidence">Con remisiones y sin evidencia</SelectItem>
-                    <SelectItem value="has_evidence">Con remisiones y con evidencia</SelectItem>
-                    <SelectItem value="no_remisiones">Sin remisiones de concreto</SelectItem>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="with">Con evidencia</SelectItem>
+                    <SelectItem value="without">Sin evidencia</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 min-w-[200px]">
+                <Label>Remisiones de concreto</Label>
+                <Select
+                  value={hasRemisionesFilter}
+                  onValueChange={(v) => setHasRemisionesFilter(v as TriFilter)}
+                >
+                  <SelectTrigger className="min-h-12 bg-white border-stone-300 text-base">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="with">Con remisiones</SelectItem>
+                    <SelectItem value="without">Sin remisiones</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -842,7 +1232,7 @@ export default function EvidenciaRemisionesConcretoClient() {
                 variant="outline"
                 onClick={handleRefresh}
                 disabled={loading}
-                className="min-h-10 gap-2 border-stone-300 bg-white"
+                className="min-h-12 gap-2 border-stone-300 bg-white text-base"
               >
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -861,10 +1251,10 @@ export default function EvidenciaRemisionesConcretoClient() {
                 placeholder="Buscar pedido, cliente, obra, planta, remisión…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-9 bg-white border-stone-300"
+                className="pl-10 h-12 text-base bg-white border-stone-300 focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-stone-600">
               {filteredRows.length} de {rows.length} en página
               {total > 0 && ` · ${total} total`}
               {truncated && ' · acote fechas si falta data'}
@@ -882,33 +1272,33 @@ export default function EvidenciaRemisionesConcretoClient() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent bg-stone-50/80 sticky top-0 z-10">
-                    <TableHead className="w-10 px-2">
+                    <TableHead className="w-12 px-2">
                       <Checkbox
                         checked={
-                          zipSelectableOnPage.length === 0
+                          selectableOnPage.length === 0
                             ? false
-                            : zipAllOnPageSelected
+                            : allOnPageSelected
                               ? true
-                              : zipSomeOnPageSelected
+                              : someOnPageSelected
                                 ? 'indeterminate'
                                 : false
                         }
-                        onCheckedChange={() => toggleZipSelectAllOnPage()}
-                        disabled={zipSelectableOnPage.length === 0 || loading}
-                        className="border-stone-400 data-[state=checked]:bg-stone-800 data-[state=checked]:border-stone-800"
-                        aria-label="Seleccionar o quitar todos los pedidos con evidencia en esta vista"
+                        onCheckedChange={() => toggleSelectAllOnPage()}
+                        disabled={selectableOnPage.length === 0 || loading}
+                        className="h-5 w-5 border-stone-500 data-[state=checked]:bg-stone-900 data-[state=checked]:border-stone-900"
+                        aria-label="Seleccionar o quitar todos los pedidos con remisiones en esta vista"
                       />
                     </TableHead>
-                    <TableHead>Fecha entrega</TableHead>
-                    <TableHead>Pedido</TableHead>
-                    <TableHead>Planta</TableHead>
-                    <TableHead>Cliente</TableHead>
-                    <TableHead>Obra</TableHead>
-                    <TableHead className="text-right">Rem.</TableHead>
-                    <TableHead className="text-right">m³</TableHead>
-                    <TableHead className="text-right">Arch.</TableHead>
-                    <TableHead>Estado</TableHead>
-                    <TableHead>Última carga</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Fecha entrega</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Pedido</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Planta</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Cliente</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Obra</TableHead>
+                    <TableHead className="text-right text-base font-semibold text-stone-900">Rem.</TableHead>
+                    <TableHead className="text-right text-base font-semibold text-stone-900">m³</TableHead>
+                    <TableHead className="text-right text-base font-semibold text-stone-900">Arch.</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Estado</TableHead>
+                    <TableHead className="text-base font-semibold text-stone-900">Última carga</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -933,9 +1323,9 @@ export default function EvidenciaRemisionesConcretoClient() {
                           key={r.order_id}
                           data-state={selectedOrderId === r.order_id ? 'selected' : undefined}
                           className={cn(
-                            'cursor-pointer',
+                            'cursor-pointer h-14',
                             selectedOrderId === r.order_id &&
-                              'bg-sky-50/80 ring-1 ring-inset ring-sky-200'
+                              'bg-sky-50/80 ring-2 ring-inset ring-sky-300'
                           )}
                           onClick={() => selectRow(r)}
                           onKeyDown={(e) => {
@@ -953,31 +1343,31 @@ export default function EvidenciaRemisionesConcretoClient() {
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}
                           >
-                            {r.evidence_count > 0 ? (
+                            {r.concrete_remisiones_count > 0 ? (
                               <Checkbox
-                                checked={zipOrderSelection.has(r.order_id)}
+                                checked={selectedOrderIds.has(r.order_id)}
                                 onCheckedChange={() => {
-                                  setZipOrderSelection((prev) => {
+                                  setSelectedOrderIds((prev) => {
                                     const next = new Set(prev)
                                     if (next.has(r.order_id)) next.delete(r.order_id)
                                     else next.add(r.order_id)
                                     return next
                                   })
                                 }}
-                                className="border-stone-400 data-[state=checked]:bg-stone-800 data-[state=checked]:border-stone-800"
-                                aria-label={`Incluir pedido ${r.order_number} en ZIP múltiple`}
+                                className="h-5 w-5 border-stone-500 data-[state=checked]:bg-stone-900 data-[state=checked]:border-stone-900"
+                                aria-label={`Seleccionar pedido ${r.order_number} de ${r.client_name || 'cliente'}`}
                               />
                             ) : (
-                              <span className="inline-block w-4 h-4" aria-hidden />
+                              <span className="inline-block w-5 h-5" aria-hidden />
                             )}
                           </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">{delivery}</TableCell>
-                          <TableCell className="font-medium">{r.order_number}</TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground max-w-[100px] truncate">
+                          <TableCell className="text-base whitespace-nowrap tabular-nums">{delivery}</TableCell>
+                          <TableCell className="font-medium text-base font-mono">{r.order_number}</TableCell>
+                          <TableCell className="font-mono text-sm text-stone-700 max-w-[100px] truncate">
                             {r.plant_code || r.plant_name || '—'}
                           </TableCell>
-                          <TableCell className="max-w-[140px] truncate">{r.client_name || '—'}</TableCell>
-                          <TableCell className="max-w-[160px] truncate">
+                          <TableCell className="max-w-[140px] truncate text-base">{r.client_name || '—'}</TableCell>
+                          <TableCell className="max-w-[160px] truncate text-base">
                             {r.construction_site || '—'}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
@@ -1004,16 +1394,16 @@ export default function EvidenciaRemisionesConcretoClient() {
                               ) : null}
                             </span>
                           </TableCell>
-                          <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                          <TableCell className="text-right tabular-nums text-base text-stone-700">
                             {r.concrete_volume_sum != null
                               ? r.concrete_volume_sum.toFixed(2)
                               : '—'}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">{r.evidence_count}</TableCell>
+                          <TableCell className="text-right tabular-nums text-base">{r.evidence_count}</TableCell>
                           <TableCell>
                             <Badge
                               variant="outline"
-                              className={cn('text-xs font-normal', STATUS_BADGE[status])}
+                              className={cn('text-sm font-medium border-2', STATUS_BADGE[status])}
                             >
                               {r.has_evidence ? (
                                 <span className="inline-flex items-center gap-1">
@@ -1028,7 +1418,7 @@ export default function EvidenciaRemisionesConcretoClient() {
                               )}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          <TableCell className="text-sm text-stone-700 whitespace-nowrap">
                             {r.evidence_last_at
                               ? format(new Date(r.evidence_last_at), 'dd/MM/yyyy HH:mm', {
                                   locale: es,
@@ -1065,50 +1455,179 @@ export default function EvidenciaRemisionesConcretoClient() {
           </div>
         </div>
 
-        <div
-          className={cn(
-            'hidden lg:block shrink-0',
-            auditWriterPanel ? 'w-[520px] xl:w-[600px]' : 'w-[420px] xl:w-[480px]',
-            'border-l border-stone-200/80 bg-card',
-            'lg:sticky lg:top-16 lg:self-start',
-            'lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto'
-          )}
-        >
-          <ConcreteEvidenceOrderDetailPanel
-            orderId={selectedOrderId}
-            summary={selectedRow ? rowToSummary(selectedRow) : null}
-            onClose={() => {
-              setSelectedOrderId(null)
-              pushUrl(null)
-            }}
-            className="border-l-0 w-full"
-          />
+        {selectedOrderId && isMdUp && (
+          <aside
+            className={cn(
+              'flex flex-col shrink-0 border-l border-stone-200/80 bg-card shadow-sm min-h-0 max-h-[calc(100vh-5rem)] sticky top-0 self-start',
+              auditWriterPanel
+                ? 'w-[min(720px,40vw)] xl:w-[min(800px,42vw)]'
+                : 'w-[min(480px,34vw)] lg:w-[min(560px,36vw)] xl:w-[min(640px,38vw)]'
+            )}
+            aria-label="Detalle del pedido"
+          >
+            <ConcreteEvidenceOrderDetailPanel
+              orderId={selectedOrderId}
+              summary={selectedRow ? rowToSummary(selectedRow) : null}
+              onClose={closeDetailPanel}
+              className="border-l-0 flex-1 min-h-0 w-full max-w-none overflow-y-auto"
+            />
+          </aside>
+        )}
+      </div>
+
+      <div
+        role="region"
+        aria-live="polite"
+        aria-label="Acciones de pedidos seleccionados"
+        className="fixed bottom-0 left-0 right-0 z-40 border-t border-stone-200 bg-[#f5f3f0]/95 backdrop-blur-sm shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
+      >
+        <div className="max-w-[1600px] mx-auto px-4 md:px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-base font-medium text-stone-900 tabular-nums">
+            {selectionStats.orders === 0 ? (
+              <span>Ningún pedido seleccionado</span>
+            ) : (
+              <span>
+                {selectionStats.orders} pedido{selectionStats.orders !== 1 ? 's' : ''} ·{' '}
+                {selectionStats.rems} rem. · {selectionStats.m3.toFixed(2)} m³
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              disabled={loading || excelBusy || total === 0}
+              onClick={() => void exportExcel()}
+            >
+              {excelBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <FileSpreadsheet className="h-5 w-5 mr-2" />}
+              Descargar Excel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              disabled={loading || bulkZipBusy || selectedOrderIds.size === 0}
+              onClick={() => void downloadBulkEvidenceZip()}
+              title={`Hasta ${MAX_BULK_ZIP_ORDERS} pedidos y ${MAX_BULK_ZIP_FILES} archivos`}
+            >
+              {bulkZipBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Archive className="h-5 w-5 mr-2" />}
+              ZIP pedidos
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              disabled={loading || accountingBusy || selectedOrderIds.size === 0}
+              onClick={() => void handleCopyAccounting()}
+            >
+              {accountingBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Copy className="h-5 w-5 mr-2" />}
+              Copiar contabilidad
+            </Button>
+            <Button
+              type="button"
+              variant="solid"
+              size="lg"
+              className="h-12 text-base min-h-[48px] focus-visible:ring-2 focus-visible:ring-systemBlue focus-visible:ring-offset-2"
+              disabled={loading || reportNavBusy || selectedOrderIds.size === 0}
+              onClick={() => void handleReporteCliente()}
+            >
+              {reportNavBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <FileText className="h-5 w-5 mr-2" />}
+              Reporte cliente
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              className="h-12 text-base text-stone-700 min-h-[48px]"
+              disabled={selectedOrderIds.size === 0}
+              onClick={() => setSelectedOrderIds(new Set())}
+            >
+              Limpiar
+            </Button>
+          </div>
         </div>
       </div>
 
+      <Dialog open={zipConfirmOpen} onOpenChange={setZipConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Pedidos sin archivos de evidencia</DialogTitle>
+            <DialogDescription className="text-base text-stone-700">
+              Algunos pedidos seleccionados no tienen PDF o imagen en evidencia. ¿Desea continuar con el ZIP? (solo se
+              incluirán archivos existentes)
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" size="lg" onClick={() => setZipConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="solid"
+              size="lg"
+              onClick={() => void runBulkZipDownload([...selectedOrderIds])}
+            >
+              Continuar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Atajos de teclado</DialogTitle>
+            <DialogDescription asChild>
+              <ul className="list-disc pl-5 space-y-2 text-base text-stone-800">
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">A</kbd> — Seleccionar página
+                </li>
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">C</kbd> — Copiar contabilidad
+                </li>
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">R</kbd> — Reporte cliente
+                </li>
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">Z</kbd> — ZIP pedidos
+                </li>
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">Esc</kbd> — Limpiar selección
+                </li>
+                <li>
+                  <kbd className="font-mono bg-stone-100 px-1 rounded">?</kbd> — Esta ayuda
+                </li>
+              </ul>
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+
       <Sheet
-        open={mobileSheetOpen}
+        open={selectedOrderId != null && !isMdUp}
         onOpenChange={(open) => {
-          setMobileSheetOpen(open)
-          if (!open) {
-            setSelectedOrderId(null)
-            pushUrl(null)
-          }
+          if (!open) closeDetailPanel()
         }}
       >
-        <SheetContent side="right" className="w-full sm:max-w-lg p-0 flex flex-col">
+        <SheetContent
+          side="right"
+          className={cn(
+            'w-full p-0 flex flex-col overflow-hidden md:hidden',
+            auditWriterPanel ? 'sm:max-w-6xl' : 'sm:max-w-5xl'
+          )}
+        >
           <SheetHeader className="sr-only">
             <SheetTitle>Detalle del pedido</SheetTitle>
           </SheetHeader>
           <ConcreteEvidenceOrderDetailPanel
             orderId={selectedOrderId}
             summary={selectedRow ? rowToSummary(selectedRow) : null}
-            onClose={() => {
-              setMobileSheetOpen(false)
-              setSelectedOrderId(null)
-              pushUrl(null)
-            }}
-            className="border-l-0 max-h-full w-full max-w-none"
+            onClose={closeDetailPanel}
+            className="border-l-0 max-h-full w-full max-w-none overflow-y-auto"
           />
         </SheetContent>
       </Sheet>

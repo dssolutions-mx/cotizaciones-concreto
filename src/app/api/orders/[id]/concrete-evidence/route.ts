@@ -93,7 +93,22 @@ export async function GET(
     const { data: remisionesRaw, error: remErr } = await supabase
       .from('remisiones')
       .select(
-        'id, remision_number, fecha, hora_carga, volumen_fabricado, unidad, conductor, tipo_remision'
+        `
+        id,
+        remision_number,
+        fecha,
+        hora_carga,
+        volumen_fabricado,
+        unidad,
+        conductor,
+        tipo_remision,
+        recipe_id,
+        master_recipes:master_recipe_id(master_code),
+        recipe:recipes(
+          recipe_code,
+          master_recipes:master_recipe_id(master_code)
+        )
+      `
       )
       .eq('order_id', orderId)
       .eq('tipo_remision', 'CONCRETO')
@@ -102,6 +117,28 @@ export async function GET(
     if (remErr) {
       console.error('concrete-evidence GET remisiones:', remErr);
       return NextResponse.json({ error: 'Error al cargar remisiones' }, { status: 500 });
+    }
+
+    /**
+     * Literal recipe version string: always the variant `recipes.recipe_code` (e.g. 5-250-2-B-28-18-B).
+     * Falls back to master_code only when there is no linked recipe row.
+     */
+    function recipeVersionLiteral(r: Record<string, unknown>): string | null {
+      const mr = r.master_recipes as { master_code?: string } | { master_code?: string }[] | null | undefined;
+      const m = Array.isArray(mr) ? mr[0] : mr;
+      const recipe = r.recipe as
+        | {
+            recipe_code?: string | null;
+            master_recipes?: { master_code?: string } | { master_code?: string }[];
+          }
+        | null
+        | undefined;
+      const variantCode = recipe?.recipe_code?.trim() || null;
+      if (variantCode) return variantCode;
+      const rm = recipe?.master_recipes;
+      const mm = Array.isArray(rm) ? rm[0] : rm;
+      const masterCode = m?.master_code ?? mm?.master_code ?? null;
+      return masterCode ? String(masterCode) : null;
     }
 
     const concrete_remisiones_ordered = sortConcreteRemisionesForAccounting(
@@ -113,6 +150,7 @@ export async function GET(
         volumen_fabricado: r.volumen_fabricado,
         unidad: r.unidad,
         conductor: r.conductor,
+        recipe_version: recipeVersionLiteral(r as Record<string, unknown>),
       }))
     );
 

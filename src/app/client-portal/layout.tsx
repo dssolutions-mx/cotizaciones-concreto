@@ -8,7 +8,7 @@ export default function ClientPortalLayout({
 }) {
   return (
     <ClientPortalGuard>
-      <div className="min-h-screen bg-background-primary">
+      <div className="font-system min-h-screen bg-background-primary">
         <ClientPortalNav />
         <main className="max-w-screen-2xl mx-auto px-6 py-12">
           <div className="space-y-8">

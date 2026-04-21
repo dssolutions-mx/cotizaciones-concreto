@@ -24,6 +24,9 @@ const ORDER_STATUSES = [
 
 type EvidenceStatusFilter = 'all' | 'needs_evidence' | 'has_evidence' | 'no_remisiones';
 
+/** Independent filter dimensions (with | without | all). */
+type Tri = 'with' | 'without' | 'all';
+
 function parseYmd(s: string | null): string | null {
   if (!s) return null;
   const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})/.exec(s);
@@ -50,16 +53,6 @@ function pickLatestEvidence(files: OrderConcreteEvidenceRow[]): OrderConcreteEvi
   });
 }
 
-function effectivePlantIdForFinanzas(
-  profile: { role: string; plant_id: string | null },
-  plantIdParam: string | null
-): string | null {
-  if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
-    return profile.plant_id;
-  }
-  return plantIdParam?.trim() || null;
-}
-
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -74,6 +67,76 @@ function parseEvidenceStatus(searchParams: URLSearchParams): EvidenceStatusFilte
   if (legacyMissing) return 'needs_evidence';
   if (allowed.includes(raw as EvidenceStatusFilter)) return raw as EvidenceStatusFilter;
   return 'all';
+}
+
+function parseTriParam(searchParams: URLSearchParams, key: string, defaultVal: Tri = 'all'): Tri {
+  const raw = (searchParams.get(key) || '').trim().toLowerCase();
+  if (raw === 'with' || raw === 'without' || raw === 'all') return raw;
+  return defaultVal;
+}
+
+function legacyStatusToTriPair(status: EvidenceStatusFilter): { he: Tri; hr: Tri } {
+  switch (status) {
+    case 'needs_evidence':
+      return { he: 'without', hr: 'with' };
+    case 'has_evidence':
+      return { he: 'with', hr: 'all' };
+    case 'no_remisiones':
+      return { he: 'all', hr: 'without' };
+    default:
+      return { he: 'all', hr: 'all' };
+  }
+}
+
+function parseEvidenceRemisionFilters(searchParams: URLSearchParams): { he: Tri; hr: Tri } {
+  const hasHe = searchParams.has('has_evidence');
+  const hasHr = searchParams.has('has_remisiones');
+  if (hasHe || hasHr) {
+    return {
+      he: parseTriParam(searchParams, 'has_evidence', 'all'),
+      hr: parseTriParam(searchParams, 'has_remisiones', 'all'),
+    };
+  }
+  return legacyStatusToTriPair(parseEvidenceStatus(searchParams));
+}
+
+function triPairToLegacyEvidenceStatus(he: Tri, hr: Tri): EvidenceStatusFilter {
+  if (he === 'all' && hr === 'all') return 'all';
+  if (he === 'without' && hr === 'with') return 'needs_evidence';
+  if (he === 'with' && hr === 'all') return 'has_evidence';
+  if (he === 'all' && hr === 'without') return 'no_remisiones';
+  return 'all';
+}
+
+/** Plant IDs from plant_ids=uuid,uuid or repeated; plus legacy plant_id. PLANT_MANAGER handled in caller. */
+function parsePlantIdsParam(
+  searchParams: URLSearchParams,
+  profile: { role: string; plant_id: string | null }
+): string[] | null {
+  if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
+    return [profile.plant_id];
+  }
+  const parts: string[] = [];
+  const csv = searchParams.get('plant_ids');
+  if (csv) {
+    for (const s of csv.split(',')) {
+      const t = s.trim();
+      if (t) parts.push(t);
+    }
+  }
+  for (const r of searchParams.getAll('plant_ids')) {
+    if (r.includes(',')) {
+      for (const s of r.split(',')) {
+        const t = s.trim();
+        if (t) parts.push(t);
+      }
+    } else if (r.trim()) parts.push(r.trim());
+  }
+  const single = searchParams.get('plant_id')?.trim();
+  if (single) parts.push(single);
+  const uniq = [...new Set(parts)];
+  if (uniq.length === 0) return null;
+  return uniq;
 }
 
 async function countConcreteRemisionesByOrder(
@@ -146,20 +209,23 @@ async function remisionMetaByOrder(
   return map;
 }
 
-function filterOrdersByEvidenceStatus(
+function filterOrdersByEvidenceRemisionTri(
   ordered: any[],
   countByOrder: Map<string, number>,
   evidenceOrders: Set<string>,
-  status: EvidenceStatusFilter
+  he: Tri,
+  hr: Tri
 ): any[] {
-  if (status === 'all') return ordered;
+  if (he === 'all' && hr === 'all') return ordered;
   const out: any[] = [];
   for (const o of ordered) {
     const c = countByOrder.get(o.id) || 0;
     const ev = evidenceOrders.has(o.id);
-    if (status === 'needs_evidence' && c > 0 && !ev) out.push(o);
-    else if (status === 'has_evidence' && c > 0 && ev) out.push(o);
-    else if (status === 'no_remisiones' && c === 0) out.push(o);
+    if (hr === 'with' && c === 0) continue;
+    if (hr === 'without' && c > 0) continue;
+    if (he === 'with' && !ev) continue;
+    if (he === 'without' && ev) continue;
+    out.push(o);
   }
   return out;
 }
@@ -323,9 +389,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateFrom = searchParams.get('date_from') || '';
     const dateTo = searchParams.get('date_to') || '';
-    const plantIdParam = searchParams.get('plant_id');
     const clientId = searchParams.get('client_id');
-    const evidenceStatus = parseEvidenceStatus(searchParams);
+    const plantIdsFilter = parsePlantIdsParam(searchParams, profile);
+    const { he: filterHe, hr: filterHr } = parseEvidenceRemisionFilters(searchParams);
+    const evidenceStatusLegacy = triPairToLegacyEvidenceStatus(filterHe, filterHr);
+    const useFilteredPath = filterHe !== 'all' || filterHr !== 'all';
+
     const includeSummary =
       searchParams.get('include_summary') === '1' || searchParams.get('include_summary') === 'true';
     const limit = Math.min(parseInt(searchParams.get('limit') || '80', 10) || 80, 200);
@@ -334,13 +403,12 @@ export async function GET(request: NextRequest) {
     const fromYmd = parseYmd(dateFrom) || dateFrom;
     const toYmd = parseYmd(dateTo) || dateTo;
 
-    const effectivePlantId = effectivePlantIdForFinanzas(profile, plantIdParam);
-
     const applyOrderFilters = (q: any) => {
       let x = q;
       if (fromYmd) x = x.gte('delivery_date', fromYmd);
       if (toYmd) x = x.lte('delivery_date', toYmd);
-      if (effectivePlantId) x = x.eq('plant_id', effectivePlantId);
+      if (plantIdsFilter && plantIdsFilter.length === 1) x = x.eq('plant_id', plantIdsFilter[0]);
+      else if (plantIdsFilter && plantIdsFilter.length > 1) x = x.in('plant_id', plantIdsFilter);
       if (clientId) x = x.eq('client_id', clientId);
       x = x.in('order_status', ORDER_STATUSES);
       return x;
@@ -373,7 +441,7 @@ export async function GET(request: NextRequest) {
     }
 
     // --- Filtered modes: scan capped window, filter, paginate ---
-    if (evidenceStatus !== 'all') {
+    if (useFilteredPath) {
       const { data: orderRows, error: ordErr } = await buildBaseOrdersQuery()
         .order('delivery_date', { ascending: false })
         .limit(MAX_ORDERS_EVALUATE);
@@ -388,7 +456,15 @@ export async function GET(request: NextRequest) {
       if (allIds.length === 0) {
         return NextResponse.json({
           success: true,
-          data: { rows: [], total: 0, truncated: false, summary, evidence_status: evidenceStatus },
+          data: {
+            rows: [],
+            total: 0,
+            truncated: false,
+            summary,
+            evidence_status: evidenceStatusLegacy,
+            has_evidence: filterHe,
+            has_remisiones: filterHr,
+          },
         });
       }
 
@@ -402,11 +478,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Error al evaluar remisiones/evidencia' }, { status: 500 });
       }
 
-      const filteredOrdered = filterOrdersByEvidenceStatus(
+      const filteredOrdered = filterOrdersByEvidenceRemisionTri(
         ordered,
         countByOrder,
         evidenceOrders,
-        evidenceStatus
+        filterHe,
+        filterHr
       );
 
       const total = filteredOrdered.length;
@@ -417,7 +494,15 @@ export async function GET(request: NextRequest) {
       if (pageIds.length === 0) {
         return NextResponse.json({
           success: true,
-          data: { rows: [], total, truncated, summary, evidence_status: evidenceStatus },
+          data: {
+            rows: [],
+            total,
+            truncated,
+            summary,
+            evidence_status: evidenceStatusLegacy,
+            has_evidence: filterHe,
+            has_remisiones: filterHr,
+          },
         });
       }
 
@@ -498,7 +583,9 @@ export async function GET(request: NextRequest) {
           total,
           truncated,
           summary,
-          evidence_status: evidenceStatus,
+          evidence_status: evidenceStatusLegacy,
+          has_evidence: filterHe,
+          has_remisiones: filterHr,
         },
       });
     }
@@ -539,7 +626,9 @@ export async function GET(request: NextRequest) {
           total: count ?? 0,
           truncated: false,
           summary,
-          evidence_status: evidenceStatus,
+          evidence_status: evidenceStatusLegacy,
+          has_evidence: filterHe,
+          has_remisiones: filterHr,
         },
       });
     }
@@ -619,7 +708,9 @@ export async function GET(request: NextRequest) {
         total: count ?? rows.length,
         truncated: false,
         summary,
-        evidence_status: evidenceStatus,
+        evidence_status: evidenceStatusLegacy,
+        has_evidence: filterHe,
+        has_remisiones: filterHr,
       },
     });
   } catch (e) {

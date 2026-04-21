@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { format, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from 'react-day-picker';
@@ -48,6 +50,7 @@ import {
   Building2,
   Paperclip,
   X as XIcon,
+  Loader2,
 } from 'lucide-react';
 
 // Services & types
@@ -145,7 +148,11 @@ function PumpingPill({ tipo }: { tipo?: string | null }) {
   );
 }
 
-function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
+function cellDisplay(
+  item: ReportRemisionData,
+  col: ReportColumn,
+  pumpingByOrderId?: Map<string, ReportRemisionData[]>,
+): string {
   switch (col.id) {
     case 'row_number': return '';
     case 'fecha': return fmtDate(item.fecha);
@@ -176,6 +183,13 @@ function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
     case 'placement_type': return item.recipe?.placement_type ?? '—';
     case 'max_aggregate_size': return item.recipe?.max_aggregate_size != null ? `${item.recipe.max_aggregate_size}` : '—';
     case 'slump': return item.recipe?.slump != null ? `${item.recipe.slump}` : '—';
+    case 'serv_bombeo': {
+      const tipo = String(item.tipo_remision ?? '').toUpperCase();
+      if (tipo && tipo !== 'CONCRETO') return fmtCurr(item.line_total);
+      const pumps = pumpingByOrderId?.get(String(item.order_id ?? ''));
+      if (!pumps || pumps.length === 0) return '—';
+      return pumps.map((p) => `R${p.remision_number}`).join(', ');
+    }
     default: return '—';
   }
 }
@@ -573,6 +587,8 @@ function ColumnPicker({
 type Step = 'selection' | 'columns' | 'review';
 
 export default function ReportesClientesPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { profile } = useAuthBridge();
   const { availablePlants, currentPlant, isGlobalAdmin } = usePlantContext();
 
@@ -610,6 +626,11 @@ export default function ReportesClientesPage() {
   const [excelLoading, setExcelLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  /** Handoff desde evidencia remisiones (sessionStorage + ?from=evidencia). */
+  const [evidenciaPrefetch, setEvidenciaPrefetch] = useState<null | { remisionIds: string[] }>(null);
+  const [fromEvidenciaHandoff, setFromEvidenciaHandoff] = useState(false);
+  const [evidenciaOrderCount, setEvidenciaOrderCount] = useState(0);
+
   // ── Evidence bundle ───────────────────────────────────────────────────────
   const [evidenceCounts, setEvidenceCounts] = useState<EvidenceCounts | null>(null);
   const [evidenceCountLoading, setEvidenceCountLoading] = useState(false);
@@ -617,6 +638,10 @@ export default function ReportesClientesPage() {
   const [evidenceProgress, setEvidenceProgress] = useState<{ done: number; total: number; label?: string } | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const evidenceAbortRef = React.useRef<AbortController | null>(null);
+  /** Prefetch report once after evidencia handoff (columns step). */
+  const evidenciaReportPrefetchOnceRef = React.useRef(false);
+  /** Remision id key last used for a successful fetchReport (skip duplicate fetch on Ver Reporte). */
+  const lastReportFetchKeyRef = React.useRef<string>('');
 
   // ── Restore prefs ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -669,6 +694,40 @@ export default function ReportesClientesPage() {
   }, [dateRange.from, dateRange.to, selectedPlantIds]);
 
   useEffect(() => { loadHierarchical(); }, [loadHierarchical]);
+
+  useEffect(() => {
+    if (searchParams.get('from') !== 'evidencia') return;
+    try {
+      const raw = sessionStorage.getItem('reportes_clientes.preselect');
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      if (p.source !== 'evidencia') return;
+      if (p.dateRange?.from && p.dateRange?.to) {
+        setDateRange({ from: new Date(p.dateRange.from), to: new Date(p.dateRange.to) });
+      }
+      if (Array.isArray(p.plantIds) && p.plantIds.length) setSelectedPlantIds(p.plantIds);
+      setEvidenciaPrefetch({ remisionIds: Array.isArray(p.remisionIds) ? p.remisionIds : [] });
+      setEvidenciaOrderCount(Array.isArray(p.orderIds) ? p.orderIds.length : 0);
+      setFromEvidenciaHandoff(true);
+      sessionStorage.removeItem('reportes_clientes.preselect');
+      router.replace('/finanzas/reportes-clientes', { scroll: false });
+    } catch (e) {
+      console.error('evidencia preselect', e);
+    }
+  }, [searchParams, router]);
+
+  useEffect(() => {
+    if (!evidenciaPrefetch || !hierarchical) return;
+    const valid = new Set(
+      hierarchical.clients.flatMap((c) =>
+        c.orders.flatMap((o) => o.remisiones.map((r) => r.id)),
+      ),
+    );
+    const ids = evidenciaPrefetch.remisionIds.filter((id) => valid.has(id));
+    if (ids.length) setSelectedRemisionIds(new Set(ids));
+    setStep('columns');
+    setEvidenciaPrefetch(null);
+  }, [hierarchical, evidenciaPrefetch]);
 
   // ── Filtered hierarchical (search) ───────────────────────────────────────
   const emptySummary = {
@@ -810,6 +869,28 @@ export default function ReportesClientesPage() {
       });
       setReportData(sorted);
       setReportSummary(summary);
+      lastReportFetchKeyRef.current = [...selectedRemisionIds].sort().join(',');
+
+      // Auto-append 'Bombeo' column when the selection has pumping AND the
+      // user is still on the pristine default plantilla. If they've customised
+      // columns (reorder / add / remove), we don't touch their layout — they
+      // can add "Bombeo" manually from Step 2.
+      const hasPumping = sorted.some(
+        (r) => String(r.tipo_remision ?? '').toUpperCase() !== 'CONCRETO' && r.tipo_remision,
+      );
+      if (hasPumping) {
+        setOrderedCols((cols) => {
+          if (cols.some((c) => c.id === 'serv_bombeo')) return cols;
+          const currentIds = cols.map((c) => c.id);
+          const defaultIds = DEFAULT_COLUMN_SETS.company_standard;
+          const onDefault =
+            currentIds.length === defaultIds.length &&
+            currentIds.every((id, i) => id === defaultIds[i]);
+          if (!onDefault) return cols;
+          const bombeoCol = AVAILABLE_COLUMNS.find((c) => c.id === 'serv_bombeo');
+          return bombeoCol ? [...cols, bombeoCol] : cols;
+        });
+      }
     } catch (e: any) {
       setReportError(e.message ?? 'Error al cargar reporte');
     } finally {
@@ -818,9 +899,23 @@ export default function ReportesClientesPage() {
   }, [selectedRemisionIds, dateRange, sortDirection, selectedPlantIds]);
 
   const goToReview = useCallback(() => {
+    const key = [...selectedRemisionIds].sort().join(',');
     setStep('review');
-    fetchReport();
-  }, [fetchReport]);
+    if (lastReportFetchKeyRef.current === key && reportData.length > 0) {
+      return;
+    }
+    void fetchReport();
+  }, [fetchReport, selectedRemisionIds, reportData.length]);
+
+  // Prefetch report rows on evidencia handoff (stay on columns; Ver Reporte skips duplicate fetch).
+  useEffect(() => {
+    if (!fromEvidenciaHandoff) return;
+    if (step !== 'columns') return;
+    if (selectedRemisionIds.size === 0) return;
+    if (evidenciaReportPrefetchOnceRef.current) return;
+    evidenciaReportPrefetchOnceRef.current = true;
+    void fetchReport();
+  }, [fromEvidenciaHandoff, step, selectedRemisionIds, fetchReport]);
 
   // ── Persist column prefs when they change ─────────────────────────────────
   useEffect(() => {
@@ -974,6 +1069,20 @@ export default function ReportesClientesPage() {
     evidenceAbortRef.current?.abort();
   }, []);
 
+  // ── Pumping map for preview cell rendering ────────────────────────────────
+  const pumpingByOrderId = useMemo(() => {
+    const m = new Map<string, ReportRemisionData[]>();
+    for (const r of reportData) {
+      const tipo = String(r.tipo_remision ?? '').toUpperCase();
+      if (!tipo || tipo === 'CONCRETO') continue;
+      const key = String(r.order_id ?? '');
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(r);
+    }
+    return m;
+  }, [reportData]);
+
   // ── Render ────────────────────────────────────────────────────────────────
   const dateLabel =
     dateRange.from && dateRange.to
@@ -996,6 +1105,17 @@ export default function ReportesClientesPage() {
           </Badge>
         )}
       </div>
+
+      {fromEvidenciaHandoff && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-base text-amber-950">
+          <span className="font-medium">
+            Desde evidencia remisiones — {evidenciaOrderCount} pedido(s) precargado(s)
+          </span>
+          <Button variant="outline" size="sm" className="border-amber-400 bg-white" asChild>
+            <Link href="/finanzas/evidencia-remisiones-concreto">Volver a evidencia</Link>
+          </Button>
+        </div>
+      )}
 
       {/* Step nav */}
       <div className="flex items-center gap-0 rounded-lg border border-stone-200 bg-white p-1 text-sm">
@@ -1192,6 +1312,16 @@ export default function ReportesClientesPage() {
               <CardDescription className="text-xs text-stone-500">
                 Selecciona y ordena las columnas. Las flechas controlan el orden en PDF y Excel.
               </CardDescription>
+              {reportLoading && (
+                <p
+                  className="mt-2 flex items-center gap-2 text-sm text-stone-700"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                  Generando datos del reporte…
+                </p>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
@@ -1373,11 +1503,11 @@ export default function ReportesClientesPage() {
                               >
                                 {isRemCol ? (
                                   <span className="inline-flex items-center gap-1.5">
-                                    <span>{cellDisplay(row, col)}</span>
+                                    <span>{cellDisplay(row, col, pumpingByOrderId)}</span>
                                     <PumpingPill tipo={row.tipo_remision} />
                                   </span>
                                 ) : (
-                                  cellDisplay(row, col)
+                                  cellDisplay(row, col, pumpingByOrderId)
                                 )}
                               </TableCell>
                             );

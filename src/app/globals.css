@@ -82,6 +82,9 @@
   --mask-triangle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpolygon points='50,0 100,100 0,100' fill='%23000'/%3E%3C/svg%3E");
   --mask-hexagon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpolygon points='50,0 100,25 100,75 50,100 0,75 0,25' fill='%23000'/%3E%3C/svg%3E");
   --mask-squircle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpath d='M50,0 C77.6,0 100,22.4 100,50 C100,77.6 77.6,100 50,100 C22.4,100 0,77.6 0,50 C0,22.4 22.4,0 50,0 Z' fill='%23000'/%3E%3C/svg%3E");
+
+  /* JetBrains Mono via next/font variable on <html>; falls back to system monospace. */
+  --font-mono: var(--font-jet-mono), ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
 }
 
 /*
@@ -314,9 +317,15 @@
   }
 } 
 
-@layer base {
-  html {
+/* Default sans: DM Sans from next/font on <html> in root layout. Client portal uses .font-system to restore SF/system stack. */
+
+/* Client portal: keep original SF/system typography (root layout uses DM Sans + JetBrains Mono). */
+@layer utilities {
+  .font-system {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+  .font-system .font-mono {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace;
   }
 }
 

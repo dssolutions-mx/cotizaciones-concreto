@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -33,13 +33,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -68,6 +61,11 @@ import {
   buildFinancialEstimatePreviewRows,
   type OrderItemLineDiff,
 } from '@/lib/finanzas/buildOrderItemLineDiffs'
+import { supabase } from '@/lib/supabase'
+import {
+  fetchCatalogAdditionalProducts,
+  type CatalogAdditionalProduct,
+} from '@/lib/finanzas/additionalProductsCatalog'
 
 export type AuditSummaryPayload = {
   order: Record<string, unknown>
@@ -161,10 +159,10 @@ export default function ConcreteEvidenceOrderAuditSections({
   const [quoteLinesBusy, setQuoteLinesBusy] = useState(false)
 
   const [addLineOpen, setAddLineOpen] = useState(false)
-  const [addLineName, setAddLineName] = useState('')
   const [addLineVol, setAddLineVol] = useState('')
-  const [addLineUnit, setAddLineUnit] = useState('')
-  const [addLineBilling, setAddLineBilling] = useState<'PER_UNIT' | 'PER_ORDER_FIXED'>('PER_UNIT')
+  const [catalogProducts, setCatalogProducts] = useState<CatalogAdditionalProduct[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [pickedAdditional, setPickedAdditional] = useState<CatalogAdditionalProduct | null>(null)
 
   const orderStatus = (order?.order_status as string) || ''
   const postCloseWarning =
@@ -298,33 +296,45 @@ export default function ConcreteEvidenceOrderAuditSections({
   }
 
   const handleAddLinePreview = async () => {
-    const name = addLineName.trim()
-    const vol = Number(addLineVol)
-    const pu = Number(addLineUnit)
-    if (name.length < 2) {
-      toast.error('Ingrese una descripción (mín. 2 caracteres)')
-      return
-    }
-    if (addLineBilling !== 'PER_ORDER_FIXED' && (!Number.isFinite(vol) || vol <= 0)) {
-      toast.error('Volumen inválido')
-      return
-    }
-    if (!Number.isFinite(pu) || pu < 0) {
-      toast.error('Precio inválido')
+    if (!summary) return
+    const ap = pickedAdditional
+    if (!ap) {
+      toast.error('Seleccione un producto de la cotización')
       return
     }
     if (postCloseWarning && !canPostClose) {
       toast.error('No autorizado para corrección post-cierre')
       return
     }
+    const totalConcreteVol = Number(summary.concrete_volume_delivered_sum ?? 0)
+    const bt = ap.billingType
+    const unitPrice = ap.unitPrice
+    let volume: number
+    let totalPrice: number
+    if (bt === 'PER_ORDER_FIXED') {
+      volume = 1
+      totalPrice = unitPrice
+    } else if (bt === 'PER_UNIT') {
+      const vol = Number(addLineVol)
+      if (!Number.isFinite(vol) || vol <= 0) {
+        toast.error('Cantidad inválida')
+        return
+      }
+      volume = vol
+      totalPrice = vol * unitPrice
+    } else {
+      volume = ap.quantity
+      if (totalConcreteVol <= 0) {
+        toast.error('No hay volumen de concreto entregado para calcular cobro por m³')
+        return
+      }
+      totalPrice = ap.quantity * totalConcreteVol * unitPrice
+    }
     const warnings: string[] = []
     if (postCloseWarning) warnings.push('Pedido en estado completado o cancelado.')
-    const volume = addLineBilling === 'PER_ORDER_FIXED' ? 1 : vol
-    const totalPrice = addLineBilling === 'PER_ORDER_FIXED' ? pu : vol * pu
     setAddLineOpen(false)
-    setAddLineName('')
+    setPickedAdditional(null)
     setAddLineVol('')
-    setAddLineUnit('')
     await runPreviewThenConfirm(
       'items',
       [
@@ -334,12 +344,12 @@ export default function ConcreteEvidenceOrderAuditSections({
             quote_detail_id: null,
             recipe_id: null,
             master_recipe_id: null,
-            product_type: `PRODUCTO ADICIONAL: ${name}`,
+            product_type: `PRODUCTO ADICIONAL: ${ap.name} (${ap.code})`,
             volume,
-            unit_price: pu,
+            unit_price: unitPrice,
             total_price: totalPrice,
             has_pump_service: false,
-            billing_type: addLineBilling,
+            billing_type: bt,
           },
         },
       ],
@@ -348,6 +358,41 @@ export default function ConcreteEvidenceOrderAuditSections({
       false
     )
   }
+
+  useEffect(() => {
+    if (!addLineOpen || !summary?.order) return
+    const o = summary.order as Record<string, unknown>
+    const clientId = o.client_id as string | undefined
+    const constructionSite = o.construction_site as string | undefined
+    let cancelled = false
+    ;(async () => {
+      setCatalogLoading(true)
+      setPickedAdditional(null)
+      setCatalogProducts([])
+      setAddLineVol('')
+      if (!clientId || !constructionSite) {
+        setCatalogLoading(false)
+        toast.error('Falta cliente u obra en el pedido')
+        return
+      }
+      try {
+        const list = await fetchCatalogAdditionalProducts(supabase, {
+          clientId,
+          constructionSite,
+          orderQuoteId: (o.quote_id as string | null | undefined) ?? null,
+        })
+        if (!cancelled) setCatalogProducts(list)
+      } catch (e) {
+        console.error(e)
+        if (!cancelled) toast.error('No se pudieron cargar productos adicionales')
+      } finally {
+        if (!cancelled) setCatalogLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [addLineOpen, summary])
 
   const handleRecalculate = async () => {
     if (postCloseWarning && !canPostClose) {
@@ -565,13 +610,7 @@ export default function ConcreteEvidenceOrderAuditSections({
                 variant="outline"
                 size="sm"
                 className="h-8 w-full text-[11px]"
-                onClick={() => {
-                  setAddLineName('')
-                  setAddLineVol('')
-                  setAddLineUnit('')
-                  setAddLineBilling('PER_UNIT')
-                  setAddLineOpen(true)
-                }}
+                onClick={() => setAddLineOpen(true)}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
                 Añadir producto adicional
@@ -901,62 +940,119 @@ export default function ConcreteEvidenceOrderAuditSections({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={addLineOpen} onOpenChange={setAddLineOpen}>
-        <DialogContent className="max-w-sm">
+      <Dialog
+        open={addLineOpen}
+        onOpenChange={(open) => {
+          setAddLineOpen(open)
+          if (!open) {
+            setPickedAdditional(null)
+            setAddLineVol('')
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Producto adicional</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-xs">
-            <div>
-              <Label>Descripción</Label>
-              <Input
-                className="h-9 mt-1"
-                value={addLineName}
-                onChange={(e) => setAddLineName(e.target.value)}
-                placeholder="Ej. Caseta, malla, etc."
-              />
-            </div>
-            <div>
-              <Label>Facturación</Label>
-              <Select
-                value={addLineBilling}
-                onValueChange={(v) => setAddLineBilling(v as 'PER_UNIT' | 'PER_ORDER_FIXED')}
-              >
-                <SelectTrigger className="h-9 mt-1">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PER_UNIT">Por volumen × precio unitario</SelectItem>
-                  <SelectItem value="PER_ORDER_FIXED">Monto fijo por pedido</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {addLineBilling !== 'PER_ORDER_FIXED' && (
-              <div>
-                <Label>Volumen</Label>
-                <Input
-                  className="h-9 mt-1 tabular-nums"
-                  value={addLineVol}
-                  onChange={(e) => setAddLineVol(e.target.value)}
-                  inputMode="decimal"
-                />
+          <div className="space-y-4 text-sm">
+            {catalogLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                Cargando catálogo de cotización…
               </div>
+            ) : catalogProducts.length === 0 ? (
+              <p className="text-stone-600 leading-relaxed">
+                No hay productos adicionales en cotizaciones aprobadas para este cliente y obra. Revise la cotización o
+                agregue el producto desde la ficha del pedido.
+              </p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>Producto (cotización)</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        className="w-full justify-between h-10 font-normal border-stone-300 bg-white"
+                      >
+                        {pickedAdditional
+                          ? `${pickedAdditional.name} (${pickedAdditional.code})`
+                          : 'Seleccionar producto…'}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[min(100vw-2rem,28rem)] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Buscar…" className="h-10" />
+                        <CommandList>
+                          <CommandEmpty>Sin resultados.</CommandEmpty>
+                          <CommandGroup>
+                            {catalogProducts.map((p) => (
+                              <CommandItem
+                                key={p.quoteAdditionalProductId}
+                                value={`${p.name} ${p.code}`}
+                                onSelect={() => {
+                                  setPickedAdditional(p)
+                                  setAddLineVol(String(p.quantity))
+                                }}
+                              >
+                                <span className="truncate">
+                                  {p.name} ({p.code}) — {formatMxCurrency(p.unitPrice)} · {p.billingType}
+                                </span>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                {pickedAdditional && (
+                  <div className="rounded-lg border border-stone-200 bg-stone-50/90 px-3 py-2.5 text-xs text-stone-800 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-stone-600">Facturación</span>
+                      <Badge variant="secondary" className="font-mono text-[11px]">
+                        {pickedAdditional.billingType}
+                      </Badge>
+                    </div>
+                    <div className="tabular-nums">
+                      Precio unitario: <span className="font-medium">{formatMxCurrency(pickedAdditional.unitPrice)}</span>
+                    </div>
+                    {pickedAdditional.billingType === 'PER_M3' && summary && (
+                      <div className="tabular-nums text-stone-700">
+                        Volumen concreto entregado (pedido):{' '}
+                        {Number(summary.concrete_volume_delivered_sum ?? 0).toFixed(2)} m³
+                      </div>
+                    )}
+                  </div>
+                )}
+                {pickedAdditional?.billingType === 'PER_UNIT' && (
+                  <div>
+                    <Label>Cantidad</Label>
+                    <Input
+                      className="h-10 mt-1 tabular-nums border-stone-300 bg-white"
+                      value={addLineVol}
+                      onChange={(e) => setAddLineVol(e.target.value)}
+                      inputMode="decimal"
+                    />
+                  </div>
+                )}
+              </>
             )}
-            <div>
-              <Label>{addLineBilling === 'PER_ORDER_FIXED' ? 'Monto' : 'Precio unitario'}</Label>
-              <Input
-                className="h-9 mt-1 tabular-nums"
-                value={addLineUnit}
-                onChange={(e) => setAddLineUnit(e.target.value)}
-                inputMode="decimal"
-              />
-            </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddLineOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" onClick={() => setAddLineOpen(false)}>
               Cerrar
             </Button>
-            <Button onClick={() => void handleAddLinePreview()}>Vista previa</Button>
+            <Button
+              type="button"
+              disabled={catalogLoading || !pickedAdditional || catalogProducts.length === 0}
+              onClick={() => void handleAddLinePreview()}
+            >
+              Vista previa
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
