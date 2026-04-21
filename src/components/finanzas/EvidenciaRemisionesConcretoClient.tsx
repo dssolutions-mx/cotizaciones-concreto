@@ -50,7 +50,11 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
-import { useSignedUrls } from '@/hooks/useSignedUrls'
+import {
+  REMISION_DOCUMENTS_BUCKET,
+  downloadStorageFileArrayBuffer,
+} from '@/lib/supabase/storageDownload'
+import { downloadBlobInBrowser } from '@/lib/browser/downloadBlob'
 import { parseJsonResponse } from '@/lib/http/safeJsonResponse'
 import {
   isConcreteEvidenceFileZippable,
@@ -187,7 +191,6 @@ export default function EvidenciaRemisionesConcretoClient() {
   const [excelBusy, setExcelBusy] = useState(false)
   const [bulkZipBusy, setBulkZipBusy] = useState(false)
   const [zipOrderSelection, setZipOrderSelection] = useState<Set<string>>(() => new Set())
-  const { getSignedUrl } = useSignedUrls('remision-documents', 3600)
   const [rows, setRows] = useState<Row[]>([])
   const [reassignmentByRemisionPage, setReassignmentByRemisionPage] = useState<Map<string, string>>(
     () => new Map()
@@ -426,11 +429,8 @@ export default function EvidenciaRemisionesConcretoClient() {
           )
           for (const ev of zippable) {
             if (fileCount >= MAX_BULK_ZIP_FILES) break
-            const url = await getSignedUrl(ev.file_path)
-            if (!url) continue
-            const fileRes = await fetch(url)
-            if (!fileRes.ok) continue
-            const buf = await fileRes.arrayBuffer()
+            const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, ev.file_path)
+            if (!buf) continue
             const rel = uniqueZipPath(
               `${folder}/${sanitizeZipPathSegment(ev.original_name, 'archivo')}`,
               usedPaths
@@ -450,11 +450,7 @@ export default function EvidenciaRemisionesConcretoClient() {
 
       const blob = await zip.generateAsync({ type: 'blob' })
       const stamp = format(new Date(), 'yyyyMMdd-HHmm')
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `evidencia-multipedido-${from}-${to}-${stamp}.zip`
-      a.click()
-      URL.revokeObjectURL(a.href)
+      downloadBlobInBrowser(blob, `evidencia-multipedido-${from}-${to}-${stamp}.zip`)
       const capped = fileCount >= MAX_BULK_ZIP_FILES
       toast.success(
         capped

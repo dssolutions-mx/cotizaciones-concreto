@@ -80,6 +80,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.487.0",
     "next": "^16.0.9",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.1.91",
     "react": "^19.2.2",
     "react-apexcharts": "^1.7.0",

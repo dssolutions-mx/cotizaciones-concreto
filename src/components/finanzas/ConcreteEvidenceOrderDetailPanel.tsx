@@ -19,6 +19,7 @@ import {
   Archive,
   History,
   Shuffle,
+  FileStack,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -64,6 +65,12 @@ import ConcreteEvidenceOrderAuditSections, {
 } from '@/components/finanzas/ConcreteEvidenceOrderAuditSections'
 import AuditHistorySheet from '@/components/finanzas/audit/AuditHistorySheet'
 import { useFinanzasAuditCapabilities } from '@/hooks/finanzas/useFinanzasAuditCapabilities'
+import {
+  REMISION_DOCUMENTS_BUCKET,
+  downloadStorageFileArrayBuffer,
+} from '@/lib/supabase/storageDownload'
+import { downloadBlobInBrowser } from '@/lib/browser/downloadBlob'
+import { mergeEvidencePartsToPdf } from '@/lib/finanzas/mergeEvidenceToPdf'
 
 type EvidenceRow = {
   id: string
@@ -85,6 +92,23 @@ type ConcreteRemRow = {
   volumen_fabricado?: number | null
   unidad?: string | null
   conductor?: string | null
+}
+
+type PumpingEvidenceDocRow = {
+  id: string
+  file_path: string
+  original_name: string
+  file_size: number
+  mime_type: string
+}
+
+type PumpingRemisionEvidenceRow = {
+  id: string
+  remision_number: string
+  fecha: string
+  volumen_fabricado?: number | null
+  plants?: { name?: string } | { name?: string }[] | null
+  remision_documents?: PumpingEvidenceDocRow[]
 }
 
 export type OrderSummary = {
@@ -119,6 +143,14 @@ function isEvidencePdf(ev: EvidenceRow): boolean {
   return ev.mime_type === 'application/pdf' || /\.pdf$/i.test(ev.original_name || '')
 }
 
+function pumpingPlantName(
+  plants: PumpingRemisionEvidenceRow['plants']
+): string | null {
+  if (!plants) return null
+  if (Array.isArray(plants)) return plants[0]?.name ?? null
+  return plants.name ?? null
+}
+
 export default function ConcreteEvidenceOrderDetailPanel({
   orderId,
   summary,
@@ -131,6 +163,9 @@ export default function ConcreteEvidenceOrderDetailPanel({
   const [error, setError] = useState<string | null>(null)
   const [evidence, setEvidence] = useState<EvidenceRow[]>([])
   const [remisiones, setRemisiones] = useState<ConcreteRemRow[]>([])
+  const [pumpingRemisionEvidence, setPumpingRemisionEvidence] = useState<PumpingRemisionEvidenceRow[]>(
+    []
+  )
   const [auditSummary, setAuditSummary] = useState<AuditSummaryPayload | null>(null)
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
@@ -152,6 +187,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [selectedZipIds, setSelectedZipIds] = useState<Set<string>>(() => new Set())
   const [zipBusy, setZipBusy] = useState(false)
+  const [mergeBusy, setMergeBusy] = useState(false)
   const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(
     () => new Map()
   )
@@ -160,6 +196,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
     if (!orderId) {
       setEvidence([])
       setRemisiones([])
+      setPumpingRemisionEvidence([])
       setError(null)
       return
     }
@@ -178,6 +215,18 @@ export default function ConcreteEvidenceOrderDetailPanel({
           ? json.data!.concrete_remisiones_ordered
           : []
       )
+
+      try {
+        const pumpRes = await fetch(`/api/orders/${orderId}/pumping-evidence`)
+        const pumpJson = (await pumpRes.json()) as { data?: PumpingRemisionEvidenceRow[] }
+        if (pumpRes.ok && Array.isArray(pumpJson.data)) {
+          setPumpingRemisionEvidence(pumpJson.data)
+        } else {
+          setPumpingRemisionEvidence([])
+        }
+      } catch {
+        setPumpingRemisionEvidence([])
+      }
     } catch (e) {
       console.error(e)
       const msg = e instanceof Error ? e.message : 'Error al cargar'
@@ -238,6 +287,15 @@ export default function ConcreteEvidenceOrderDetailPanel({
       cancelled = true
     }
   }, [remisiones])
+
+  const pumpingEvidenceDocCount = useMemo(
+    () =>
+      pumpingRemisionEvidence.reduce(
+        (n, r) => n + (Array.isArray(r.remision_documents) ? r.remision_documents.length : 0),
+        0
+      ),
+    [pumpingRemisionEvidence]
+  )
 
   const zippableEvidenceList = useMemo(
     () => evidence.filter((e) => isConcreteEvidenceFileZippable(e.mime_type, e.original_name)),
@@ -414,17 +472,11 @@ export default function ConcreteEvidenceOrderDetailPanel({
       const usedPaths = new Set<string>()
 
       for (const ev of selected) {
-        const url = await getSignedUrl(ev.file_path)
-        if (!url) {
-          toast.error(`Sin enlace firmado: ${ev.original_name}`)
+        const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, ev.file_path)
+        if (!buf) {
+          toast.error(`No se pudo leer: ${ev.original_name}`)
           continue
         }
-        const res = await fetch(url)
-        if (!res.ok) {
-          toast.error(`No se pudo descargar: ${ev.original_name}`)
-          continue
-        }
-        const buf = await res.arrayBuffer()
         const entry = uniqueZipPath(
           sanitizeZipPathSegment(ev.original_name, 'archivo'),
           usedPaths
@@ -440,11 +492,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
 
       const blob = await zip.generateAsync({ type: 'blob' })
       const stamp = format(new Date(), 'yyyyMMdd-HHmm')
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `evidencia-${summary.order_number}-${stamp}.zip`
-      a.click()
-      URL.revokeObjectURL(a.href)
+      downloadBlobInBrowser(blob, `evidencia-${summary.order_number}-${stamp}.zip`)
       if (added < selected.length) {
         toast.success(`ZIP generado con ${added} de ${selected.length} archivo(s)`)
       } else {
@@ -455,6 +503,86 @@ export default function ConcreteEvidenceOrderDetailPanel({
       toast.error('No se pudo crear el ZIP')
     } finally {
       setZipBusy(false)
+    }
+  }
+
+  const downloadMergedConcretePdf = async () => {
+    const selected = zippableEvidenceList.filter((e) => selectedZipIds.has(e.id))
+    if (selected.length === 0) {
+      toast.error('Seleccione al menos un PDF o imagen')
+      return
+    }
+    setMergeBusy(true)
+    try {
+      const parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }> = []
+      for (const ev of selected) {
+        const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, ev.file_path)
+        if (!buf) {
+          toast.error(`No se pudo leer: ${ev.original_name}`)
+          continue
+        }
+        parts.push({
+          buffer: buf,
+          mimeType: ev.mime_type || '',
+          name: ev.original_name,
+        })
+      }
+      if (parts.length === 0) {
+        toast.error('No se pudo cargar ningún archivo')
+        return
+      }
+      const pdfBytes = await mergeEvidencePartsToPdf(parts)
+      const stamp = format(new Date(), 'yyyyMMdd-HHmm')
+      downloadBlobInBrowser(
+        new Blob([pdfBytes], { type: 'application/pdf' }),
+        `evidencia-unida-${summary.order_number}-${stamp}.pdf`
+      )
+      toast.success(`PDF generado con ${parts.length} archivo(s)`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el PDF')
+    } finally {
+      setMergeBusy(false)
+    }
+  }
+
+  const downloadMergedPumpingPdf = async () => {
+    if (pumpingEvidenceDocCount === 0) {
+      toast.error('No hay archivos de evidencia de bombeo')
+      return
+    }
+    setMergeBusy(true)
+    try {
+      const parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }> = []
+      for (const r of pumpingRemisionEvidence) {
+        const docs = Array.isArray(r.remision_documents) ? r.remision_documents : []
+        for (const d of docs) {
+          if (!isConcreteEvidenceFileZippable(d.mime_type, d.original_name)) continue
+          const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, d.file_path)
+          if (!buf) continue
+          parts.push({
+            buffer: buf,
+            mimeType: d.mime_type || '',
+            name: `${r.remision_number}_${d.original_name}`,
+          })
+        }
+      }
+      if (parts.length === 0) {
+        toast.error('No hay PDFs o imágenes reconocidas para unir')
+        return
+      }
+      const pdfBytes = await mergeEvidencePartsToPdf(parts)
+      const stamp = format(new Date(), 'yyyyMMdd-HHmm')
+      downloadBlobInBrowser(
+        new Blob([pdfBytes], { type: 'application/pdf' }),
+        `evidencia-bombeo-${summary.order_number}-${stamp}.pdf`
+      )
+      toast.success(`PDF de bombeo: ${parts.length} archivo(s)`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el PDF')
+    } finally {
+      setMergeBusy(false)
     }
   }
 
@@ -646,6 +774,113 @@ export default function ConcreteEvidenceOrderDetailPanel({
                 </CollapsibleContent>
               </Collapsible>
 
+              {pumpingRemisionEvidence.length > 0 && (
+                <Collapsible defaultOpen className="rounded-lg border border-stone-200/80 bg-stone-50/50">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left font-medium text-stone-800 hover:bg-stone-100/80 rounded-t-lg [&[data-state=open]_svg:last-child]:rotate-180">
+                    <span className="inline-flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-stone-500" />
+                      Evidencia de bombeo ({pumpingEvidenceDocCount})
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="px-3 pb-3 space-y-3 max-h-72 overflow-y-auto">
+                      <p className="text-[11px] text-muted-foreground">
+                        Archivos adjuntos a remisiones de bombeo (mismo almacén que producción).
+                      </p>
+                      {pumpingEvidenceDocCount > 0 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 border-stone-300 bg-white"
+                          disabled={mergeBusy || zipBusy}
+                          onClick={() => void downloadMergedPumpingPdf()}
+                        >
+                          {mergeBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <FileStack className="h-3.5 w-3.5" />
+                          )}
+                          Unir evidencia bombeo en un PDF
+                        </Button>
+                      )}
+                      {pumpingRemisionEvidence.map((r) => {
+                        const docs = Array.isArray(r.remision_documents) ? r.remision_documents : []
+                        const plant = pumpingPlantName(r.plants)
+                        const vol = r.volumen_fabricado
+                        return (
+                          <div
+                            key={r.id}
+                            className="rounded border border-stone-200/60 bg-background px-2 py-2 text-xs space-y-2"
+                          >
+                            <div>
+                              <div className="font-medium text-stone-900">{r.remision_number}</div>
+                              <div className="text-muted-foreground text-[11px] tabular-nums mt-0.5">
+                                <span>{formatRemisionFechaForDisplay(r.fecha)}</span>
+                                {vol != null && Number.isFinite(Number(vol)) ? (
+                                  <span className="ml-2">· {Number(vol).toFixed(2)} m³</span>
+                                ) : null}
+                                {plant ? <span className="ml-2">· {plant}</span> : null}
+                              </div>
+                            </div>
+                            {docs.length === 0 ? (
+                              <p className="text-[11px] text-muted-foreground">Sin archivos adjuntos</p>
+                            ) : (
+                              <ul className="space-y-2">
+                                {docs.map((doc) => (
+                                  <li
+                                    key={doc.id}
+                                    className="rounded-md border border-stone-200/50 bg-stone-50/40 p-2 space-y-2"
+                                  >
+                                    <p className="font-medium text-stone-800 break-all line-clamp-2">
+                                      {doc.original_name}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      {doc.mime_type || '—'} · {formatBytes(doc.file_size || 0)}
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs border-stone-300 bg-white"
+                                        disabled={urlLoading(doc.file_path)}
+                                        onClick={() => void openFile(doc.file_path)}
+                                      >
+                                        {urlLoading(doc.file_path) ? (
+                                          <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                          <>
+                                            <ExternalLink className="h-3 w-3 mr-1" /> Abrir
+                                          </>
+                                        )}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs border-stone-300 bg-white"
+                                        disabled={urlLoading(doc.file_path)}
+                                        onClick={() =>
+                                          void downloadFile(doc.file_path, doc.original_name)
+                                        }
+                                      >
+                                        <Download className="h-3 w-3 mr-1" /> Descargar
+                                      </Button>
+                                    </div>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+
               {evidence.length > 0 && (
                 <div className="rounded-lg border border-stone-200/80 bg-stone-50/50">
                   <div className="px-3 py-2 font-medium text-stone-800 border-b border-stone-200/60 flex items-center gap-2">
@@ -655,8 +890,8 @@ export default function ConcreteEvidenceOrderDetailPanel({
                   {zippableEvidenceList.length > 0 && (
                     <div className="px-3 py-2 border-b border-stone-200/60 bg-stone-100/40 space-y-2">
                       <p className="text-[11px] text-muted-foreground">
-                        Paquete ZIP: marque PDFs o imágenes (PNG, JPG, GIF, WebP). Otros tipos: descarga
-                        individual.
+                        Marque PDFs o imágenes (PNG, JPG, GIF, WebP). Descargue un ZIP o un solo PDF que
+                        concatena todo lo seleccionado. Otros tipos: descarga individual.
                       </p>
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -664,7 +899,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs border-stone-300 bg-white"
-                          disabled={zippableEvidenceList.length === 0}
+                          disabled={zippableEvidenceList.length === 0 || zipBusy || mergeBusy}
                           onClick={selectAllZippable}
                         >
                           Todos (PDF / imagen)
@@ -674,7 +909,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs border-stone-300 bg-white"
-                          disabled={selectedZipCount === 0}
+                          disabled={selectedZipCount === 0 || zipBusy || mergeBusy}
                           onClick={clearZipSelection}
                         >
                           Quitar selección
@@ -684,7 +919,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs gap-1 border-stone-300 bg-white"
-                          disabled={selectedZipCount === 0 || zipBusy}
+                          disabled={selectedZipCount === 0 || zipBusy || mergeBusy}
                           onClick={() => void downloadSelectedZip()}
                         >
                           {zipBusy ? (
@@ -693,6 +928,21 @@ export default function ConcreteEvidenceOrderDetailPanel({
                             <Archive className="h-3.5 w-3.5" />
                           )}
                           ZIP ({selectedZipCount})
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 border-stone-300 bg-white"
+                          disabled={selectedZipCount === 0 || zipBusy || mergeBusy}
+                          onClick={() => void downloadMergedConcretePdf()}
+                        >
+                          {mergeBusy ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <FileStack className="h-3.5 w-3.5" />
+                          )}
+                          PDF unido
                         </Button>
                       </div>
                     </div>

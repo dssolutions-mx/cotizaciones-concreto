@@ -441,12 +441,17 @@ export class ReportDataService {
    * Fetch hierarchical client→order→remision tree for the selection UI.
    * Pricing is included so the tree can show per-order totals.
    */
-  static async fetchHierarchicalData(dateRange: { from: Date; to: Date }): Promise<HierarchicalReportData> {
-    if (!dateRange.from || !dateRange.to) throw new Error('Date range is required');
-    const start = format(dateRange.from, 'yyyy-MM-dd');
-    const end = format(dateRange.to, 'yyyy-MM-dd');
+  static async fetchHierarchicalData(args: {
+    from: Date;
+    to: Date;
+    plantIds?: string[];
+  }): Promise<HierarchicalReportData> {
+    if (!args.from || !args.to) throw new Error('Date range is required');
+    const start = format(args.from, 'yyyy-MM-dd');
+    const end = format(args.to, 'yyyy-MM-dd');
+    const plantIds = args.plantIds?.filter(Boolean) ?? [];
 
-    const { data: rawRemisiones, error: remErr } = await supabase
+    let query = supabase
       .from('remisiones')
       .select(`
         id,
@@ -491,8 +496,13 @@ export class ReportDataService {
         )
       `)
       .gte('fecha', start)
-      .lte('fecha', end)
-      .order('fecha', { ascending: false });
+      .lte('fecha', end);
+
+    if (plantIds.length) {
+      query = query.in('plant_id', plantIds);
+    }
+
+    const { data: rawRemisiones, error: remErr } = await query.order('fecha', { ascending: false });
 
     if (remErr) throw remErr;
     if (!rawRemisiones?.length) {
@@ -568,6 +578,7 @@ export class ReportDataService {
         recipe_code: getDisplayProductCode(remision),
         conductor: remision.conductor,
         line_total: pricing.subtotal,
+        tipo_remision: remision.tipo_remision,
         selected: false,
         plant_info: remision.plant ? {
           plant_id: remision.plant.id,

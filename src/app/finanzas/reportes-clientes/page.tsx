@@ -29,6 +29,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 // Icons
 import {
@@ -44,6 +45,9 @@ import {
   AlertCircle,
   RefreshCw,
   Settings2,
+  Building2,
+  Paperclip,
+  X as XIcon,
 } from 'lucide-react';
 
 // Services & types
@@ -65,9 +69,12 @@ import {
   columnsFromOrderedIds,
   REPORTES_CLIENTES_STORAGE_KEY,
   type ReportDefinitionPersistedV1,
+  type ReportDefinitionPersistedV2,
+  type ReportDefinitionPersisted,
 } from '@/types/pdf-reports';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import { buildDeliveryReceiptExcel, downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
 import type { DeliveryReceiptExcelConfig } from '@/lib/reports/deliveryReceiptExcel';
 import type { DeliveryReceiptTemplateConfig } from '@/components/reports/templates/DeliveryReceiptPDF';
@@ -101,6 +108,27 @@ function fmtDate(d?: string) {
   if (!d) return '—';
   try { return format(new Date(d + 'T12:00:00'), 'dd/MM/yy'); } catch { return d; }
 }
+function pumpingPillInfo(tipo?: string | null): { label: string; cls: string } | null {
+  if (!tipo) return null;
+  const t = String(tipo).toUpperCase();
+  if (t === 'BOMBEO') return { label: 'Bombeo', cls: 'bg-blue-50 text-blue-700 border-blue-200' };
+  if (t === 'VACÍO DE OLLA' || t === 'VACIO DE OLLA') {
+    return { label: 'Vacío', cls: 'bg-amber-50 text-amber-700 border-amber-200' };
+  }
+  return null;
+}
+function PumpingPill({ tipo }: { tipo?: string | null }) {
+  const info = pumpingPillInfo(tipo);
+  if (!info) return null;
+  return (
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${info.cls}`}
+    >
+      {info.label}
+    </span>
+  );
+}
+
 function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
   switch (col.id) {
     case 'row_number': return '';
@@ -136,15 +164,43 @@ function cellDisplay(item: ReportRemisionData, col: ReportColumn): string {
   }
 }
 
-function persistPrefs(prefs: ReportDefinitionPersistedV1) {
+function persistPrefs(prefs: ReportDefinitionPersisted) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* quota */ }
 }
-function loadPrefs(): ReportDefinitionPersistedV1 | null {
+
+/**
+ * Load prefs and auto-migrate v1 → v2. For v1 rows pinned to the old
+ * company-standard column set, replace with the new v2 default. Custom column
+ * selections are preserved.
+ */
+function loadPrefs(): ReportDefinitionPersisted | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw);
-    if (p.v === 1) return p as ReportDefinitionPersistedV1;
+    if (p?.v === 2) return p as ReportDefinitionPersistedV2;
+    if (p?.v === 1) {
+      const v1 = p as ReportDefinitionPersistedV1;
+      // Detect the exact v1 default 11-column set → replace with v2 default.
+      const OLD_DEFAULT_IDS = [
+        'fecha','remision_number','business_name','order_number','construction_site',
+        'elemento','unidad_cr','recipe_code','volumen_fabricado','unit_price','line_total'
+      ];
+      const isOldDefault =
+        Array.isArray(v1.columnIdsOrdered) &&
+        v1.columnIdsOrdered.length === OLD_DEFAULT_IDS.length &&
+        v1.columnIdsOrdered.every((id, i) => id === OLD_DEFAULT_IDS[i]);
+      return {
+        v: 2,
+        selectedTemplate: v1.selectedTemplate,
+        columnIdsOrdered: isOldDefault ? [...DEFAULT_COLUMN_SETS.company_standard] : v1.columnIdsOrdered,
+        reportTitle: v1.reportTitle,
+        showSummary: v1.showSummary,
+        showVAT: v1.showVAT,
+        sortBy: v1.sortBy,
+        plantIds: [],
+      };
+    }
   } catch { /* corrupt */ }
   return null;
 }
@@ -346,6 +402,7 @@ function SelectionTree({
                                 <span className="text-xs font-medium text-stone-800">
                                   #{rem.remision_number}
                                 </span>
+                                <PumpingPill tipo={rem.tipo_remision} />
                                 <span className="ml-1 text-xs text-stone-500">{rem.recipe_code}</span>
                                 <span className="ml-auto font-mono text-xs tabular-nums text-stone-600">
                                   {fmtNum(rem.volumen_fabricado)} m³
@@ -483,10 +540,13 @@ type Step = 'selection' | 'columns' | 'review';
 
 export default function ReportesClientesPage() {
   const { profile } = useAuthBridge();
+  const { availablePlants, currentPlant, isGlobalAdmin } = usePlantContext();
 
   // ── Date & filter state ───────────────────────────────────────────────────
   const [dateRange, setDateRange] = useState<DateRange>(DEFAULT_DATE_RANGE);
   const [search, setSearch] = useState('');
+  const [selectedPlantIds, setSelectedPlantIds] = useState<string[]>([]);
+  const [plantPickerOpen, setPlantPickerOpen] = useState(false);
 
   // ── Hierarchical data ─────────────────────────────────────────────────────
   const [hierarchical, setHierarchical] = useState<HierarchicalReportData | null>(null);
@@ -522,7 +582,29 @@ export default function ReportesClientesPage() {
     if (saved?.columnIdsOrdered?.length) {
       setOrderedCols(columnsFromOrderedIds(saved.columnIdsOrdered));
     }
+    if (saved?.plantIds?.length) {
+      setSelectedPlantIds(saved.plantIds);
+    }
   }, []);
+
+  // ── Default plant selection from context (only if user has NOT explicitly
+  //    chosen in this session and has no saved prefs) ────────────────────────
+  useEffect(() => {
+    if (selectedPlantIds.length > 0) return;
+    if (currentPlant?.id) {
+      setSelectedPlantIds([currentPlant.id]);
+    }
+  }, [currentPlant?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Prune plant IDs the user no longer has access to (e.g. after role change)
+  useEffect(() => {
+    if (!availablePlants.length) return;
+    const validIds = new Set(availablePlants.map((p) => p.id));
+    setSelectedPlantIds((prev) => {
+      const filtered = prev.filter((id) => validIds.has(id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [availablePlants]);
 
   // ── Load hierarchical when date changes ───────────────────────────────────
   const loadHierarchical = useCallback(async () => {
@@ -533,15 +615,16 @@ export default function ReportesClientesPage() {
       const data = await ReportDataService.fetchHierarchicalData({
         from: dateRange.from,
         to: dateRange.to,
+        plantIds: selectedPlantIds.length ? selectedPlantIds : undefined,
       });
       setHierarchical(data);
-      setSelectedRemisionIds(new Set()); // reset selection on date change
+      setSelectedRemisionIds(new Set()); // reset selection on date / plant change
     } catch (e: any) {
       setHierarchicalError(e.message ?? 'Error al cargar datos');
     } finally {
       setHierarchicalLoading(false);
     }
-  }, [dateRange.from, dateRange.to]);
+  }, [dateRange.from, dateRange.to, selectedPlantIds]);
 
   useEffect(() => { loadHierarchical(); }, [loadHierarchical]);
 
@@ -667,9 +750,18 @@ export default function ReportesClientesPage() {
       const filter: ReportFilter = {
         dateRange,
         remisionIds: Array.from(selectedRemisionIds),
+        plantIds: selectedPlantIds.length ? selectedPlantIds : undefined,
       };
       const { data, summary } = await ReportDataService.fetchReportData(filter);
+      const tipoRank = (t?: string) => (String(t ?? '').toUpperCase() === 'CONCRETO' ? 0 : 1);
       const sorted = [...data].sort((a, b) => {
+        // Group by order so pumping rows can be kept with their concrete deliveries
+        const ao = String(a.order?.order_number ?? a.order_id ?? '');
+        const bo = String(b.order?.order_number ?? b.order_id ?? '');
+        if (ao !== bo) return ao.localeCompare(bo);
+        // Concrete rows before pumping within the same order
+        const tr = tipoRank(a.tipo_remision) - tipoRank(b.tipo_remision);
+        if (tr !== 0) return tr;
         const av = new Date(a.fecha).getTime();
         const bv = new Date(b.fecha).getTime();
         return sortDirection === 'desc' ? bv - av : av - bv;
@@ -681,7 +773,7 @@ export default function ReportesClientesPage() {
     } finally {
       setReportLoading(false);
     }
-  }, [selectedRemisionIds, dateRange, sortDirection]);
+  }, [selectedRemisionIds, dateRange, sortDirection, selectedPlantIds]);
 
   const goToReview = useCallback(() => {
     setStep('review');
@@ -690,17 +782,18 @@ export default function ReportesClientesPage() {
 
   // ── Persist column prefs when they change ─────────────────────────────────
   useEffect(() => {
-    const prefs: ReportDefinitionPersistedV1 = {
-      v: 1,
+    const prefs: ReportDefinitionPersistedV2 = {
+      v: 2,
       selectedTemplate: 'company-standard',
       columnIdsOrdered: orderedCols.map((c) => c.id),
       reportTitle: 'Reporte de Entregas',
       showSummary: true,
       showVAT: true,
       sortBy: { field: 'fecha', direction: sortDirection },
+      plantIds: selectedPlantIds,
     };
     persistPrefs(prefs);
-  }, [orderedCols, sortDirection]);
+  }, [orderedCols, sortDirection, selectedPlantIds]);
 
   // ── PDF config ────────────────────────────────────────────────────────────
   const pdfConfig = useMemo((): DeliveryReceiptTemplateConfig => {
@@ -842,6 +935,79 @@ export default function ReportesClientesPage() {
                   </span>
                   <DatePickerWithRange value={dateRange} onChange={(d) => d && setDateRange(d)} />
                 </div>
+                {availablePlants.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                      Planta{availablePlants.length > 1 ? 's' : ''}
+                    </span>
+                    <Popover open={plantPickerOpen} onOpenChange={setPlantPickerOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={availablePlants.length < 2}
+                          className="h-9 gap-2 border-stone-200 bg-white text-sm font-normal text-stone-700 hover:bg-stone-50"
+                        >
+                          <Building2 className="h-3.5 w-3.5 text-stone-500" />
+                          {selectedPlantIds.length === 0
+                            ? 'Todas'
+                            : selectedPlantIds.length === availablePlants.length
+                              ? `Todas (${availablePlants.length})`
+                              : selectedPlantIds.length === 1
+                                ? (availablePlants.find((p) => p.id === selectedPlantIds[0])?.code
+                                    ?? availablePlants.find((p) => p.id === selectedPlantIds[0])?.name
+                                    ?? '1 planta')
+                                : `${selectedPlantIds.length} plantas`}
+                          <ChevronDown className="h-3.5 w-3.5 text-stone-400" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 p-2" align="start">
+                        <div className="mb-1 flex items-center justify-between px-1 text-[11px] uppercase tracking-wide text-stone-500">
+                          <span>Plantas</span>
+                          {isGlobalAdmin && availablePlants.length > 1 && (
+                            <button
+                              className="rounded px-1.5 py-0.5 text-stone-600 hover:bg-stone-100"
+                              onClick={() => {
+                                setSelectedPlantIds(
+                                  selectedPlantIds.length === availablePlants.length
+                                    ? []
+                                    : availablePlants.map((p) => p.id),
+                                );
+                              }}
+                            >
+                              {selectedPlantIds.length === availablePlants.length ? 'Limpiar' : 'Todas'}
+                            </button>
+                          )}
+                        </div>
+                        <div className="max-h-64 overflow-y-auto">
+                          {availablePlants.map((p) => {
+                            const checked = selectedPlantIds.includes(p.id);
+                            return (
+                              <label
+                                key={p.id}
+                                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-stone-50"
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(v) => {
+                                    setSelectedPlantIds((prev) => {
+                                      if (v) return prev.includes(p.id) ? prev : [...prev, p.id];
+                                      return prev.filter((id) => id !== p.id);
+                                    });
+                                  }}
+                                />
+                                <span className="flex-1 truncate text-stone-700">
+                                  <span className="font-medium text-stone-900">{p.code}</span>
+                                  <span className="ml-1.5 text-stone-500">{p.name}</span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
                 <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
                   <span className="text-xs font-medium uppercase tracking-wide text-stone-500">
                     Buscar
@@ -1045,12 +1211,20 @@ export default function ReportesClientesPage() {
                         <TableRow key={row.id ?? i} className="hover:bg-stone-50/60">
                           {orderedCols.map((col) => {
                             const isNum = col.type === 'currency' || col.type === 'number';
+                            const isRemCol = col.id === 'remision_number';
                             return (
                               <TableCell
                                 key={col.id}
                                 className={`py-2 text-xs ${isNum ? 'text-right font-mono tabular-nums text-stone-700' : 'text-stone-600'}`}
                               >
-                                {cellDisplay(row, col)}
+                                {isRemCol ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span>{cellDisplay(row, col)}</span>
+                                    <PumpingPill tipo={row.tipo_remision} />
+                                  </span>
+                                ) : (
+                                  cellDisplay(row, col)
+                                )}
                               </TableCell>
                             );
                           })}

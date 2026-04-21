@@ -60,6 +60,7 @@ export interface SelectableRemision {
   recipe_code?: string;
   conductor?: string;
   line_total?: number;
+  tipo_remision?: string;
   selected: boolean;
   plant_info?: {
     plant_id: string;
@@ -199,7 +200,7 @@ export function vatRateToFraction(vatPct: number | undefined | null, fallbackPer
   return n / 100
 }
 
-/** Serializable UI state for localStorage / future DB presets (v1). */
+/** Serializable UI state for localStorage / future DB presets (v1 — legacy). */
 export interface ReportDefinitionPersistedV1 {
   v: 1
   selectedTemplate: string
@@ -209,6 +210,21 @@ export interface ReportDefinitionPersistedV1 {
   showVAT: boolean
   sortBy: { field: string; direction: 'asc' | 'desc' }
 }
+
+/** Serializable UI state v2 — adds plantIds and the round-2 default column set. */
+export interface ReportDefinitionPersistedV2 {
+  v: 2
+  selectedTemplate: string
+  columnIdsOrdered: string[]
+  reportTitle: string
+  showSummary: boolean
+  showVAT: boolean
+  sortBy: { field: string; direction: 'asc' | 'desc' }
+  plantIds: string[]
+}
+
+/** Latest-version alias — page code should use this. */
+export type ReportDefinitionPersisted = ReportDefinitionPersistedV2
 
 export interface ReportConfiguration {
   title: string;
@@ -489,7 +505,7 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
   // Recipe annotations
   {
     id: 'recipe_notes',
-    label: 'Notas Receta',
+    label: 'Comentarios internos',
     field: 'recipe.notes',
     type: 'text',
     width: '16%'
@@ -555,19 +571,21 @@ export const DEFAULT_COLUMN_SETS = {
     'line_total',
     'requires_invoice'
   ],
-  // Company standard template with required columns in exact order from image
+  // Company standard — matches the user-approved sample Excel (13 columns)
   company_standard: [
-    'fecha',
-    'remision_number',
-    'business_name',
-    'order_number',
-    'construction_site',
-    'elemento',
-    'unidad_cr',
-    'recipe_code',
-    'volumen_fabricado',
-    'unit_price',
-    'line_total'
+    'remision_number',      // Remision
+    'fecha',                // Fecha
+    'business_name',        // Cliente
+    'order_number',         // N° pedido
+    'construction_site',    // OBRA
+    'unidad_cr',            // Unidad
+    'recipe_code',          // Producto
+    'volumen_fabricado',    // M3
+    'unit_price',           // P.U
+    'line_total',           // Subtotal
+    'special_requirements', // Observaciones
+    'placement_type',       // Tipo Colocación
+    'recipe_notes',         // Comentarios internos
   ]
 };
 
@@ -576,7 +594,7 @@ export const DEFAULT_TEMPLATES: ReportTemplate[] = [
   {
     id: 'company-standard',
     name: 'Estándar Empresarial',
-    description: 'Reporte estándar con columnas requeridas: fecha, remisión, cliente, pedido, obra, elemento, unidad, producto, m3, precio unitario, subtotal',
+    description: 'Plantilla estándar DC: remisión, fecha, cliente, pedido, obra, unidad, producto, m³, P.U, subtotal, observaciones, tipo colocación y comentarios internos',
     selectedColumns: DEFAULT_COLUMN_SETS.company_standard,
     isDefault: true
   },
