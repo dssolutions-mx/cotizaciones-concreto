@@ -76,6 +76,22 @@ import { formatCurrency } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { buildDeliveryReceiptExcel, downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
+import {
+  buildEvidenceBundle,
+  countEvidenceFiles,
+  MAX_BUNDLE_ORDERS,
+  MAX_BUNDLE_FILES,
+  type EvidenceCounts,
+} from '@/lib/reports/evidenceBundle';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import type { DeliveryReceiptExcelConfig } from '@/lib/reports/deliveryReceiptExcel';
 import type { DeliveryReceiptTemplateConfig } from '@/components/reports/templates/DeliveryReceiptPDF';
 
@@ -576,6 +592,14 @@ export default function ReportesClientesPage() {
   const [excelLoading, setExcelLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  // ── Evidence bundle ───────────────────────────────────────────────────────
+  const [evidenceCounts, setEvidenceCounts] = useState<EvidenceCounts | null>(null);
+  const [evidenceCountLoading, setEvidenceCountLoading] = useState(false);
+  const [evidenceBundling, setEvidenceBundling] = useState(false);
+  const [evidenceProgress, setEvidenceProgress] = useState<{ done: number; total: number; label?: string } | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const evidenceAbortRef = React.useRef<AbortController | null>(null);
+
   // ── Restore prefs ─────────────────────────────────────────────────────────
   useEffect(() => {
     const saved = loadPrefs();
@@ -872,6 +896,66 @@ export default function ReportesClientesPage() {
     }
   }, [reportData, reportSummary, orderedCols, groupBy, pdfConfig]);
 
+  // ── Evidence preflight (lightweight count) ────────────────────────────────
+  useEffect(() => {
+    if (step !== 'review' || reportData.length === 0) {
+      setEvidenceCounts(null);
+      return;
+    }
+    let cancelled = false;
+    setEvidenceCountLoading(true);
+    countEvidenceFiles(reportData)
+      .then((c) => { if (!cancelled) setEvidenceCounts(c); })
+      .catch((e) => { console.warn('evidence preflight', e); if (!cancelled) setEvidenceCounts(null); })
+      .finally(() => { if (!cancelled) setEvidenceCountLoading(false); });
+    return () => { cancelled = true; };
+  }, [step, reportData]);
+
+  const handleEvidenceDownload = useCallback(async () => {
+    if (!reportData.length) return;
+    const ctrl = new AbortController();
+    evidenceAbortRef.current = ctrl;
+    setEvidenceBundling(true);
+    setEvidenceError(null);
+    setEvidenceProgress({ done: 0, total: evidenceCounts?.orders ?? 1 });
+    try {
+      const clientName = reportData[0]?.client?.business_name ?? 'cliente';
+      const stamp = format(new Date(), 'yyyyMMdd-HHmm');
+      const bundleRoot = `evidencia-${clientName}-${stamp}`.replace(/\s+/g, '-');
+      const { blob, orderCount, fileCount, capped } = await buildEvidenceBundle({
+        remisiones: reportData,
+        bundleRoot,
+        signal: ctrl.signal,
+        onProgress: (p) => setEvidenceProgress({ done: p.done, total: p.total, label: p.currentLabel }),
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${bundleRoot}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      if (capped) {
+        setEvidenceError(`ZIP con ${fileCount} archivo(s) de ${orderCount} pedido(s). Se alcanzó el límite de ${MAX_BUNDLE_FILES} archivos; reduzca la selección para incluir el resto.`);
+      }
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        setEvidenceError('Descarga cancelada');
+      } else {
+        console.error('evidence bundle', e);
+        setEvidenceError(e?.message ?? 'No se pudo generar el ZIP');
+      }
+    } finally {
+      setEvidenceBundling(false);
+      evidenceAbortRef.current = null;
+    }
+  }, [reportData, evidenceCounts]);
+
+  const cancelEvidenceDownload = useCallback(() => {
+    evidenceAbortRef.current?.abort();
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────────────
   const dateLabel =
     dateRange.from && dateRange.to
@@ -1151,6 +1235,53 @@ export default function ReportesClientesPage() {
       )}
 
       {/* ── Step 3: Review & Export ───────────────────────────────────── */}
+      {/* Evidence bundle progress dialog */}
+      <Dialog
+        open={evidenceBundling || !!evidenceError}
+        onOpenChange={(open) => {
+          if (!open && !evidenceBundling) setEvidenceError(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Evidencia por pedido</DialogTitle>
+            <DialogDescription>
+              {evidenceBundling
+                ? 'Descargando y uniendo los archivos de evidencia. No cierres esta ventana.'
+                : 'Resultado de la descarga.'}
+            </DialogDescription>
+          </DialogHeader>
+          {evidenceBundling && evidenceProgress && (
+            <div className="space-y-3">
+              <Progress
+                value={
+                  evidenceProgress.total > 0
+                    ? Math.min(100, (evidenceProgress.done / evidenceProgress.total) * 100)
+                    : 0
+                }
+              />
+              <p className="text-xs text-stone-600">
+                {evidenceProgress.label ?? 'Procesando…'} ({evidenceProgress.done}/{evidenceProgress.total})
+              </p>
+            </div>
+          )}
+          {!evidenceBundling && evidenceError && (
+            <p className="text-sm text-stone-700">{evidenceError}</p>
+          )}
+          <DialogFooter>
+            {evidenceBundling ? (
+              <Button variant="outline" size="sm" onClick={cancelEvidenceDownload}>
+                Cancelar
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setEvidenceError(null)}>
+                Cerrar
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {step === 'review' && (
         <div className="space-y-4">
           {/* KPIs */}
@@ -1170,9 +1301,14 @@ export default function ReportesClientesPage() {
           {/* Preview table */}
           <Card className="border-stone-200">
             <CardHeader className="flex-row items-center justify-between pb-3">
-              <CardTitle className="text-sm font-semibold text-stone-800">
-                Vista Previa de Datos
-              </CardTitle>
+              <div>
+                <CardTitle className="text-sm font-semibold text-stone-800">
+                  Vista Previa de Datos
+                </CardTitle>
+                <p className="mt-0.5 text-xs text-stone-500">
+                  Estas son las mismas {orderedCols.length} columnas que aparecerán en el PDF y Excel exportados
+                </p>
+              </div>
               {reportData.length > 0 && (
                 <span className="text-xs text-stone-500">{reportData.length} registros</span>
               )}
@@ -1281,6 +1417,30 @@ export default function ReportesClientesPage() {
                     >
                       <FileSpreadsheet className="h-3.5 w-3.5" />
                       {excelLoading ? 'Generando...' : 'Descargar Excel'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        evidenceBundling ||
+                        evidenceCountLoading ||
+                        !evidenceCounts ||
+                        evidenceCounts.totalFiles === 0
+                      }
+                      onClick={handleEvidenceDownload}
+                      className="gap-2 border-stone-200 text-stone-700 hover:bg-stone-50"
+                      title={
+                        evidenceCounts
+                          ? `${evidenceCounts.concreteFiles} concreto · ${evidenceCounts.pumpingFiles} bombeo en ${evidenceCounts.orders} pedido(s)`
+                          : 'Calculando evidencia…'
+                      }
+                    >
+                      <Paperclip className="h-3.5 w-3.5" />
+                      {evidenceCountLoading
+                        ? 'Evidencia…'
+                        : evidenceCounts
+                        ? `Evidencia (${evidenceCounts.totalFiles})`
+                        : 'Evidencia'}
                     </Button>
                   </>
                 )}

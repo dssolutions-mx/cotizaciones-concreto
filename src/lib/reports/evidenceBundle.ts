@@ -70,7 +70,7 @@ type OrderGroup = {
 function groupByOrder(remisiones: ReportRemisionData[]): OrderGroup[] {
   const by = new Map<string, OrderGroup>()
   for (const r of remisiones) {
-    const orderId = r.order?.id ?? r.order_id
+    const orderId = r.order_id
     if (!orderId) continue
     const key = String(orderId)
     let g = by.get(key)
