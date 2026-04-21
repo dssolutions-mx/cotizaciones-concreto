@@ -18,12 +18,42 @@ export type OrderItemLike = {
   billing_type?: string | null
 }
 
+/** Sum of concrete_volume_delivered on concrete lines — same basis as recalculateOrderAmount PER_M3 adicionales. */
+export function totalConcreteDeliveredForAdditionalPricing(items: OrderItemLike[]): number {
+  return (
+    items
+      .filter(
+        (item) =>
+          item.product_type !== 'VACÍO DE OLLA' &&
+          item.product_type !== 'SERVICIO DE BOMBEO' &&
+          !item.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
+          !item.has_empty_truck_charge
+      )
+      .reduce((sum, item) => sum + (Number(item.concrete_volume_delivered) || 0), 0) || 0
+  )
+}
+
+/**
+ * When líneas already have allocated volumes, use those (matches server). If still zero (sin reparto aún),
+ * fall back to sum of remisiones CONCRETO — same order as audit summary `concrete_volume_delivered_sum`.
+ */
+export function concreteVolumeForPerM3AdditionalProduct(params: {
+  items: OrderItemLike[]
+  remisionesConcreteVolumeSum?: number | null
+}): number {
+  const fromItems = totalConcreteDeliveredForAdditionalPricing(params.items)
+  if (fromItems > 0) return fromItems
+  return Math.max(0, Number(params.remisionesConcreteVolumeSum) || 0)
+}
+
 export function estimateOrderFinancials(params: {
   requiresInvoice: boolean
   vatRate: number
   items: OrderItemLike[]
   hasAnyRemisiones: boolean
   effectiveForBalance: boolean
+  /** Sum of volumen_fabricado on remisiones CONCRETO; used only when order_items have no allocated concrete yet. */
+  remisionesConcreteVolumeSum?: number | null
 }): {
   subtotalConcrete: number
   subtotalPump: number
@@ -32,7 +62,14 @@ export function estimateOrderFinancials(params: {
   finalAmount: number | null
   invoiceAmount: number | null
 } {
-  const { requiresInvoice, vatRate, items, hasAnyRemisiones, effectiveForBalance } = params
+  const {
+    requiresInvoice,
+    vatRate,
+    items,
+    hasAnyRemisiones,
+    effectiveForBalance,
+    remisionesConcreteVolumeSum,
+  } = params
 
   if (!hasAnyRemisiones && !effectiveForBalance) {
     return {
@@ -87,16 +124,10 @@ export function estimateOrderFinancials(params: {
         ) || 0
     : 0
 
-  const totalConcreteDelivered =
-    items
-      .filter(
-        (item) =>
-          item.product_type !== 'VACÍO DE OLLA' &&
-          item.product_type !== 'SERVICIO DE BOMBEO' &&
-          !item.product_type?.startsWith('PRODUCTO ADICIONAL:') &&
-          !item.has_empty_truck_charge
-      )
-      .reduce((sum, item) => sum + (Number(item.concrete_volume_delivered) || 0), 0) || 0
+  const totalConcreteForAdditional = concreteVolumeForPerM3AdditionalProduct({
+    items,
+    remisionesConcreteVolumeSum,
+  })
 
   const additionalAmount =
     items
@@ -111,7 +142,7 @@ export function estimateOrderFinancials(params: {
         if (billingType === 'PER_UNIT') {
           return sum + itemVolume * unitPrice
         }
-        return sum + itemVolume * totalConcreteDelivered * unitPrice
+        return sum + itemVolume * totalConcreteForAdditional * unitPrice
       }, 0) || 0
 
   const finalAmount = concreteAmount + pumpAmount + emptyTruckAmount + additionalAmount

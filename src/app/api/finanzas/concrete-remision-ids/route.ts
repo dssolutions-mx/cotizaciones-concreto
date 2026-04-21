@@ -61,8 +61,10 @@ export async function GET(request: NextRequest) {
       })
       .map((o) => o.id)
 
+    const allowedOrderSet = new Set(allowedOrderIds)
+
     if (allowedOrderIds.length === 0) {
-      return NextResponse.json({ success: true, data: { remision_ids: [] } })
+      return NextResponse.json({ success: true, data: { remision_ids: [], plant_ids: [] } })
     }
 
     const { data: rems, error: rErr } = await supabase
@@ -76,8 +78,16 @@ export async function GET(request: NextRequest) {
     }
 
     const remision_ids = (rems || []).map((r) => (r as { id: string }).id)
+    const plant_ids = [
+      ...new Set(
+        (orders || [])
+          .filter((o) => allowedOrderSet.has(o.id))
+          .map((o) => (o as { plant_id?: string | null }).plant_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ]
 
-    return NextResponse.json({ success: true, data: { remision_ids } })
+    return NextResponse.json({ success: true, data: { remision_ids, plant_ids } })
   } catch (e) {
     console.error('concrete-remision-ids GET:', e)
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })

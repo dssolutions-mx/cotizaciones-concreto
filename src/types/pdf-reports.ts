@@ -1,6 +1,20 @@
 // Types for Dynamic PDF Report System
 import { DateRange } from "react-day-picker";
 
+/** Additional-product line attached to an order (sourced from order_items
+ *  rows whose product_type starts with `PRODUCTO ADICIONAL:`). */
+export interface AdditionalProductLine {
+  /** Parsed product code (e.g. FIBRA_PP_600). Falls back to full product_type when missing. */
+  code: string;
+  /** Human-readable name (e.g. "FIBRA DE POLIPROPILENO (600 G/M3)"). */
+  name: string;
+  /** PER_M3 compounds per m³ of concrete; PER_ORDER_FIXED is a flat add-on; PER_UNIT multiplies by quantity. */
+  billing_type: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT' | string;
+  volume: number;
+  unit_price: number;
+  total_price: number;
+}
+
 export interface ReportColumn {
   id: string;
   label: string;
@@ -145,6 +159,8 @@ export interface ReportRemisionData {
     final_amount?: number;
     invoice_amount?: number;
     client_id: string;
+    /** Additional products from order_items (PRODUCTO ADICIONAL rows). Populated in enrichAndBuild. */
+    additional_products?: AdditionalProductLine[];
   };
 
   /** Human-readable Arkik material reassignment context for this remisión (from remision_reassignments). */
@@ -513,6 +529,18 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     field: 'serv_bombeo',
     type: 'text',
     width: '10%'
+  },
+
+  // Additional-product per-m³ linkage (computed at render-time — not a DB field)
+  //   - Concrete row of an order with ≥1 PER_M3 additional: "+$X.XX/m³ (CODE)" annotation
+  //   - Additional pseudo-row (tipo_remision='ADICIONAL'): empty (value lives in line_total)
+  //   - Pumping pseudo-row or concrete row with no per-m³ additional: empty
+  {
+    id: 'adicional_m3',
+    label: 'Adicional/m³',
+    field: 'adicional_m3',
+    type: 'text',
+    width: '11%'
   },
 
   // Recipe annotations

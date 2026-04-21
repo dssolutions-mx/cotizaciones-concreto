@@ -26,10 +26,12 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -66,6 +68,20 @@ import {
   fetchCatalogAdditionalProducts,
   type CatalogAdditionalProduct,
 } from '@/lib/finanzas/additionalProductsCatalog'
+import {
+  concreteVolumeForPerM3AdditionalProduct,
+  type OrderItemLike,
+} from '@/lib/finanzas/estimateOrderFinancials'
+
+/** Combobox trigger: product name only when code is an internal ADDL-* id or too long. */
+function additionalProductTriggerLabel(p: CatalogAdditionalProduct): string {
+  const name = (p.name || '').trim()
+  const code = (p.code || '').trim()
+  if (!code) return name || 'Producto'
+  if (/^ADDL-/i.test(code)) return name || 'Producto'
+  if (code.length > 18) return name || 'Producto'
+  return `${name} (${code})`
+}
 
 export type AuditSummaryPayload = {
   order: Record<string, unknown>
@@ -176,6 +192,15 @@ export default function ConcreteEvidenceOrderAuditSections({
     const raw = Array.isArray(bu) ? bu[0]?.vat_rate : bu?.vat_rate
     return raw != null ? Number(raw) : 0.16
   }, [order])
+
+  /** Same basis as vista previa API + recalculateOrderAmount: líneas asignadas, o remisiones si aún no hay reparto. */
+  const perM3ConcreteVolumeForAdditional = useMemo(() => {
+    if (!summary) return 0
+    return concreteVolumeForPerM3AdditionalProduct({
+      items: summary.order_items as OrderItemLike[],
+      remisionesConcreteVolumeSum: summary.concrete_volume_delivered_sum,
+    })
+  }, [summary])
 
   const openLineEditor = (item: Record<string, unknown>) => {
     setLineEditorLine(item)
@@ -306,7 +331,7 @@ export default function ConcreteEvidenceOrderAuditSections({
       toast.error('No autorizado para corrección post-cierre')
       return
     }
-    const totalConcreteVol = Number(summary.concrete_volume_delivered_sum ?? 0)
+    const totalConcreteVol = perM3ConcreteVolumeForAdditional
     const bt = ap.billingType
     const unitPrice = ap.unitPrice
     let volume: number
@@ -950,57 +975,87 @@ export default function ConcreteEvidenceOrderAuditSections({
           }
         }}
       >
-        <DialogContent className="max-w-lg sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Producto adicional</DialogTitle>
+        <DialogContent className="max-w-md gap-0 overflow-hidden border-stone-200 p-0 shadow-lg sm:rounded-xl">
+          <DialogHeader className="space-y-2 border-b border-stone-200/80 bg-stone-50/80 px-6 py-5 text-left">
+            <DialogTitle className="text-lg font-semibold tracking-tight text-stone-900">
+              Producto adicional
+            </DialogTitle>
+            <DialogDescription className="text-sm text-stone-600 leading-relaxed">
+              Elija un producto definido en la cotización aprobada del cliente. Los precios y la forma de facturación
+              provienen de la cotización.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 text-sm">
+
+          <div className="space-y-5 px-6 py-5 text-sm">
             {catalogLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-2">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                Cargando catálogo de cotización…
+              <div className="flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-6 text-stone-600">
+                <Loader2 className="h-5 w-5 animate-spin shrink-0 text-stone-500" />
+                <span>Cargando catálogo de cotización…</span>
               </div>
             ) : catalogProducts.length === 0 ? (
-              <p className="text-stone-600 leading-relaxed">
+              <p className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 leading-relaxed">
                 No hay productos adicionales en cotizaciones aprobadas para este cliente y obra. Revise la cotización o
                 agregue el producto desde la ficha del pedido.
               </p>
             ) : (
               <>
                 <div className="space-y-2">
-                  <Label>Producto (cotización)</Label>
+                  <Label htmlFor="additional-product-combo" className="text-sm font-medium text-stone-800">
+                    Producto de cotización
+                  </Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
+                        id="additional-product-combo"
                         type="button"
                         variant="outline"
                         role="combobox"
-                        className="w-full justify-between h-10 font-normal border-stone-300 bg-white"
+                        className="h-auto min-h-11 w-full justify-between gap-2 border-stone-300 bg-white px-3 py-2.5 text-left font-normal text-stone-900 shadow-sm hover:bg-stone-50/80"
                       >
-                        {pickedAdditional
-                          ? `${pickedAdditional.name} (${pickedAdditional.code})`
-                          : 'Seleccionar producto…'}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        <span className="line-clamp-2 min-w-0 flex-1">
+                          {pickedAdditional ? (
+                            <>
+                              <span className="block font-medium leading-snug">
+                                {additionalProductTriggerLabel(pickedAdditional)}
+                              </span>
+                              {pickedAdditional.code && /^ADDL-/i.test(pickedAdditional.code.trim()) ? (
+                                <span className="mt-0.5 block text-xs font-mono text-stone-500">
+                                  Ref. {pickedAdditional.code.trim()}
+                                </span>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-muted-foreground">Seleccionar producto…</span>
+                          )}
+                        </span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-[min(100vw-2rem,28rem)] p-0" align="start">
-                      <Command>
-                        <CommandInput placeholder="Buscar…" className="h-10" />
-                        <CommandList>
-                          <CommandEmpty>Sin resultados.</CommandEmpty>
-                          <CommandGroup>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                      <Command className="rounded-md border-0">
+                        <CommandInput placeholder="Buscar por nombre…" className="h-11 border-b" />
+                        <CommandList className="max-h-64">
+                          <CommandEmpty className="py-6 text-center text-sm text-muted-foreground">
+                            Sin resultados.
+                          </CommandEmpty>
+                          <CommandGroup className="p-1">
                             {catalogProducts.map((p) => (
                               <CommandItem
                                 key={p.quoteAdditionalProductId}
-                                value={`${p.name} ${p.code}`}
+                                value={`${p.name} ${p.code} ${p.billingType}`}
+                                className="cursor-pointer rounded-md px-2 py-2.5 aria-selected:bg-stone-100"
                                 onSelect={() => {
                                   setPickedAdditional(p)
                                   setAddLineVol(String(p.quantity))
                                 }}
                               >
-                                <span className="truncate">
-                                  {p.name} ({p.code}) — {formatMxCurrency(p.unitPrice)} · {p.billingType}
-                                </span>
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                  <span className="font-medium leading-snug text-stone-900">{p.name.trim()}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    {formatMxCurrency(p.unitPrice)} · {p.billingType}
+                                    {p.code && !/^ADDL-/i.test(p.code.trim()) ? ` · ${p.code}` : ''}
+                                  </span>
+                                </div>
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -1009,30 +1064,44 @@ export default function ConcreteEvidenceOrderAuditSections({
                     </PopoverContent>
                   </Popover>
                 </div>
+
                 {pickedAdditional && (
-                  <div className="rounded-lg border border-stone-200 bg-stone-50/90 px-3 py-2.5 text-xs text-stone-800 space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-stone-600">Facturación</span>
-                      <Badge variant="secondary" className="font-mono text-[11px]">
-                        {pickedAdditional.billingType}
-                      </Badge>
-                    </div>
-                    <div className="tabular-nums">
-                      Precio unitario: <span className="font-medium">{formatMxCurrency(pickedAdditional.unitPrice)}</span>
-                    </div>
-                    {pickedAdditional.billingType === 'PER_M3' && summary && (
-                      <div className="tabular-nums text-stone-700">
-                        Volumen concreto entregado (pedido):{' '}
-                        {Number(summary.concrete_volume_delivered_sum ?? 0).toFixed(2)} m³
+                  <div className="rounded-lg border border-stone-200 bg-white shadow-sm">
+                    <dl className="divide-y divide-stone-100 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                        <dt className="text-stone-600">Facturación</dt>
+                        <dd>
+                          <Badge variant="secondary" className="font-mono text-xs font-medium">
+                            {pickedAdditional.billingType}
+                          </Badge>
+                        </dd>
                       </div>
-                    )}
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+                        <dt className="text-stone-600">Precio unitario</dt>
+                        <dd className="font-mono text-base font-semibold tabular-nums text-stone-900">
+                          {formatMxCurrency(pickedAdditional.unitPrice)}
+                        </dd>
+                      </div>
+                      {pickedAdditional.billingType === 'PER_M3' && summary ? (
+                        <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+                          <dt className="text-stone-600">Volumen concreto entregado</dt>
+                          <dd className="font-mono tabular-nums text-stone-900">
+                            {perM3ConcreteVolumeForAdditional.toFixed(2)} m³
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
                   </div>
                 )}
+
                 {pickedAdditional?.billingType === 'PER_UNIT' && (
-                  <div>
-                    <Label>Cantidad</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="additional-product-qty" className="text-sm font-medium text-stone-800">
+                      Cantidad
+                    </Label>
                     <Input
-                      className="h-10 mt-1 tabular-nums border-stone-300 bg-white"
+                      id="additional-product-qty"
+                      className="h-11 border-stone-300 bg-white text-base tabular-nums shadow-sm"
                       value={addLineVol}
                       onChange={(e) => setAddLineVol(e.target.value)}
                       inputMode="decimal"
@@ -1042,12 +1111,18 @@ export default function ConcreteEvidenceOrderAuditSections({
               </>
             )}
           </div>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="outline" onClick={() => setAddLineOpen(false)}>
+
+          <Separator />
+
+          <DialogFooter className="flex-row justify-end gap-2 border-t border-stone-200/80 bg-stone-50/50 px-6 py-4 sm:space-x-0">
+            <Button type="button" variant="outline" className="min-h-11 border-stone-300" onClick={() => setAddLineOpen(false)}>
               Cerrar
             </Button>
             <Button
               type="button"
+              variant="solid"
+              size="lg"
+              className="min-h-11 min-w-[8rem]"
               disabled={catalogLoading || !pickedAdditional || catalogProducts.length === 0}
               onClick={() => void handleAddLinePreview()}
             >

@@ -10,7 +10,7 @@
 
 import ExcelJS from 'exceljs';
 import { format } from 'date-fns';
-import type { ReportRemisionData, ReportSummary, ReportColumn } from '@/types/pdf-reports';
+import type { ReportRemisionData, ReportSummary, ReportColumn, AdditionalProductLine } from '@/types/pdf-reports';
 import {
   DC_DOCUMENT_THEME as C,
   DC_NUMBER_FORMATS as FMT,
@@ -112,6 +112,22 @@ function pumpingRowStyle(): Partial<ExcelJS.Style> {
   };
 }
 
+/** Additional-product pseudo-row variant: amber-900 italic on amber-100 tint. */
+function additionalRowStyle(): Partial<ExcelJS.Style> {
+  return {
+    font: { size: 9, name: 'Calibri', italic: true, color: { argb: argb(C.additionalRowText) } },
+    fill: {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: argb(C.additionalRowTint) },
+    },
+    alignment: { vertical: 'middle' },
+    border: {
+      bottom: { style: 'hair', color: { argb: argb(C.borderLight) } },
+    },
+  };
+}
+
 function subtotalStyle(): Partial<ExcelJS.Style> {
   return {
     font: { bold: true, size: 9, name: 'Calibri', color: { argb: argb(C.navy) } },
@@ -152,13 +168,17 @@ function numFmtForCol(col: ReportColumn): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true when a remision represents a pumping / auxiliary service
- * rather than a concrete delivery. Canonical values are CONCRETO / BOMBEO /
- * VACÍO DE OLLA — anything not CONCRETO is treated as auxiliary.
+ * Returns true when a row represents a pumping / auxiliary service (BOMBEO,
+ * VACÍO DE OLLA). Does NOT match ADICIONAL pseudo-rows — use isAdditionalRow().
  */
 function isPumpingRow(r: ReportRemisionData): boolean {
   const t = String(r.tipo_remision ?? '').toUpperCase();
-  return t !== '' && t !== 'CONCRETO';
+  return t === 'BOMBEO' || t === 'VACÍO DE OLLA' || t === 'VACIO DE OLLA';
+}
+
+/** Returns true when a row is a synthetic additional-product pseudo-row. */
+function isAdditionalRow(r: ReportRemisionData): boolean {
+  return String(r.tipo_remision ?? '').toUpperCase() === 'ADICIONAL';
 }
 
 /** Build a map: order_id → pumping remisiones in that order (so concrete rows
@@ -175,11 +195,90 @@ function computePumpingByOrderId(data: ReportRemisionData[]): Map<string, Report
   return m;
 }
 
+interface AdditionalOrderInfo {
+  /** Sum of unit_price for all PER_M3 additionals (shown on concrete rows). */
+  total_per_m3: number;
+  /** Label strings like "+$150.00/m³ (FIBRA_PP_600)" for each PER_M3 entry. */
+  labels: string[];
+  /** All additional-product lines (for Resumen breakdown). */
+  all: AdditionalProductLine[];
+}
+
+/** Build a map: order_id → per-m³ addon info for concrete-row annotation. */
+function computeAdditionalsByOrderId(data: ReportRemisionData[]): Map<string, AdditionalOrderInfo> {
+  const m = new Map<string, AdditionalOrderInfo>();
+  const fmtCurr = (n: number) =>
+    `$${n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  for (const r of data) {
+    const key = String(r.order_id ?? '');
+    if (!key || m.has(key)) continue;
+    const addl = r.order?.additional_products ?? [];
+    if (!addl.length) continue;
+    const perM3 = addl.filter((a) => a.billing_type === 'PER_M3');
+    const total_per_m3 = perM3.reduce((s, a) => s + a.unit_price, 0);
+    const labels = perM3.map((a) => `+${fmtCurr(a.unit_price)}/m³ (${a.code})`);
+    m.set(key, { total_per_m3, labels, all: addl });
+  }
+  return m;
+}
+
+/**
+ * Synthesises one amber pseudo-row per additional-product line in each order.
+ * These are merged into the Remisiones data so the Excel grand total naturally
+ * picks up their `line_total`. Exported so page.tsx can reuse for the preview.
+ */
+export function buildAdditionalProductPseudoRows(
+  data: ReportRemisionData[],
+): ReportRemisionData[] {
+  const pseudo: ReportRemisionData[] = [];
+  const seenOrders = new Set<string>();
+
+  for (const r of data) {
+    const key = String(r.order_id ?? '');
+    if (!key || seenOrders.has(key)) continue;
+    const addl = r.order?.additional_products ?? [];
+    if (!addl.length) continue;
+    seenOrders.add(key);
+
+    for (let i = 0; i < addl.length; i++) {
+      const ap = addl[i];
+      pseudo.push({
+        // Use a synthetic id so React / ExcelJS can distinguish rows
+        id: `ap:${key}:${i}`,
+        remision_number: ap.code,
+        fecha: r.fecha,
+        order_id: r.order_id,
+        // 0 volume so m³ totals at footer stay accurate
+        volumen_fabricado: 0,
+        tipo_remision: 'ADICIONAL',
+        master_code: ap.name,
+        conductor: undefined,
+        unidad: undefined,
+        recipe: undefined,
+        order: r.order,
+        client: r.client,
+        plant_info: r.plant_info,
+        unit_price: ap.unit_price,
+        line_total: ap.total_price,
+        // Preserve IVA parity: use same vatRatePct as the anchor concrete row
+        vat_amount: r.order?.requires_invoice
+          ? ap.total_price * ((r.plant_info?.vat_percentage ?? 16) / 100)
+          : 0,
+        final_total: r.order?.requires_invoice
+          ? ap.total_price * (1 + (r.plant_info?.vat_percentage ?? 16) / 100)
+          : ap.total_price,
+      } as ReportRemisionData);
+    }
+  }
+  return pseudo;
+}
+
 function cellValue(
   item: ReportRemisionData,
   col: ReportColumn,
   rowIdx: number,
   pumpingByOrderId: Map<string, ReportRemisionData[]>,
+  additionalsByOrderId: Map<string, AdditionalOrderInfo>,
 ): string | number | Date {
   switch (col.id) {
     case 'row_number': return rowIdx + 1;
@@ -216,10 +315,20 @@ function cellValue(
       // Pumping row itself: emit its own line_total as a number so the row
       // loop can apply currency formatting.
       if (isPumpingRow(item)) return item.line_total ?? 0;
+      // Additional pseudo-rows don't participate in the bombeo column.
+      if (isAdditionalRow(item)) return '';
       // Concrete row: show the pumping remisión number(s) for the same order.
       const pumps = pumpingByOrderId.get(String(item.order_id ?? ''));
       if (!pumps || pumps.length === 0) return '';
       return pumps.map((p) => `R${p.remision_number}`).join(', ');
+    }
+    case 'adicional_m3': {
+      // Additional pseudo-row: empty (the row IS the additional; value in line_total).
+      if (isAdditionalRow(item) || isPumpingRow(item)) return '';
+      // Concrete row: show per-m³ annotation for PER_M3 additionals on this order.
+      const info = additionalsByOrderId.get(String(item.order_id ?? ''));
+      if (!info || info.total_per_m3 === 0) return '';
+      return info.labels.length === 1 ? info.labels[0] : info.labels.join(' + ');
     }
     default: return '';
   }

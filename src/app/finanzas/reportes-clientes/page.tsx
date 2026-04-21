@@ -78,6 +78,7 @@ import {
 import { formatCurrency } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { toast } from 'sonner';
 import { buildDeliveryReceiptExcel, downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
 import {
   buildEvidenceBundle,
@@ -649,6 +650,18 @@ export default function ReportesClientesPage() {
     if (saved?.columnIdsOrdered?.length) {
       setOrderedCols(columnsFromOrderedIds(saved.columnIdsOrdered));
     }
+    try {
+      const raw = sessionStorage.getItem('reportes_clientes.preselect');
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p?.source === 'evidencia') {
+          // Plantas vienen del handoff; no pisar con prefs guardadas (otra planta activa en UI).
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
     if (saved?.plantIds?.length) {
       setSelectedPlantIds(saved.plantIds);
     }
@@ -716,18 +729,26 @@ export default function ReportesClientesPage() {
     }
   }, [searchParams, router]);
 
+  // Evidencia handoff: apply remision IDs after the first hierarchical load for the new
+  // date/plant (loadHierarchical clears selection — we restore handoff IDs here).
+  // Do NOT intersect with the tree: listado evidencia filtra por delivery_date; el árbol
+  // del reporte filtra remisiones por fecha — mismas remisiones pueden no aparecer en el árbol.
   useEffect(() => {
-    if (!evidenciaPrefetch || !hierarchical) return;
-    const valid = new Set(
-      hierarchical.clients.flatMap((c) =>
-        c.orders.flatMap((o) => o.remisiones.map((r) => r.id)),
-      ),
-    );
-    const ids = evidenciaPrefetch.remisionIds.filter((id) => valid.has(id));
-    if (ids.length) setSelectedRemisionIds(new Set(ids));
+    if (!evidenciaPrefetch) return;
+    if (hierarchicalLoading) return;
+
+    const ids = evidenciaPrefetch.remisionIds.filter(Boolean);
+    if (ids.length) {
+      setSelectedRemisionIds(new Set(ids));
+    }
     setStep('columns');
     setEvidenciaPrefetch(null);
-  }, [hierarchical, evidenciaPrefetch]);
+  }, [evidenciaPrefetch, hierarchicalLoading]);
+
+  // New handoff → allow report prefetch again (ref was true from a prior run on this page).
+  useEffect(() => {
+    if (evidenciaPrefetch) evidenciaReportPrefetchOnceRef.current = false;
+  }, [evidenciaPrefetch]);
 
   // ── Filtered hierarchical (search) ───────────────────────────────────────
   const emptySummary = {

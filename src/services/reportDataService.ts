@@ -14,6 +14,7 @@ import type {
   SelectableClient,
   SelectableOrder,
   SelectableRemision,
+  AdditionalProductLine,
 } from '@/types/pdf-reports';
 
 // ---------------------------------------------------------------------------
@@ -225,22 +226,16 @@ async function fetchRemisionesByOrderIds(
 
 async function fetchRemisionesByIds(
   remisionIds: string[],
-  filters: ReportFilter,
+  _filters: ReportFilter,
 ): Promise<any[]> {
   const unique = Array.from(new Set(remisionIds.filter(Boolean)));
   if (!unique.length) return [];
-  const { dateRange, singleDateMode } = filters;
   const results: any[] = [];
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
-    let q = supabase.from('remisiones').select(REMISION_SELECT).in('id', chunk);
-    if (singleDateMode && dateRange.from) {
-      q = q.eq('fecha', format(dateRange.from, 'yyyy-MM-dd'));
-    } else {
-      if (dateRange.from) q = q.gte('fecha', format(dateRange.from, 'yyyy-MM-dd'));
-      if (dateRange.to) q = q.lte('fecha', format(dateRange.to, 'yyyy-MM-dd'));
-    }
-    if (filters.plantIds?.length) q = q.in('plant_id', filters.plantIds);
+    // Do not filter by fecha/plant here: IDs are definitive. Evidencia de pedidos usa
+    // delivery_date en el listado; remision.fecha puede quedar fuera del mismo rango.
+    const q = supabase.from('remisiones').select(REMISION_SELECT).in('id', chunk);
     const { data, error } = await q.order('fecha', { ascending: false });
     if (error) throw error;
     results.push(...(data || []));
@@ -294,6 +289,54 @@ export async function fetchArkikReassignmentNotesByRemisionNumber(
 }
 
 // ---------------------------------------------------------------------------
+// Additional-products pivot from order_items
+// ---------------------------------------------------------------------------
+
+/**
+ * Parses the product_type string of an `order_items` PRODUCTO ADICIONAL row into
+ * a human-readable name and code.
+ *
+ * Input patterns:
+ *   "PRODUCTO ADICIONAL: NAME (CODE)"   → { name: "NAME", code: "CODE" }
+ *   "PRODUCTO ADICIONAL: NAME"           → { name: "NAME", code: "NAME" }
+ */
+function parseAdditionalProductType(productType: string): { name: string; code: string } {
+  const stripped = productType.replace(/^PRODUCTO ADICIONAL:\s*/i, '').trim();
+  const match = stripped.match(/^(.+?)\s+\(([^)]+)\)\s*$/);
+  if (match) return { name: match[1].trim(), code: match[2].trim() };
+  return { name: stripped, code: stripped };
+}
+
+/**
+ * Builds a Map<order_id, AdditionalProductLine[]> from the already-fetched
+ * order_items array. Rows whose product_type does NOT start with "PRODUCTO ADICIONAL:"
+ * are silently ignored.
+ */
+function buildAdditionalsByOrderId(
+  orderItems: any[],
+): Map<string, AdditionalProductLine[]> {
+  const map = new Map<string, AdditionalProductLine[]>();
+  for (const item of orderItems) {
+    const pt: string = item.product_type ?? '';
+    if (!pt.startsWith('PRODUCTO ADICIONAL:')) continue;
+    const orderId = String(item.order_id ?? '');
+    if (!orderId) continue;
+    const { name, code } = parseAdditionalProductType(pt);
+    const line: AdditionalProductLine = {
+      code,
+      name,
+      billing_type: item.billing_type ?? 'PER_M3',
+      volume: Number(item.volume) || 0,
+      unit_price: Number(item.unit_price) || 0,
+      total_price: Number(item.total_price) || 0,
+    };
+    if (!map.has(orderId)) map.set(orderId, []);
+    map.get(orderId)!.push(line);
+  }
+  return map;
+}
+
+// ---------------------------------------------------------------------------
 // Core enrichment → ReportRemisionData[]
 // ---------------------------------------------------------------------------
 
@@ -306,6 +349,9 @@ async function enrichAndBuild(
   if (!remisiones.length) return { data: [], summary: createEmptySummary() };
 
   const ordersById = new Map<string, any>(orders.map((o: any) => [String(o.id), o]));
+
+  // Pre-compute additional-products pivot from the already-fetched order_items
+  const additionalsByOrderId = buildAdditionalsByOrderId(orderItems);
 
   // Delegate ALL pricing to the canonical helper — one view lookup for the batch
   const enrichedMap = await enrichRemisiones({ remisiones, ordersById, orderItems });
@@ -336,6 +382,7 @@ async function enrichAndBuild(
         final_amount: order.final_amount,
         invoice_amount: order.invoice_amount,
         client_id: order.client_id,
+        additional_products: additionalsByOrderId.get(String(order.id)) ?? [],
       } : undefined,
       client: client ? {
         id: client.id,

@@ -94,12 +94,15 @@ export async function POST(
       }
     }
 
-    const { data: remisiones } = await admin
+    const { data: remisionesRows } = await admin
       .from('remisiones')
-      .select('id')
+      .select('tipo_remision, volumen_fabricado')
       .eq('order_id', orderId)
-      .limit(1)
-    const hasAnyRemisiones = (remisiones?.length ?? 0) > 0
+    const hasAnyRemisiones = (remisionesRows?.length ?? 0) > 0
+    const remisionesConcreteVolumeSum =
+      (remisionesRows || [])
+        .filter((r) => r.tipo_remision === 'CONCRETO')
+        .reduce((s, r) => s + (Number(r.volumen_fabricado) || 0), 0) || 0
 
     const { data: plantRow } = await admin
       .from('plants')
@@ -166,6 +169,7 @@ export async function POST(
       items: mergedForEstimate,
       hasAnyRemisiones,
       effectiveForBalance: Boolean(order.effective_for_balance),
+      remisionesConcreteVolumeSum,
     })
 
     const estBefore = estimateOrderFinancials({
@@ -174,6 +178,7 @@ export async function POST(
       items: (itemsBefore || []) as unknown as Parameters<typeof estimateOrderFinancials>[0]['items'],
       hasAnyRemisiones,
       effectiveForBalance: Boolean(order.effective_for_balance),
+      remisionesConcreteVolumeSum,
     })
 
     if (preview) {

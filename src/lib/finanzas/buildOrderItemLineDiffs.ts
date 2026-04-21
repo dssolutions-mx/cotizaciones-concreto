@@ -26,6 +26,39 @@ function lineLabel(row: Record<string, unknown>): string {
   return 'Línea del pedido'
 }
 
+function isAdditionalProductLine(row: Record<string, unknown>): boolean {
+  return String(row.product_type || '').trim().startsWith('PRODUCTO ADICIONAL:')
+}
+
+/**
+ * For additional products billed PER_M3, `volume` in DB is the quote coefficient (often 1);
+ * the charge is coef × m³ concreto entregado × precio/m³. The preview must show the **effective**
+ * m³ at the unit rate: total_price / unit_price (matches OrderDetails / audit insert math).
+ */
+function effectiveVolumeM3ForSummary(row: Record<string, unknown>): number {
+  const rawVol = Number(row.volume) || 0
+  const pu = Number(row.unit_price) || 0
+  const total = Number(row.total_price)
+  const bt = String(row.billing_type || '').toUpperCase()
+  if (
+    bt === 'PER_M3' &&
+    isAdditionalProductLine(row) &&
+    pu > 0 &&
+    Number.isFinite(total) &&
+    total > 0
+  ) {
+    const derived = total / pu
+    if (Number.isFinite(derived) && derived >= 0) return derived
+  }
+  return rawVol
+}
+
+function formatVolumeM3Label(n: number): string {
+  if (!Number.isFinite(n)) return '0 m³'
+  const rounded = Math.round(n * 100) / 100
+  return `${rounded.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} m³`
+}
+
 function fmtQuoteDetailLink(oldV: unknown, newV: unknown): { old: string; new: string } {
   const o = oldV == null || oldV === '' ? null : String(oldV)
   const n = newV == null || newV === '' ? null : String(newV)
@@ -44,22 +77,22 @@ function fmtValue(key: (typeof TRACKED)[number], v: unknown): string {
 }
 
 function newLineSummary(row: Record<string, unknown>): string {
-  const vol = Number(row.volume) || 0
+  const vol = effectiveVolumeM3ForSummary(row)
   const pu = Number(row.unit_price) || 0
   const total = Number(row.total_price)
-  const parts = [`${formatMxCurrency(pu)}/m³`, `${vol} m³`]
+  const parts = [`${formatMxCurrency(pu)}/m³`, formatVolumeM3Label(vol)]
   if (Number.isFinite(total)) parts.push(`total ${formatMxCurrency(total)}`)
   return parts.join(' · ')
 }
 
 function lineSummary(row: Record<string, unknown>): string {
-  const vol = Number(row.volume) || 0
+  const vol = effectiveVolumeM3ForSummary(row)
   const pu = Number(row.unit_price) || 0
   const total = Number(row.total_price)
   if (Number.isFinite(total) && total > 0) {
-    return `${formatMxCurrency(pu)}/m³ · ${vol} m³ · ${formatMxCurrency(total)}`
+    return `${formatMxCurrency(pu)}/m³ · ${formatVolumeM3Label(vol)} · ${formatMxCurrency(total)}`
   }
-  return `${formatMxCurrency(pu)}/m³ · ${vol} m³`
+  return `${formatMxCurrency(pu)}/m³ · ${formatVolumeM3Label(vol)}`
 }
 
 export type OrderItemLineDiffField = {

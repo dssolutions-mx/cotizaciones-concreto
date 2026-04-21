@@ -25,8 +25,9 @@ export default function PlantRestrictedAccess({ plantCode, sectionName }: PlantR
         <div className="bg-white p-4 rounded-lg border border-orange-200 mb-4">
           <h3 className="font-medium text-gray-800 mb-2">¿Por qué?</h3>
           <p className="text-gray-600">
-            Los usuarios del equipo de calidad en las plantas P002, P003 y P004 tienen acceso 
-            limitado solo a Muestreos, Ensayos y Materiales.
+            Los usuarios del equipo de calidad en las plantas P002, P003 y P004 tienen restricciones
+            en algunas secciones (por ejemplo reportes, proveedores o recetas). Usa los accesos de
+            calidad permitidos para tu planta desde el menú lateral.
           </p>
         </div>
         

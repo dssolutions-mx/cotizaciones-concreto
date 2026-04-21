@@ -867,17 +867,37 @@ export default function EvidenciaRemisionesConcretoClient() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Error')
       const remisionIds: string[] = json.data?.remision_ids || []
+      const plantIdsFromApi: string[] = Array.isArray(json.data?.plant_ids)
+        ? json.data.plant_ids
+        : []
       if (!remisionIds.length) {
         toast.error('No hay remisiones de concreto en los pedidos seleccionados')
         return
       }
-      const plantIdsForReport = isPlantManager && currentPlant?.id
-        ? [currentPlant.id]
-        : selectedPlantIds.length > 0
-          ? selectedPlantIds
-          : currentPlant?.id
-            ? [currentPlant.id]
-            : []
+      const selectedRows = rows.filter((r) => ids.includes(r.order_id))
+      const plantsFromRows = [
+        ...new Set(
+          selectedRows
+            .map((r) => r.plant_id)
+            .filter((pid): pid is string => Boolean(pid && typeof pid === 'string')),
+        ),
+      ]
+      const plantsFromOrders =
+        plantsFromRows.length > 0 ? plantsFromRows : [...new Set(plantIdsFromApi)]
+      // Report page filters hierarchical data by plant; must match the orders' plants, not only
+      // currentPlant / UI filter (empty "todas las plantas" + wrong context plant broke preselect).
+      let plantIdsForReport: string[]
+      if (isPlantManager && currentPlant?.id) {
+        plantIdsForReport = [currentPlant.id]
+      } else if (plantsFromOrders.length > 0) {
+        plantIdsForReport = plantsFromOrders
+      } else if (selectedPlantIds.length > 0) {
+        plantIdsForReport = [...selectedPlantIds]
+      } else if (currentPlant?.id) {
+        plantIdsForReport = [currentPlant.id]
+      } else {
+        plantIdsForReport = []
+      }
       const payload = {
         source: 'evidencia' as const,
         dateRange: {
@@ -896,7 +916,7 @@ export default function EvidenciaRemisionesConcretoClient() {
     } finally {
       setReportNavBusy(false)
     }
-  }, [selectedOrderIds, from, to, isPlantManager, currentPlant?.id, selectedPlantIds, router])
+  }, [selectedOrderIds, from, to, isPlantManager, currentPlant?.id, selectedPlantIds, router, rows])
 
   const copyAccountingRef = useRef(handleCopyAccounting)
   const reportClienteRef = useRef(handleReporteCliente)

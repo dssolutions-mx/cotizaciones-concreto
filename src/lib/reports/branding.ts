@@ -43,6 +43,10 @@ export const DC_DOCUMENT_THEME = {
   groupHeaderTint: '#E8F3EA',
   /** Subtle blue tint for pumping/auxiliary-service rows in the Remisiones sheet. */
   pumpingRowTint: '#EEF5FB',
+  /** Amber tint for additional-product pseudo-rows in the Remisiones sheet. */
+  additionalRowTint: '#FEF3C7',
+  /** Amber text for additional-product pseudo-rows (amber-900). */
+  additionalRowText: '#92400E',
   footerRule: '#78716C',
 } as const
 export type DCDocumentTheme = typeof DC_DOCUMENT_THEME

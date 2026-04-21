@@ -372,7 +372,6 @@ const QUALITY_SECTIONS: QualitySection[] = [
     title: 'Validaciones',
     hubHref: '/quality/validaciones',
     IconComponent: FlaskConical,
-    hideForRestrictedPlants: true,
     items: [
       { title: 'Investigación', href: '/quality/validaciones/investigacion', IconComponent: Lightbulb, comingSoon: true, subGroup: 'I+D' },
       { title: 'Caracterizaciones', href: '/quality/caracterizacion-materiales', IconComponent: FlaskConical, subGroup: 'Nuevos Materiales' },
@@ -480,13 +479,10 @@ function getNavItemsForRole(role: string | undefined): Array<{ href: string; lab
 
 // Helper function to check if QUALITY_TEAM user is in restricted plant
 export function isQualityTeamInRestrictedPlant(userRole: string | undefined, plantCode: string | undefined): boolean {
-  console.log('isQualityTeamInRestrictedPlant called with:', { userRole, plantCode });
   if (userRole !== 'QUALITY_TEAM') return false;
   // Support both formats: P2/P3/P4 and P002/P003/P004
   const restrictedPlants = ['P2', 'P3', 'P4', 'P002', 'P003', 'P004'];
-  const isRestricted = plantCode ? restrictedPlants.includes(plantCode) : false;
-  console.log('Plant restriction check result:', isRestricted, 'against plants:', restrictedPlants);
-  return isRestricted;
+  return plantCode ? restrictedPlants.includes(plantCode) : false;
 }
 
 
