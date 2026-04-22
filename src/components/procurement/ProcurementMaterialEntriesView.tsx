@@ -8,7 +8,6 @@ import { es } from 'date-fns/locale'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
@@ -56,7 +55,14 @@ import { MaterialEntry } from '@/types/inventory'
 import { toast } from 'sonner'
 import EntryPricingReviewList from '@/components/inventory/EntryPricingReviewList'
 import EntryPricingForm from '@/components/inventory/EntryPricingForm'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from '@/components/ui/sheet'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import ReviewedEntriesForAccountingTable from '@/components/procurement/ReviewedEntriesForAccountingTable'
 import { Switch } from '@/components/ui/switch'
@@ -89,6 +95,8 @@ type Props = {
   onPricingSuccess?: () => void
   isFocused?: boolean
   onToggleFocusMode?: () => void
+  /** Sincroniza la planta del espacio de trabajo (mismo control que el selector del header de compras). */
+  onWorkspacePlantIdChange?: (plantId: string) => void
 }
 
 /* ─── Shared table for both canReviewPricing and !canReviewPricing ─── */
@@ -270,6 +278,7 @@ export default function ProcurementMaterialEntriesView({
   onPricingSuccess,
   isFocused = false,
   onToggleFocusMode,
+  onWorkspacePlantIdChange,
 }: Props) {
   const { isInitialized: authInitialized, profile: authProfile } = useAuthSelectors()
   const router = useRouter()
@@ -304,7 +313,7 @@ export default function ProcurementMaterialEntriesView({
   const [inspectionEntry, setInspectionEntry] = useState<MaterialEntry | null>(null)
   const autoPreciosAppliedRef = useRef(false)
   const inspectionAutoOpenedForEntryRef = useRef<string | null>(null)
-  const { availablePlants, refreshPlantData } = usePlantContext()
+  const { availablePlants, currentPlant, refreshPlantData } = usePlantContext()
 
   // ── Pending entries (queue) ──
   const [pendingEntries, setPendingEntries] = useState<MaterialEntry[]>([])
@@ -324,6 +333,7 @@ export default function ProcurementMaterialEntriesView({
   const [plantConceptDraft, setPlantConceptDraft] = useState('')
   const [plantWarehouseDraft, setPlantWarehouseDraft] = useState('')
   const [plantAccountingSaving, setPlantAccountingSaving] = useState(false)
+  const [accountingExportOpen, setAccountingExportOpen] = useState(false)
 
   const effectivePlantRow = useMemo(
     () => (effectivePlantId ? availablePlants.find((p) => p.id === effectivePlantId) ?? null : null),
@@ -383,6 +393,23 @@ export default function ProcurementMaterialEntriesView({
       })
     },
     [router, pathname, searchParams]
+  )
+
+  const plantOptionsForExport = useMemo(
+    () =>
+      availablePlants?.length ? availablePlants : currentPlant ? [currentPlant] : [],
+    [availablePlants, currentPlant]
+  )
+
+  const accountingExportPlantSelectValue = !effectivePlantId ? 'all' : effectivePlantId
+
+  const handleAccountingExportPlantChange = useCallback(
+    (value: string) => {
+      const id = value === 'all' ? '' : value
+      onWorkspacePlantIdChange?.(id)
+      replaceQuery({ plant_id: id || null })
+    },
+    [onWorkspacePlantIdChange, replaceQuery]
   )
 
   const setEntradasView = useCallback(
@@ -968,6 +995,11 @@ export default function ProcurementMaterialEntriesView({
     []
   )
 
+  const reviewedSupplierLabel = useMemo(() => {
+    if (!reviewedSupplierId) return 'Todos (sin filtro)'
+    return reviewedSuppliers.find((s) => s.id === reviewedSupplierId)?.name?.trim() || 'Proveedor'
+  }, [reviewedSupplierId, reviewedSuppliers])
+
   return (
     <div className={cn("h-full flex flex-col", isFocused && "p-3 md:p-4 gap-0")}>
       {/* ─── Compact header: title + sub-tabs ─── */}
@@ -1147,119 +1179,165 @@ export default function ProcurementMaterialEntriesView({
                 </div>
               </div>
 
-              <Card className="mx-3 mb-2 border-stone-200 bg-stone-50/70 shadow-none">
-                <CardHeader className="py-3 px-4 space-y-0.5">
-                  <CardTitle className="text-sm font-semibold text-stone-900">
-                    Exportación contable (ERP)
-                  </CardTitle>
-                  <CardDescription className="text-xs text-stone-600 leading-relaxed">
-                    Elija el proveedor de material para filtrar las recepciones y generar el archivo de carga. El
-                    Excel contable exige proveedor; el export detallado puede usarse con o sin filtro.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 pt-0 space-y-4">
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="reviewed-supplier" className="text-xs font-medium text-stone-700">
-                        Proveedor de material
-                      </Label>
-                      <Select
-                        value={reviewedSupplierId || '__all__'}
-                        onValueChange={(v) => setReviewedSupplierId(v === '__all__' ? '' : v)}
-                      >
-                        <SelectTrigger id="reviewed-supplier" className="h-9 bg-white text-sm">
-                          <SelectValue placeholder="Todos los proveedores" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">Todos (sin filtro de proveedor)</SelectItem>
-                          {reviewedSuppliers.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {effectivePlantId ? (
-                      <div className="rounded-lg border border-stone-200 bg-white p-3 space-y-3">
-                        <p className="text-xs font-medium text-stone-800">Valores por planta en el Excel</p>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <Label htmlFor="plant-concept" className="text-[11px] text-stone-600">
-                              Concepto contable
-                            </Label>
-                            <Input
-                              id="plant-concept"
-                              value={plantConceptDraft}
-                              onChange={(e) => setPlantConceptDraft(e.target.value)}
-                              className="h-8 text-xs"
-                              placeholder="Ej. compra de materias primas"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor="plant-warehouse" className="text-[11px] text-stone-600">
-                              Almacén (número)
-                            </Label>
-                            <Input
-                              id="plant-warehouse"
-                              value={plantWarehouseDraft}
-                              onChange={(e) => setPlantWarehouseDraft(e.target.value)}
-                              className="h-8 text-xs tabular-nums"
-                              placeholder="Ej. 1"
-                              inputMode="numeric"
-                            />
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          className="h-8 text-xs"
-                          onClick={() => void savePlantAccountingDraft()}
-                          disabled={plantAccountingSaving}
-                        >
-                          {plantAccountingSaving ? 'Guardando…' : 'Guardar concepto y almacén'}
-                        </Button>
-                      </div>
-                    ) : (
-                      <Alert className="border-stone-200 bg-white py-3">
-                        <Info className="h-4 w-4 text-stone-500" />
-                        <AlertTitle className="text-sm">Planta</AlertTitle>
-                        <AlertDescription className="text-xs text-stone-600">
-                          Seleccione una planta en el espacio de trabajo para editar concepto y almacén.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                  <Alert className="border-amber-200/80 bg-amber-50/60 py-3">
-                    <Info className="h-4 w-4 text-amber-800" />
-                    <AlertTitle className="text-sm text-amber-950">Columnas del Excel contable</AlertTitle>
-                    <AlertDescription className="text-xs text-amber-950/90 leading-relaxed">
-                      Orden: fecha · clave de producto · serie ZFE · folio factura (remisión/factura de la entrada) ·
-                      precio unitario · cantidad · concepto (planta) · almacén. Recepciones en litros: cantidad en L y
-                      precio en MXN/L. En m³: cantidad en kg y precio en MXN/kg (peso volumétrico: línea de OC, luego
-                      entrada, luego material), alineado a revisión de precios. En kg: ambos en kg.
-                    </AlertDescription>
-                  </Alert>
-                </CardContent>
-              </Card>
+              <div className="shrink-0 px-3 pb-2 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => setAccountingExportOpen(true)}
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Exportación contable (ERP)…
+                </Button>
+                <span className="text-xs text-stone-500 truncate min-w-0 max-w-[min(100%,20rem)]">
+                  Proveedor: <span className="text-stone-700 font-medium">{reviewedSupplierLabel}</span>
+                </span>
+              </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-2 pb-2">
-                <ReviewedEntriesForAccountingTable
-                  entries={reviewedEntries}
-                  entryIdFromUrl={entryIdFromUrl}
-                  effectivePlantId={effectivePlantId}
-                  mxn={mxn}
-                  loading={reviewedLoading}
-                  hasMore={reviewedHasMore}
-                  onLoadMore={() => void loadMoreReviewed()}
-                  toolbar={
-                    <div className="flex flex-wrap items-center justify-end gap-2">
+              <Sheet open={accountingExportOpen} onOpenChange={setAccountingExportOpen}>
+                <SheetContent
+                  side="right"
+                  className="w-full sm:max-w-xl flex flex-col gap-0 overflow-y-auto p-0"
+                >
+                  <div className="p-6 pb-4 space-y-4">
+                    <SheetHeader className="space-y-1.5 p-0">
+                      <SheetTitle className="text-base">Exportación contable (ERP)</SheetTitle>
+                      <SheetDescription className="text-xs leading-relaxed">
+                        Elija planta y proveedor de material para filtrar recepciones y definir los valores contables del
+                        Excel. El Excel contable exige proveedor; el detallado puede usarse con o sin filtro. La tabla de
+                        la pestaña se actualiza al cambiar planta o proveedor.
+                      </SheetDescription>
+                    </SheetHeader>
+                    <div className="grid gap-4 sm:grid-cols-1">
+                      <div className="space-y-2">
+                        <Label
+                          htmlFor="accounting-export-plant"
+                          className="text-xs font-medium text-stone-700 flex items-center gap-1.5"
+                        >
+                          <Factory className="h-3.5 w-3.5 text-stone-500 shrink-0" />
+                          Planta (espacio de trabajo)
+                        </Label>
+                        {plantOptionsForExport.length > 0 ? (
+                          <Select
+                            value={accountingExportPlantSelectValue}
+                            onValueChange={handleAccountingExportPlantChange}
+                          >
+                            <SelectTrigger
+                              id="accounting-export-plant"
+                              className="h-9 bg-white text-sm w-full"
+                            >
+                              <SelectValue placeholder="Planta" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Todas las plantas</SelectItem>
+                              {plantOptionsForExport.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="text-xs text-stone-500">Cargando plantas…</p>
+                        )}
+                        <p className="text-[11px] text-stone-500 leading-snug">
+                          Mismo criterio que el selector del encabezado del centro de compras. Con «Todas las plantas» no
+                          se puede guardar concepto ni almacén por planta en el Excel.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reviewed-supplier" className="text-xs font-medium text-stone-700">
+                          Proveedor de material
+                        </Label>
+                        <Select
+                          value={reviewedSupplierId || '__all__'}
+                          onValueChange={(v) => setReviewedSupplierId(v === '__all__' ? '' : v)}
+                        >
+                          <SelectTrigger id="reviewed-supplier" className="h-9 bg-white text-sm">
+                            <SelectValue placeholder="Todos los proveedores" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">Todos (sin filtro de proveedor)</SelectItem>
+                            {reviewedSuppliers.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {effectivePlantId ? (
+                        <div className="rounded-lg border border-stone-200 bg-stone-50/60 p-3 space-y-3">
+                          <p className="text-xs font-medium text-stone-800">
+                            Valores por planta en el Excel
+                            {effectivePlantRow?.name && (
+                              <span className="font-normal text-stone-600"> · {effectivePlantRow.name}</span>
+                            )}
+                          </p>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label htmlFor="sheet-plant-concept" className="text-[11px] text-stone-600">
+                                Concepto contable
+                              </Label>
+                              <Input
+                                id="sheet-plant-concept"
+                                value={plantConceptDraft}
+                                onChange={(e) => setPlantConceptDraft(e.target.value)}
+                                className="h-8 text-xs"
+                                placeholder="Ej. compra de materias primas"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor="sheet-plant-warehouse" className="text-[11px] text-stone-600">
+                                Almacén (número)
+                              </Label>
+                              <Input
+                                id="sheet-plant-warehouse"
+                                value={plantWarehouseDraft}
+                                onChange={(e) => setPlantWarehouseDraft(e.target.value)}
+                                className="h-8 text-xs tabular-nums"
+                                placeholder="Ej. 1"
+                                inputMode="numeric"
+                              />
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 text-xs"
+                            onClick={() => void savePlantAccountingDraft()}
+                            disabled={plantAccountingSaving}
+                          >
+                            {plantAccountingSaving ? 'Guardando…' : 'Guardar concepto y almacén'}
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-stone-500 leading-relaxed rounded-md border border-dashed border-stone-200 bg-stone-50/50 px-3 py-2">
+                          Seleccione una planta concreta arriba (no «Todas las plantas») para editar concepto contable y
+                          número de almacén usados en las columnas del Excel.
+                        </p>
+                      )}
+                    </div>
+                    <Alert className="border-amber-200/80 bg-amber-50/60 py-3">
+                      <Info className="h-4 w-4 text-amber-800" />
+                      <AlertTitle className="text-sm text-amber-950">Columnas del Excel contable</AlertTitle>
+                      <AlertDescription className="text-xs text-amber-950/90 leading-relaxed">
+                        Orden: fecha · clave de producto · serie ZFE · folio factura (remisión/factura de la entrada) ·
+                        precio unitario · cantidad · concepto (planta) · almacén. Recepciones en litros: cantidad en L
+                        y precio en MXN/L. En m³: cantidad en kg y precio en MXN/kg (peso volumétrico: línea de OC,
+                        luego entrada, luego material), alineado a revisión de precios. En kg: ambos en kg.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                  <SheetFooter className="p-6 pt-0 sm:justify-stretch border-t border-stone-100 bg-stone-50/40 mt-auto">
+                    <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="gap-1.5 h-8 text-xs"
+                        className="gap-1.5 h-9 text-xs w-full sm:w-auto"
                         onClick={() => void exportReviewedExcel()}
                         disabled={reviewedEntries.length === 0 || reviewedExporting}
                       >
@@ -1269,7 +1347,7 @@ export default function ProcurementMaterialEntriesView({
                       <Button
                         type="button"
                         size="sm"
-                        className="gap-1.5 h-8 text-xs bg-stone-900 text-white hover:bg-stone-800"
+                        className="gap-1.5 h-9 text-xs w-full sm:w-auto bg-stone-900 text-white hover:bg-stone-800"
                         onClick={() => void exportReviewedAccountingExcel()}
                         disabled={
                           !reviewedSupplierId || reviewedEntries.length === 0 || reviewedAccountingExporting
@@ -1287,7 +1365,7 @@ export default function ProcurementMaterialEntriesView({
                         type="button"
                         variant="secondary"
                         size="sm"
-                        className="gap-1.5 h-8 text-xs"
+                        className="gap-1.5 h-9 text-xs w-full sm:w-auto"
                         onClick={() => void copyReviewedAccountingTsv()}
                         disabled={
                           !reviewedSupplierId ||
@@ -1305,7 +1383,19 @@ export default function ProcurementMaterialEntriesView({
                         {reviewedAccountingCopying ? 'Copiando…' : 'Copiar contabilidad'}
                       </Button>
                     </div>
-                  }
+                  </SheetFooter>
+                </SheetContent>
+              </Sheet>
+
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-2 pb-2">
+                <ReviewedEntriesForAccountingTable
+                  entries={reviewedEntries}
+                  entryIdFromUrl={entryIdFromUrl}
+                  effectivePlantId={effectivePlantId}
+                  mxn={mxn}
+                  loading={reviewedLoading}
+                  hasMore={reviewedHasMore}
+                  onLoadMore={() => void loadMoreReviewed()}
                   onInspect={setInspectionEntry}
                   onEditPricing={setPricingSheetEntry}
                 />

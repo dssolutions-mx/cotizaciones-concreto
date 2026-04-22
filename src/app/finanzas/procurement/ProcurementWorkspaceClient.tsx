@@ -506,6 +506,7 @@ export default function ProcurementWorkspaceClient() {
         <TabsContent value="entradas" className="flex-1 min-h-0 mt-0">
           <ProcurementMaterialEntriesView
             workspacePlantId={workspacePlantId}
+            onWorkspacePlantIdChange={setWorkspacePlantId}
             canReviewPricing={canReviewPricing}
             onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
             isFocused={entriesFocusMode}

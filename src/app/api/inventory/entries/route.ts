@@ -89,6 +89,113 @@ function nativeKgFromEntryForPoItem(
   return { native: kg, kg: kg };
 }
 
+/**
+ * Decrement a material PO line by the same native/kg amounts this entry would add
+ * (mirrors DELETE entry behavior when unlinking from a line).
+ */
+async function revertMaterialPoLineTalliesForEntrySnapshot(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  poItemId: string,
+  entryRow: Record<string, unknown>
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: poItemRow, error: fetchErr } = await supabase
+    .from('purchase_order_items')
+    .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
+    .eq('id', poItemId)
+    .single();
+  if (fetchErr || !poItemRow) {
+    return { ok: false, error: 'Línea de OC anterior no encontrada' };
+  }
+  const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(
+    entryRow as {
+      quantity_received: number;
+      received_qty_entered?: number | null;
+      received_qty_kg?: number | null;
+    },
+    poItemRow
+  );
+  if (deltaNative <= 1e-9 && deltaKg <= 1e-9) {
+    return { ok: true };
+  }
+  const currentNative = Number(poItemRow.qty_received ?? 0);
+  const currentKg = Number(poItemRow.qty_received_kg ?? 0);
+  const newNative = Math.max(0, currentNative - deltaNative);
+  const newKg = Math.max(0, currentKg - deltaKg);
+  const orderedNative = Number(poItemRow.qty_ordered || 0);
+  let newStatus = 'open';
+  if (newNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+  else if (newNative > 1e-6) newStatus = 'partial';
+  const updateFields: Record<string, unknown> = { qty_received: newNative, status: newStatus };
+  if (deltaKg > 0) {
+    updateFields.qty_received_kg = newKg;
+  }
+  const { error: updErr } = await supabase
+    .from('purchase_order_items')
+    .update(updateFields)
+    .eq('id', poItemId);
+  if (updErr) {
+    console.error('revertMaterialPoLineTalliesForEntrySnapshot', updErr);
+    return { ok: false, error: 'No se pudo revertir el avance en la línea de OC anterior' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Decrement a fleet (service) PO line using fleet_qty_entered and optional kg for tons
+ * (same logic as DELETE material_entries fleet revert).
+ */
+async function revertFleetPoLineTalliesForEntrySnapshot(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  fleetItemId: string,
+  entryRow: Record<string, unknown>
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const fe = entryRow.fleet_qty_entered;
+  if (fe == null || Number(fe) <= 0) {
+    return { ok: true };
+  }
+  const delta = Number(fe);
+  const { data: fleetItemRow, error: fetchErr } = await supabase
+    .from('purchase_order_items')
+    .select('qty_received, qty_received_kg, qty_ordered, uom')
+    .eq('id', fleetItemId)
+    .single();
+  if (fetchErr || !fleetItemRow) {
+    return { ok: false, error: 'Línea de OC de flota anterior no encontrada' };
+  }
+  const currentNative = Number(fleetItemRow.qty_received ?? 0);
+  const newNative = Math.max(0, currentNative - delta);
+  const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+  let newStatus = 'open';
+  if (newNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+  else if (newNative > 1e-6) newStatus = 'partial';
+  const fleetUpd: Record<string, unknown> = {
+    qty_received: newNative,
+    status: newStatus,
+  };
+  if (fleetItemRow.uom === 'tons') {
+    const deltaKg = Number(
+      (entryRow as { received_qty_kg?: number | null }).received_qty_kg ??
+        (entryRow as { quantity_received?: number }).quantity_received ??
+        0
+    );
+    if (deltaKg > 0) {
+      const newKg = Math.max(0, Number(fleetItemRow.qty_received_kg ?? 0) - deltaKg);
+      fleetUpd.qty_received_kg = newKg;
+    }
+  }
+  const { error: updErr } = await supabase
+    .from('purchase_order_items')
+    .update(fleetUpd)
+    .eq('id', fleetItemId);
+  if (updErr) {
+    console.error('revertFleetPoLineTalliesForEntrySnapshot', updErr);
+    return { ok: false, error: 'No se pudo revertir el avance en la línea de OC de flota anterior' };
+  }
+  return { ok: true };
+}
+
 /** Stock delta for this entry row (aligned with inventory_after - inventory_before). */
 function inventoryContributionFromEntryRow(row: Record<string, unknown>): number {
   const uom = row.received_uom as string | null | undefined;
@@ -1023,8 +1130,15 @@ export async function PUT(request: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
+    /** Moving entrada from one material PO line to another: revert old, then add full to new. */
+    let isMaterialPoRebind = false;
+
     // Optional: Link PO item with unit conversion and caps
     if (updateData.po_item_id) {
+      isMaterialPoRebind = Boolean(
+        currentEntry.po_item_id &&
+          String(currentEntry.po_item_id) !== String(updateData.po_item_id)
+      );
       // Fetch PO item, header, material densities
       const { data: poItem, error: poItemErr } = await supabase
         .from('purchase_order_items')
@@ -1132,9 +1246,10 @@ export async function PUT(request: NextRequest) {
 
       // Compute previous native from current entry to find delta.
       // First-time link (entrada sin OC): nothing was counted on a PO line yet — full receipt applies (same idea as fleet OC link).
+      // Rebind to another line: new line is credited in full, not (new - old) across different UoMs.
       const firstMaterialPoLink = !currentEntry.po_item_id;
       let previousNative = 0;
-      if (!firstMaterialPoLink) {
+      if (!firstMaterialPoLink && !isMaterialPoRebind) {
         if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
         else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
         else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
@@ -1165,15 +1280,27 @@ export async function PUT(request: NextRequest) {
       updatePayload.__po_delta_native = deltaNative;
       updatePayload.__po_native_uom = nativeUom;
       // For kg/m3 we may track kg too
-      const previousKg = firstMaterialPoLink ? 0 : Number(currentEntry.received_qty_kg || 0);
+      const previousKg =
+        firstMaterialPoLink || isMaterialPoRebind
+          ? 0
+          : Number(currentEntry.received_qty_kg || 0);
       const deltaKg = Math.max(newReceivedKg - previousKg, 0);
       updatePayload.__po_delta_kg = deltaKg;
     }
 
-    // Fleet PO: validate new link (pricing review) and compute delta for PO line recepciones
+    // Fleet PO: validate new link (pricing review) or rebind to another fleet line
     let __fleet_po_link_delta_native = 0;
     let __fleet_po_link_delta_kg = 0;
-    if (updateData.fleet_po_item_id && !currentEntry.fleet_po_item_id) {
+    let isFleetPoRebind = false;
+    if (updateData.fleet_po_item_id) {
+      isFleetPoRebind = Boolean(
+        currentEntry.fleet_po_item_id &&
+          String(currentEntry.fleet_po_item_id) !== String(updateData.fleet_po_item_id)
+      );
+      const isFirstFleetLink = !currentEntry.fleet_po_item_id;
+      if (!isFirstFleetLink && !isFleetPoRebind) {
+        // Misma línea de flota; no recalcular enlace
+      } else if (isFirstFleetLink || isFleetPoRebind) {
       // Do not embed `po` here — PostgREST can fail the whole row when the embed join is ambiguous
       // or misconfigured, even when the line exists (same issue as /api/po/items/search).
       const { data: fleetPoLine, error: fleetLineErr } = await supabase
@@ -1291,7 +1418,10 @@ export async function PUT(request: NextRequest) {
           );
         }
       }
+      updatePayload.fleet_po_id = fleetPoHeader.id;
+      updatePayload.fleet_po_item_id = updateData.fleet_po_item_id;
       __fleet_po_link_delta_native = qtyIn;
+      }
     }
 
     // Keep inventory_before/after and FIFO remaining in sync when quantities change
@@ -1384,6 +1514,16 @@ export async function PUT(request: NextRequest) {
 
     // If linked to PO item, update the PO item received tallies and status
     try {
+      if (isMaterialPoRebind && currentEntry.po_item_id) {
+        const rev = await revertMaterialPoLineTalliesForEntrySnapshot(
+          supabase,
+          currentEntry.po_item_id as string,
+          currentEntry as unknown as Record<string, unknown>
+        );
+        if (!rev.ok) {
+          return NextResponse.json({ success: false, error: rev.error }, { status: 500 });
+        }
+      }
       if (updateData.po_item_id && (__po_delta_native > 0 || __po_delta_kg > 0)) {
         const { data: poItem2, error: poErr2 } = await supabase
           .from('purchase_order_items')
@@ -1412,8 +1552,18 @@ export async function PUT(request: NextRequest) {
       console.error('Error actualizando progreso de PO (no fatal):', poProgressErr);
     }
 
-    // New fleet PO link on PUT (revisión de precios): increment línea de servicio
+    // New fleet PO link on PUT (revisión de precios): revert old line on rebind, then increment línea de servicio
     try {
+      if (isFleetPoRebind && currentEntry.fleet_po_item_id) {
+        const revFleet = await revertFleetPoLineTalliesForEntrySnapshot(
+          supabase,
+          currentEntry.fleet_po_item_id as string,
+          currentEntry as unknown as Record<string, unknown>
+        );
+        if (!revFleet.ok) {
+          return NextResponse.json({ success: false, error: revFleet.error }, { status: 500 });
+        }
+      }
       if (__fleet_po_link_delta_native > 0 && result.fleet_po_item_id) {
         const { data: fleetItemRow } = await supabase
           .from('purchase_order_items')

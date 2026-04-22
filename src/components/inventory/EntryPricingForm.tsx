@@ -192,6 +192,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [fleetPoPrefillFromEntry, setFleetPoPrefillFromEntry] = useState<PrefillFleetFromMaterialEntry | null>(null)
   const [materialPoSearchRefreshKey, setMaterialPoSearchRefreshKey] = useState(0)
   const [fleetPoSearchRefreshKey, setFleetPoSearchRefreshKey] = useState(0)
+  /** Solo roles con revisión de precios: re-vincular a otra línea de OC sin desasociar antes. */
+  const [materialRebindMode, setMaterialRebindMode] = useState(false)
+  const [fleetRebindMode, setFleetRebindMode] = useState(false)
   /** After creating a PO from the modal, auto-select its first line once search refreshes */
   const [pendingAutoSelectFleetPoId, setPendingAutoSelectFleetPoId] = useState<string | null>(null)
   const [pendingAutoSelectMaterialPoId, setPendingAutoSelectMaterialPoId] = useState<string | null>(null)
@@ -295,28 +298,56 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     [materialPoSearchItems, selectedMaterialSearchItemId]
   )
 
-  const resolvedMaterialLineForCalc: PoLineItem | null = hasMaterialPoLink
-    ? materialPoItem
-    : selectedMaterialSearchItem
-      ? {
-          id: selectedMaterialSearchItem.id, uom: selectedMaterialSearchItem.uom,
-          unit_price: selectedMaterialSearchItem.unit_price, qty_ordered: selectedMaterialSearchItem.qty_ordered,
-          qty_received: selectedMaterialSearchItem.qty_received, qty_received_native: selectedMaterialSearchItem.qty_received_native,
-          volumetric_weight_kg_per_m3: (selectedMaterialSearchItem as { volumetric_weight_kg_per_m3?: number | null }).volumetric_weight_kg_per_m3,
-          is_service: false,
-        }
-      : null
+  const lineFromSearchAsPo = (it: FleetPoSearchItem): PoLineItem => ({
+    id: it.id,
+    uom: it.uom,
+    unit_price: it.unit_price,
+    qty_ordered: it.qty_ordered,
+    qty_received: it.qty_received,
+    qty_received_native: it.qty_received_native,
+    volumetric_weight_kg_per_m3: (it as { volumetric_weight_kg_per_m3?: number | null }).volumetric_weight_kg_per_m3,
+    is_service: false,
+  })
 
-  const resolvedFleetLineForCalc: PoLineItem | null = hasFleetPoLink
-    ? fleetPoItem
-    : selectedFleetSearchItem
-      ? {
-          id: selectedFleetSearchItem.id, uom: selectedFleetSearchItem.uom,
-          unit_price: selectedFleetSearchItem.unit_price, qty_ordered: selectedFleetSearchItem.qty_ordered,
-          qty_received: selectedFleetSearchItem.qty_received, qty_received_native: selectedFleetSearchItem.qty_received_native,
+  const resolvedMaterialLineForCalc: PoLineItem | null = (() => {
+    if (hasMaterialPoLink) {
+      if (materialRebindMode && canEditSupplierPaymentTerms && selectedMaterialSearchItem) {
+        return lineFromSearchAsPo(selectedMaterialSearchItem)
+      }
+      return materialPoItem
+    }
+    if (selectedMaterialSearchItem) return lineFromSearchAsPo(selectedMaterialSearchItem)
+    return null
+  })()
+
+  const resolvedFleetLineForCalc: PoLineItem | null = (() => {
+    if (hasFleetPoLink) {
+      if (fleetRebindMode && canEditSupplierPaymentTerms && selectedFleetSearchItem) {
+        return {
+          id: selectedFleetSearchItem.id,
+          uom: selectedFleetSearchItem.uom,
+          unit_price: selectedFleetSearchItem.unit_price,
+          qty_ordered: selectedFleetSearchItem.qty_ordered,
+          qty_received: selectedFleetSearchItem.qty_received,
+          qty_received_native: selectedFleetSearchItem.qty_received_native,
           is_service: true,
         }
-      : null
+      }
+      return fleetPoItem
+    }
+    if (selectedFleetSearchItem) {
+      return {
+        id: selectedFleetSearchItem.id,
+        uom: selectedFleetSearchItem.uom,
+        unit_price: selectedFleetSearchItem.unit_price,
+        qty_ordered: selectedFleetSearchItem.qty_ordered,
+        qty_received: selectedFleetSearchItem.qty_received,
+        qty_received_native: selectedFleetSearchItem.qty_received_native,
+        is_service: true,
+      }
+    }
+    return null
+  })()
 
   const resolvedFleetQty = useMemo(() => {
     const lineUom = resolvedFleetLineForCalc?.uom
@@ -324,7 +355,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
       if (kg > 0) return kg / KG_PER_METRIC_TON
     }
-    return hasFleetPoLink ? Number(entry.fleet_qty_entered ?? 0) : Number(fleetQtyEnteredLink || 0)
+    if (hasFleetPoLink) {
+      return Number(entry.fleet_qty_entered ?? 0)
+    }
+    return Number(fleetQtyEnteredLink || 0)
   }, [
     resolvedFleetLineForCalc?.uom,
     entry.received_qty_kg,
@@ -500,6 +534,13 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   // ── Load material PO header + line ──
   useEffect(() => {
+    setMaterialRebindMode(false)
+    setSelectedMaterialSearchItemId('')
+    setFleetRebindMode(false)
+    setSelectedFleetSearchItemId('')
+  }, [entry.id])
+
+  useEffect(() => {
     if (!entry.po_id || !entry.po_item_id) { setMaterialPoItem(null); setMaterialPoHeader(null); return }
     let cancelled = false
     setMaterialPoLoading(true)
@@ -550,19 +591,57 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return () => { cancelled = true }
   }, [entry.fleet_po_id, entry.fleet_po_item_id])
 
-  // Pre-fill material unit price from PO line
+  // Material: precio alineado a la línea de OC (primera vinculación o cambio de línea en re-vinculación)
   useEffect(() => {
     if (!resolvedMaterialLineForCalc || resolvedMaterialLineForCalc.is_service || agreedMaterialUnit == null) return
+    const fromSearchOrRebind =
+      (!hasMaterialPoLink && Boolean(selectedMaterialSearchItem)) ||
+      (hasMaterialPoLink &&
+        materialRebindMode &&
+        Boolean(selectedMaterialSearchItem) &&
+        selectedMaterialSearchItem.id !== entry.po_item_id)
+    if (fromSearchOrRebind) {
+      setFormData((prev) => ({ ...prev, unit_price: String(agreedMaterialUnit) }))
+      return
+    }
     if (entry.unit_price != null && entry.unit_price !== undefined) return
-    setFormData((prev) => prev.unit_price !== '' ? prev : { ...prev, unit_price: String(agreedMaterialUnit) })
-  }, [resolvedMaterialLineForCalc, agreedMaterialUnit, entry.unit_price])
+    setFormData((prev) => (prev.unit_price !== '' ? prev : { ...prev, unit_price: String(agreedMaterialUnit) }))
+  }, [
+    resolvedMaterialLineForCalc,
+    agreedMaterialUnit,
+    entry.unit_price,
+    hasMaterialPoLink,
+    materialRebindMode,
+    selectedMaterialSearchItem,
+    entry.id,
+    entry.po_item_id,
+  ])
 
-  // Pre-fill fleet cost
+  // Flota: total alineado a la línea de OC (primera vinculación o cambio de OC en re-vinculación)
   useEffect(() => {
     if (!resolvedFleetLineForCalc || agreedFleetTotal == null) return
+    const fromSearchOrRebind =
+      (!hasFleetPoLink && Boolean(selectedFleetSearchItem)) ||
+      (hasFleetPoLink &&
+        fleetRebindMode &&
+        Boolean(selectedFleetSearchItem) &&
+        selectedFleetSearchItem.id !== entry.fleet_po_item_id)
+    if (fromSearchOrRebind) {
+      setFormData((prev) => ({ ...prev, fleet_cost: agreedFleetTotal.toFixed(2) }))
+      return
+    }
     if (entry.fleet_cost != null && entry.fleet_cost !== undefined) return
-    setFormData((prev) => prev.fleet_cost !== '' ? prev : { ...prev, fleet_cost: agreedFleetTotal.toFixed(2) })
-  }, [resolvedFleetLineForCalc, agreedFleetTotal, entry.fleet_cost])
+    setFormData((prev) => (prev.fleet_cost !== '' ? prev : { ...prev, fleet_cost: agreedFleetTotal.toFixed(2) }))
+  }, [
+    resolvedFleetLineForCalc,
+    agreedFleetTotal,
+    entry.fleet_cost,
+    hasFleetPoLink,
+    fleetRebindMode,
+    selectedFleetSearchItem,
+    entry.id,
+    entry.fleet_po_item_id,
+  ])
 
   useEffect(() => {
     if (!hasFleetPoLink || !fleetPoHeaderSupplierId) return
@@ -570,15 +649,22 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   }, [hasFleetPoLink, fleetPoHeaderSupplierId])
 
   useEffect(() => {
-    if (hasFleetPoLink || !selectedFleetSearchItem) { setFleetSearchHeaderSupplierId(null); return }
+    if ((hasFleetPoLink && !fleetRebindMode) || !selectedFleetSearchItem) { setFleetSearchHeaderSupplierId(null); return }
     const sid = selectedFleetSearchItem.po?.supplier_id || (selectedFleetSearchItem.po?.supplier as { id?: string } | undefined)?.id || null
     setFleetSearchHeaderSupplierId(sid)
     if (sid) setFormData((prev) => ({ ...prev, fleet_supplier_id: sid }))
-  }, [hasFleetPoLink, selectedFleetSearchItem])
+  }, [hasFleetPoLink, fleetRebindMode, selectedFleetSearchItem])
 
-  // Load fleet PO search items
+  // Load fleet PO search items (first link or re-vinculación a otra OC)
   useEffect(() => {
-    if (hasFleetPoLink || !effectiveSupplierId || !entry.plant_id) { setFleetPoSearchItems([]); return }
+    if ((!hasFleetPoLink || !fleetRebindMode) && hasFleetPoLink) {
+      setFleetPoSearchItems([])
+      return
+    }
+    if (!effectiveSupplierId || !entry.plant_id) {
+      setFleetPoSearchItems([])
+      return
+    }
     let cancelled = false
     setFleetPoSearchLoading(true)
     ;(async () => {
@@ -597,11 +683,18 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       finally { if (!cancelled) setFleetPoSearchLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [hasFleetPoLink, effectiveSupplierId, entry.plant_id, fleetCarrierFilterForSearch, fleetPoSearchRefreshKey])
+  }, [hasFleetPoLink, fleetRebindMode, effectiveSupplierId, entry.plant_id, fleetCarrierFilterForSearch, fleetPoSearchRefreshKey])
 
   // Load material PO search items
   useEffect(() => {
-    if (hasMaterialPoLink || !effectiveSupplierId || !entry.plant_id || !entry.material_id) { setMaterialPoSearchItems([]); return }
+    if ((!hasMaterialPoLink || !materialRebindMode) && hasMaterialPoLink) {
+      setMaterialPoSearchItems([])
+      return
+    }
+    if (!effectiveSupplierId || !entry.plant_id || !entry.material_id) {
+      setMaterialPoSearchItems([])
+      return
+    }
     let cancelled = false
     setMaterialPoSearchLoading(true)
     ;(async () => {
@@ -620,7 +713,14 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       finally { if (!cancelled) setMaterialPoSearchLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [hasMaterialPoLink, effectiveSupplierId, entry.plant_id, entry.material_id, materialPoSearchRefreshKey])
+  }, [
+    hasMaterialPoLink,
+    materialRebindMode,
+    effectiveSupplierId,
+    entry.plant_id,
+    entry.material_id,
+    materialPoSearchRefreshKey,
+  ])
 
   useEffect(() => {
     if (!selectedMaterialSearchItemId || materialPoSearchItems.length === 0) return
@@ -646,10 +746,11 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   }, [fleetPoSearchItems, pendingAutoSelectFleetPoId])
 
   useEffect(() => {
-    if (hasFleetPoLink || !selectedFleetSearchItem || selectedFleetSearchItem.uom !== 'tons') return
+    if (!selectedFleetSearchItem || selectedFleetSearchItem.uom !== 'tons') return
+    if (hasFleetPoLink && !fleetRebindMode) return
     const kg = Number(entry.received_qty_kg ?? entry.quantity_received ?? 0)
     if (kg > 0) setFleetQtyEnteredLink(kg / KG_PER_METRIC_TON)
-  }, [hasFleetPoLink, selectedFleetSearchItem, entry.received_qty_kg, entry.quantity_received])
+  }, [hasFleetPoLink, fleetRebindMode, selectedFleetSearchItem, entry.received_qty_kg, entry.quantity_received])
 
   // After "Crear nueva OC" (material), select the new PO line once search results include it
   useEffect(() => {
@@ -698,16 +799,30 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     const fleetTonsFromEntryKg =
       selectedFleetSearchItem?.uom === 'tons' &&
       Number(entry.received_qty_kg ?? entry.quantity_received ?? 0) > 0
+    const canRebindFleetPo =
+      canEditSupplierPaymentTerms && hasFleetPoLink && fleetRebindMode
+    const linkingFleetRebind =
+      canRebindFleetPo &&
+      Boolean(selectedFleetSearchItem) &&
+      selectedFleetSearchItem!.id !== entry.fleet_po_item_id
     const linkingFleetFromSearch = !hasFleetPoLink && Boolean(
       selectedFleetSearchItemId && selectedFleetSearchItem && (fleetQtyEnteredLink > 0 || fleetTonsFromEntryKg)
     )
-    const linkingMaterialFromSearch = !hasMaterialPoLink && Boolean(selectedMaterialSearchItemId && selectedMaterialSearchItem)
+    const canRebindMaterialPo =
+      canEditSupplierPaymentTerms && hasMaterialPoLink && materialRebindMode
+    const linkingMaterialFromSearch =
+      !hasMaterialPoLink && Boolean(selectedMaterialSearchItemId && selectedMaterialSearchItem)
+    const linkingMaterialRebind =
+      canRebindMaterialPo &&
+      Boolean(selectedMaterialSearchItem) &&
+      selectedMaterialSearchItem!.id !== entry.po_item_id
 
     if (selectedFleetSearchItemId && !selectedFleetSearchItem) {
       toast.error('Seleccione una línea de flota válida')
       return
     }
     if (
+      !hasFleetPoLink &&
       selectedFleetSearchItemId &&
       selectedFleetSearchItem &&
       !fleetTonsFromEntryKg &&
@@ -715,6 +830,13 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     ) {
       toast.error('Indique la cantidad de servicio (flota) mayor a cero')
       return
+    }
+    if (linkingFleetRebind) {
+      const u = selectedFleetSearchItem!.uom
+      if (u !== 'tons' && (!entry.fleet_qty_entered || Number(entry.fleet_qty_entered) <= 0)) {
+        toast.error('La recepción debe tener cantidad de flota (servicio) para reasignar a una línea en esta UoM')
+        return
+      }
     }
 
     const effectiveFleetSupplierId = formData.fleet_supplier_id || fleetPoHeaderSupplierId || fleetSearchHeaderSupplierId || entry.fleet_supplier_id || ''
@@ -761,7 +883,26 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             : fleetQtyEnteredLink
         updatePayload.fleet_uom = mapFleetUom(uomRaw)
       }
+      if (linkingFleetRebind && selectedFleetSearchItem) {
+        const fleetPoId = selectedFleetSearchItem.po?.id || selectedFleetSearchItem.po_id
+        if (!fleetPoId) {
+          toast.error('Error: la línea de flota seleccionada no tiene OC asociada')
+          setLoading(false)
+          return
+        }
+        updatePayload.fleet_po_id = fleetPoId
+        updatePayload.fleet_po_item_id = selectedFleetSearchItem.id
+        const uomRaw = selectedFleetSearchItem.uom
+        updatePayload.fleet_qty_entered =
+          uomRaw === 'tons'
+            ? Number(entry.received_qty_kg ?? entry.quantity_received ?? 0) / KG_PER_METRIC_TON
+            : Number(entry.fleet_qty_entered ?? 0)
+        updatePayload.fleet_uom = mapFleetUom(uomRaw)
+      }
       if (linkingMaterialFromSearch && selectedMaterialSearchItem) {
+        updatePayload.po_item_id = selectedMaterialSearchItem.id
+      }
+      if (linkingMaterialRebind && selectedMaterialSearchItem) {
         updatePayload.po_item_id = selectedMaterialSearchItem.id
       }
 
@@ -779,6 +920,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
           setApiWarnings(warnings)
           toast.warning(<div className="space-y-1"><p className="font-medium">Advertencias:</p><ul className="list-disc list-inside text-sm">{warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul></div>, { duration: 10000 })
         }
+        setMaterialRebindMode(false)
+        setSelectedMaterialSearchItemId('')
+        setFleetRebindMode(false)
+        setSelectedFleetSearchItemId('')
         onSuccess?.(warnings)
       } else {
         const error = await response.json()
@@ -1236,6 +1381,86 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                         </div>
                       )
                     })()}
+                    {canEditSupplierPaymentTerms && (
+                      <div className="pt-2 space-y-2 border-t border-stone-200/50">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs w-full sm:w-auto"
+                          onClick={() => {
+                            setMaterialRebindMode((v) => {
+                              const on = !v
+                              if (on) setSelectedMaterialSearchItemId(entry.po_item_id || '')
+                              else setSelectedMaterialSearchItemId('')
+                              return on
+                            })
+                            setMaterialPoSearchRefreshKey((k) => k + 1)
+                          }}
+                        >
+                          {materialRebindMode ? 'Cancelar cambio de línea de OC' : 'Cambiar línea de OC'}
+                        </Button>
+                        {materialRebindMode && (
+                          <>
+                            <Alert className="border-amber-200/80 bg-amber-50/60 py-2">
+                              <AlertTitle className="text-sm">Cambio de OC</AlertTitle>
+                              <AlertDescription className="text-xs leading-relaxed">
+                                Al guardar con otra línea, los saldos recibidos de la OC anterior y de la nueva se
+                                ajustan automáticamente.
+                              </AlertDescription>
+                            </Alert>
+                            {materialPoSearchLoading ? (
+                              <p className="text-xs text-stone-600">Cargando líneas…</p>
+                            ) : (
+                              <div className="space-y-2">
+                                <Label htmlFor="material-oc-rebind" className="text-xs text-stone-600">
+                                  Nueva línea de orden de compra
+                                </Label>
+                                <select
+                                  id="material-oc-rebind"
+                                  className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                                  value={selectedMaterialSearchItemId}
+                                  onChange={(e) => setSelectedMaterialSearchItemId(e.target.value)}
+                                >
+                                  {materialPoSearchItems.length === 0 ? (
+                                    <option value="">No hay líneas abiertas</option>
+                                  ) : (
+                                    materialPoSearchItems.map((it) => {
+                                      const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                                      const rem = Number(it.qty_remaining ?? 0) || 0
+                                      return (
+                                        <option key={it.id} value={it.id}>
+                                          {`OC ${poNum} · Rest. ${rem.toLocaleString('es-MX')} ${uomLabel(it.uom)} · ${formatCurrency(it.unit_price ?? 0)}/${uomLabel(it.uom)}`}
+                                        </option>
+                                      )
+                                    })
+                                  )}
+                                </select>
+                                {selectedMaterialSearchItem && (
+                                  <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-[11px] text-stone-600">
+                                    {selectedMaterialSearchItem.id === entry.po_item_id ? (
+                                      <span className="text-amber-900">
+                                        Línea actual en la lista. Elija otra OC para reasignar la recepción.
+                                      </span>
+                                    ) : (
+                                      <>
+                                        Línea destino:{' '}
+                                        <span className="font-mono text-stone-800">
+                                          {selectedMaterialSearchItem.po?.po_number || selectedMaterialSearchItem.po_id?.slice(0, 8)}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                                {materialPoSearchItems.length === 0 && !materialPoSearchLoading && (
+                                  <p className="text-xs text-amber-800">No hay otras OC con saldo para este material.</p>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {materialPoHeader?.notes && (
                     <div className="px-3 py-2 border-t border-stone-200/60 bg-amber-50/40 text-[11px] text-amber-800 italic">
@@ -1542,6 +1767,129 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                           <span className="ml-1.5 font-normal opacity-75">· total OC: {formatCurrency(agreedFleetTotal)}</span>
                         )}
                       </span>
+                    </div>
+                  )}
+                  {canEditSupplierPaymentTerms && (
+                    <div className="pt-2 space-y-2 border-t border-sky-200/50">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs w-full sm:w-auto"
+                        onClick={() => {
+                          setFleetRebindMode((v) => {
+                            const on = !v
+                            if (on) setSelectedFleetSearchItemId(entry.fleet_po_item_id || '')
+                            else setSelectedFleetSearchItemId('')
+                            return on
+                          })
+                          setFleetPoSearchRefreshKey((k) => k + 1)
+                        }}
+                      >
+                        {fleetRebindMode ? 'Cancelar cambio de OC de flota' : 'Cambiar OC de flota'}
+                      </Button>
+                      {fleetRebindMode && (
+                        <>
+                          <Alert className="border-amber-200/80 bg-amber-50/60 py-2">
+                            <AlertTitle className="text-sm">Cambio de OC de flota</AlertTitle>
+                            <AlertDescription className="text-xs leading-relaxed">
+                              Al guardar con otra línea, los saldos recibidos de la OC anterior y de la nueva se ajustan
+                              automáticamente.
+                            </AlertDescription>
+                          </Alert>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="fleet_carrier_rebind" className="text-stone-600 font-normal text-xs">
+                              Filtrar por transportista <span className="text-stone-400">(opcional)</span>
+                            </Label>
+                            <Select
+                              value={fleetCarrierFilterForSearch || 'none'}
+                              onValueChange={(value) => {
+                                setSelectedFleetSearchItemId('')
+                                const id = value === 'none' ? '' : value
+                                setFleetCarrierFilterForSearch(id)
+                                setFormData((prev) => ({ ...prev, fleet_supplier_id: id }))
+                              }}
+                            >
+                              <SelectTrigger id="fleet_carrier_rebind" className="w-full max-w-md h-9 text-sm">
+                                <SelectValue placeholder="Todos los transportistas" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">Todos los transportistas</SelectItem>
+                                {suppliers.map((s) => (
+                                  <SelectItem key={s.id} value={s.id}>
+                                    {s.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {fleetPoSearchLoading ? (
+                            <p className="text-xs text-stone-600">Cargando líneas…</p>
+                          ) : (
+                            <div className="space-y-2">
+                              <Label htmlFor="fleet-oc-rebind" className="text-xs text-stone-600">
+                                Nueva línea de OC de flota
+                              </Label>
+                              <select
+                                id="fleet-oc-rebind"
+                                className="border border-stone-300 rounded-md bg-white px-3 py-2 text-sm w-full"
+                                value={selectedFleetSearchItemId}
+                                onChange={(e) => setSelectedFleetSearchItemId(e.target.value)}
+                              >
+                                {fleetPoSearchItems.length === 0 ? (
+                                  <option value="">No hay líneas abiertas</option>
+                                ) : (
+                                  fleetPoSearchItems.map((it) => {
+                                    const poNum = it.po?.po_number || String(it.po?.id || '').slice(0, 8)
+                                    const rem = Number(it.qty_remaining ?? 0) || 0
+                                    const carrier = (it.po?.supplier as { name?: string } | undefined)?.name || 'Transportista'
+                                    return (
+                                      <option key={it.id} value={it.id}>
+                                        {`OC ${poNum} · ${carrier} · Rest. ${rem.toLocaleString('es-MX')} ${uomLabel(it.uom)} · ${formatCurrency(it.unit_price ?? 0)}/${uomLabel(it.uom)}`}
+                                      </option>
+                                    )
+                                  })
+                                )}
+                              </select>
+                              {selectedFleetSearchItem && (
+                                <div className="rounded-md border border-stone-200 bg-white px-3 py-2 text-[11px] text-stone-600">
+                                  {selectedFleetSearchItem.id === entry.fleet_po_item_id ? (
+                                    <span className="text-amber-900">
+                                      Línea actual en la lista. Elija otra OC para reasignar el servicio de flota.
+                                    </span>
+                                  ) : (
+                                    <>
+                                      Línea destino:{' '}
+                                      <span className="font-mono text-stone-800">
+                                        {selectedFleetSearchItem.po?.po_number || selectedFleetSearchItem.po_id?.slice(0, 8)}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              {fleetPoSearchItems.length === 0 && !fleetPoSearchLoading && (
+                                <p className="text-xs text-amber-800">No hay otras OC de flota con saldo para este proveedor de material.</p>
+                              )}
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="w-fit"
+                            onClick={() => {
+                              const p = buildPrefillFleetFromMaterialEntry(entry, effectiveSupplierId)
+                              if (!p) { toast.error('Faltan datos para crear OC de flota'); return }
+                              setPoPrefill(null)
+                              setFleetPoPrefillFromEntry(p)
+                              setCreatePOOpen(true)
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1.5" />
+                            Crear nueva OC de flota
+                          </Button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
