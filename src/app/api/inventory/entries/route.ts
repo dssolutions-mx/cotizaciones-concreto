@@ -195,6 +195,12 @@ export async function GET(request: NextRequest) {
           email
         ),
         po:purchase_orders!po_id ( id, po_number ),
+        po_item:purchase_order_items!po_item_id (
+          id,
+          uom,
+          is_service,
+          volumetric_weight_kg_per_m3
+        ),
         fleet_po:purchase_orders!fleet_po_id ( id, po_number ),
         supplier:suppliers!supplier_id ( id, name, provider_number, default_payment_terms_days )
       `);

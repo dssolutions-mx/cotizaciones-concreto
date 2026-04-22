@@ -88,6 +88,13 @@ export interface MaterialEntry {
   } | null;
   /** Joined for list APIs (procurement / OC context) */
   po?: { id: string; po_number: string | null } | null;
+  /** Línea de OC de material (peso volumétrico, UoM) — export contable / pricing */
+  po_item?: {
+    id: string;
+    uom: string | null;
+    is_service: boolean;
+    volumetric_weight_kg_per_m3?: number | null;
+  } | null;
   fleet_po?: { id: string; po_number: string | null } | null;
   supplier?: {
     id: string;

@@ -1,5 +1,8 @@
 import type { MaterialEntry } from '@/types/inventory'
-import { entryQuantityKg, entryUnitPricePerKg } from '@/lib/procurement/accountingEntryMetrics'
+import {
+  entryContableCantidad,
+  entryContablePrecioUnitario,
+} from '@/lib/inventory/materialEntryContableMetrics'
 
 /** Serie fiscal artificial para layout contable (constante por ahora). */
 export const ACCOUNTING_EXPORT_SERIE = 'ZFE'
@@ -33,27 +36,29 @@ function materialCode(e: MaterialEntry): string {
   return code || ''
 }
 
+function contableRowValues(e: MaterialEntry) {
+  const qty = entryContableCantidad(e)
+  const price = entryContablePrecioUnitario(e)
+  const plant = plantSlice(e)
+  return {
+    fecha: e.entry_date || '',
+    clave_de_producto: materialCode(e),
+    serie: ACCOUNTING_EXPORT_SERIE,
+    folio_factura: (e.supplier_invoice || '').trim(),
+    precio_unitario: price != null && Number.isFinite(price) ? Number(price.toFixed(6)) : '',
+    cantidad: qty != null && Number.isFinite(qty) ? Number(qty.toFixed(4)) : '',
+    concepto: (plant.accounting_concept || '').trim(),
+    almacen: plant.warehouse_number != null ? plant.warehouse_number : '',
+  }
+}
+
 /**
  * Filas para Excel contable: columnas en el orden requerido por el sistema de carga.
- * Solo las columnas contables (sin columnas extra) para no desalinear el layout del ERP.
  */
 export function reviewedEntriesToAccountingContableRows(entries: MaterialEntry[]) {
   return entries.map((e) => {
-    const qtyKg = entryQuantityKg(e)
-    const priceKg = entryUnitPricePerKg(e)
-    const plant = plantSlice(e)
-
-    const row: Record<string, string | number | null> = {
-      fecha: e.entry_date || '',
-      clave_de_producto: materialCode(e),
-      serie: ACCOUNTING_EXPORT_SERIE,
-      folio_factura: (e.supplier_invoice || '').trim(),
-      precio_unitario: priceKg != null && Number.isFinite(priceKg) ? Number(priceKg.toFixed(6)) : '',
-      cantidad: qtyKg != null && Number.isFinite(qtyKg) ? Number(qtyKg.toFixed(4)) : '',
-      concepto: (plant.accounting_concept || '').trim(),
-      almacen: plant.warehouse_number != null ? plant.warehouse_number : '',
-    }
-
+    const v = contableRowValues(e)
+    const row: Record<string, string | number> = { ...v }
     return row
   })
 }
@@ -69,3 +74,26 @@ export const ACCOUNTING_CONTABLE_COLUMN_KEYS = [
   'concepto',
   'almacen',
 ] as const
+
+/**
+ * TSV para pegar en Excel / ERP (mismo patrón que remisiones contables).
+ * Primera fila: claves de columna; separador tab.
+ */
+export function formatReviewedEntriesAccountingTsv(entries: MaterialEntry[]): string {
+  if (!entries.length) return ''
+  const keys = [...ACCOUNTING_CONTABLE_COLUMN_KEYS] as const
+  const lines: string[] = [keys.join('\t')]
+  for (const e of entries) {
+    const v = contableRowValues(e)
+    lines.push(
+      keys
+        .map((k) => {
+          const cell = v[k as keyof typeof v]
+          if (cell === null || cell === undefined) return ''
+          return String(cell)
+        })
+        .join('\t')
+    )
+  }
+  return lines.join('\n')
+}

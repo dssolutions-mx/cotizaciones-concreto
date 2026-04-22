@@ -47,6 +47,7 @@ import {
   Search,
   FileSpreadsheet,
   Info,
+  Copy,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
@@ -66,6 +67,7 @@ import { reviewedEntriesToExcelRows } from '@/lib/procurement/reviewedEntriesAcc
 import {
   reviewedEntriesToAccountingContableRows,
   ACCOUNTING_CONTABLE_COLUMN_KEYS,
+  formatReviewedEntriesAccountingTsv,
 } from '@/lib/procurement/accountingContableExport'
 import {
   formatReceivedQuantity,
@@ -315,6 +317,7 @@ export default function ProcurementMaterialEntriesView({
   const [reviewedListOffset, setReviewedListOffset] = useState(0)
   const [reviewedExporting, setReviewedExporting] = useState(false)
   const [reviewedAccountingExporting, setReviewedAccountingExporting] = useState(false)
+  const [reviewedAccountingCopying, setReviewedAccountingCopying] = useState(false)
   const [reviewedReloadNonce, setReviewedReloadNonce] = useState(0)
   const [reviewedSupplierId, setReviewedSupplierId] = useState('')
   const [reviewedSuppliers, setReviewedSuppliers] = useState<Array<{ id: string; name: string }>>([])
@@ -537,6 +540,31 @@ export default function ProcurementMaterialEntriesView({
     ]
   )
 
+  const loadMaterialEntriesForContableExport = useCallback(async (): Promise<MaterialEntry[]> => {
+    if (!reviewedDateRange.from || !reviewedDateRange.to) return []
+    const limit = 500
+    let offset = 0
+    const all: MaterialEntry[] = []
+    while (true) {
+      const params = buildReviewedFetchParams(offset, limit)
+      const res = await fetch(`/api/inventory/entries?${params}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'Error al cargar entradas')
+      }
+      const data = await res.json()
+      const batch: MaterialEntry[] = data.entries || []
+      all.push(...batch)
+      if (!data.pagination?.hasMore || batch.length === 0) break
+      offset += batch.length
+      if (all.length > 5000) {
+        toast.message('Se usaron como máximo 5000 filas; acote el rango si necesita el resto.')
+        break
+      }
+    }
+    return all
+  }, [buildReviewedFetchParams, reviewedDateRange.from, reviewedDateRange.to])
+
   useEffect(() => {
     if (!canReviewPricing || entradasView !== 'revisadas') return
     let cancelled = false
@@ -700,26 +728,7 @@ export default function ProcurementMaterialEntriesView({
     if (!reviewedDateRange.from || !reviewedDateRange.to) return
     setReviewedAccountingExporting(true)
     try {
-      const limit = 500
-      let offset = 0
-      const all: MaterialEntry[] = []
-      while (true) {
-        const params = buildReviewedFetchParams(offset, limit)
-        const res = await fetch(`/api/inventory/entries?${params}`)
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}))
-          throw new Error(j.error || 'Error al exportar')
-        }
-        const data = await res.json()
-        const batch: MaterialEntry[] = data.entries || []
-        all.push(...batch)
-        if (!data.pagination?.hasMore || batch.length === 0) break
-        offset += batch.length
-        if (all.length > 5000) {
-          toast.message('Se exportaron como máximo 5000 filas; acote el rango si necesita el resto.')
-          break
-        }
-      }
+      const all = await loadMaterialEntriesForContableExport()
       const mapped = reviewedEntriesToAccountingContableRows(all)
       const XLSX = await import('xlsx')
       const keys = [...ACCOUNTING_CONTABLE_COLUMN_KEYS]
@@ -748,11 +757,45 @@ export default function ProcurementMaterialEntriesView({
       setReviewedAccountingExporting(false)
     }
   }, [
-    buildReviewedFetchParams,
+    loadMaterialEntriesForContableExport,
     reviewedDateRange.from,
     reviewedDateRange.to,
     reviewedSupplierId,
     reviewedSuppliers,
+  ])
+
+  const copyReviewedAccountingTsv = useCallback(async () => {
+    if (!reviewedSupplierId) {
+      toast.error('Seleccione un proveedor de material')
+      return
+    }
+    if (!reviewedDateRange.from || !reviewedDateRange.to) return
+    if (reviewedEntries.length === 0) {
+      toast.error('No hay filas para copiar en este período')
+      return
+    }
+    setReviewedAccountingCopying(true)
+    try {
+      const all = await loadMaterialEntriesForContableExport()
+      if (all.length === 0) {
+        toast.error('No hay entradas para copiar')
+        return
+      }
+      const tsv = formatReviewedEntriesAccountingTsv(all)
+      await navigator.clipboard.writeText(tsv)
+      toast.success(`Copiado al portapapeles: ${all.length} fila${all.length !== 1 ? 's' : ''} (TSV contable)`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo copiar')
+    } finally {
+      setReviewedAccountingCopying(false)
+    }
+  }, [
+    loadMaterialEntriesForContableExport,
+    reviewedDateRange.from,
+    reviewedDateRange.to,
+    reviewedSupplierId,
+    reviewedEntries.length,
   ])
 
   const exportReviewedExcel = useCallback(async () => {
@@ -1192,10 +1235,10 @@ export default function ProcurementMaterialEntriesView({
                     <Info className="h-4 w-4 text-amber-800" />
                     <AlertTitle className="text-sm text-amber-950">Columnas del Excel contable</AlertTitle>
                     <AlertDescription className="text-xs text-amber-950/90 leading-relaxed">
-                      Orden: fecha · clave de producto (código contable del material) · serie ZFE · folio factura
-                      (remisión/factura capturada en la entrada) · precio unitario en MXN por kg · cantidad en kg ·
-                      concepto (planta) · almacén (número de planta). El precio/kg se obtiene del costo y la cantidad en
-                      kg, o convirtiendo desde m³ o litros según la recepción.
+                      Orden: fecha · clave de producto · serie ZFE · folio factura (remisión/factura de la entrada) ·
+                      precio unitario · cantidad · concepto (planta) · almacén. Recepciones en litros: cantidad en L y
+                      precio en MXN/L. En m³: cantidad en kg y precio en MXN/kg (peso volumétrico: línea de OC, luego
+                      entrada, luego material), alineado a revisión de precios. En kg: ambos en kg.
                     </AlertDescription>
                   </Alert>
                 </CardContent>
@@ -1239,6 +1282,27 @@ export default function ProcurementMaterialEntriesView({
                       >
                         <FileSpreadsheet className="h-3.5 w-3.5" />
                         {reviewedAccountingExporting ? 'Generando…' : 'Excel contable'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs"
+                        onClick={() => void copyReviewedAccountingTsv()}
+                        disabled={
+                          !reviewedSupplierId ||
+                          reviewedEntries.length === 0 ||
+                          reviewedAccountingCopying ||
+                          reviewedAccountingExporting
+                        }
+                        title={
+                          !reviewedSupplierId
+                            ? 'Seleccione un proveedor de material'
+                            : 'Mismo layout que el Excel, pegable en hoja (como remisiones contables)'
+                        }
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        {reviewedAccountingCopying ? 'Copiando…' : 'Copiar contabilidad'}
                       </Button>
                     </div>
                   }
