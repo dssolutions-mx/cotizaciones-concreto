@@ -2,18 +2,25 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-const Table = React.forwardRef<
-  HTMLTableElement,
-  React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
-    <table
-      ref={ref}
-      className={cn("w-full caption-bottom text-sm", className)}
-      {...props}
-    />
-  </div>
-))
+export type TableProps = React.HTMLAttributes<HTMLTableElement> & {
+  /** Ref the scrollable wrapper (horizontal scroll lives here when the table is wider than the viewport). */
+  scrollContainerRef?: React.Ref<HTMLDivElement>
+  scrollContainerClassName?: string
+  /** Props for the scroll wrapper (e.g. tabIndex, keyboard handlers, aria). */
+  scrollContainerProps?: React.HTMLAttributes<HTMLDivElement>
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, scrollContainerRef, scrollContainerClassName, scrollContainerProps, ...props }, ref) => (
+    <div
+      ref={scrollContainerRef}
+      className={cn("relative w-full overflow-auto", scrollContainerClassName)}
+      {...scrollContainerProps}
+    >
+      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+    </div>
+  )
+)
 Table.displayName = "Table"
 
 const TableHeader = React.forwardRef<

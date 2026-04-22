@@ -1387,7 +1387,7 @@ export default function ProcurementMaterialEntriesView({
                 </SheetContent>
               </Sheet>
 
-              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-2 pb-2">
+              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-clip px-2 pb-2">
                 <ReviewedEntriesForAccountingTable
                   entries={reviewedEntries}
                   entryIdFromUrl={entryIdFromUrl}

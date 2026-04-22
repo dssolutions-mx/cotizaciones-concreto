@@ -309,7 +309,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     is_service: false,
   })
 
-  const resolvedMaterialLineForCalc: PoLineItem | null = (() => {
+  const resolvedMaterialLineForCalc: PoLineItem | null = useMemo(() => {
     if (hasMaterialPoLink) {
       if (materialRebindMode && canEditSupplierPaymentTerms && selectedMaterialSearchItem) {
         return lineFromSearchAsPo(selectedMaterialSearchItem)
@@ -318,9 +318,15 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     }
     if (selectedMaterialSearchItem) return lineFromSearchAsPo(selectedMaterialSearchItem)
     return null
-  })()
+  }, [
+    hasMaterialPoLink,
+    materialRebindMode,
+    canEditSupplierPaymentTerms,
+    selectedMaterialSearchItem,
+    materialPoItem,
+  ])
 
-  const resolvedFleetLineForCalc: PoLineItem | null = (() => {
+  const resolvedFleetLineForCalc: PoLineItem | null = useMemo(() => {
     if (hasFleetPoLink) {
       if (fleetRebindMode && canEditSupplierPaymentTerms && selectedFleetSearchItem) {
         return {
@@ -347,7 +353,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       }
     }
     return null
-  })()
+  }, [hasFleetPoLink, fleetRebindMode, canEditSupplierPaymentTerms, selectedFleetSearchItem, fleetPoItem])
 
   const resolvedFleetQty = useMemo(() => {
     const lineUom = resolvedFleetLineForCalc?.uom
@@ -601,11 +607,17 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         Boolean(selectedMaterialSearchItem) &&
         selectedMaterialSearchItem.id !== entry.po_item_id)
     if (fromSearchOrRebind) {
-      setFormData((prev) => ({ ...prev, unit_price: String(agreedMaterialUnit) }))
+      const next = String(agreedMaterialUnit)
+      setFormData((prev) => (prev.unit_price === next ? prev : { ...prev, unit_price: next }))
       return
     }
     if (entry.unit_price != null && entry.unit_price !== undefined) return
-    setFormData((prev) => (prev.unit_price !== '' ? prev : { ...prev, unit_price: String(agreedMaterialUnit) }))
+    setFormData((prev) => {
+      if (prev.unit_price !== '') return prev
+      const next = String(agreedMaterialUnit)
+      if (prev.unit_price === next) return prev
+      return { ...prev, unit_price: next }
+    })
   }, [
     resolvedMaterialLineForCalc,
     agreedMaterialUnit,
@@ -627,11 +639,17 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         Boolean(selectedFleetSearchItem) &&
         selectedFleetSearchItem.id !== entry.fleet_po_item_id)
     if (fromSearchOrRebind) {
-      setFormData((prev) => ({ ...prev, fleet_cost: agreedFleetTotal.toFixed(2) }))
+      const next = agreedFleetTotal.toFixed(2)
+      setFormData((prev) => (prev.fleet_cost === next ? prev : { ...prev, fleet_cost: next }))
       return
     }
     if (entry.fleet_cost != null && entry.fleet_cost !== undefined) return
-    setFormData((prev) => (prev.fleet_cost !== '' ? prev : { ...prev, fleet_cost: agreedFleetTotal.toFixed(2) }))
+    setFormData((prev) => {
+      if (prev.fleet_cost !== '') return prev
+      const next = agreedFleetTotal.toFixed(2)
+      if (prev.fleet_cost === next) return prev
+      return { ...prev, fleet_cost: next }
+    })
   }, [
     resolvedFleetLineForCalc,
     agreedFleetTotal,
@@ -767,7 +785,8 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     if (formData.unit_price && qtyForMaterialCost) {
       const calculated = parseFloat(formData.unit_price) * qtyForMaterialCost
       if (!Number.isNaN(calculated)) {
-        setFormData((prev) => ({ ...prev, total_cost: calculated.toFixed(2) }))
+        const next = calculated.toFixed(2)
+        setFormData((prev) => (prev.total_cost === next ? prev : { ...prev, total_cost: next }))
       }
     }
   }, [formData.unit_price, qtyForMaterialCost])

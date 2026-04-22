@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Factory, MoreHorizontal, Package, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Factory, MoreHorizontal, Package, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
 import { MaterialEntry } from '@/types/inventory'
@@ -74,6 +74,56 @@ export default function ReviewedEntriesForAccountingTable({
   onInspect,
   onEditPricing,
 }: Props) {
+  const tableScrollRef = useRef<HTMLDivElement>(null)
+  const [scrollEdges, setScrollEdges] = useState({ atStart: true, atEnd: true })
+
+  const refreshScrollEdges = useCallback(() => {
+    const el = tableScrollRef.current
+    if (!el) return
+    const { scrollLeft, scrollWidth, clientWidth } = el
+    const max = Math.max(0, scrollWidth - clientWidth)
+    if (max <= 1) {
+      setScrollEdges({ atStart: true, atEnd: true })
+      return
+    }
+    setScrollEdges({
+      atStart: scrollLeft <= 1,
+      atEnd: scrollLeft >= max - 1,
+    })
+  }, [])
+
+  useEffect(() => {
+    const el = tableScrollRef.current
+    if (!el) return
+    refreshScrollEdges()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refreshScrollEdges()) : null
+    ro?.observe(el)
+    el.addEventListener('scroll', refreshScrollEdges, { passive: true })
+    return () => {
+      ro?.disconnect()
+      el.removeEventListener('scroll', refreshScrollEdges)
+    }
+  }, [entries.length, refreshScrollEdges])
+
+  const scrollTableBy = useCallback((delta: number) => {
+    const el = tableScrollRef.current
+    if (!el) return
+    el.scrollBy({ left: delta, behavior: 'smooth' })
+  }, [])
+
+  const onTableScrollKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        scrollTableBy(-120)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        scrollTableBy(120)
+      }
+    },
+    [scrollTableBy]
+  )
+
   const sums = useMemo(() => {
     let totalMaterial = 0
     let totalFleet = 0
@@ -130,8 +180,49 @@ export default function ReviewedEntriesForAccountingTable({
         </div>
       </div>
 
-      <div className="min-w-0">
-        <Table>
+      <div className="min-w-0 space-y-1.5">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3 rounded-md border border-stone-200/90 bg-stone-50/80 px-2 py-1.5">
+          <p className="text-[11px] text-stone-600 leading-snug order-2 sm:order-1 min-w-0">
+            Tabla ancha: use la <span className="font-medium text-stone-700">barra de desplazamiento inferior</span>, los botones
+            ◀ ▶, o en el teclado tabulador hasta la tabla y luego <span className="font-medium text-stone-700">← →</span>. En
+            trackpad, deslice con dos dedos.
+          </p>
+          <div className="flex items-center justify-end gap-1 shrink-0 order-1 sm:order-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              title="Desplazar tabla a la izquierda"
+              disabled={scrollEdges.atStart}
+              onClick={() => scrollTableBy(-300)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              title="Desplazar tabla a la derecha"
+              disabled={scrollEdges.atEnd}
+              onClick={() => scrollTableBy(300)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <Table
+          className="min-w-[70rem] max-w-none"
+          scrollContainerRef={tableScrollRef}
+          scrollContainerClassName="max-w-full scroll-smooth touch-pan-x overscroll-x-contain rounded-md border border-stone-200/60 bg-white shadow-inner shadow-stone-200/40 [-webkit-overflow-scrolling:touch] outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-1"
+          scrollContainerProps={{
+            tabIndex: 0,
+            onKeyDown: onTableScrollKeyDown,
+            role: 'region',
+            'aria-label': 'Entradas revisadas, desplazamiento horizontal con flechas o barra',
+          }}
+        >
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="whitespace-nowrap text-xs">Entrada</TableHead>
@@ -172,7 +263,12 @@ export default function ReviewedEntriesForAccountingTable({
                 <TableRow
                   key={e.id}
                   id={`proc-entry-row-${e.id}`}
-                  className={cn(highlight && 'bg-sky-50 ring-2 ring-sky-400/60')}
+                  className={cn(
+                    'cursor-pointer',
+                    highlight && 'bg-sky-50 ring-2 ring-sky-400/60'
+                  )}
+                  title="Doble clic para inspeccionar"
+                  onDoubleClick={() => onInspect(e)}
                 >
                   <TableCell className="font-mono text-[11px] text-stone-800 py-2">
                     {e.entry_number || e.id.slice(0, 8)}
@@ -230,7 +326,10 @@ export default function ReviewedEntriesForAccountingTable({
                   <TableCell className="text-[11px] text-stone-600 py-2" title={reviewerShort(e)}>
                     {reviewerShort(e)}
                   </TableCell>
-                  <TableCell className="text-right py-2">
+                  <TableCell
+                    className="text-right py-2"
+                    onDoubleClick={(ev) => ev.stopPropagation()}
+                  >
                     <div className="flex items-center justify-end gap-1">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
