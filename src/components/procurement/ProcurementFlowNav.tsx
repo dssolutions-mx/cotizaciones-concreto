@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { Package, Warehouse, FileText, DollarSign, ArrowRight, LayoutDashboard, KeyRound } from 'lucide-react'
+import { Package, Warehouse, FileText, DollarSign, ArrowRight, LayoutDashboard, KeyRound, Truck } from 'lucide-react'
 import { procurementEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
 
 /**
@@ -12,6 +12,7 @@ export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
   const entriesHref = procurementEntriesUrl({ plantId })
   const clavesHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'claves' })
   const cxpHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'cxp' })
+  const fletesHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'fletes' })
   const poHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'po' })
   const hubHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'resumen' })
   const alertsHref = plantId
@@ -40,6 +41,11 @@ export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
         <Link href={entriesHref} className={chip}>
           <Warehouse className="h-3.5 w-3.5 text-amber-700" />
           Entrada
+        </Link>
+        <ArrowRight className="h-3.5 w-3.5 text-stone-400 shrink-0" aria-hidden />
+        <Link href={fletesHref} className={chip} title="Conciliación y análisis de fletes por transportista">
+          <Truck className="h-3.5 w-3.5 text-amber-900" />
+          Fletes
         </Link>
         <ArrowRight className="h-3.5 w-3.5 text-stone-400 shrink-0" aria-hidden />
         <Link href={clavesHref} className={chip} title="Claves de producto (ERP) por planta">

@@ -32,6 +32,7 @@ import {
   Activity,
   Settings2,
   KeyRound,
+  Truck,
 } from 'lucide-react'
 import {
   Accordion,
@@ -61,6 +62,7 @@ import ReconciliationView from '@/components/procurement/ReconciliationView'
 import ProcurementMaterialEntriesView from '@/components/procurement/ProcurementMaterialEntriesView'
 import DailyConsumptionsView from '@/components/procurement/DailyConsumptionsView'
 import MaterialAccountingCodesReview from '@/components/procurement/MaterialAccountingCodesReview'
+import FleetFreightReconciliation from '@/components/procurement/FleetFreightReconciliation'
 
 type DashboardData = {
   open_po_count: number
@@ -79,7 +81,17 @@ type DashboardData = {
   period_month: string
 }
 
-const TAB_KEYS = ['resumen', 'inventario', 'consumos', 'po', 'entradas', 'claves', 'cxp', 'suppliers'] as const
+const TAB_KEYS = [
+  'resumen',
+  'inventario',
+  'consumos',
+  'po',
+  'entradas',
+  'fletes',
+  'claves',
+  'cxp',
+  'suppliers',
+] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 export default function ProcurementWorkspaceClient() {
@@ -277,8 +289,8 @@ export default function ProcurementWorkspaceClient() {
                 className={cn(
                   'grid w-full h-auto gap-1 bg-stone-200/60 p-1 rounded-lg',
                   canViewClaves
-                    ? 'min-w-[900px] grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'
-                    : 'min-w-[720px] grid-cols-2 sm:grid-cols-3 lg:grid-cols-7'
+                    ? 'min-w-[1000px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
+                    : 'min-w-[900px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4'
                 )}
               >
                 <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
@@ -300,6 +312,10 @@ export default function ProcurementWorkspaceClient() {
                 <TabsTrigger value="entradas" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                   <ArrowDownToLine className="h-4 w-4" />
                   Entradas
+                </TabsTrigger>
+                <TabsTrigger value="fletes" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <Truck className="h-4 w-4" />
+                  Fletes
                 </TabsTrigger>
                 {canViewClaves && (
                   <TabsTrigger
@@ -548,6 +564,10 @@ export default function ProcurementWorkspaceClient() {
             onToggleFocusMode={() => setEntriesFocusMode((f) => !f)}
             canEditMaterialAccountingCodes={canEditMaterialClaves}
           />
+        </TabsContent>
+
+        <TabsContent value="fletes" className="mt-0 rounded-lg border border-stone-200 bg-white p-4 md:p-6">
+          <FleetFreightReconciliation workspacePlantId={workspacePlantId} />
         </TabsContent>
 
         {canViewClaves && (
