@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { assertComplianceCronOrUser } from '@/app/api/compliance/_auth';
+import { assertComplianceDisputeParticipant } from '@/app/api/compliance/_auth';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
-  const auth = await assertComplianceCronOrUser(req);
+  const auth = await assertComplianceDisputeParticipant(req);
   if (!auth.ok) return auth.response;
 
   const { searchParams } = req.nextUrl;

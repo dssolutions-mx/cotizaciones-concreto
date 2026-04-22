@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { assertComplianceCronOrUser } from '@/app/api/compliance/_auth';
+import { assertComplianceDisputeParticipant } from '@/app/api/compliance/_auth';
 
 export const runtime = 'nodejs';
 
@@ -16,14 +16,11 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const auth = await assertComplianceCronOrUser(req);
+  const auth = await assertComplianceDisputeParticipant(req);
   if (!auth.ok) return auth.response;
-  if (!auth.userId || auth.via === 'cron') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
 
   const { id } = await ctx.params;
-  let body: { status?: string; resolutionNotes?: string };
+  let body: { status?: string; resolutionNotes?: string; resolution_notes?: string };
   try {
     body = await req.json();
   } catch {
@@ -35,12 +32,17 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
   }
 
+  const notes =
+    body.resolutionNotes?.trim() ||
+    (typeof body.resolution_notes === 'string' ? body.resolution_notes.trim() : '') ||
+    null;
+
   const cot = createServiceClient();
   const { data, error } = await cot
     .from('compliance_daily_disputes')
     .update({
       status,
-      resolution_notes: body.resolutionNotes ?? null,
+      resolution_notes: notes,
       resolved_at: new Date().toISOString(),
       resolved_by: auth.userId,
     })

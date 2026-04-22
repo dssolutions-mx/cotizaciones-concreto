@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { format, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
+import { format, parseISO, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from 'react-day-picker';
 import { useDebounce } from 'use-debounce';
@@ -17,15 +17,43 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import TripsKpiCards from '@/components/hr/TripsKpiCards';
+import { ComplianceStatsPanel } from '@/components/hr/ComplianceStatsPanel';
 import TripsByDayChart from '@/components/hr/TripsByDayChart';
 import DriverTruckFilters, { type DriverTruckFiltersValue } from '@/components/hr/DriverTruckFilters';
 import PayrollWeekGrid from '@/components/hr/PayrollWeekGrid';
+import UnitsWeekGrid from '@/components/hr/UnitsWeekGrid';
+import { UnitsSummaryTable } from '@/components/hr/UnitsSummaryTable';
+import { HrWeeklyCompliancePanel } from '@/components/hr/HrWeeklyCompliancePanel';
 import { fetchHrWeeklyRemisiones, type HrWeeklyResponse } from '@/services/hrWeeklyRemisionesService';
+import type { HrComplianceFinding } from '@/lib/hr/complianceFromRuns';
 import { cn } from '@/lib/utils';
-import { Download, RefreshCw, Search, ChevronLeft, ChevronRight, Factory } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Download, RefreshCw, Search, ChevronLeft, ChevronRight, Factory, AlertTriangle } from 'lucide-react';
+import {
+  computeComplianceRemisionStats,
+  HR_COMPLIANCE_RULE_LABELS,
+} from '@/lib/hr/complianceStats';
 
 function toYyyyMmDd(d: Date): string {
   return format(d, 'yyyy-MM-dd');
+}
+
+/** Last N calendar days ending at `endYmd` (inclusive), as yyyy-MM-dd. */
+function getLastNCalendarDaysFromEnd(endYmd: string, n: number): string[] {
+  const end = parseISO(endYmd);
+  if (Number.isNaN(end.getTime())) return [];
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(end);
+    d.setDate(d.getDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
 }
 
 function initialWeekRange(): DateRange {
@@ -60,7 +88,14 @@ export default function WeeklyRemisionesReport() {
     plantIds: [],
     day: null,
   });
-  const [activeTab, setActiveTab] = useState<'resumen' | 'conductores' | 'matriz' | 'detalle'>('resumen');
+  const [activeTab, setActiveTab] = useState<
+    'resumen' | 'conductores' | 'unidades' | 'matriz' | 'detalle' | 'incidencias'
+  >('resumen');
+  const [complianceDialog, setComplianceDialog] = useState<{
+    remisionId: string;
+    remisionNumber: string | null;
+    findings: HrComplianceFinding[];
+  } | null>(null);
 
   const [search, setSearch] = useState('');
   const [debouncedSearch] = useDebounce(search, 250);
@@ -93,6 +128,7 @@ export default function WeeklyRemisionesReport() {
         plantIds: filters.plantIds.length ? filters.plantIds : undefined,
         day: filters.day,
         includeTypes: ['CONCRETO'],
+        includeCompliance: true,
       });
       setData(next);
     } catch (e: any) {
@@ -131,6 +167,41 @@ export default function WeeklyRemisionesReport() {
     const totalPages = Math.max(Math.ceil(total / pageSize), 1);
     return { total, start, end, totalPages };
   }, [data?.total, page, pageSize]);
+
+  const complianceRemisionCount = useMemo(() => {
+    if (!data?.complianceByRemisionId) return 0;
+    return Object.keys(data.complianceByRemisionId).length;
+  }, [data?.complianceByRemisionId]);
+
+  const complianceRemisionStats = useMemo(
+    () =>
+      data
+        ? computeComplianceRemisionStats(data.total, data.complianceByRemisionId)
+        : null,
+    [data],
+  );
+
+  const endRangeDaysForHighlight = useMemo(
+    () =>
+      data?.endDate
+        ? {
+            last2: getLastNCalendarDaysFromEnd(data.endDate, 2),
+            last3: getLastNCalendarDaysFromEnd(data.endDate, 3),
+          }
+        : null,
+    [data?.endDate],
+  );
+
+  const topUnitsWithIncidencias = useMemo(() => {
+    if (!data?.byUnit?.length) return [];
+    return [...data.byUnit]
+      .filter((u) => (u.compliance?.flaggedTrips ?? 0) > 0)
+      .sort(
+        (a, b) =>
+          (b.compliance?.flaggedTrips ?? 0) - (a.compliance?.flaggedTrips ?? 0) || b.trips - a.trips,
+      )
+      .slice(0, 8);
+  }, [data?.byUnit]);
 
   const handleThisWeek = () => {
     setDateRange(initialWeekRange());
@@ -336,6 +407,10 @@ export default function WeeklyRemisionesReport() {
             totalVolume={data.aggregates.totalVolume}
           />
 
+          {complianceRemisionStats && (
+            <ComplianceStatsPanel stats={complianceRemisionStats} className="shadow-sm" />
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2">
               <Card>
@@ -358,6 +433,16 @@ export default function WeeklyRemisionesReport() {
                   )}
                   {filters.trucks.length > 0 && <Badge variant="secondary">Unidad: {filters.trucks[0]}</Badge>}
                   {debouncedSearch && <Badge variant="secondary">Búsqueda: “{debouncedSearch}”</Badge>}
+                  {complianceRemisionCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-50 text-amber-900 border-amber-200 cursor-pointer"
+                      onClick={() => setActiveTab('detalle')}
+                    >
+                      {complianceRemisionCount} remisión{complianceRemisionCount === 1 ? '' : 'es'} con
+                      hallazgo
+                    </Badge>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -365,11 +450,13 @@ export default function WeeklyRemisionesReport() {
           </div>
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-            <TabsList className="grid grid-cols-4 w-full md:w-[680px]">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 md:max-w-[1080px]">
               <TabsTrigger value="resumen">Resumen</TabsTrigger>
               <TabsTrigger value="conductores">Conductores</TabsTrigger>
+              <TabsTrigger value="unidades">Unidades</TabsTrigger>
               <TabsTrigger value="matriz">Matriz</TabsTrigger>
               <TabsTrigger value="detalle">Detalle</TabsTrigger>
+              <TabsTrigger value="incidencias">Incidencias</TabsTrigger>
             </TabsList>
 
             <TabsContent value="resumen" className="mt-4 space-y-4">
@@ -423,11 +510,21 @@ export default function WeeklyRemisionesReport() {
                     <div className="overflow-x-auto">
                       <div className="min-w-full">
                         <div className="space-y-2">
-                          {data.byDriver.slice(0, 8).map((d, idx) => (
+                          {data.byDriver.slice(0, 8).map((d, idx) => {
+                            const c = d.compliance;
+                            const last = c?.lastFlaggedDate;
+                            const amberHighlight =
+                              c &&
+                              (c.flaggedDayStreak >= 2 ||
+                                (last != null && (endRangeDaysForHighlight?.last2.includes(last) ?? false)));
+                            return (
                             <button
                               key={d.driver_key}
                               onClick={() => applyDriver(d.conductor)}
-                              className="w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors group"
+                              className={cn(
+                                'w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors group',
+                                amberHighlight && 'border-amber-300 bg-amber-50/60 hover:bg-amber-50',
+                              )}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -436,10 +533,26 @@ export default function WeeklyRemisionesReport() {
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <div className="font-medium text-gray-900 truncate">{d.conductor || 'Sin conductor'}</div>
-                                    <div className="text-xs text-gray-500 mt-0.5">
-                                      {d.plants.length} {d.plants.length === 1 ? 'planta' : 'plantas'} · {d.unique_trucks}{' '}
-                                      {d.unique_trucks === 1 ? 'unidad' : 'unidades'}
-                                    </div>
+                                    {d.compliance && d.trips > 0 ? (
+                                      <>
+                                        <div className="text-xs text-gray-700 mt-0.5 tabular-nums">
+                                          <span className="font-medium text-gray-900">{d.compliance.validTrips}</span> válid.
+                                          <span className="text-gray-400 mx-1">·</span>
+                                          <span className="font-medium text-amber-800">{d.compliance.flaggedTrips}</span> incid.
+                                          <span className="text-gray-400 mx-1">·</span>
+                                          {d.trips} viajes
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">
+                                          {d.plants.length} {d.plants.length === 1 ? 'planta' : 'plantas'} · {d.unique_trucks}{' '}
+                                          {d.unique_trucks === 1 ? 'unidad' : 'unidades'}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="text-xs text-gray-500 mt-0.5">
+                                        {d.plants.length} {d.plants.length === 1 ? 'planta' : 'plantas'} · {d.unique_trucks}{' '}
+                                        {d.unique_trucks === 1 ? 'unidad' : 'unidades'}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-4 flex-shrink-0">
@@ -456,7 +569,8 @@ export default function WeeklyRemisionesReport() {
                                 </div>
                               </div>
                             </button>
-                          ))}
+                          );
+                          })}
                         </div>
                         {data.byDriver.length > 8 && (
                           <div className="mt-3 pt-3 border-t text-xs text-gray-500 text-center">
@@ -468,6 +582,68 @@ export default function WeeklyRemisionesReport() {
                   </CardContent>
                 </Card>
               </div>
+
+              {data.byUnit && data.byUnit.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-lg">Top unidades (con incidencia)</CardTitle>
+                    <CardDescription>Ordenado por # de remisiones con hallazgo. Click para filtrar y ver detalle.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {topUnitsWithIncidencias.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-2">Ninguna unidad tuvo remisiones con hallazgo en el período.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {topUnitsWithIncidencias.map((u, idx) => {
+                          const c = u.compliance;
+                          const last = c?.lastFlaggedDate;
+                          const amberHighlight =
+                            c &&
+                            (c.flaggedDayStreak >= 2 ||
+                              (last != null && (endRangeDaysForHighlight?.last2.includes(last) ?? false)));
+                          return (
+                            <button
+                              key={u.unit_key}
+                              type="button"
+                              onClick={() => applyTruck(u.unidad)}
+                              className={cn(
+                                'w-full text-left p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors group',
+                                amberHighlight && 'border-amber-300 bg-amber-50/60 hover:bg-amber-50',
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 group-hover:bg-blue-100 group-hover:text-blue-700 transition-colors">
+                                    {idx + 1}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-gray-900 truncate">{u.unidad || 'Sin unidad'}</div>
+                                    {c && u.trips > 0 ? (
+                                      <div className="text-xs text-gray-700 mt-0.5 tabular-nums">
+                                        <span className="font-medium text-gray-900">{c.validTrips}</span> válid. ·{' '}
+                                        <span className="font-medium text-amber-800">{c.flaggedTrips}</span> incid. ·{' '}
+                                        {u.trips} viajes
+                                      </div>
+                                    ) : (
+                                      <div className="text-xs text-gray-500 mt-0.5">{u.trips} viajes</div>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="text-right flex-shrink-0">
+                                  <div className="text-sm font-semibold text-gray-900 tabular-nums">
+                                    {c?.flaggedTrips?.toLocaleString('es-MX') ?? 0}
+                                  </div>
+                                  <div className="text-xs text-gray-500">incid.</div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             <TabsContent value="conductores" className="mt-4">
@@ -476,6 +652,12 @@ export default function WeeklyRemisionesReport() {
                   <CardTitle className="text-lg">Resumen por conductor</CardTitle>
                   <CardDescription>
                     {data.byDriver.length.toLocaleString('es-MX')} conductores en el período (con filtros aplicados).
+                    {data.byDriver.some((x) => x.compliance) && (
+                      <span className="block mt-1 text-gray-600">
+                        Válidos = remisiones sin hallazgo en motor; incid. = con al menos un hallazgo vinculado a la
+                        remisión.
+                      </span>
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -485,6 +667,11 @@ export default function WeeklyRemisionesReport() {
                         <TableRow className="sticky top-0 bg-white">
                           <TableHead>Conductor</TableHead>
                           <TableHead className="text-right">Viajes</TableHead>
+                          <TableHead className="text-right">Válidos</TableHead>
+                          <TableHead className="text-right">Incid.</TableHead>
+                          <TableHead className="text-right">Días con incid.</TableHead>
+                          <TableHead className="text-right">Última incid.</TableHead>
+                          <TableHead className="text-right">Racha</TableHead>
                           <TableHead className="text-right">Volumen</TableHead>
                           <TableHead className="text-right">Unidades</TableHead>
                           <TableHead>Plantas</TableHead>
@@ -493,12 +680,16 @@ export default function WeeklyRemisionesReport() {
                       <TableBody>
                         {data.byDriver.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-10 text-gray-500">
+                            <TableCell colSpan={10} className="text-center py-10 text-gray-500">
                               No hay datos para el resumen por conductor.
                             </TableCell>
                           </TableRow>
                         ) : (
-                          data.byDriver.slice(0, 50).map((d) => (
+                          data.byDriver.slice(0, 50).map((d) => {
+                            const valid = d.compliance?.validTrips ?? null;
+                            const flagged = d.compliance?.flaggedTrips ?? null;
+                            const c = d.compliance;
+                            return (
                             <TableRow
                               key={d.driver_key}
                               className="hover:bg-gray-50 cursor-pointer"
@@ -511,6 +702,43 @@ export default function WeeklyRemisionesReport() {
                             >
                               <TableCell className="font-medium">{d.conductor || 'Sin conductor'}</TableCell>
                               <TableCell className="text-right tabular-nums">{d.trips.toLocaleString('es-MX')}</TableCell>
+                              <TableCell className="text-right tabular-nums text-gray-900">
+                                {valid !== null ? valid.toLocaleString('es-MX') : '—'}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {flagged !== null ? (
+                                  flagged > 0 ? (
+                                    <span className="text-amber-800 font-medium">{flagged.toLocaleString('es-MX')}</span>
+                                  ) : (
+                                    '0'
+                                  )
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-gray-800">
+                                {c != null && c.flaggedDayCount > 0
+                                  ? c.flaggedDayCount.toLocaleString('es-MX')
+                                  : '—'}
+                              </TableCell>
+                              <TableCell className="text-right text-sm tabular-nums text-gray-800">
+                                {c?.lastFlaggedDate
+                                  ? format(parseISO(c.lastFlaggedDate), 'd MMM', { locale: es })
+                                  : '—'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {c && c.flaggedDayStreak >= 2 ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] h-5 border-amber-300 bg-amber-50 text-amber-900"
+                                    title="Días consecutivos con al menos un viaje con incidencia al final de la racha"
+                                  >
+                                    {c.flaggedDayStreak}d
+                                  </Badge>
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {d.total_volume.toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³
                               </TableCell>
@@ -529,7 +757,8 @@ export default function WeeklyRemisionesReport() {
                                 )}
                               </TableCell>
                             </TableRow>
-                          ))
+                          );
+                          })
                         )}
                       </TableBody>
                     </Table>
@@ -541,6 +770,31 @@ export default function WeeklyRemisionesReport() {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="unidades" className="mt-4 space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Resumen por unidad</CardTitle>
+                  <CardDescription>
+                    {(data.byUnit?.length ?? 0).toLocaleString('es-MX')} unidades en el período. Click en una fila para
+                    filtrar por unidad y abrir el detalle.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <UnitsSummaryTable
+                    byUnit={data.byUnit ?? []}
+                    endDate={data.endDate}
+                    onRowClick={applyTruck}
+                  />
+                </CardContent>
+              </Card>
+              <UnitsWeekGrid
+                dateRange={dateRange}
+                byUnit={data.byUnit ?? []}
+                onDayClick={applyDay}
+                onUnitClick={applyTruck}
+              />
             </TabsContent>
 
             <TabsContent value="matriz" className="mt-4">
@@ -561,6 +815,12 @@ export default function WeeklyRemisionesReport() {
                   <CardTitle className="text-lg">Detalle</CardTitle>
                   <CardDescription>
                     {pageMeta.total === 0 ? 'Sin resultados' : `Mostrando ${pageMeta.start}-${pageMeta.end} de ${pageMeta.total}`}
+                    {data.complianceByRemisionId && (
+                      <span className="block mt-1 text-amber-800">
+                        Un hallazgo de cumplimiento en una remisión no implica automáticamente descuento de
+                        nómina: revisa el contexto y la pestaña Incidencias.
+                      </span>
+                    )}
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -586,20 +846,21 @@ export default function WeeklyRemisionesReport() {
                       <TableHead>Planta</TableHead>
                       <TableHead className="text-right">Volumen</TableHead>
                       <TableHead>Tipo</TableHead>
+                      <TableHead className="min-w-[120px]">Cumplimiento</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       Array.from({ length: 8 }).map((_, i) => (
                         <TableRow key={`sk-${i}`}>
-                          <TableCell colSpan={10}>
+                          <TableCell colSpan={11}>
                             <Skeleton className="h-6 w-full" />
                           </TableCell>
                         </TableRow>
                       ))
                     ) : data.rows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="text-center py-10 text-gray-500">
+                        <TableCell colSpan={11} className="text-center py-10 text-gray-500">
                           No hay remisiones para los filtros seleccionados.
                         </TableCell>
                       </TableRow>
@@ -670,6 +931,44 @@ export default function WeeklyRemisionesReport() {
                               </div>
                             ) : null}
                           </TableCell>
+                          <TableCell>
+                            {data.complianceByRemisionId?.[r.id]?.length ? (
+                              <div className="flex flex-wrap gap-1 items-center">
+                                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                                {data.complianceByRemisionId[r.id]!.slice(0, 2).map((f) => (
+                                  <Badge
+                                    key={`${f.findingKey}-${f.targetDate}`}
+                                    variant="outline"
+                                    className="text-xs bg-amber-50 text-amber-900 border-amber-200"
+                                  >
+                                    {HR_COMPLIANCE_RULE_LABELS[f.rule] ?? f.rule}
+                                  </Badge>
+                                ))}
+                                {data.complianceByRemisionId[r.id]!.length > 2 && (
+                                  <span className="text-xs text-gray-500">
+                                    +{data.complianceByRemisionId[r.id]!.length - 2}
+                                  </span>
+                                )}
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() =>
+                                    setComplianceDialog({
+                                      remisionId: r.id,
+                                      remisionNumber: r.remision_number,
+                                      findings: data.complianceByRemisionId![r.id]!,
+                                    })
+                                  }
+                                >
+                                  Ver
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
@@ -707,9 +1006,68 @@ export default function WeeklyRemisionesReport() {
             </CardContent>
           </Card>
             </TabsContent>
+
+            <TabsContent value="incidencias" className="mt-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Correos e incidencias de cumplimiento</CardTitle>
+                  <CardDescription>
+                    Registros ligados a las corridas diarias de cumplimiento en el período seleccionado.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <HrWeeklyCompliancePanel
+                    disputes={data.complianceDisputes ?? []}
+                    onRefresh={() => {
+                      void runFetch();
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </>
       ) : null}
+
+      <Dialog
+        open={complianceDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setComplianceDialog(null);
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Hallazgos de cumplimiento
+              {complianceDialog?.remisionNumber != null && (
+                <span className="block text-sm font-normal text-gray-500 mt-1">
+                  Remisión {complianceDialog.remisionNumber}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {complianceDialog && (
+            <ul className="space-y-3 text-sm">
+              {complianceDialog.findings.map((f) => (
+                <li
+                  key={`${f.findingKey}-${f.targetDate}`}
+                  className="rounded-md border border-gray-200 p-3 bg-gray-50/80"
+                >
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <Badge variant={f.severity === 'high' ? 'destructive' : 'secondary'}>
+                      {HR_COMPLIANCE_RULE_LABELS[f.rule] ?? f.rule}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      {f.targetDate} · {f.plantCode}
+                    </span>
+                  </div>
+                  <p className="text-gray-800">{f.message}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
