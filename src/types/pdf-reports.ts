@@ -622,7 +622,7 @@ export const DEFAULT_COLUMN_SETS = {
     'line_total',
     'requires_invoice'
   ],
-  // Company standard — matches the user-approved sample Excel (13 columns)
+  // Company standard — matches the user-approved sample Excel
   company_standard: [
     'remision_number',      // Remision
     'fecha',                // Fecha
@@ -634,9 +634,10 @@ export const DEFAULT_COLUMN_SETS = {
     'volumen_fabricado',    // M3
     'unit_price',           // P.U
     'line_total',           // Subtotal
-    'special_requirements',   // Observaciones
-    'placement_type',         // Tipo Colocación
-    'comentarios_internos',   // Comentarios internos (order-level)
+    'serv_bombeo',          // Bombeo (FIFO-allocated per concrete row; own total for pumping row)
+    'special_requirements', // Observaciones
+    'placement_type',       // Tipo Colocación
+    'comentarios_internos', // Comentarios internos (order-level)
   ]
 };
 
@@ -645,7 +646,7 @@ export const DEFAULT_TEMPLATES: ReportTemplate[] = [
   {
     id: 'company-standard',
     name: 'Estándar Empresarial',
-    description: 'Plantilla estándar DC: remisión, fecha, cliente, pedido, obra, unidad, producto, m³, P.U, subtotal, observaciones, tipo colocación y comentarios internos',
+    description: 'Plantilla estándar DC: remisión, fecha, cliente, pedido, obra, unidad, producto, m³, P.U, subtotal, bombeo, observaciones, tipo colocación y comentarios internos',
     selectedColumns: DEFAULT_COLUMN_SETS.company_standard,
     isDefault: true
   },

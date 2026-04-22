@@ -243,13 +243,18 @@ function loadPrefs(): ReportDefinitionPersisted | null {
     if (!raw) return null;
     const p = JSON.parse(raw);
     if (p?.v === 2) {
-      // If a v2 still points to recipe_notes as 13th column (intermediate save),
-      // swap it for comentarios_internos.
       const v2 = p as ReportDefinitionPersistedV2;
-      const migrated = (v2.columnIdsOrdered ?? []).map((id: string) =>
-        id === 'recipe_notes' ? 'comentarios_internos' : id
+      // Migration: swap legacy recipe_notes → comentarios_internos
+      let ids = (v2.columnIdsOrdered ?? []).map((id: string) =>
+        id === 'recipe_notes' ? 'comentarios_internos' : id,
       );
-      return { ...v2, columnIdsOrdered: migrated };
+      // Migration: inject serv_bombeo after line_total if the user has the
+      // standard 13-column set without it (saved before bombeo became default).
+      const lineIdx = ids.indexOf('line_total');
+      if (lineIdx !== -1 && !ids.includes('serv_bombeo')) {
+        ids = [...ids.slice(0, lineIdx + 1), 'serv_bombeo', ...ids.slice(lineIdx + 1)];
+      }
+      return { ...v2, columnIdsOrdered: ids };
     }
     if (p?.v === 1) {
       const v1 = p as ReportDefinitionPersistedV1;

@@ -615,8 +615,36 @@ export default function ProcurementMaterialEntriesView({
         break
       }
     }
+
+    if (effectivePlantId && all.length > 0) {
+      try {
+        const res = await fetch(`/api/plants/${effectivePlantId}/accounting`)
+        if (res.ok) {
+          const j = (await res.json()) as {
+            plant?: { accounting_concept?: string | null; warehouse_number?: number | null }
+          }
+          const pc = j.plant?.accounting_concept ?? null
+          const wh = j.plant?.warehouse_number ?? null
+          return all.map((e) => {
+            const base = e.plant || { id: e.plant_id }
+            return {
+              ...e,
+              plant: {
+                ...base,
+                accounting_concept: pc ?? base.accounting_concept ?? null,
+                warehouse_number:
+                  wh !== undefined && wh !== null ? wh : base.warehouse_number ?? null,
+              },
+            }
+          })
+        }
+      } catch (err) {
+        console.error('loadMaterialEntriesForContableExport: plant accounting merge', err)
+      }
+    }
+
     return all
-  }, [buildReviewedFetchParams, reviewedDateRange.from, reviewedDateRange.to])
+  }, [buildReviewedFetchParams, reviewedDateRange.from, reviewedDateRange.to, effectivePlantId])
 
   useEffect(() => {
     if (!canReviewPricing || entradasView !== 'revisadas') return
@@ -648,6 +676,9 @@ export default function ProcurementMaterialEntriesView({
   }, [effectivePlantId])
 
   useEffect(() => {
+    if (canReviewPricing && entradasView === 'revisadas' && effectivePlantId) {
+      return
+    }
     if (!effectivePlantRow) {
       setPlantConceptDraft('')
       setPlantWarehouseDraft('')
@@ -659,7 +690,53 @@ export default function ProcurementMaterialEntriesView({
         ? String(effectivePlantRow.warehouse_number)
         : ''
     )
-  }, [effectivePlantRow])
+  }, [canReviewPricing, entradasView, effectivePlantId, effectivePlantRow])
+
+  useEffect(() => {
+    if (!canReviewPricing || entradasView !== 'revisadas' || !effectivePlantId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/plants/${effectivePlantId}/accounting`)
+        if (!res.ok) {
+          if (!cancelled && effectivePlantRow) {
+            setPlantConceptDraft(effectivePlantRow.accounting_concept?.trim() ?? '')
+            setPlantWarehouseDraft(
+              effectivePlantRow.warehouse_number != null &&
+                effectivePlantRow.warehouse_number !== undefined
+                ? String(effectivePlantRow.warehouse_number)
+                : ''
+            )
+          }
+          return
+        }
+        const j = (await res.json()) as {
+          plant?: { accounting_concept?: string | null; warehouse_number?: number | null }
+        }
+        if (cancelled || !j.plant) return
+        setPlantConceptDraft(j.plant.accounting_concept?.trim() ?? '')
+        setPlantWarehouseDraft(
+          j.plant.warehouse_number != null && j.plant.warehouse_number !== undefined
+            ? String(j.plant.warehouse_number)
+            : ''
+        )
+      } catch (e) {
+        console.error(e)
+        if (!cancelled && effectivePlantRow) {
+          setPlantConceptDraft(effectivePlantRow.accounting_concept?.trim() ?? '')
+          setPlantWarehouseDraft(
+            effectivePlantRow.warehouse_number != null &&
+              effectivePlantRow.warehouse_number !== undefined
+              ? String(effectivePlantRow.warehouse_number)
+              : ''
+          )
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [canReviewPricing, entradasView, effectivePlantId, effectivePlantRow])
 
   useEffect(() => {
     if (!canReviewPricing || entradasView !== 'revisadas') return
