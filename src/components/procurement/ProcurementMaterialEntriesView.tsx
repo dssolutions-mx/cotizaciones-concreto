@@ -8,6 +8,16 @@ import { es } from 'date-fns/locale'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Table,
   TableBody,
@@ -35,6 +45,8 @@ import {
   MoreHorizontal,
   Package,
   Search,
+  FileSpreadsheet,
+  Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
@@ -51,6 +63,10 @@ import { Label } from '@/components/ui/label'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { reviewedEntriesToExcelRows } from '@/lib/procurement/reviewedEntriesAccountingExport'
+import {
+  reviewedEntriesToAccountingContableRows,
+  ACCOUNTING_CONTABLE_COLUMN_KEYS,
+} from '@/lib/procurement/accountingContableExport'
 import {
   formatReceivedQuantity,
   formatReceptionAssignedDay,
@@ -286,7 +302,7 @@ export default function ProcurementMaterialEntriesView({
   const [inspectionEntry, setInspectionEntry] = useState<MaterialEntry | null>(null)
   const autoPreciosAppliedRef = useRef(false)
   const inspectionAutoOpenedForEntryRef = useRef<string | null>(null)
-  const { availablePlants } = usePlantContext()
+  const { availablePlants, refreshPlantData } = usePlantContext()
 
   // ── Pending entries (queue) ──
   const [pendingEntries, setPendingEntries] = useState<MaterialEntry[]>([])
@@ -298,7 +314,18 @@ export default function ProcurementMaterialEntriesView({
   const [reviewedHasMore, setReviewedHasMore] = useState(false)
   const [reviewedListOffset, setReviewedListOffset] = useState(0)
   const [reviewedExporting, setReviewedExporting] = useState(false)
+  const [reviewedAccountingExporting, setReviewedAccountingExporting] = useState(false)
   const [reviewedReloadNonce, setReviewedReloadNonce] = useState(0)
+  const [reviewedSupplierId, setReviewedSupplierId] = useState('')
+  const [reviewedSuppliers, setReviewedSuppliers] = useState<Array<{ id: string; name: string }>>([])
+  const [plantConceptDraft, setPlantConceptDraft] = useState('')
+  const [plantWarehouseDraft, setPlantWarehouseDraft] = useState('')
+  const [plantAccountingSaving, setPlantAccountingSaving] = useState(false)
+
+  const effectivePlantRow = useMemo(
+    () => (effectivePlantId ? availablePlants.find((p) => p.id === effectivePlantId) ?? null : null),
+    [availablePlants, effectivePlantId]
+  )
 
   const selectedQueueEntry = useMemo(
     () => pendingEntries.find((e) => e.id === selectedQueueEntryId) || null,
@@ -488,6 +515,7 @@ export default function ProcurementMaterialEntriesView({
       })
       if (effectivePlantId) params.set('plant_id', effectivePlantId)
       if (poIdFromUrl) params.set('po_id', poIdFromUrl)
+      if (reviewedSupplierId) params.set('supplier_id', reviewedSupplierId)
       if (reviewedDateRange.from && reviewedDateRange.to) {
         if (reviewedFilterByReception) {
           params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
@@ -502,11 +530,55 @@ export default function ProcurementMaterialEntriesView({
     [
       effectivePlantId,
       poIdFromUrl,
+      reviewedSupplierId,
       reviewedDateRange.from,
       reviewedDateRange.to,
       reviewedFilterByReception,
     ]
   )
+
+  useEffect(() => {
+    if (!canReviewPricing || entradasView !== 'revisadas') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const qs = new URLSearchParams()
+        if (effectivePlantId) qs.set('plant_id', effectivePlantId)
+        const res = await fetch(`/api/suppliers?${qs}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const list = (data.suppliers || []) as Array<{ id: string; name?: string | null }>
+        if (cancelled) return
+        list.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es'))
+        setReviewedSuppliers(
+          list.map((s) => ({ id: s.id, name: (s.name && s.name.trim()) || 'Sin nombre' }))
+        )
+      } catch {
+        if (!cancelled) setReviewedSuppliers([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [canReviewPricing, entradasView, effectivePlantId])
+
+  useEffect(() => {
+    setReviewedSupplierId('')
+  }, [effectivePlantId])
+
+  useEffect(() => {
+    if (!effectivePlantRow) {
+      setPlantConceptDraft('')
+      setPlantWarehouseDraft('')
+      return
+    }
+    setPlantConceptDraft(effectivePlantRow.accounting_concept?.trim() ?? '')
+    setPlantWarehouseDraft(
+      effectivePlantRow.warehouse_number != null && effectivePlantRow.warehouse_number !== undefined
+        ? String(effectivePlantRow.warehouse_number)
+        : ''
+    )
+  }, [effectivePlantRow])
 
   useEffect(() => {
     if (!canReviewPricing || entradasView !== 'revisadas') return
@@ -550,6 +622,7 @@ export default function ProcurementMaterialEntriesView({
     reviewedDateRange.to,
     reviewedFilterByReception,
     reviewedReloadNonce,
+    reviewedSupplierId,
   ])
 
   const loadMoreReviewed = useCallback(async () => {
@@ -580,6 +653,106 @@ export default function ProcurementMaterialEntriesView({
     reviewedHasMore,
     reviewedListOffset,
     reviewedLoading,
+  ])
+
+  const savePlantAccountingDraft = useCallback(async () => {
+    if (!effectivePlantId || !canReviewPricing) return
+    const whTrim = plantWarehouseDraft.trim()
+    const wh = whTrim === '' ? null : Number(whTrim)
+    if (wh != null && !Number.isInteger(wh)) {
+      toast.error('Almacén debe ser un número entero')
+      return
+    }
+    setPlantAccountingSaving(true)
+    try {
+      const res = await fetch(`/api/plants/${effectivePlantId}/accounting`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accounting_concept: plantConceptDraft.trim() || null,
+          warehouse_number: wh,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error || 'No se pudo guardar')
+      }
+      await refreshPlantData()
+      toast.success('Configuración contable de la planta guardada')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al guardar')
+    } finally {
+      setPlantAccountingSaving(false)
+    }
+  }, [
+    effectivePlantId,
+    canReviewPricing,
+    plantConceptDraft,
+    plantWarehouseDraft,
+    refreshPlantData,
+  ])
+
+  const exportReviewedAccountingExcel = useCallback(async () => {
+    if (!reviewedSupplierId) {
+      toast.error('Seleccione un proveedor de material para el Excel contable')
+      return
+    }
+    if (!reviewedDateRange.from || !reviewedDateRange.to) return
+    setReviewedAccountingExporting(true)
+    try {
+      const limit = 500
+      let offset = 0
+      const all: MaterialEntry[] = []
+      while (true) {
+        const params = buildReviewedFetchParams(offset, limit)
+        const res = await fetch(`/api/inventory/entries?${params}`)
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          throw new Error(j.error || 'Error al exportar')
+        }
+        const data = await res.json()
+        const batch: MaterialEntry[] = data.entries || []
+        all.push(...batch)
+        if (!data.pagination?.hasMore || batch.length === 0) break
+        offset += batch.length
+        if (all.length > 5000) {
+          toast.message('Se exportaron como máximo 5000 filas; acote el rango si necesita el resto.')
+          break
+        }
+      }
+      const mapped = reviewedEntriesToAccountingContableRows(all)
+      const XLSX = await import('xlsx')
+      const keys = [...ACCOUNTING_CONTABLE_COLUMN_KEYS]
+      const aoa = [keys as unknown as string[], ...mapped.map((row) => keys.map((k) => row[k]))]
+      const ws = XLSX.utils.aoa_to_sheet(aoa)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Contable')
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      const rf = format(reviewedDateRange.from, 'yyyy-MM-dd')
+      const rt = format(reviewedDateRange.to, 'yyyy-MM-dd')
+      const sup = reviewedSuppliers.find((s) => s.id === reviewedSupplierId)?.name || 'proveedor'
+      const safeSup = sup.replace(/[^\w\-]+/g, '_').slice(0, 40)
+      a.download = `entradas_contable_${safeSup}_${rf}_${rt}.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success(`Excel contable: ${all.length} fila${all.length !== 1 ? 's' : ''}`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al generar Excel contable')
+    } finally {
+      setReviewedAccountingExporting(false)
+    }
+  }, [
+    buildReviewedFetchParams,
+    reviewedDateRange.from,
+    reviewedDateRange.to,
+    reviewedSupplierId,
+    reviewedSuppliers,
   ])
 
   const exportReviewedExcel = useCallback(async () => {
@@ -619,7 +792,10 @@ export default function ProcurementMaterialEntriesView({
       a.href = URL.createObjectURL(blob)
       const rf = format(reviewedDateRange.from, 'yyyy-MM-dd')
       const rt = format(reviewedDateRange.to, 'yyyy-MM-dd')
-      a.download = `entradas_revisadas_${rf}_${rt}.xlsx`
+      const supSuffix = reviewedSupplierId
+        ? `_${(reviewedSuppliers.find((s) => s.id === reviewedSupplierId)?.name || 'proveedor').replace(/[^\w\-]+/g, '_').slice(0, 24)}`
+        : ''
+      a.download = `entradas_revisadas${supSuffix}_${rf}_${rt}.xlsx`
       a.click()
       URL.revokeObjectURL(a.href)
       toast.success(`Listo: ${all.length} fila${all.length !== 1 ? 's' : ''} en Excel`)
@@ -629,7 +805,13 @@ export default function ProcurementMaterialEntriesView({
     } finally {
       setReviewedExporting(false)
     }
-  }, [buildReviewedFetchParams, reviewedDateRange.from, reviewedDateRange.to])
+  }, [
+    buildReviewedFetchParams,
+    reviewedDateRange.from,
+    reviewedDateRange.to,
+    reviewedSupplierId,
+    reviewedSuppliers,
+  ])
 
   // Deep-link: scroll to entry + auto-open inspection
   useEffect(() => {
@@ -921,6 +1103,104 @@ export default function ProcurementMaterialEntriesView({
                   </Label>
                 </div>
               </div>
+
+              <Card className="mx-3 mb-2 border-stone-200 bg-stone-50/70 shadow-none">
+                <CardHeader className="py-3 px-4 space-y-0.5">
+                  <CardTitle className="text-sm font-semibold text-stone-900">
+                    Exportación contable (ERP)
+                  </CardTitle>
+                  <CardDescription className="text-xs text-stone-600 leading-relaxed">
+                    Elija el proveedor de material para filtrar las recepciones y generar el archivo de carga. El
+                    Excel contable exige proveedor; el export detallado puede usarse con o sin filtro.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 pt-0 space-y-4">
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="reviewed-supplier" className="text-xs font-medium text-stone-700">
+                        Proveedor de material
+                      </Label>
+                      <Select
+                        value={reviewedSupplierId || '__all__'}
+                        onValueChange={(v) => setReviewedSupplierId(v === '__all__' ? '' : v)}
+                      >
+                        <SelectTrigger id="reviewed-supplier" className="h-9 bg-white text-sm">
+                          <SelectValue placeholder="Todos los proveedores" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">Todos (sin filtro de proveedor)</SelectItem>
+                          {reviewedSuppliers.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {effectivePlantId ? (
+                      <div className="rounded-lg border border-stone-200 bg-white p-3 space-y-3">
+                        <p className="text-xs font-medium text-stone-800">Valores por planta en el Excel</p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label htmlFor="plant-concept" className="text-[11px] text-stone-600">
+                              Concepto contable
+                            </Label>
+                            <Input
+                              id="plant-concept"
+                              value={plantConceptDraft}
+                              onChange={(e) => setPlantConceptDraft(e.target.value)}
+                              className="h-8 text-xs"
+                              placeholder="Ej. compra de materias primas"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label htmlFor="plant-warehouse" className="text-[11px] text-stone-600">
+                              Almacén (número)
+                            </Label>
+                            <Input
+                              id="plant-warehouse"
+                              value={plantWarehouseDraft}
+                              onChange={(e) => setPlantWarehouseDraft(e.target.value)}
+                              className="h-8 text-xs tabular-nums"
+                              placeholder="Ej. 1"
+                              inputMode="numeric"
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          className="h-8 text-xs"
+                          onClick={() => void savePlantAccountingDraft()}
+                          disabled={plantAccountingSaving}
+                        >
+                          {plantAccountingSaving ? 'Guardando…' : 'Guardar concepto y almacén'}
+                        </Button>
+                      </div>
+                    ) : (
+                      <Alert className="border-stone-200 bg-white py-3">
+                        <Info className="h-4 w-4 text-stone-500" />
+                        <AlertTitle className="text-sm">Planta</AlertTitle>
+                        <AlertDescription className="text-xs text-stone-600">
+                          Seleccione una planta en el espacio de trabajo para editar concepto y almacén.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                  <Alert className="border-amber-200/80 bg-amber-50/60 py-3">
+                    <Info className="h-4 w-4 text-amber-800" />
+                    <AlertTitle className="text-sm text-amber-950">Columnas del Excel contable</AlertTitle>
+                    <AlertDescription className="text-xs text-amber-950/90 leading-relaxed">
+                      Orden: fecha · clave de producto (código contable del material) · serie ZFE · folio factura
+                      (remisión/factura capturada en la entrada) · precio unitario en MXN por kg · cantidad en kg ·
+                      concepto (planta) · almacén (número de planta). El precio/kg se obtiene del costo y la cantidad en
+                      kg, o convirtiendo desde m³ o litros según la recepción.
+                    </AlertDescription>
+                  </Alert>
+                </CardContent>
+              </Card>
+
               <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto px-2 pb-2">
                 <ReviewedEntriesForAccountingTable
                   entries={reviewedEntries}
@@ -928,10 +1208,40 @@ export default function ProcurementMaterialEntriesView({
                   effectivePlantId={effectivePlantId}
                   mxn={mxn}
                   loading={reviewedLoading}
-                  exporting={reviewedExporting}
                   hasMore={reviewedHasMore}
                   onLoadMore={() => void loadMoreReviewed()}
-                  onExportExcel={() => void exportReviewedExcel()}
+                  toolbar={
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs"
+                        onClick={() => void exportReviewedExcel()}
+                        disabled={reviewedEntries.length === 0 || reviewedExporting}
+                      >
+                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                        {reviewedExporting ? 'Exportando…' : 'Excel detalle'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="gap-1.5 h-8 text-xs bg-stone-900 text-white hover:bg-stone-800"
+                        onClick={() => void exportReviewedAccountingExcel()}
+                        disabled={
+                          !reviewedSupplierId || reviewedEntries.length === 0 || reviewedAccountingExporting
+                        }
+                        title={
+                          !reviewedSupplierId
+                            ? 'Seleccione un proveedor de material para habilitar el Excel contable'
+                            : undefined
+                        }
+                      >
+                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                        {reviewedAccountingExporting ? 'Generando…' : 'Excel contable'}
+                      </Button>
+                    </div>
+                  }
                   onInspect={setInspectionEntry}
                   onEditPricing={setPricingSheetEntry}
                 />

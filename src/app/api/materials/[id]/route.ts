@@ -86,13 +86,21 @@ export async function PUT(
     }
 
     // Allowlist fields only (mass assignment protection)
-    const updatePayload = {
+    const updatePayload: Record<string, unknown> = {
       material_code: body.material_code,
       material_name: body.material_name,
       category: body.category,
       unit_of_measure: body.unit_of_measure,
       is_active: body.is_active ?? true,
     };
+    if ('accounting_code' in body) {
+      const ac = body.accounting_code
+      if (ac != null && typeof ac !== 'string') {
+        return NextResponse.json({ error: 'accounting_code must be a string' }, { status: 400 })
+      }
+      updatePayload.accounting_code =
+        ac == null || String(ac).trim() === '' ? null : String(ac).trim().slice(0, 128)
+    }
 
     // Update material
     const { data: material, error } = await supabase

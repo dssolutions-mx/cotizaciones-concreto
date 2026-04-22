@@ -61,7 +61,19 @@ export interface MaterialEntry {
     unit_of_measure: string;
     density?: number | null;
     bulk_density_kg_per_m3?: number | null;
+    /** kg por litro — recepciones en L */
+    density_kg_per_l?: number | null;
+    /** Código contable / clave de producto (por material, sin unicidad) */
+    accounting_code?: string | null;
   };
+  /** Planta receptora (join para export contable) */
+  plant?: {
+    id: string;
+    code?: string | null;
+    name?: string | null;
+    accounting_concept?: string | null;
+    warehouse_number?: number | null;
+  } | null;
   entered_by_user?: {
     id: string;
     first_name: string;

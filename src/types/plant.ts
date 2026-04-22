@@ -18,6 +18,10 @@ export interface Plant {
   created_at: string;
   updated_at: string;
   business_unit?: BusinessUnit;
+  /** Export contable — concepto por planta */
+  accounting_concept?: string | null;
+  /** Export contable — número de almacén ERP */
+  warehouse_number?: number | null;
 }
 
 export interface UserPlantAccess {

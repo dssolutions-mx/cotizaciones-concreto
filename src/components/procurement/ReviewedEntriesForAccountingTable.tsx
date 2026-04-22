@@ -19,7 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Factory, FileSpreadsheet, MoreHorizontal, Package, Search } from 'lucide-react'
+import { Factory, MoreHorizontal, Package, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
 import { MaterialEntry } from '@/types/inventory'
@@ -54,10 +54,10 @@ type Props = {
   effectivePlantId?: string
   mxn: Intl.NumberFormat
   loading?: boolean
-  exporting?: boolean
   hasMore?: boolean
   onLoadMore?: () => void
-  onExportExcel?: () => void
+  /** Barra superior (exportes, filtros contables) — si se omite, no se muestra acción de Excel aquí. */
+  toolbar?: React.ReactNode
   onInspect: (e: MaterialEntry) => void
   onEditPricing: (e: MaterialEntry) => void
 }
@@ -68,10 +68,9 @@ export default function ReviewedEntriesForAccountingTable({
   effectivePlantId,
   mxn,
   loading = false,
-  exporting = false,
   hasMore = false,
   onLoadMore,
-  onExportExcel,
+  toolbar,
   onInspect,
   onEditPricing,
 }: Props) {
@@ -109,36 +108,26 @@ export default function ReviewedEntriesForAccountingTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
-        <p className="text-[11px] text-stone-500">
-          Suma en pantalla: material{' '}
-          <span className="font-semibold tabular-nums text-stone-800">
-            {sums.nMat ? mxn.format(sums.totalMaterial) : '—'}
-          </span>
-          {sums.nFleet > 0 && (
-            <>
-              {' '}
-              · flota{' '}
-              <span className="font-semibold tabular-nums text-stone-800">
-                {mxn.format(sums.totalFleet)}
-              </span>
-            </>
-          )}
-          <span className="text-stone-400"> ({entries.length} fila{entries.length !== 1 ? 's' : ''})</span>
-        </p>
-        {onExportExcel && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2 shrink-0"
-            onClick={onExportExcel}
-            disabled={entries.length === 0 || exporting}
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            {exporting ? 'Exportando…' : 'Exportar Excel'}
-          </Button>
-        )}
+      <div className="flex flex-col gap-2 px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-[11px] text-stone-500">
+            Suma en pantalla: material{' '}
+            <span className="font-semibold tabular-nums text-stone-800">
+              {sums.nMat ? mxn.format(sums.totalMaterial) : '—'}
+            </span>
+            {sums.nFleet > 0 && (
+              <>
+                {' '}
+                · flota{' '}
+                <span className="font-semibold tabular-nums text-stone-800">
+                  {mxn.format(sums.totalFleet)}
+                </span>
+              </>
+            )}
+            <span className="text-stone-400"> ({entries.length} fila{entries.length !== 1 ? 's' : ''})</span>
+          </p>
+          {toolbar ? <div className="flex flex-wrap items-center gap-2 justify-end">{toolbar}</div> : null}
+        </div>
       </div>
 
       <div className="min-w-0">

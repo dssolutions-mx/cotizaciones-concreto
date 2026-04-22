@@ -121,6 +121,8 @@ export async function GET(request: NextRequest) {
       po_id: searchParams.get('po_id') || undefined,
       plant_id: searchParams.get('plant_id') || undefined,
       entry_id: searchParams.get('entry_id') || undefined,
+      /** Proveedor de material (material_entries.supplier_id) — contable / filtros. */
+      supplier_id: searchParams.get('supplier_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
       include: searchParams.get('include') || undefined,
@@ -169,7 +171,16 @@ export async function GET(request: NextRequest) {
           category,
           unit_of_measure,
           density,
-          bulk_density_kg_per_m3
+          bulk_density_kg_per_m3,
+          density_kg_per_l,
+          accounting_code
+        ),
+        plant:plants!plant_id (
+          id,
+          code,
+          name,
+          accounting_concept,
+          warehouse_number
         ),
         entered_by_user:user_profiles!entered_by (
           id,
@@ -308,6 +319,18 @@ export async function GET(request: NextRequest) {
       query = query.or(
         `po_id.eq.${queryParams.po_id},fleet_po_id.eq.${queryParams.po_id}`
       );
+    }
+
+    if (queryParams.supplier_id) {
+      const uuidRe =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRe.test(queryParams.supplier_id)) {
+        return NextResponse.json(
+          { success: false, error: 'supplier_id inválido' },
+          { status: 400 }
+        );
+      }
+      query = query.eq('supplier_id', queryParams.supplier_id);
     }
 
     console.log('About to execute query...');
