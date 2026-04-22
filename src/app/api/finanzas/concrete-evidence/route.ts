@@ -13,6 +13,12 @@ const READ_ROLES = new Set([
 /** Max orders to evaluate for filtered modes / KPI summary (safety cap). */
 const MAX_ORDERS_EVALUATE = 20000;
 
+/**
+ * PostgREST GET requests encode `.in('order_id', ids)` in the query string; very large
+ * batches (e.g. 400 UUIDs) can exceed URL/proxy limits and fail the request.
+ */
+const ORDER_ID_IN_CHUNK_SIZE = 80;
+
 const ORDER_STATUSES = [
   'created',
   'validated',
@@ -57,6 +63,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+function logPostgrestError(context: string, e: unknown) {
+  if (e && typeof e === 'object' && 'message' in e) {
+    const o = e as { message?: string; code?: string; details?: string; hint?: string };
+    console.error(context, {
+      message: o.message,
+      code: o.code,
+      details: o.details,
+      hint: o.hint,
+    });
+  } else {
+    console.error(context, e);
+  }
 }
 
 function parseEvidenceStatus(searchParams: URLSearchParams): EvidenceStatusFilter {
@@ -144,7 +164,7 @@ async function countConcreteRemisionesByOrder(
   orderIds: string[]
 ): Promise<Map<string, number>> {
   const countByOrder = new Map<string, number>();
-  for (const part of chunk(orderIds, 400)) {
+  for (const part of chunk(orderIds, ORDER_ID_IN_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('remisiones')
       .select('order_id')
@@ -164,7 +184,7 @@ async function orderIdsWithEvidence(
   orderIds: string[]
 ): Promise<Set<string>> {
   const set = new Set<string>();
-  for (const part of chunk(orderIds, 400)) {
+  for (const part of chunk(orderIds, ORDER_ID_IN_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('order_concrete_evidence')
       .select('order_id')
@@ -184,7 +204,7 @@ async function remisionMetaByOrder(
   orderIds: string[]
 ): Promise<Map<string, RemisionMeta>> {
   const map = new Map<string, RemisionMeta>();
-  for (const part of chunk(orderIds, 400)) {
+  for (const part of chunk(orderIds, ORDER_ID_IN_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .from('remisiones')
       .select('order_id, remision_number, volumen_fabricado')
@@ -474,7 +494,7 @@ export async function GET(request: NextRequest) {
         countByOrder = await countConcreteRemisionesByOrder(supabase, allIds);
         evidenceOrders = await orderIdsWithEvidence(supabase, allIds);
       } catch (e) {
-        console.error('finanzas concrete-evidence filtered batch:', e);
+        logPostgrestError('finanzas concrete-evidence filtered batch:', e);
         return NextResponse.json({ error: 'Error al evaluar remisiones/evidencia' }, { status: 500 });
       }
 

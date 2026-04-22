@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { Package, Warehouse, FileText, DollarSign, ArrowRight, LayoutDashboard } from 'lucide-react'
+import { Package, Warehouse, FileText, DollarSign, ArrowRight, LayoutDashboard, KeyRound } from 'lucide-react'
 import { procurementEntriesUrl, buildProcurementUrl } from '@/lib/procurement/navigation'
 
 /**
@@ -10,6 +10,7 @@ import { procurementEntriesUrl, buildProcurementUrl } from '@/lib/procurement/na
  */
 export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
   const entriesHref = procurementEntriesUrl({ plantId })
+  const clavesHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'claves' })
   const cxpHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'cxp' })
   const poHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'po' })
   const hubHref = buildProcurementUrl('/finanzas/procurement', { plantId, tab: 'resumen' })
@@ -39,6 +40,11 @@ export default function ProcurementFlowNav({ plantId }: { plantId?: string }) {
         <Link href={entriesHref} className={chip}>
           <Warehouse className="h-3.5 w-3.5 text-amber-700" />
           Entrada
+        </Link>
+        <ArrowRight className="h-3.5 w-3.5 text-stone-400 shrink-0" aria-hidden />
+        <Link href={clavesHref} className={chip} title="Claves de producto (ERP) por planta">
+          <KeyRound className="h-3.5 w-3.5 text-slate-700" />
+          Claves ERP
         </Link>
         <ArrowRight className="h-3.5 w-3.5 text-stone-400 shrink-0" aria-hidden />
         <Link href={cxpHref} className={chip}>

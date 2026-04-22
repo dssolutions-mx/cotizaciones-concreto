@@ -47,6 +47,7 @@ import {
   FileSpreadsheet,
   Info,
   Copy,
+  KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
@@ -97,6 +98,8 @@ type Props = {
   onToggleFocusMode?: () => void
   /** Sincroniza la planta del espacio de trabajo (mismo control que el selector del header de compras). */
   onWorkspacePlantIdChange?: (plantId: string) => void
+  /** Misma regla que PATCH /api/materials/[id]/accounting-code (revisión precios o catálogo). */
+  canEditMaterialAccountingCodes?: boolean
 }
 
 /* ─── Shared table for both canReviewPricing and !canReviewPricing ─── */
@@ -279,6 +282,7 @@ export default function ProcurementMaterialEntriesView({
   isFocused = false,
   onToggleFocusMode,
   onWorkspacePlantIdChange,
+  canEditMaterialAccountingCodes = false,
 }: Props) {
   const { isInitialized: authInitialized, profile: authProfile } = useAuthSelectors()
   const router = useRouter()
@@ -340,6 +344,15 @@ export default function ProcurementMaterialEntriesView({
     [availablePlants, effectivePlantId]
   )
 
+  const clavesProcurementHref = useMemo(
+    () =>
+      buildProcurementUrl('/finanzas/procurement', {
+        plantId: effectivePlantId,
+        tab: 'claves',
+      }),
+    [effectivePlantId]
+  )
+
   const selectedQueueEntry = useMemo(
     () => pendingEntries.find((e) => e.id === selectedQueueEntryId) || null,
     [pendingEntries, selectedQueueEntryId]
@@ -393,6 +406,19 @@ export default function ProcurementMaterialEntriesView({
       })
     },
     [router, pathname, searchParams]
+  )
+
+  const handleMaterialAccountingCodeSaved = useCallback(
+    (materialId: string, code: string | null) => {
+      setReviewedEntries((prev) =>
+        prev.map((e) =>
+          e.material_id === materialId && e.material
+            ? { ...e, material: { ...e.material, accounting_code: code } }
+            : e
+        )
+      )
+    },
+    []
   )
 
   const plantOptionsForExport = useMemo(
@@ -1190,6 +1216,12 @@ export default function ProcurementMaterialEntriesView({
                   <FileSpreadsheet className="h-3.5 w-3.5" />
                   Exportación contable (ERP)…
                 </Button>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" asChild>
+                  <Link href={clavesProcurementHref} title="Revisar y editar claves de producto en el catálogo">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Claves ERP (catálogo)…
+                  </Link>
+                </Button>
                 <span className="text-xs text-stone-500 truncate min-w-0 max-w-[min(100%,20rem)]">
                   Proveedor: <span className="text-stone-700 font-medium">{reviewedSupplierLabel}</span>
                 </span>
@@ -1208,6 +1240,15 @@ export default function ProcurementMaterialEntriesView({
                         Excel. El Excel contable exige proveedor; el detallado puede usarse con o sin filtro. La tabla de
                         la pestaña se actualiza al cambiar planta o proveedor.
                       </SheetDescription>
+                      <p className="text-xs pt-1">
+                        <Link
+                          href={clavesProcurementHref}
+                          className="font-medium text-sky-800 hover:text-sky-950 underline-offset-2 hover:underline inline-flex items-center gap-1"
+                        >
+                          <KeyRound className="h-3.5 w-3.5 shrink-0" />
+                          Abrir revisión de claves de producto (pestaña Claves ERP)
+                        </Link>
+                      </p>
                     </SheetHeader>
                     <div className="grid gap-4 sm:grid-cols-1">
                       <div className="space-y-2">
@@ -1398,6 +1439,8 @@ export default function ProcurementMaterialEntriesView({
                   onLoadMore={() => void loadMoreReviewed()}
                   onInspect={setInspectionEntry}
                   onEditPricing={setPricingSheetEntry}
+                  canEditMaterialAccountingCode={canEditMaterialAccountingCodes}
+                  onMaterialAccountingCodeSaved={handleMaterialAccountingCodeSaved}
                 />
               </div>
             </div>

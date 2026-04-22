@@ -56,6 +56,7 @@ export interface MaterialEntry {
   // Optional joined data
   material?: {
     id: string;
+    material_code?: string;
     material_name: string;
     category: string;
     unit_of_measure: string;

@@ -31,6 +31,7 @@ import {
   ArrowDownToLine,
   Activity,
   Settings2,
+  KeyRound,
 } from 'lucide-react'
 import {
   Accordion,
@@ -50,7 +51,8 @@ import ProcurementFlowNav from '@/components/procurement/ProcurementFlowNav'
 import PricingReviewQueue from '@/components/procurement/PricingReviewQueue'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { cn } from '@/lib/utils'
-import { canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
+import { canCompleteEntryPricingReview, hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles'
+import { canWriteMaterialsCatalog } from '@/lib/auth/materialsCatalogRoles'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import ActivityFeed, { type ActivityFeedItem } from '@/components/procurement/ActivityFeed'
 import InventoryAlertPanel from '@/components/procurement/InventoryAlertPanel'
@@ -58,6 +60,7 @@ import CreditNotesPanel from '@/components/procurement/CreditNotesPanel'
 import ReconciliationView from '@/components/procurement/ReconciliationView'
 import ProcurementMaterialEntriesView from '@/components/procurement/ProcurementMaterialEntriesView'
 import DailyConsumptionsView from '@/components/procurement/DailyConsumptionsView'
+import MaterialAccountingCodesReview from '@/components/procurement/MaterialAccountingCodesReview'
 
 type DashboardData = {
   open_po_count: number
@@ -76,7 +79,7 @@ type DashboardData = {
   period_month: string
 }
 
-const TAB_KEYS = ['resumen', 'inventario', 'consumos', 'po', 'entradas', 'cxp', 'suppliers'] as const
+const TAB_KEYS = ['resumen', 'inventario', 'consumos', 'po', 'entradas', 'claves', 'cxp', 'suppliers'] as const
 type TabKey = (typeof TAB_KEYS)[number]
 
 export default function ProcurementWorkspaceClient() {
@@ -86,11 +89,17 @@ export default function ProcurementWorkspaceClient() {
   const { availablePlants, currentPlant } = usePlantContext()
   const { profile } = useAuthSelectors()
 
+  const canViewClaves = hasInventoryStandardAccess(profile?.role)
+  const canEditMaterialClaves = Boolean(
+    canWriteMaterialsCatalog(profile?.role) || canCompleteEntryPricingReview(profile?.role)
+  )
+
   const initialTab = useMemo((): TabKey => {
     const tab = searchParams.get('tab')
+    if (tab === 'claves' && !canViewClaves) return 'resumen'
     if (tab && TAB_KEYS.includes(tab as TabKey)) return tab as TabKey
     return 'resumen'
-  }, [searchParams])
+  }, [searchParams, canViewClaves])
 
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab)
   const [workspacePlantId, setWorkspacePlantId] = useState<string>('')
@@ -186,8 +195,12 @@ export default function ProcurementWorkspaceClient() {
 
   useEffect(() => {
     const t = searchParams.get('tab')
+    if (t === 'claves' && !canViewClaves) {
+      setActiveTab('resumen')
+      return
+    }
     if (t && TAB_KEYS.includes(t as TabKey)) setActiveTab(t as TabKey)
-  }, [searchParams])
+  }, [searchParams, canViewClaves])
 
   const mxn = useMemo(
     () => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }),
@@ -260,7 +273,14 @@ export default function ProcurementWorkspaceClient() {
               </div>
             </div>
             <div className={cn("-mx-1 overflow-x-auto px-1", activeTab === 'entradas' && "shrink-0")}>
-              <TabsList className="grid min-w-[720px] w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 h-auto gap-1 bg-stone-200/60 p-1 rounded-lg">
+              <TabsList
+                className={cn(
+                  'grid w-full h-auto gap-1 bg-stone-200/60 p-1 rounded-lg',
+                  canViewClaves
+                    ? 'min-w-[900px] grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'
+                    : 'min-w-[720px] grid-cols-2 sm:grid-cols-3 lg:grid-cols-7'
+                )}
+              >
                 <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                   <LayoutDashboard className="h-4 w-4" />
                   Resumen
@@ -281,11 +301,26 @@ export default function ProcurementWorkspaceClient() {
                   <ArrowDownToLine className="h-4 w-4" />
                   Entradas
                 </TabsTrigger>
+                {canViewClaves && (
+                  <TabsTrigger
+                    value="claves"
+                    className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    Claves ERP
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="cxp" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                   <CreditCard className="h-4 w-4" />
                   Por pagar
                 </TabsTrigger>
-                <TabsTrigger value="suppliers" className="gap-2 col-span-2 sm:col-span-1 lg:col-span-1 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                <TabsTrigger
+                  value="suppliers"
+                  className={cn(
+                    'gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white',
+                    !canViewClaves && 'col-span-2 sm:col-span-1 lg:col-span-1'
+                  )}
+                >
                   <BarChart3 className="h-4 w-4" />
                   Proveedores
                 </TabsTrigger>
@@ -511,8 +546,21 @@ export default function ProcurementWorkspaceClient() {
             onPricingSuccess={() => setActionQueueKey((k) => k + 1)}
             isFocused={entriesFocusMode}
             onToggleFocusMode={() => setEntriesFocusMode((f) => !f)}
+            canEditMaterialAccountingCodes={canEditMaterialClaves}
           />
         </TabsContent>
+
+        {canViewClaves && (
+          <TabsContent value="claves" className="mt-0 rounded-lg border border-stone-200 bg-white p-4 md:p-6">
+            <MaterialAccountingCodesReview
+              workspacePlantId={workspacePlantId}
+              plantOptions={plantList.map((p) => ({ id: p.id, name: p.name, code: p.code }))}
+              onWorkspacePlantIdChange={setWorkspacePlantId}
+              canView
+              canEdit={canEditMaterialClaves}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="cxp" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
           <div className="p-2 md:p-4">

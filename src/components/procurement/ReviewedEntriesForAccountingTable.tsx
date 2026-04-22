@@ -19,7 +19,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ChevronLeft, ChevronRight, Factory, MoreHorizontal, Package, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Factory, KeyRound, MoreHorizontal, Package, Pencil, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
 import { MaterialEntry } from '@/types/inventory'
@@ -48,6 +51,123 @@ function reviewerShort(e: MaterialEntry): string {
   return u.email ? (u.email.length > 20 ? `${u.email.slice(0, 18)}…` : u.email) : '—'
 }
 
+function MaterialCellClaveErp({
+  entry,
+  canEdit,
+  onSaved,
+}: {
+  entry: MaterialEntry
+  canEdit: boolean
+  onSaved?: (materialId: string, code: string | null) => void
+}) {
+  const materialId = entry.material_id
+  const initial = entry.material?.accounting_code?.trim() || ''
+  const [open, setOpen] = useState(false)
+  const [val, setVal] = useState(initial)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setVal(entry.material?.accounting_code?.trim() || '')
+  }, [entry.material?.accounting_code])
+
+  const hasCode = Boolean(initial)
+  if (!canEdit) {
+    return (
+      <div className="min-w-0 max-w-[7rem]">
+        <div
+          className={`font-mono text-[11px] leading-tight break-all ${!hasCode ? 'text-amber-800' : 'text-stone-800'}`}
+        >
+          {hasCode ? initial : '—'}
+        </div>
+        {!hasCode && <span className="text-[9px] text-amber-700">Sin clave</span>}
+      </div>
+    )
+  }
+
+  const save = async () => {
+    if (!materialId) {
+      toast.error('Material no disponible en esta fila')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/materials/${materialId}/accounting-code`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accounting_code: val }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error al guardar')
+      const next = (json.material?.accounting_code as string | null | undefined) ?? null
+      const trimmed = next?.trim() ? next.trim() : null
+      onSaved?.(materialId, trimmed)
+      toast.success('Clave contable actualizada')
+      setOpen(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-0.5 min-w-0 max-w-[8rem]">
+      <div className="min-w-0 flex-1">
+        <div
+          className={`font-mono text-[11px] leading-tight break-all ${
+            !hasCode ? 'text-amber-800' : 'text-stone-800'
+          }`}
+        >
+          {hasCode ? initial : '—'}
+        </div>
+        {!hasCode && <span className="text-[9px] text-amber-700">Sin clave</span>}
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0 -mt-0.5"
+            title="Editar clave ERP"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Pencil className="h-3 w-3" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-72 p-3"
+          align="end"
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-xs font-medium text-stone-800 mb-2 flex items-center gap-1.5">
+            <KeyRound className="h-3.5 w-3.5" />
+            Clave de producto
+          </p>
+          <Input
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            className="h-8 text-xs font-mono mb-2"
+            disabled={saving}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void save()
+            }}
+            placeholder="Ej. 03ALTI"
+          />
+          <div className="flex justify-end gap-1.5">
+            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setOpen(false)}>
+              Cerrar
+            </Button>
+            <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void save()} disabled={saving}>
+              {saving ? '…' : 'Guardar'}
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 type Props = {
   entries: MaterialEntry[]
   entryIdFromUrl?: string
@@ -60,6 +180,8 @@ type Props = {
   toolbar?: React.ReactNode
   onInspect: (e: MaterialEntry) => void
   onEditPricing: (e: MaterialEntry) => void
+  canEditMaterialAccountingCode?: boolean
+  onMaterialAccountingCodeSaved?: (materialId: string, code: string | null) => void
 }
 
 export default function ReviewedEntriesForAccountingTable({
@@ -73,6 +195,8 @@ export default function ReviewedEntriesForAccountingTable({
   toolbar,
   onInspect,
   onEditPricing,
+  canEditMaterialAccountingCode = false,
+  onMaterialAccountingCodeSaved,
 }: Props) {
   const tableScrollRef = useRef<HTMLDivElement>(null)
   const [scrollEdges, setScrollEdges] = useState({ atStart: true, atEnd: true })
@@ -213,7 +337,7 @@ export default function ReviewedEntriesForAccountingTable({
           </div>
         </div>
         <Table
-          className="min-w-[70rem] max-w-none"
+          className="min-w-[76rem] max-w-none"
           scrollContainerRef={tableScrollRef}
           scrollContainerClassName="max-w-full scroll-smooth touch-pan-x overscroll-x-contain rounded-md border border-stone-200/60 bg-white shadow-inner shadow-stone-200/40 [-webkit-overflow-scrolling:touch] outline-none focus-visible:ring-2 focus-visible:ring-stone-400/50 focus-visible:ring-offset-1"
           scrollContainerProps={{
@@ -231,6 +355,9 @@ export default function ReviewedEntriesForAccountingTable({
               </TableHead>
               <TableHead className="whitespace-nowrap text-xs min-w-[7rem]">Recepción</TableHead>
               <TableHead className="text-xs min-w-[8rem]">Material</TableHead>
+              <TableHead className="text-xs min-w-[6.5rem] whitespace-nowrap" title="Clave de producto (ERP)">
+                Clave ERP
+              </TableHead>
               <TableHead className="text-xs min-w-[5rem]">OC</TableHead>
               <TableHead className="text-xs min-w-[6rem]">Proveedor</TableHead>
               <TableHead className="text-xs min-w-[5rem]">Fact. / rem.</TableHead>
@@ -288,7 +415,23 @@ export default function ReviewedEntriesForAccountingTable({
                     <div className="font-medium text-stone-900 truncate text-xs">
                       {e.material?.material_name || e.material_id}
                     </div>
-                    <div className="text-[10px] text-stone-500 truncate">{e.material?.category}</div>
+                    <div className="text-[10px] text-stone-500 truncate">
+                      {e.material?.material_code ? (
+                        <span className="font-mono text-stone-600">{e.material.material_code}</span>
+                      ) : null}
+                      {e.material?.material_code && e.material?.category ? ' · ' : null}
+                      {e.material?.category}
+                    </div>
+                  </TableCell>
+                  <TableCell
+                    className="py-2 align-top"
+                    onDoubleClick={(ev) => ev.stopPropagation()}
+                  >
+                    <MaterialCellClaveErp
+                      entry={e}
+                      canEdit={canEditMaterialAccountingCode}
+                      onSaved={onMaterialAccountingCodeSaved}
+                    />
                   </TableCell>
                   <TableCell className="font-mono text-[11px] py-2">{poLabel}</TableCell>
                   <TableCell className="max-w-[120px] py-2">

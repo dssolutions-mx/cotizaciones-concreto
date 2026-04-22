@@ -274,6 +274,7 @@ export async function GET(request: NextRequest) {
         *,
         material:materials!material_id (
           id,
+          material_code,
           material_name,
           category,
           unit_of_measure,
