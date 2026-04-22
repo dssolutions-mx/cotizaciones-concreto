@@ -10,7 +10,6 @@ import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
 import { Search, UserPlus, Filter, Download } from 'lucide-react';
-import { usePlantContext } from '@/contexts/PlantContext';
 import { UserCard } from '@/components/admin/users/UserCard';
 import { UserEditModal } from '@/components/admin/users/UserEditModal';
 import { BulkActionsBar } from '@/components/admin/users/BulkActionsBar';
@@ -24,7 +23,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
-import UserPlantAssignment from '@/components/plants/UserPlantAssignment';
 
 interface UserData {
   id: string;
@@ -50,18 +48,25 @@ export default function UserManagementPage() {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const { availablePlants, businessUnits } = usePlantContext();
   const { toast } = useToast();
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (options?: { keepEditingUser?: boolean }) => {
     try {
       setLoading(true);
       const data = await authService.getAllUsers();
-      setUsers(data || []);
+      const list = data || [];
+      setUsers(list);
+      if (options?.keepEditingUser) {
+        setEditingUser((prev) => {
+          if (!prev) return null;
+          const row = list.find((u) => u.id === prev.id);
+          return row ? { ...prev, ...row } : prev;
+        });
+      }
     } catch (err: unknown) {
       console.error('Error loading users:', err);
       const errorMessage = err instanceof Error ? err.message : 'Error al cargar usuarios';
@@ -131,8 +136,12 @@ export default function UserManagementPage() {
   };
 
   const handleEditSuccess = () => {
-    fetchUsers();
+    void fetchUsers();
     setEditingUser(null);
+  };
+
+  const handleAssignmentSaved = () => {
+    void fetchUsers({ keepEditingUser: true });
   };
 
   const handleExport = () => {
@@ -158,7 +167,7 @@ export default function UserManagementPage() {
   };
 
   return (
-    <RoleGuard allowedRoles="EXECUTIVE" redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div>
@@ -284,6 +293,7 @@ export default function UserManagementPage() {
           onOpenChange={(open) => !open && setEditingUser(null)}
           user={editingUser}
           onSuccess={handleEditSuccess}
+          onAssignmentSaved={handleAssignmentSaved}
         />
 
         {/* Bulk Actions Bar */}

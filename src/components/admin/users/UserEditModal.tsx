@@ -22,6 +22,7 @@ import { authService } from '@/lib/supabase/auth';
 import { useToast } from '@/components/ui/use-toast';
 import type { UserRole } from '@/store/auth/types';
 import { Shield, Save, X } from 'lucide-react';
+import UserPlantAssignment from '@/components/plants/UserPlantAssignment';
 
 interface UserEditModalProps {
   open: boolean;
@@ -33,8 +34,15 @@ interface UserEditModalProps {
     last_name: string | null;
     role: UserRole;
     is_active?: boolean;
+    plant_id?: string | null;
+    business_unit_id?: string | null;
+    plant_name?: string | null;
+    business_unit_name?: string | null;
   } | null;
+  /** Called after role save (modal typically closes via onOpenChange). */
   onSuccess: () => void;
+  /** Called after plant/BU assignment save; refresh list without closing modal. */
+  onAssignmentSaved?: () => void;
 }
 
 const roleOptions: { value: UserRole; label: string }[] = [
@@ -49,7 +57,13 @@ const roleOptions: { value: UserRole; label: string }[] = [
   { value: 'ADMINISTRATIVE', label: 'Administrativo' },
 ];
 
-export function UserEditModal({ open, onOpenChange, user, onSuccess }: UserEditModalProps) {
+export function UserEditModal({
+  open,
+  onOpenChange,
+  user,
+  onSuccess,
+  onAssignmentSaved,
+}: UserEditModalProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [role, setRole] = useState<UserRole>('SALES_AGENT');
@@ -90,14 +104,14 @@ export function UserEditModal({ open, onOpenChange, user, onSuccess }: UserEditM
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
             Editar Usuario
           </DialogTitle>
           <DialogDescription>
-            Actualiza el rol y la información del usuario
+            Actualiza el rol y el alcance (planta o unidad de negocio) del usuario
           </DialogDescription>
         </DialogHeader>
 
@@ -136,6 +150,16 @@ export function UserEditModal({ open, onOpenChange, user, onSuccess }: UserEditM
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="pt-2 border-t border-gray-100">
+            <Label className="mb-2 block">Alcance de datos</Label>
+            <UserPlantAssignment
+              user={user}
+              inlineEdit
+              onUpdate={() => onAssignmentSaved?.()}
+              className="mt-1"
+            />
           </div>
         </div>
 

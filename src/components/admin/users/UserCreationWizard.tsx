@@ -89,12 +89,19 @@ export function UserCreationWizard() {
           role: data.role,
           callerId: session?.user?.id,
           callerEmail: session?.user?.email,
+          plantId: data.plantId,
+          businessUnitId: data.businessUnitId,
         });
       } else {
-        await authService.inviteUser(data.email, data.role);
+        await authService.inviteUser(
+          data.email,
+          data.role,
+          session?.user?.id,
+          session?.user?.email,
+          data.plantId,
+          data.businessUnitId
+        );
       }
-
-      // TODO: Assign plant/business unit if selected
 
       toast({
         title: 'Éxito',

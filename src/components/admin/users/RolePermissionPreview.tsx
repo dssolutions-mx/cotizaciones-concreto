@@ -18,6 +18,7 @@ const roleDescriptions: Record<UserRole, string> = {
   EXECUTIVE: 'Acceso completo al sistema',
   ADMIN_OPERATIONS: 'Administración operativa del sistema',
   ADMINISTRATIVE: 'Acceso administrativo y financiero',
+  ADMIN: 'Administrador del sistema',
   EXTERNAL_CLIENT: 'Cliente externo con acceso al portal',
 };
 
@@ -31,6 +32,7 @@ const rolePermissions: Record<UserRole, string[]> = {
   EXECUTIVE: ['Acceso completo', 'Gestionar usuarios', 'Ver todos los reportes'],
   ADMIN_OPERATIONS: ['Gestionar usuarios', 'Administrar sistema', 'Ver reportes'],
   ADMINISTRATIVE: ['Acceso financiero', 'Ver reportes', 'Gestionar pagos'],
+  ADMIN: ['Administración completa', 'Gestionar usuarios'],
   EXTERNAL_CLIENT: ['Ver órdenes', 'Ver entregas', 'Ver calidad'],
 };
 

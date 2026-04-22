@@ -85,6 +85,14 @@ function monthLabel(ym: string): string {
   return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`
 }
 
+/** YYYY-MM-DD in the user's local calendar (avoids UTC skew from `toISOString`) */
+function localDateKey(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProgramaPage() {
@@ -373,8 +381,7 @@ function CalendarView({
   onNext: () => void
   onNavigate: (id: string) => void
 }) {
-  const today = new Date()
-  const todayStr = today.toISOString().split('T')[0]
+  const todayStr = localDateKey(new Date())
 
   function dayKey(day: number): string {
     return `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`

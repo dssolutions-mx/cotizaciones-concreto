@@ -27,7 +27,6 @@ interface UserCardProps {
   };
   onEdit: (user: any) => void;
   onToggleStatus: (userId: string, isActive: boolean) => void;
-  onAssignPlant?: (user: any) => void;
   delay?: number;
 }
 
@@ -41,6 +40,7 @@ const roleColors: Record<UserRole, { bg: string; text: string; border: string }>
   DOSIFICADOR: { bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
   ADMIN_OPERATIONS: { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' },
   ADMINISTRATIVE: { bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
+  ADMIN: { bg: 'bg-zinc-50', text: 'text-zinc-800', border: 'border-zinc-200' },
   EXTERNAL_CLIENT: { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200' },
 };
 
@@ -54,10 +54,11 @@ const roleLabels: Record<UserRole, string> = {
   DOSIFICADOR: 'Dosificador',
   ADMIN_OPERATIONS: 'Admin Operaciones',
   ADMINISTRATIVE: 'Administrativo',
+  ADMIN: 'Administrador',
   EXTERNAL_CLIENT: 'Cliente Externo',
 };
 
-export function UserCard({ user, onEdit, onToggleStatus, onAssignPlant, delay = 0 }: UserCardProps) {
+export function UserCard({ user, onEdit, onToggleStatus, delay = 0 }: UserCardProps) {
   const roleColor = roleColors[user.role] || roleColors.SALES_AGENT;
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Sin nombre';
   const isActive = user.is_active !== false;
@@ -96,12 +97,6 @@ export function UserCard({ user, onEdit, onToggleStatus, onAssignPlant, delay = 
               <Edit2 className="h-4 w-4 mr-2" />
               Editar
             </DropdownMenuItem>
-            {onAssignPlant && (
-              <DropdownMenuItem onClick={() => onAssignPlant(user)}>
-                <Building2 className="h-4 w-4 mr-2" />
-                Asignar Planta
-              </DropdownMenuItem>
-            )}
             <DropdownMenuItem 
               onClick={() => onToggleStatus(user.id, isActive)}
               className={isActive ? 'text-red-600' : 'text-green-600'}

@@ -33,6 +33,7 @@ import type {
   InstrumentoTrazabilidad,
   EmaConfiguracion,
   UpdateEmaConfigInput,
+  EstadoSnapshot,
 } from '@/types/ema';
 
 // ─────────────────────────────────────────
@@ -666,29 +667,76 @@ export async function getInstrumentoTrazabilidad(
 ): Promise<InstrumentoTrazabilidad | null> {
   const supabase = await createServerSupabaseClient();
 
-  const [detalle, certificados, verificaciones, muestreosCount, ensayosCount, ultimoMuestreo] =
-    await Promise.all([
-      getInstrumentoById(instrumento_id),
-      getCertificadosByInstrumento(instrumento_id),
-      getVerificacionesByInstrumento(instrumento_id),
-      supabase
-        .from('muestreo_instrumentos')
-        .select('id', { count: 'exact', head: true })
-        .eq('instrumento_id', instrumento_id),
-      supabase
-        .from('ensayo_instrumentos')
-        .select('id', { count: 'exact', head: true })
-        .eq('instrumento_id', instrumento_id),
-      supabase
-        .from('muestreo_instrumentos')
-        .select('muestreos(fecha_muestreo)')
-        .eq('instrumento_id', instrumento_id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single(),
-    ]);
+  const [
+    detalle,
+    certificados,
+    verificaciones,
+    muestreosCount,
+    ensayosCount,
+    muestreosRecentRes,
+    ensayosRecentRes,
+  ] = await Promise.all([
+    getInstrumentoById(instrumento_id),
+    getCertificadosByInstrumento(instrumento_id),
+    getVerificacionesByInstrumento(instrumento_id),
+    supabase
+      .from('muestreo_instrumentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('instrumento_id', instrumento_id),
+    supabase
+      .from('ensayo_instrumentos')
+      .select('id', { count: 'exact', head: true })
+      .eq('instrumento_id', instrumento_id),
+    supabase
+      .from('muestreo_instrumentos')
+      .select(
+        `
+        id,
+        muestreo_id,
+        estado_al_momento,
+        created_at,
+        muestreos(fecha_muestreo)
+      `,
+      )
+      .eq('instrumento_id', instrumento_id)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('ensayo_instrumentos')
+      .select(
+        `
+        id,
+        ensayo_id,
+        estado_al_momento,
+        created_at,
+        ensayos(fecha_ensayo)
+      `,
+      )
+      .eq('instrumento_id', instrumento_id)
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ]);
 
   if (!detalle) return null;
+
+  if (muestreosRecentRes.error) throw muestreosRecentRes.error;
+  if (ensayosRecentRes.error) throw ensayosRecentRes.error;
+
+  const muestreos = (muestreosRecentRes.data ?? []).map((row: any) => ({
+    id: row.id as string,
+    muestreo_id: row.muestreo_id as string,
+    fecha_muestreo: (row.muestreos?.fecha_muestreo as string | null) ?? null,
+    estado_al_momento: row.estado_al_momento as EstadoSnapshot,
+  }));
+
+  const ensayos = (ensayosRecentRes.data ?? []).map((row: any) => ({
+    id: row.id as string,
+    ensayo_id: row.ensayo_id as string,
+    fecha_ensayo: (row.ensayos?.fecha_ensayo as string | null) ?? null,
+    estado_al_momento: row.estado_al_momento as EstadoSnapshot,
+  }));
+
+  const ultimo_muestreo_fecha = muestreos[0]?.fecha_muestreo ?? null;
 
   return {
     instrumento: detalle,
@@ -696,8 +744,9 @@ export async function getInstrumentoTrazabilidad(
     verificaciones,
     muestreos_count: muestreosCount.count ?? 0,
     ensayos_count: ensayosCount.count ?? 0,
-    ultimo_muestreo_fecha:
-      (ultimoMuestreo.data as any)?.muestreos?.fecha_muestreo ?? null,
+    ultimo_muestreo_fecha,
+    muestreos,
+    ensayos,
   };
 }
 

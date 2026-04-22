@@ -28,8 +28,9 @@ const CreateVerifSchema = z.object({
   observaciones: z.string().optional().nullable(),
 });
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -39,15 +40,16 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const verifs = await getVerificacionesByInstrumento(params.id);
+    const verifs = await getVerificacionesByInstrumento(id);
     return NextResponse.json({ data: verifs });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // Ensure instrument is Type C
-    const instrumento = await getInstrumentoById(params.id);
+    const instrumento = await getInstrumentoById(id);
     if (!instrumento) return NextResponse.json({ error: 'Instrumento no encontrado' }, { status: 404 });
     if (instrumento.tipo !== 'C')
       return NextResponse.json({ error: 'Solo instrumentos Tipo C tienen verificaciones internas' }, { status: 400 });
@@ -69,7 +71,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
     const verif = await createVerificacion(
-      { ...parsed.data, instrumento_id: params.id } as any,
+      { ...parsed.data, instrumento_id: id } as any,
       user.id,
     );
     return NextResponse.json({ data: verif }, { status: 201 });

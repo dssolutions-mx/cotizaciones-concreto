@@ -341,6 +341,8 @@ function cellValue(
     case 'unidad_cr':
     case 'unidad': return item.unidad ?? '';
     case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '';
+    // Arkik/dosificadora code — matches the physical remision the client holds.
+    case 'recipe_code_arkik': return item.recipe?.recipe_code ?? '';
     case 'volumen_fabricado': return item.volumen_fabricado ?? 0;
     case 'unit_price': {
       const base = item.unit_price ?? 0;

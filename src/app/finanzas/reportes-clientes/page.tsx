@@ -180,6 +180,8 @@ function cellDisplay(
     case 'elemento': return item.order?.elemento ?? '—';
     case 'unidad_cr': case 'unidad': return item.unidad ?? '—';
     case 'recipe_code': return item.master_code ?? item.recipe?.recipe_code ?? '—';
+    // Arkik/dosificadora code — the code that appears on the client's physical remision.
+    case 'recipe_code_arkik': return item.recipe?.recipe_code ?? '—';
     case 'volumen_fabricado': return fmtNum(item.volumen_fabricado);
     case 'unit_price': {
       const base = item.unit_price;

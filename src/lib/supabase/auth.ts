@@ -19,6 +19,8 @@ interface CreateUserData {
   role: UserRole;
   callerId?: string;
   callerEmail?: string;
+  plantId?: string | null;
+  businessUnitId?: string | null;
 }
 
 // Try to verify config once at module load time
@@ -40,6 +42,8 @@ export const authService = {
     role,
     callerId,
     callerEmail,
+    plantId,
+    businessUnitId,
   }: CreateUserData) {
     try {
       // Verificar config antes de hacer la solicitud
@@ -73,6 +77,8 @@ export const authService = {
           role,
           callerId,
           callerEmail,
+          plantId,
+          businessUnitId,
         }),
         // Importante: incluir las credenciales para que las cookies se envíen
         credentials: 'include',
@@ -247,7 +253,14 @@ export const authService = {
   /**
    * Enviar invitación por correo electrónico a un nuevo usuario
    */
-  async inviteUser(email: string, role: UserRole, callerId?: string, callerEmail?: string) {
+  async inviteUser(
+    email: string,
+    role: UserRole,
+    callerId?: string,
+    callerEmail?: string,
+    plantId?: string | null,
+    businessUnitId?: string | null
+  ) {
     try {
       // Verify config before making the request
       verifySupabaseConfig();
@@ -277,22 +290,26 @@ export const authService = {
           role,
           callerId,
           callerEmail,
+          plantId,
+          businessUnitId,
         }),
         // Importante: incluir las credenciales para que las cookies se envíen
         credentials: 'include',
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json() as { error?: string; message?: string };
         console.error('Error response from invite-user API:', errorData);
-        throw new Error(errorData.error || `Error al invitar usuario (${response.status})`);
+        throw new Error(
+          errorData.error || errorData.message || `Error al invitar usuario (${response.status})`
+        );
       }
       
       const data = await response.json();
       
       if (!data.success) {
         console.error('Unsuccessful response from invite-user API:', data);
-        throw new Error(data.error || 'Error al invitar usuario');
+        throw new Error(data.error || data.message || 'Error al invitar usuario');
       }
 
       return data.user;

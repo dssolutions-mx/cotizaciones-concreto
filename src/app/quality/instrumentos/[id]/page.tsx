@@ -19,6 +19,8 @@ import {
   XCircle,
   Shield,
   ExternalLink,
+  TestTube2,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -31,7 +33,7 @@ import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import type { InstrumentoDetalle } from '@/types/ema'
+import type { InstrumentoDetalle, InstrumentoTrazabilidad } from '@/types/ema'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -676,56 +678,135 @@ function IncidentesSection({ instrumentoId }: { instrumentoId: string }) {
 
 // ─── Trazabilidad Section ────────────────────────────────────────────────────
 
+function estadoSnapshotPillClass(estado: string) {
+  return estado === 'vigente'
+    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+    : estado === 'proximo_vencer'
+      ? 'bg-amber-100 text-amber-800 border-amber-200'
+      : 'bg-red-100 text-red-800 border-red-200'
+}
+
 function TrazabilidadSection({ instrumentoId }: { instrumentoId: string }) {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<InstrumentoTrazabilidad | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let cancelled = false
     fetch(`/api/ema/instrumentos/${instrumentoId}/muestreos`)
-      .then(r => r.json())
-      .then(j => { setData(j.data ?? j); setLoading(false) })
+      .then(async r => {
+        const j = await r.json()
+        if (!r.ok) throw new Error(j.error ?? 'Error al cargar trazabilidad')
+        return j.data ?? j
+      })
+      .then((payload: InstrumentoTrazabilidad) => {
+        if (!cancelled) setData(payload)
+      })
+      .catch(() => {
+        if (!cancelled) setData(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
   }, [instrumentoId])
 
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
 
-  const muestreos: any[] = data?.muestreos ?? []
-  const ensayos: any[] = data?.ensayos ?? []
+  if (!data) {
+    return (
+      <div>
+        <SectionHeader title="Uso en muestreos y ensayos" />
+        <EmptyTabState message="No se pudo cargar la trazabilidad. Intenta de nuevo." />
+      </div>
+    )
+  }
+
+  const muestreos = data.muestreos ?? []
+  const ensayos = data.ensayos ?? []
+  const muestreosCount = data.muestreos_count ?? 0
+  const ensayosCount = data.ensayos_count ?? 0
 
   return (
     <div>
       <SectionHeader title="Uso en muestreos y ensayos" />
       <div className="grid grid-cols-2 divide-x divide-stone-100 border-b border-stone-100">
         <div className="p-4 text-center">
-          <div className="text-2xl font-semibold tabular-nums text-stone-900">{muestreos.length}</div>
+          <div className="text-2xl font-semibold tabular-nums text-stone-900">{muestreosCount}</div>
           <div className="text-xs text-stone-500 mt-0.5">Muestreos</div>
         </div>
         <div className="p-4 text-center">
-          <div className="text-2xl font-semibold tabular-nums text-stone-900">{ensayos.length}</div>
+          <div className="text-2xl font-semibold tabular-nums text-stone-900">{ensayosCount}</div>
           <div className="text-xs text-stone-500 mt-0.5">Ensayos</div>
         </div>
       </div>
-      {muestreos.length === 0 && ensayos.length === 0 ? (
+      {muestreosCount === 0 && ensayosCount === 0 ? (
         <EmptyTabState message="Sin uso registrado en muestreos o ensayos" />
       ) : (
         <div className="divide-y divide-stone-100">
-          {muestreos.slice(0, 10).map((m: any) => (
-            <div key={m.muestreo_id ?? m.id} className="flex items-center justify-between px-4 py-2.5">
-              <div className="flex items-center gap-2">
-                <FlaskConical className="h-3.5 w-3.5 text-stone-400 shrink-0" />
-                <span className="font-mono text-xs text-stone-700">{m.fecha_muestreo ?? m.muestreo_id}</span>
+          {muestreos.length > 0 && (
+            <div>
+              <div className="px-4 py-2 bg-stone-50/80 border-b border-stone-100">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">
+                  Últimos muestreos (hasta 10)
+                </span>
               </div>
-              <span className={cn(
-                'rounded-full border px-2 py-0.5 text-[10px] font-medium',
-                m.estado_al_momento === 'vigente'
-                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                  : m.estado_al_momento === 'proximo_vencer'
-                  ? 'bg-amber-100 text-amber-800 border-amber-200'
-                  : 'bg-red-100 text-red-800 border-red-200'
-              )}>
-                {m.estado_al_momento}
-              </span>
+              {muestreos.map(m => (
+                <Link
+                  key={m.id}
+                  href={`/quality/muestreos/${m.muestreo_id}`}
+                  className="flex items-center justify-between px-4 py-2.5 hover:bg-stone-50 transition-colors group"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FlaskConical className="h-3.5 w-3.5 text-stone-400 shrink-0" />
+                    <span className="font-mono text-xs text-stone-700 truncate">
+                      {m.fecha_muestreo ?? m.muestreo_id}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      estadoSnapshotPillClass(m.estado_al_momento),
+                    )}>
+                      {m.estado_al_momento}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500" />
+                  </div>
+                </Link>
+              ))}
             </div>
-          ))}
+          )}
+          {ensayos.length > 0 && (
+            <div>
+              <div className="px-4 py-2 bg-stone-50/80 border-b border-stone-100">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">
+                  Últimos ensayos (hasta 10)
+                </span>
+              </div>
+              {ensayos.map(e => (
+                <Link
+                  key={e.id}
+                  href={`/quality/ensayos/${e.ensayo_id}`}
+                  className="flex items-center justify-between px-4 py-2.5 hover:bg-stone-50 transition-colors group"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TestTube2 className="h-3.5 w-3.5 text-stone-400 shrink-0" />
+                    <span className="font-mono text-xs text-stone-700 truncate">
+                      {e.fecha_ensayo ?? e.ensayo_id}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      estadoSnapshotPillClass(e.estado_al_momento),
+                    )}>
+                      {e.estado_al_momento}
+                    </span>
+                    <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

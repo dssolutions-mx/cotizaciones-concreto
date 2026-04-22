@@ -40,6 +40,38 @@ interface EditingItem {
   data: Partial<Plant> | Partial<BusinessUnit>;
 }
 
+/** Context loads plants with `business_units(*)` embedded as `business_unit` — not a DB column on `plants`. */
+function sanitizePlantPayload(data: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'code',
+    'name',
+    'location',
+    'latitude',
+    'longitude',
+    'address',
+    'business_unit_id',
+    'is_active',
+  ] as const;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = data[k];
+    if (v === undefined) continue;
+    if (k === 'business_unit_id' && (v === '' || v === null)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+function sanitizeBusinessUnitPayload(data: Record<string, unknown>): Record<string, unknown> {
+  const keys = ['code', 'name', 'description', 'is_active'] as const;
+  const out: Record<string, unknown> = {};
+  for (const k of keys) {
+    const v = data[k];
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 export default function PlantsManagementPage() {
   let plantContext;
   try {
@@ -128,11 +160,14 @@ export default function PlantsManagementPage() {
   };
 
   const handleEdit = (type: 'plant' | 'business_unit', item: Plant | BusinessUnit) => {
-    setEditing({
-      type,
-      id: item.id,
-      data: { ...item }
-    });
+    if (type === 'plant') {
+      const { business_unit: _bu, ...plantRow } = item as Plant & {
+        business_unit?: unknown;
+      };
+      setEditing({ type, id: item.id, data: plantRow });
+    } else {
+      setEditing({ type, id: item.id, data: { ...item } });
+    }
   };
 
   const handleSave = async () => {
@@ -142,10 +177,11 @@ export default function PlantsManagementPage() {
       setLoading(true);
       setError(null);
 
-      const dataToSave = { ...editing.data };
+      const raw = { ...editing.data } as Record<string, unknown>;
       const editingId = editing.id;
 
       if (editing.type === 'business_unit') {
+        const dataToSave = sanitizeBusinessUnitPayload(raw);
         if (editingId) {
           const { error } = await supabase
             .from('business_units')
@@ -159,6 +195,7 @@ export default function PlantsManagementPage() {
           if (error) throw error;
         }
       } else {
+        const dataToSave = sanitizePlantPayload(raw);
         if (editingId) {
           const { error } = await supabase
             .from('plants')
@@ -257,7 +294,7 @@ export default function PlantsManagementPage() {
   };
 
   return (
-    <RoleGuard allowedRoles="EXECUTIVE" redirectTo="/access-denied">
+    <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div>
@@ -352,8 +389,8 @@ export default function PlantsManagementPage() {
                   key={bu.id}
                   businessUnit={bu}
                   plantCount={getPlantCountForBU(bu.id)}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
+                  onEdit={(item) => handleEdit('business_unit', item)}
+                  onDelete={(id) => handleDelete('business_unit', id)}
                   delay={index * 0.05}
                 />
               ))}
@@ -381,8 +418,8 @@ export default function PlantsManagementPage() {
                 <PlantCard
                   key={plant.id}
                   plant={plant}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
+                  onEdit={(item) => handleEdit('plant', item)}
+                  onDelete={(id) => handleDelete('plant', id)}
                   onViewDetails={setSelectedPlantId}
                   delay={index * 0.05}
                 />
@@ -398,8 +435,8 @@ export default function PlantsManagementPage() {
 
         {/* Edit Dialog */}
         <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
+          <DialogContent className="flex max-h-[min(92dvh,52rem)] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+            <DialogHeader className="shrink-0 space-y-1.5 px-6 pt-6 pb-2 pr-14 text-left">
               <DialogTitle>
                 {editing?.id ? 'Editar' : 'Crear'} {editing?.type === 'business_unit' ? 'Unidad de Negocio' : 'Planta'}
               </DialogTitle>
@@ -409,7 +446,8 @@ export default function PlantsManagementPage() {
             </DialogHeader>
 
             {editing && editing.data && (
-              <div className="space-y-4 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-2">
+                <div className="space-y-4 pb-2">
                 {editing.type === 'business_unit' ? (
                   <>
                     <div>
@@ -530,10 +568,11 @@ export default function PlantsManagementPage() {
                     </div>
                   </>
                 )}
+                </div>
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
+            <div className="flex shrink-0 justify-end gap-2 border-t bg-background px-6 py-4">
               <Button variant="outline" onClick={() => setEditing(null)} disabled={loading}>
                 Cancelar
               </Button>

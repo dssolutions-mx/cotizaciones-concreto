@@ -361,6 +361,16 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     required: true
   },
   {
+    /** Arkik/dosificadora recipe code — what appears on the physical remision the
+     *  client receives. Use instead of (or alongside) 'recipe_code' when clients
+     *  need to cross-reference their copy against the report. */
+    id: 'recipe_code_arkik',
+    label: 'Receta Arkik',
+    field: 'recipe.recipe_code',
+    type: 'text',
+    width: '10%',
+  },
+  {
     id: 'volumen_fabricado',
     label: 'M3',
     field: 'volumen_fabricado',

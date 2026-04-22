@@ -18,6 +18,7 @@
  */
 
 import { supabase } from '@/lib/supabase'
+import { vatRateToFraction } from '@/types/pdf-reports'
 import {
   findProductPrice,
   resolveProductCodeForRemisionPricing,
@@ -148,16 +149,20 @@ export function enrichRemisionPricing(input: {
   }
 
   const rawVat = remision.plant?.business_unit?.vat_rate
-  const vatRatePct =
-    rawVat == null || Number.isNaN(Number(rawVat)) ? 16 : Number(rawVat)
+  const rawVatNum =
+    rawVat == null || Number.isNaN(Number(rawVat)) ? null : Number(rawVat)
   if (rawVat == null && process.env.NODE_ENV !== 'production') {
     console.warn(
       `[enrichRemisionPricing] no vat_rate on plant for remision ${remision.id}; defaulting to 16%`,
     )
   }
 
+  // DB stores either fraction (0.16) or whole percent (16); never divide fraction by 100.
+  const vatFraction = vatRateToFraction(rawVatNum, 16)
+  const vatRatePct = vatFraction * 100
+
   const requiresInvoice = Boolean(order?.requires_invoice)
-  const vatAmount = requiresInvoice ? subtotal * (vatRatePct / 100) : 0
+  const vatAmount = requiresInvoice ? subtotal * vatFraction : 0
   const finalTotal = subtotal + vatAmount
 
   return {

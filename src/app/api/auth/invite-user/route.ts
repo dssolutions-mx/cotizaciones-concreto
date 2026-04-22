@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { UserRole } from '@/store/auth/types';
 import { createClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
+import { normalizePlantScope } from '@/lib/user-profile-scope';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     if (authError || !authUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: UNAUTHORIZED_HEADERS });
     }
-    const { email, role, callerId, callerEmail } = await req.json();
+    const { email, role, callerId, callerEmail, plantId, businessUnitId } = await req.json();
 
     if (!email || !role || !callerId || !callerEmail) {
       console.error('Invite user failed: Missing required fields', { email, role, callerId, callerEmail });
@@ -34,18 +34,6 @@ export async function POST(req: Request) {
       );
     }
 
-    const adminClient = createAdminClient();
-    const { data: caller } = await adminClient
-      .from('user_profiles')
-      .select('role')
-      .eq('id', callerId)
-      .single();
-    if (!caller || (caller.role !== 'EXECUTIVE' && caller.role !== 'ADMIN_OPERATIONS')) {
-      return NextResponse.json({ success: false, message: 'Forbidden - Insufficient permissions' }, { status: 403 });
-    }
-
-    console.log(`Processing invite for ${email} with role ${role}`, { callerId, callerEmail });
-
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     if (!supabaseUrl || !serviceRoleKey) {
@@ -56,10 +44,48 @@ export async function POST(req: Request) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
+    const { data: caller } = await supabaseAdmin
+      .from('user_profiles')
+      .select('role')
+      .eq('id', callerId)
+      .single();
+    const callerRole = caller?.role as string | undefined;
+    if (!callerRole || (callerRole !== 'EXECUTIVE' && callerRole !== 'ADMIN_OPERATIONS')) {
+      return NextResponse.json({ success: false, message: 'Forbidden - Insufficient permissions' }, { status: 403 });
+    }
+
+    const scope = normalizePlantScope(plantId, businessUnitId);
+    if (!scope.ok) {
+      return NextResponse.json({ success: false, message: scope.error }, { status: 400 });
+    }
+
+    if (scope.plant_id) {
+      const { data: plant, error: plantErr } = await supabaseAdmin
+        .from('plants')
+        .select('id')
+        .eq('id', scope.plant_id)
+        .maybeSingle();
+      if (plantErr || !plant) {
+        return NextResponse.json({ success: false, message: 'Planta no válida' }, { status: 400 });
+      }
+    }
+    if (scope.business_unit_id) {
+      const { data: bu, error: buErr } = await supabaseAdmin
+        .from('business_units')
+        .select('id')
+        .eq('id', scope.business_unit_id)
+        .maybeSingle();
+      if (buErr || !bu) {
+        return NextResponse.json({ success: false, message: 'Unidad de negocio no válida' }, { status: 400 });
+      }
+    }
+
+    console.log(`Processing invite for ${email} with role ${role}`, { callerId, callerEmail });
+
     let userId: string | null = null;
 
     // Check if user already exists (re-invite case)
-    const { data: existingProfile } = await adminClient
+    const { data: existingProfile } = await supabaseAdmin
       .from('user_profiles')
       .select('id')
       .eq('email', email)
@@ -82,7 +108,7 @@ export async function POST(req: Request) {
 
       if (createError) {
         if (createError.message?.includes('already') || createError.message?.includes('registered')) {
-          const { data: profile } = await adminClient
+          const { data: profile } = await supabaseAdmin
             .from('user_profiles')
             .select('id')
             .eq('email', email)
@@ -109,7 +135,7 @@ export async function POST(req: Request) {
     }
 
     // Upsert user profile
-    const { error: profileError } = await adminClient
+    const { error: profileError } = await supabaseAdmin
       .from('user_profiles')
       .upsert(
         {
@@ -119,6 +145,8 @@ export async function POST(req: Request) {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           is_active: true,
+          plant_id: scope.plant_id,
+          business_unit_id: scope.business_unit_id,
         },
         { onConflict: 'id', ignoreDuplicates: false }
       );
@@ -129,7 +157,7 @@ export async function POST(req: Request) {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const { error: tokenError } = await adminClient
+    const { error: tokenError } = await supabaseAdmin
       .from('invitation_tokens')
       .insert({
         token: invitationToken,

@@ -5,8 +5,9 @@ import { getInstrumentoTrazabilidad } from '@/services/emaInstrumentoService';
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
 /** Trazabilidad view: all muestreos and ensayos where this instrument participated */
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -16,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const trazabilidad = await getInstrumentoTrazabilidad(params.id);
+    const trazabilidad = await getInstrumentoTrazabilidad(id);
     if (!trazabilidad) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
     return NextResponse.json({ data: trazabilidad });

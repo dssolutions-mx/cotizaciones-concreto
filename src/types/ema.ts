@@ -416,6 +416,21 @@ export interface InstrumentosValidationResult {
   proximo_vencer: InstrumentoCard[];
 }
 
+/** Latest usage rows for tab Trazabilidad (instrument detail) */
+export interface TrazabilidadUsoMuestreo {
+  id: string;
+  muestreo_id: string;
+  fecha_muestreo: string | null;
+  estado_al_momento: EstadoSnapshot;
+}
+
+export interface TrazabilidadUsoEnsayo {
+  id: string;
+  ensayo_id: string;
+  fecha_ensayo: string | null;
+  estado_al_momento: EstadoSnapshot;
+}
+
 /** Trazabilidad view from instrument perspective */
 export interface InstrumentoTrazabilidad {
   instrumento: InstrumentoDetalle;
@@ -424,4 +439,6 @@ export interface InstrumentoTrazabilidad {
   muestreos_count: number;
   ensayos_count: number;
   ultimo_muestreo_fecha: string | null;
+  muestreos: TrazabilidadUsoMuestreo[];
+  ensayos: TrazabilidadUsoEnsayo[];
 }

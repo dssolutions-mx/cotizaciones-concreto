@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Building2, Users, Save, X, ArrowRight } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { supabase } from '@/lib/supabase/client';
+import { useToast } from '@/components/ui/use-toast';
 
 interface UserData {
   id: string;
@@ -13,19 +13,27 @@ interface UserData {
   role: string;
   plant_id?: string | null;
   business_unit_id?: string | null;
-  plant_name?: string;
-  business_unit_name?: string;
+  plant_name?: string | null;
+  business_unit_name?: string | null;
 }
 
 interface UserPlantAssignmentProps {
   user: UserData;
   onUpdate: () => void;
   className?: string;
+  /** When true, always show the editor (e.g. inside UserEditModal). */
+  inlineEdit?: boolean;
 }
 
-export default function UserPlantAssignment({ user, onUpdate, className }: UserPlantAssignmentProps) {
+export default function UserPlantAssignment({
+  user,
+  onUpdate,
+  className,
+  inlineEdit = false,
+}: UserPlantAssignmentProps) {
   const { availablePlants, businessUnits } = usePlantContext();
-  const [isEditing, setIsEditing] = useState(false);
+  const { toast } = useToast();
+  const [isEditing, setIsEditing] = useState(inlineEdit);
   const [loading, setLoading] = useState(false);
   const [selectedPlantId, setSelectedPlantId] = useState(user.plant_id || '');
   const [selectedBusinessUnitId, setSelectedBusinessUnitId] = useState(user.business_unit_id || '');
@@ -33,37 +41,63 @@ export default function UserPlantAssignment({ user, onUpdate, className }: UserP
     user.plant_id ? 'plant' : user.business_unit_id ? 'business_unit' : 'global'
   );
 
+  useEffect(() => {
+    setSelectedPlantId(user.plant_id || '');
+    setSelectedBusinessUnitId(user.business_unit_id || '');
+    setAssignmentType(
+      user.plant_id ? 'plant' : user.business_unit_id ? 'business_unit' : 'global'
+    );
+    if (inlineEdit) {
+      setIsEditing(true);
+    }
+  }, [
+    user.id,
+    user.plant_id,
+    user.business_unit_id,
+    inlineEdit,
+  ]);
+
   const handleSave = async () => {
     try {
       setLoading(true);
 
       const updateData: { plant_id: string | null; business_unit_id: string | null } = {
         plant_id: null,
-        business_unit_id: null
+        business_unit_id: null,
       };
 
       if (assignmentType === 'plant' && selectedPlantId) {
         updateData.plant_id = selectedPlantId;
-        // When assigning to a plant, we don't need business unit assignment
         updateData.business_unit_id = null;
       } else if (assignmentType === 'business_unit' && selectedBusinessUnitId) {
         updateData.business_unit_id = selectedBusinessUnitId;
         updateData.plant_id = null;
       }
-      // For 'global', both remain null
 
-      const { error } = await supabase
-        .from('user_profiles')
-        .update(updateData)
-        .eq('id', user.id);
+      const res = await fetch(`/api/admin/users/${user.id}/plant-scope`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(updateData),
+      });
 
-      if (error) throw error;
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((json as { error?: string }).error || 'Error al actualizar la asignación');
+      }
 
-      setIsEditing(false);
+      toast({ title: 'Éxito', description: 'Asignación actualizada correctamente' });
+      if (!inlineEdit) {
+        setIsEditing(false);
+      }
       onUpdate();
     } catch (error) {
       console.error('Error updating user assignment:', error);
-      alert('Error al actualizar la asignación del usuario');
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Error al actualizar la asignación del usuario',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -77,22 +111,28 @@ export default function UserPlantAssignment({ user, onUpdate, className }: UserP
   };
 
   const getAssignmentDisplay = () => {
-    if (user.plant_name) {
+    if (user.plant_id) {
       return (
         <div className="flex items-center text-sm">
           <Building2 className="h-4 w-4 text-green-600 mr-2" />
           <div>
-            <span className="font-medium text-green-700">{user.plant_name}</span>
-            <span className="text-gray-500 ml-1">({user.plant_id?.substring(0, 8)}...)</span>
+            <span className="font-medium text-green-700">
+              {user.plant_name || 'Planta asignada'}
+            </span>
+            {user.plant_id ? (
+              <span className="text-gray-500 ml-1">({user.plant_id.substring(0, 8)}...)</span>
+            ) : null}
           </div>
         </div>
       );
-    } else if (user.business_unit_name) {
+    } else if (user.business_unit_id) {
       return (
         <div className="flex items-center text-sm">
           <Building2 className="h-4 w-4 text-blue-600 mr-2" />
           <div>
-            <span className="font-medium text-blue-700">{user.business_unit_name}</span>
+            <span className="font-medium text-blue-700">
+              {user.business_unit_name || 'Unidad de negocio'}
+            </span>
             <span className="text-gray-500 ml-1">(Unidad de Negocio)</span>
           </div>
         </div>
@@ -107,7 +147,7 @@ export default function UserPlantAssignment({ user, onUpdate, className }: UserP
     }
   };
 
-  if (!isEditing) {
+  if (!inlineEdit && !isEditing) {
     return (
       <div className={`flex items-center justify-between ${className}`}>
         <div>{getAssignmentDisplay()}</div>

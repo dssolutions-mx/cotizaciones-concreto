@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkBotIdWithTimeout } from '@/lib/utils/botid-timeout';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { normalizePlantScope } from '@/lib/user-profile-scope';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,7 +38,15 @@ export async function POST(request: NextRequest) {
 
     // Get request body early to extract caller information if available
     const requestBody = await request.json();
-    const { email: newUserEmail, password, firstName, lastName, role } = requestBody;
+    const {
+      email: newUserEmail,
+      password,
+      firstName,
+      lastName,
+      role,
+      plantId,
+      businessUnitId,
+    } = requestBody;
     
     // Create a Supabase admin client
     const supabaseAdmin = createClient(
@@ -88,6 +97,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const scope = normalizePlantScope(plantId, businessUnitId);
+    if (!scope.ok) {
+      return NextResponse.json({ error: scope.error }, { status: 400 });
+    }
+
+    if (scope.plant_id) {
+      const { data: plant, error: plantErr } = await supabaseAdmin
+        .from('plants')
+        .select('id')
+        .eq('id', scope.plant_id)
+        .maybeSingle();
+      if (plantErr || !plant) {
+        return NextResponse.json({ error: 'Planta no válida' }, { status: 400 });
+      }
+    }
+    if (scope.business_unit_id) {
+      const { data: bu, error: buErr } = await supabaseAdmin
+        .from('business_units')
+        .select('id')
+        .eq('id', scope.business_unit_id)
+        .maybeSingle();
+      if (buErr || !bu) {
+        return NextResponse.json({ error: 'Unidad de negocio no válida' }, { status: 400 });
+      }
+    }
+
     console.log('Creating user with email:', newUserEmail, 'and role:', role);
 
     // Usar el servicio de administración para crear el usuario
@@ -120,7 +155,9 @@ export async function POST(request: NextRequest) {
           last_name: lastName || null,
           role: role || 'SALES_AGENT',
           email: newUserEmail,
-          is_active: true
+          is_active: true,
+          plant_id: scope.plant_id,
+          business_unit_id: scope.business_unit_id,
         });
 
       if (profileUpdateError) {

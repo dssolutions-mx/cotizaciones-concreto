@@ -5,8 +5,9 @@ import { getModeloById, updateModelo } from '@/services/emaInstrumentoService';
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -16,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const modelo = await getModeloById(params.id);
+    const modelo = await getModeloById(id);
     if (!modelo) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     return NextResponse.json({ data: modelo });
   } catch (err: any) {
@@ -24,8 +25,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   }
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -36,7 +38,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();
-    const modelo = await updateModelo(params.id, json);
+    const modelo = await updateModelo(id, json);
     return NextResponse.json({ data: modelo });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
