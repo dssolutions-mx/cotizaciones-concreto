@@ -83,6 +83,7 @@ next-env.d.ts
 !supabase/migrations/20260220120000_add_billing_type_and_effective_balance.sql
 !supabase/migrations/20260220230000_add_billing_type_followup_fixes.sql
 !supabase/migrations/20260221101500_add_unique_index_additional_products_code.sql
+!supabase/migrations/20260422190000_backfill_material_accounting_codes_erp_productos.sql
 *.dump
 *backup*
 
