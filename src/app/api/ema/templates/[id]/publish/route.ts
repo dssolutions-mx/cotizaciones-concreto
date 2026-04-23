@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'ADMIN', 'ADMIN_OPERATIONS'];
+const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
 /** POST /api/ema/templates/[id]/publish — snapshot draft → new version, set active */
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
