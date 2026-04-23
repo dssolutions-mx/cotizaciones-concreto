@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { subMonths, startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 
-interface HistoricalDataPoint {
+export interface HistoricalDataPoint {
   month: string;
   concreteVolume: number;
   pumpVolume: number;
@@ -34,6 +34,12 @@ export function useHistoricalVolumeData({
         setLoading(true);
         setError(null);
 
+        if (plantIds !== undefined && plantIds.length === 0) {
+          setData([]);
+          setLoading(false);
+          return;
+        }
+
         // Calculate date range
         let startDate: Date;
         let endDate: Date;
@@ -58,7 +64,14 @@ export function useHistoricalVolumeData({
           endDateStr = null;
         }
 
-        console.log('[HistoricalVolume] 📅 Fetching from unified view:', startDateStr || 'all-time', 'to:', endDateStr || 'all-time');
+        if (process.env.NODE_ENV === 'development') {
+          console.log(
+            '[HistoricalVolume] Fetching:',
+            startDateStr || 'all-time',
+            '→',
+            endDateStr || 'all-time'
+          );
+        }
 
         // Fetch from vw_plant_financial_analysis_unified view for concrete volume and revenue
         let query = supabase
@@ -89,7 +102,6 @@ export function useHistoricalVolumeData({
           throw fetchError;
         }
 
-        console.log('[HistoricalVolume] ✅ Fetched', viewData?.length || 0, 'periods from unified view');
 
         // Fetch pump volume from remisiones (unified view doesn't have pump volume)
         let pumpQuery = supabase
@@ -120,23 +132,21 @@ export function useHistoricalVolumeData({
           console.warn('[HistoricalVolume] ⚠️ Pump volume fetch error:', pumpError);
         }
 
-        console.log('[HistoricalVolume] ✅ Fetched', pumpRemisiones?.length || 0, 'pump remisiones');
+        // Group by month + plant (concrete/revenue from view; pump always merged from remisiones)
+        const monthlyData: Map<
+          string,
+          Map<
+            string,
+            {
+              concreteVolume: number;
+              pumpVolume: number;
+              totalRevenue: number;
+              plantName: string;
+            }
+          >
+        > = new Map();
 
-        if (!viewData || viewData.length === 0) {
-          console.log('[HistoricalVolume] ⚠️ No data found in date range');
-          setData([]);
-          return;
-        }
-
-        // Group by month + plant
-        const monthlyData: Map<string, Map<string, {
-          concreteVolume: number;
-          pumpVolume: number;
-          totalRevenue: number;
-          plantName: string;
-        }>> = new Map();
-
-        // Process concrete volume and revenue from unified view
+        if (viewData && viewData.length > 0) {
         viewData.forEach((item: any) => {
           // Extract month from period_start - use parseISO to avoid timezone issues
           const periodDate = typeof item.period_start === 'string' 
@@ -172,6 +182,7 @@ export function useHistoricalVolumeData({
           plantData.concreteVolume += concreteVolume;
           plantData.totalRevenue += totalRevenue;
         });
+        }
 
         // Process pump volume from remisiones
         (pumpRemisiones || []).forEach((remision: any) => {
@@ -223,21 +234,10 @@ export function useHistoricalVolumeData({
         // Sort by month
         result.sort((a, b) => a.month.localeCompare(b.month));
 
-        console.log('[HistoricalVolume] 📊 Processed', result.length, 'data points');
-        console.log('[HistoricalVolume] 📅 Months:', [...new Set(result.map(r => r.month))]);
-        if (result.length > 0) {
-          console.log('[HistoricalVolume] 📝 Sample:', {
-            month: result[0].month,
-            plant: result[0].plantName,
-            concrete: result[0].concreteVolume.toFixed(1),
-            pump: result[0].pumpVolume.toFixed(1),
-            revenue: result[0].totalRevenue.toFixed(2)
-          });
-        }
-
         setData(result);
       } catch (err) {
         console.error('[HistoricalVolume] ❌ Error:', err);
+        setData([]);
         setError(err instanceof Error ? err.message : 'Error desconocido');
       } finally {
         setLoading(false);

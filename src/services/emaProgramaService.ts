@@ -33,7 +33,7 @@ export async function getProgramaCalendar(
       *,
       instrumento:instrumentos(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .order('fecha_programada');
@@ -55,7 +55,7 @@ export async function getProgramaCalendar(
     ...row,
     instrumento: {
       ...row.instrumento,
-      categoria: row.instrumento?.modelos_instrumento?.categoria ?? '',
+      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
     },
   }));
 }
@@ -88,7 +88,7 @@ export async function getPendingUpcoming(
       *,
       instrumento:instrumentos!inner(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .eq('estado', 'pendiente')
@@ -102,7 +102,7 @@ export async function getPendingUpcoming(
     ...row,
     instrumento: {
       ...row.instrumento,
-      categoria: row.instrumento?.modelos_instrumento?.categoria ?? '',
+      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
     },
   }));
 }
@@ -205,7 +205,7 @@ export async function getPendingNotif7Dias(): Promise<ProgramaCalibacionConInstr
       *,
       instrumento:instrumentos(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .eq('estado', 'pendiente')
@@ -215,7 +215,7 @@ export async function getPendingNotif7Dias(): Promise<ProgramaCalibacionConInstr
   if (error) throw error;
   return (data ?? []).map((row: any) => ({
     ...row,
-    instrumento: { ...row.instrumento, categoria: row.instrumento?.modelos_instrumento?.categoria ?? '' },
+    instrumento: { ...row.instrumento, categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '' },
   }));
 }
 
@@ -230,7 +230,7 @@ export async function getPendingNotif1Dia(): Promise<ProgramaCalibacionConInstru
       *,
       instrumento:instrumentos(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .eq('estado', 'pendiente')
@@ -240,7 +240,7 @@ export async function getPendingNotif1Dia(): Promise<ProgramaCalibacionConInstru
   if (error) throw error;
   return (data ?? []).map((row: any) => ({
     ...row,
-    instrumento: { ...row.instrumento, categoria: row.instrumento?.modelos_instrumento?.categoria ?? '' },
+    instrumento: { ...row.instrumento, categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '' },
   }));
 }
 

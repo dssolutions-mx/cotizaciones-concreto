@@ -363,7 +363,7 @@ const QUALITY_SECTIONS: QualitySection[] = [
     items: [
       { title: 'Catálogo', href: '/quality/instrumentos/catalogo', IconComponent: Gauge },
       { title: 'Programa', href: '/quality/instrumentos/programa', IconComponent: CalendarClock },
-      { title: 'Modelos', href: '/quality/modelos', IconComponent: BookOpen },
+      { title: 'Conjuntos', href: '/quality/conjuntos', IconComponent: BookOpen },
       { title: 'Paquetes', href: '/quality/paquetes', IconComponent: Package },
     ],
   },

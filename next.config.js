@@ -10,6 +10,12 @@ try {
 } catch {}
 
 const nextConfig = {
+  async redirects() {
+    return [
+      { source: '/quality/modelos', destination: '/quality/conjuntos', permanent: true },
+      { source: '/quality/modelos/:path*', destination: '/quality/conjuntos/:path*', permanent: true },
+    ];
+  },
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if

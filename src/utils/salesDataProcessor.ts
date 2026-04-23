@@ -1,5 +1,6 @@
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { concreteVolumeForPerM3AdditionalProduct } from '@/lib/finanzas/estimateOrderFinancials';
 
 export interface SummaryMetrics {
   concreteVolume: number;
@@ -23,6 +24,8 @@ export interface SummaryMetrics {
   weightedConcretePriceWithVAT: number;
   weightedPumpPriceWithVAT: number;
   weightedEmptyTruckPriceWithVAT: number;
+  /** Subtotal from `PRODUCTO ADICIONAL:` order lines (same rules as orderService / estimateOrderFinancials). */
+  additionalAmount: number;
 }
 
 export interface OrderItem {
@@ -79,6 +82,8 @@ export interface VirtualRemision {
   fecha: string;
   tipo_remision: string;
   volumen_fabricado: number;
+  /** Production plant (from anchor remisión) for per-plant rollups */
+  plant_id?: string;
   recipe: { recipe_code: string };
   order: {
     client_id: string;
@@ -91,6 +96,74 @@ export interface VirtualRemision {
 }
 
 const VAT_RATE = 0.16;
+
+export interface CalculateSummaryMetricsOptions {
+  /** yyyy-MM: when set, `PER_ORDER_FIXED` additionals only count in that month (first remisión month per order in `allRemisionesForFixedAdditionalAttribution`). */
+  fixedAdditionalAttributionMonthKey?: string;
+  /** Full remisión window paired with `fixedAdditionalAttributionMonthKey` (e.g. 24m trend). */
+  allRemisionesForFixedAdditionalAttribution?: Remision[];
+}
+
+function firstRemisionMonthKeyByOrderId(remisiones: Remision[]): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const r of remisiones) {
+    const oid = (r as any).order_id;
+    if (oid == null || oid === '' || !(r as any)?.fecha) continue;
+    const id = String(oid);
+    let mk: string;
+    try {
+      const raw = (r as any).fecha;
+      mk = format(typeof raw === 'string' ? parseISO(raw) : new Date(raw), 'yyyy-MM');
+    } catch {
+      continue;
+    }
+    const prev = m.get(id);
+    if (!prev || mk < prev) m.set(id, mk);
+  }
+  return m;
+}
+
+function sumConcreteRemisionVolumeForOrder(remisiones: Remision[], orderId: string): number {
+  let sum = 0;
+  for (const r of remisiones) {
+    if (String((r as any).order_id) !== String(orderId)) continue;
+    const tipo = (r.tipo_remision || '').toUpperCase();
+    if (tipo === 'BOMBEO') continue;
+    if (tipo === 'VACÍO DE OLLA' || tipo === 'VACIO DE OLLA') continue;
+    sum += Number(r.volumen_fabricado) || 0;
+  }
+  return sum;
+}
+
+function orderClientMeta(order: Order): { clientId: string; clientName: string } {
+  const clientId = String((order as any).client_id || 'unknown');
+  const clients = (order as any).clients;
+  const clientName =
+    clients && typeof clients === 'object'
+      ? (clients as { business_name?: string }).business_name || 'Desconocido'
+      : 'Desconocido';
+  return { clientId, clientName };
+}
+
+/** Prefer nested `remision.order` (ventas payload) so client rollups match remisión-based charts. */
+function clientMetaForOrderInRemisionScope(
+  order: Order,
+  remisiones: Remision[],
+  orderId: string
+): { clientId: string; clientName: string } {
+  const anchor = remisiones.find((r) => String((r as any).order_id) === String(orderId));
+  const nested = anchor ? (anchor as any).order : undefined;
+  const cid = nested?.client_id != null && nested.client_id !== '' ? String(nested.client_id) : '';
+  if (cid) {
+    const clients = nested.clients;
+    const clientName =
+      clients && typeof clients === 'object'
+        ? (clients as { business_name?: string }).business_name || 'Desconocido'
+        : 'Desconocido';
+    return { clientId: cid, clientName };
+  }
+  return orderClientMeta(order);
+}
 
 // Normalize quote_details which can be either an object or an array with a single element
 const getQuoteDetails = (p: any): { final_price?: number; recipe_id?: string | number } | undefined => {
@@ -548,12 +621,96 @@ export const explainPriceMatch = (productType: string, remisionOrderId: string, 
 };
 
 export class SalesDataProcessor {
+  /**
+   * Per-order subtotals for `PRODUCTO ADICIONAL:` lines (aligned with orderService.recalculateOrderAmount).
+   */
+  static listAdditionalProductCharges(
+    remisiones: Remision[],
+    salesData: Order[],
+    allOrderItems: any[],
+    options?: CalculateSummaryMetricsOptions
+  ): { orderId: string; amount: number; requires_invoice: boolean; clientId: string; clientName: string }[] {
+    if (!allOrderItems?.length) return [];
+
+    const orderIdsInScope = new Set(
+      remisiones.map((r) => String((r as any).order_id || '')).filter((id) => id !== '')
+    );
+
+    const firstMonthByOrder =
+      options?.fixedAdditionalAttributionMonthKey &&
+      (options?.allRemisionesForFixedAdditionalAttribution?.length ?? 0) > 0
+        ? firstRemisionMonthKeyByOrderId(options.allRemisionesForFixedAdditionalAttribution as Remision[])
+        : null;
+
+    const out: {
+      orderId: string;
+      amount: number;
+      requires_invoice: boolean;
+      clientId: string;
+      clientName: string;
+    }[] = [];
+
+    for (const orderId of orderIdsInScope) {
+      const order = salesData.find((o) => o.id === orderId);
+      if (!order) continue;
+
+      const itemsForOrder = allOrderItems.filter((it: any) => String(it.order_id) === String(orderId));
+      const additionalItems = itemsForOrder.filter(
+        (it: any) => typeof it.product_type === 'string' && it.product_type.startsWith('PRODUCTO ADICIONAL:')
+      );
+      if (!additionalItems.length) continue;
+
+      let orderAdditional = 0;
+
+      for (const item of additionalItems) {
+        const billingType = (item.billing_type || 'PER_M3') as string;
+        const unitPrice = Number(item.unit_price) || 0;
+        const itemVolume = Number(item.volume) || 0;
+
+        if (billingType === 'PER_ORDER_FIXED') {
+          if (options?.fixedAdditionalAttributionMonthKey) {
+            const fm = firstMonthByOrder?.get(String(orderId));
+            if (fm == null || fm !== options.fixedAdditionalAttributionMonthKey) continue;
+          }
+          orderAdditional += unitPrice;
+          continue;
+        }
+
+        if (billingType === 'PER_UNIT') {
+          orderAdditional += itemVolume * unitPrice;
+          continue;
+        }
+
+        const scopeConcrete = sumConcreteRemisionVolumeForOrder(remisiones, String(orderId));
+        const baseVol = concreteVolumeForPerM3AdditionalProduct({
+          items: itemsForOrder,
+          remisionesConcreteVolumeSum: scopeConcrete,
+        });
+        orderAdditional += itemVolume * baseVol * unitPrice;
+      }
+
+      if (orderAdditional <= 0) continue;
+
+      const { clientId, clientName } = clientMetaForOrderInRemisionScope(order, remisiones, String(orderId));
+      out.push({
+        orderId: String(orderId),
+        amount: orderAdditional,
+        requires_invoice: Boolean(order.requires_invoice),
+        clientId,
+        clientName,
+      });
+    }
+
+    return out;
+  }
+
   static calculateSummaryMetrics(
     remisiones: Remision[],
     salesData: Order[],
     clientFilter: string | string[], // Support both string (legacy) and array (new multi-select) for backward compatibility
     allOrderItems?: any[], // Add order items parameter for sophisticated price matching
-    pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }> // Pricing map from remisiones_with_pricing view
+    pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }>, // Pricing map from remisiones_with_pricing view
+    options?: CalculateSummaryMetricsOptions
   ): SummaryMetrics {
     const result: SummaryMetrics = {
       concreteVolume: 0,
@@ -576,7 +733,8 @@ export class SalesDataProcessor {
       invoiceAmountWithVAT: 0,
       weightedConcretePriceWithVAT: 0,
       weightedPumpPriceWithVAT: 0,
-      weightedEmptyTruckPriceWithVAT: 0
+      weightedEmptyTruckPriceWithVAT: 0,
+      additionalAmount: 0
     };
 
     // STEP 1: Calculate volumes using the simple, accurate approach (same as daily sales)
@@ -649,6 +807,21 @@ export class SalesDataProcessor {
           result.cashAmount += calculatedAmount;
         }
       });
+
+      const additionalCharges = SalesDataProcessor.listAdditionalProductCharges(
+        remisiones,
+        salesData,
+        allOrderItems,
+        options
+      );
+      result.additionalAmount = additionalCharges.reduce((s, c) => s + c.amount, 0);
+      for (const c of additionalCharges) {
+        if (c.requires_invoice) {
+          result.invoiceAmount += c.amount;
+        } else {
+          result.cashAmount += c.amount;
+        }
+      }
     }
 
     // REMOVED: Old code that processed vacío de olla from order_items
@@ -657,7 +830,8 @@ export class SalesDataProcessor {
 
     // Calculate totals
     result.totalVolume = result.concreteVolume + result.pumpVolume; // Exclude empty truck from volume count
-    result.totalAmount = result.concreteAmount + result.pumpAmount + result.emptyTruckAmount;
+    result.totalAmount =
+      result.concreteAmount + result.pumpAmount + result.emptyTruckAmount + result.additionalAmount;
 
     // Apply VAT only to invoice amounts
     result.invoiceAmountWithVAT = result.invoiceAmount * (1 + VAT_RATE);
@@ -670,9 +844,13 @@ export class SalesDataProcessor {
     result.weightedEmptyTruckPrice = result.emptyTruckVolume > 0 ? result.emptyTruckAmount / result.emptyTruckVolume : 0;
 
     // Calculate weighted prices with VAT (only applied proportionally to invoice amounts)
-    const concreteInvoicePortion = result.concreteAmount > 0 ? (result.invoiceAmount * (result.concreteAmount / result.totalAmount)) : 0;
-    const pumpInvoicePortion = result.pumpAmount > 0 ? (result.invoiceAmount * (result.pumpAmount / result.totalAmount)) : 0;
-    const emptyTruckInvoicePortion = result.emptyTruckAmount > 0 ? (result.invoiceAmount * (result.emptyTruckAmount / result.totalAmount)) : 0;
+    const mixDenom = result.totalAmount > 0 ? result.totalAmount : 1;
+    const concreteInvoicePortion =
+      result.concreteAmount > 0 ? (result.invoiceAmount * (result.concreteAmount / mixDenom)) : 0;
+    const pumpInvoicePortion =
+      result.pumpAmount > 0 ? (result.invoiceAmount * (result.pumpAmount / mixDenom)) : 0;
+    const emptyTruckInvoicePortion =
+      result.emptyTruckAmount > 0 ? (result.invoiceAmount * (result.emptyTruckAmount / mixDenom)) : 0;
 
     result.weightedConcretePriceWithVAT = result.concreteVolume > 0 ?
       (result.concreteAmount + (concreteInvoicePortion * VAT_RATE)) / result.concreteVolume : 0;
@@ -720,7 +898,6 @@ export class SalesDataProcessor {
     remisionesData: Remision[],
     clientFilter: string | string[], // Support both string (legacy) and array (new multi-select) for backward compatibility
     searchTerm: string,
-    layoutType: 'current' | 'powerbi',
     tipoFilter: string | string[], // Support both string and array for backward compatibility
     efectivoFiscalFilter: string
   ): VirtualRemision[] {
@@ -766,6 +943,7 @@ export class SalesDataProcessor {
           const assignedRemisionNumber = sortedRemisiones[0].remision_number;
 
           // Create a virtual remision object for this vacío de olla item
+          const anchor = sortedRemisiones[0] as any;
           const virtualRemision: VirtualRemision = {
             id: `vacio-${order.id}-${emptyTruckItem.id}`, // Generate a unique ID
             remision_number: assignedRemisionNumber, // Use the assigned remision number
@@ -773,6 +951,7 @@ export class SalesDataProcessor {
             fecha: sortedRemisiones[0].fecha, // Use the actual remision's local date
             tipo_remision: 'VACÍO DE OLLA',
             volumen_fabricado: parseFloat(emptyTruckItem.empty_truck_volume?.toString() || '') || parseFloat(emptyTruckItem.volume?.toString() || '') || 1,
+            plant_id: anchor?.plant_id != null ? String(anchor.plant_id) : undefined,
             recipe: { recipe_code: 'SER001' }, // Standard code for vacío de olla
             order: {
               client_id: order.client_id || '',
@@ -801,22 +980,18 @@ export class SalesDataProcessor {
             }
           }
 
-          // Apply tipo filter if needed in PowerBI layout
-          if (layoutType === 'powerbi') {
-            // Handle both string (legacy) and array (new multi-select) formats
+          // Apply tipo filter (same rules as main report — not layout-gated)
+          {
             const tipoArray = Array.isArray(tipoFilter) ? tipoFilter : (tipoFilter === 'all' || !tipoFilter ? [] : [tipoFilter]);
-            
-            // If tipo filter is set and doesn't include "VACÍO DE OLLA", skip this virtual remision
             if (tipoArray.length > 0 && !tipoArray.includes('VACÍO DE OLLA')) {
               return;
             }
           }
 
-          // Apply efectivo/fiscal filter if needed in PowerBI layout
-          if (layoutType === 'powerbi' && efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
+          if (efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
             const requiresInvoice = efectivoFiscalFilter === 'fiscal';
             if (order.requires_invoice !== requiresInvoice) {
-              return; // Skip if doesn't match efectivo/fiscal filter
+              return;
             }
           }
 

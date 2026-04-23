@@ -37,7 +37,8 @@ type DateRangePreset = '6M' | '12M' | '24M' | 'all';
 
 interface HistoricalVolumeChartProps {
   availablePlants: { id: string; name: string }[];
-  plantIds?: string[];
+  /** Effective sales scope; empty array = no fetch (aligned with ventas KPI scope). */
+  plantIds: string[];
 }
 
 export function HistoricalVolumeChart({
@@ -62,10 +63,11 @@ export function HistoricalVolumeChart({
   // Fetch historical data using the hook
   const {
     data,
-    loading
+    loading,
+    error,
   } = useHistoricalVolumeData({
     monthsBack,
-    plantIds: plantIds && plantIds.length > 0 ? plantIds : undefined
+    plantIds,
   });
 
   // Filter and aggregate data by selected plants
@@ -308,6 +310,11 @@ export function HistoricalVolumeChart({
       transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
       className="glass-thick rounded-3xl p-8 border border-label-tertiary/10"
     >
+      {error && (
+        <div className="mb-4 rounded-2xl border border-systemRed/25 bg-systemRed/10 px-4 py-3 text-callout text-systemRed">
+          {error}
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
         <div>

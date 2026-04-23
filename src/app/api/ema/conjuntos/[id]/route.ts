@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getModeloById, updateModelo } from '@/services/emaInstrumentoService';
+import { getConjuntoById, updateConjunto } from '@/services/emaInstrumentoService';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
@@ -17,9 +17,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const modelo = await getModeloById(id);
-    if (!modelo) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    return NextResponse.json({ data: modelo });
+    const conjunto = await getConjuntoById(id);
+    if (!conjunto) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+    return NextResponse.json({ data: conjunto });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -38,8 +38,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();
-    const modelo = await updateModelo(id, json);
-    return NextResponse.json({ data: modelo });
+    const conjunto = await updateConjunto(id, json);
+    return NextResponse.json({ data: conjunto });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

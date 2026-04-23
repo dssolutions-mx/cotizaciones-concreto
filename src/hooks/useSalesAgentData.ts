@@ -16,13 +16,14 @@ interface SalesAgentData {
 interface UseSalesAgentDataProps {
   startDate?: Date;
   endDate?: Date;
-  plantId?: string;
+  /** When set and non-empty, restricts remisiones to these plants (matches sales report scope). */
+  plantIds?: string[];
 }
 
 export function useSalesAgentData({
   startDate,
   endDate,
-  plantId
+  plantIds
 }: UseSalesAgentDataProps = {}) {
   const [data, setData] = useState<SalesAgentData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,19 +44,21 @@ export function useSalesAgentData({
         const startDateStr = format(startOfMonth(start), 'yyyy-MM-dd');
         const endDateStr = format(endOfMonth(end), 'yyyy-MM-dd');
 
-        console.log('[SalesAgent] 📅 Fetching remisiones from:', startDateStr, 'to:', endDateStr, 'plant:', plantId || 'all');
+        if (!plantIds?.length) {
+          setData([]);
+          return;
+        }
+
+        console.log('[SalesAgent] 📅 Fetching remisiones from:', startDateStr, 'to:', endDateStr, 'plants:', plantIds.length);
 
         // Step 1: Fetch remisiones filtered by fecha (matching report flow: remisiones → order items → order)
-        let remisionesQuery = supabase
+        const remisionesQuery = supabase
           .from('remisiones')
           .select('id, order_id, volumen_fabricado, tipo_remision, plant_id, fecha')
           .gte('fecha', startDateStr)
           .lte('fecha', endDateStr)
-          .not('order_id', 'is', null);
-
-        if (plantId) {
-          remisionesQuery = remisionesQuery.eq('plant_id', plantId);
-        }
+          .not('order_id', 'is', null)
+          .in('plant_id', plantIds);
 
         const { data: remisiones, error: remisionesError } = await remisionesQuery;
 
@@ -88,6 +91,7 @@ export function useSalesAgentData({
           .from('orders')
           .select('id, total_amount, created_by, plant_id')
           .in('id', orderIds)
+          .in('plant_id', plantIds)
           .not('order_status', 'eq', 'CANCELLED');
 
         if (ordersError) {
@@ -225,7 +229,7 @@ export function useSalesAgentData({
     }
 
     fetchSalesAgentData();
-  }, [startDate?.toISOString(), endDate?.toISOString(), plantId]);
+  }, [startDate?.toISOString(), endDate?.toISOString(), plantIds?.join(',')]);
 
   return { data, loading, error };
 }

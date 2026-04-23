@@ -25,7 +25,7 @@ export type EstadoInstrumento =
   | 'en_revision'
   | 'inactivo';
 
-export type ResultadoVerificacion = 'conforme' | 'no_conforme' | 'condicional';
+export type ResultadoVerificacion = 'conforme' | 'no_conforme' | 'condicional' | 'pendiente';
 
 export type TipoEvento =
   | 'calibracion_externa'
@@ -45,27 +45,26 @@ export type SeveridadIncidente = 'baja' | 'media' | 'alta' | 'critica';
 
 export type EstadoIncidente = 'abierto' | 'en_revision' | 'resuelto' | 'cerrado';
 
-export type TipoChecklist =
-  | 'recepcion'
-  | 'periodico'
-  | 'post_calibracion'
-  | 'post_incidente';
-
-export type EstadoGeneralChecklist = 'bueno' | 'regular' | 'malo' | 'fuera_de_servicio';
-
 /** Estado snapshot stored at moment of muestreo/ensayo registration */
 export type EstadoSnapshot = 'vigente' | 'proximo_vencer' | 'vencido';
 
 // ─────────────────────────────────────────
-// modelos_instrumento
+// conjuntos_herramientas
 // ─────────────────────────────────────────
 
-export interface ModeloInstrumento {
+export type TipoServicio = 'calibracion' | 'verificacion' | 'ninguno';
+
+export interface ConjuntoHerramientas {
   id: string;
-  nombre_modelo: string;
+  codigo_conjunto: string;         // 'NN' or 'NNN' — unique, owns DC-CC-NN prefix
+  nombre_conjunto: string;
   categoria: string;
   tipo_defecto: TipoInstrumento;
-  periodo_calibracion_dias: number;
+  tipo_servicio: TipoServicio;
+  mes_inicio_servicio: number | null;  // 1-12; null when tipo_servicio = 'ninguno'
+  mes_fin_servicio: number | null;     // 1-12
+  cadencia_meses: number;              // default 12
+  secuencia_actual: number;            // last NN auto-assigned
   norma_referencia: string | null;     // e.g. "NMX-C-083-ONNCCE-2014"
   unidad_medicion: string | null;      // e.g. "kN", "°C", "kg"
   rango_medicion_tipico: string | null; // e.g. "0-2000 kN"
@@ -85,10 +84,10 @@ export interface DocumentoAdicional {
   path: string;
 }
 
-export type CreateModeloInput = Omit<ModeloInstrumento,
-  'id' | 'created_by' | 'created_at' | 'updated_at'>;
+export type CreateConjuntoInput = Omit<ConjuntoHerramientas,
+  'id' | 'secuencia_actual' | 'created_by' | 'created_at' | 'updated_at'>;
 
-export type UpdateModeloInput = Partial<CreateModeloInput>;
+export type UpdateConjuntoInput = Partial<CreateConjuntoInput>;
 
 // ─────────────────────────────────────────
 // instrumentos
@@ -96,18 +95,23 @@ export type UpdateModeloInput = Partial<CreateModeloInput>;
 
 export interface Instrumento {
   id: string;
-  codigo: string;
+  codigo: string;                          // 'DC-CC-NN' — server-generated
   nombre: string;
-  modelo_id: string;
+  conjunto_id: string;
   tipo: TipoInstrumento;
   plant_id: string;
   numero_serie: string | null;
   marca: string | null;
   modelo_comercial: string | null;
-  instrumento_maestro_id: string | null;  // only for Type C
-  periodo_calibracion_dias: number | null; // null = inherit from model
+  instrumento_maestro_id: string | null;   // only for Type C
+  mes_inicio_servicio_override: number | null; // per-instrument window override
+  mes_fin_servicio_override: number | null;
+  ubicacion_dentro_planta: string | null;
+  fecha_alta: string | null;               // ISO date
+  fecha_baja: string | null;               // ISO date — null if vigente
+  baja_observaciones: string | null;
   estado: EstadoInstrumento;
-  fecha_proximo_evento: string | null;    // ISO date
+  fecha_proximo_evento: string | null;     // ISO date
   motivo_inactivo: string | null;
   notas: string | null;
   created_by: string | null;
@@ -115,13 +119,22 @@ export interface Instrumento {
   updated_at: string;
 }
 
+/** Effective service window for an instrument (after override resolution) */
+export interface EffectiveServiceWindow {
+  tipo_servicio: TipoServicio;
+  mes_inicio: number | null;
+  mes_fin: number | null;
+  cadencia_meses: number;
+  from_override: boolean;
+}
+
 /** Instrumento with joined relations for detail views */
 export interface InstrumentoDetalle extends Instrumento {
-  modelo: ModeloInstrumento;
+  conjunto: ConjuntoHerramientas;
   instrumento_maestro?: Instrumento | null;
   plant?: { id: string; name: string; code: string };
-  /** Effective period considering model default */
-  periodo_efectivo_dias: number;
+  /** Effective window resolved from override → conjunto */
+  ventana_efectiva: EffectiveServiceWindow;
 }
 
 /** Lightweight card for lists and pickers */
@@ -138,13 +151,35 @@ export interface InstrumentoCard {
   modelo_comercial: string | null;
 }
 
+/** Payload for creating an instrument — server generates `codigo` via ema_next_instrument_code. */
 export type CreateInstrumentoInput = Omit<Instrumento,
-  'id' | 'estado' | 'created_by' | 'created_at' | 'updated_at'>;
+  'id' | 'codigo' | 'estado' | 'created_by' | 'created_at' | 'updated_at'>;
 
 export type UpdateInstrumentoInput = Partial<Pick<Instrumento,
-  'nombre' | 'numero_serie' | 'marca' | 'modelo_comercial' |
-  'instrumento_maestro_id' | 'periodo_calibracion_dias' |
-  'estado' | 'motivo_inactivo' | 'notas'>>;
+  'nombre' | 'tipo' | 'numero_serie' | 'marca' | 'modelo_comercial' |
+  'instrumento_maestro_id' | 'plant_id' |
+  'mes_inicio_servicio_override' | 'mes_fin_servicio_override' |
+  'ubicacion_dentro_planta' | 'fecha_alta' | 'fecha_baja' | 'baja_observaciones' |
+  'estado' | 'fecha_proximo_evento' | 'motivo_inactivo' | 'notas'>>;
+
+// ─────────────────────────────────────────
+// mantenimientos_instrumento (Phase-1 preventive-maintenance log)
+// ─────────────────────────────────────────
+
+export interface MantenimientoInstrumento {
+  id: string;
+  instrumento_id: string;
+  fecha_mantenimiento: string;               // ISO date
+  fecha_proximo_mantenimiento: string | null; // ISO date
+  descripcion: string | null;
+  realizado_por: string | null;
+  notas: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export type CreateMantenimientoInput = Omit<MantenimientoInstrumento,
+  'id' | 'created_at' | 'created_by'>;
 
 // ─────────────────────────────────────────
 // certificados_calibracion
@@ -184,40 +219,207 @@ export type CreateCertificadoInput = Omit<CertificadoCalibracion,
   'id' | 'is_vigente' | 'created_by' | 'created_at'>;
 
 // ─────────────────────────────────────────
-// verificaciones_internas
+// Verification Templates (Phase 2) — per conjunto_herramientas
 // ─────────────────────────────────────────
 
-/** Individual reading point in a verification */
-export interface LecturaVerificacion {
-  punto: string;            // e.g. "500 kN", "Punto 1", "25 °C"
-  lectura_maestro: number;  // Master instrument reading
-  lectura_trabajo: number;  // Working instrument reading
-  desviacion: number;       // Difference (trabajo - maestro)
-  unidad: string;           // Unit of measurement
-}
+export type EstadoTemplate = 'borrador' | 'publicado' | 'archivado';
 
-export interface VerificacionInterna {
+export type TipoItemVerificacion =
+  | 'medicion'          // numeric measurement against expected ± tolerance
+  | 'booleano'          // ¿Cumple? Sí/No
+  | 'numero'            // free numeric (no tolerance)
+  | 'texto'             // free text
+  | 'calculado'         // derived from other items via `formula`
+  | 'referencia_equipo'; // free-text pointer to calibration standard used
+
+export type ToleranciaTipo = 'absoluta' | 'porcentual' | 'rango';
+
+export interface VerificacionTemplate {
   id: string;
-  instrumento_id: string;          // Type C instrument being verified
-  instrumento_maestro_id: string;  // Type A instrument used
-  fecha_verificacion: string;      // ISO date
-  fecha_proxima_verificacion: string; // ISO date
-  resultado: ResultadoVerificacion;
-  lecturas: LecturaVerificacion[];   // Measurement comparison data
-  criterio_aceptacion: string | null; // e.g. "±1% de la lectura"
-  condiciones_ambientales: CondicionesAmbientales | null;
-  observaciones: string | null;
-  realizado_por: string | null;
+  conjunto_id: string;
+  codigo: string;                      // e.g. "DCEMA-HC-LC-6.4-01"
+  nombre: string;
+  norma_referencia: string | null;
+  descripcion: string | null;
+  estado: EstadoTemplate;
+  active_version_id: string | null;
   created_at: string;
+  created_by: string | null;
+  updated_at: string;
 }
 
-export interface VerificacionInternaDetalle extends VerificacionInterna {
-  instrumento_maestro?: InstrumentoCard;
-  realizado_por_profile?: { id: string; full_name: string };
+export interface VerificacionTemplateSection {
+  id: string;
+  template_id: string;
+  orden: number;
+  titulo: string;
+  descripcion: string | null;
+  repetible: boolean;
+  repeticiones_default: number;
+  evidencia_config: { min_photos?: number; labels?: string[] };
+  created_at: string;
+  updated_at: string;
 }
 
-export type CreateVerificacionInput = Omit<VerificacionInterna,
-  'id' | 'created_at'>;
+export interface VerificacionTemplateItem {
+  id: string;
+  section_id: string;
+  orden: number;
+  tipo: TipoItemVerificacion;
+  punto: string;
+  valor_esperado: number | null;
+  tolerancia: number | null;
+  tolerancia_tipo: ToleranciaTipo;
+  tolerancia_min: number | null;
+  tolerancia_max: number | null;
+  unidad: string | null;
+  formula: string | null;
+  requerido: boolean;
+  observacion_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Snapshot stored in verificacion_template_versions.snapshot */
+export interface VerificacionTemplateSnapshot {
+  template: Pick<VerificacionTemplate,
+    'id' | 'codigo' | 'nombre' | 'norma_referencia' | 'descripcion'>;
+  sections: Array<
+    VerificacionTemplateSection & { items: VerificacionTemplateItem[] }
+  >;
+}
+
+export interface VerificacionTemplateVersion {
+  id: string;
+  template_id: string;
+  version_number: number;
+  snapshot: VerificacionTemplateSnapshot;
+  published_at: string;
+  published_by: string | null;
+}
+
+/** Template + draft children + version metadata */
+export interface VerificacionTemplateDetalle extends VerificacionTemplate {
+  sections: Array<
+    VerificacionTemplateSection & { items: VerificacionTemplateItem[] }
+  >;
+  active_version: VerificacionTemplateVersion | null;
+  versions_count: number;
+}
+
+// ─────────────────────────────────────────
+// Completed verifications (execution)
+// ─────────────────────────────────────────
+
+export type EstadoCompletedVerificacion =
+  | 'en_proceso'
+  | 'firmado_operador'
+  | 'firmado_revisor'
+  | 'cerrado'
+  | 'cancelado';
+
+export type RolFirma = 'elaborado' | 'revisado';
+
+export interface CompletedVerificacion {
+  id: string;
+  instrumento_id: string;
+  template_version_id: string;
+  instrumento_maestro_id: string | null;
+  fecha_verificacion: string;            // ISO date
+  fecha_proxima_verificacion: string | null;
+  resultado: ResultadoVerificacion;      // includes 'pendiente'
+  condiciones_ambientales: CondicionesAmbientales | null;
+  observaciones_generales: string | null;
+  estado: EstadoCompletedVerificacion;
+  created_at: string;
+  created_by: string | null;
+  updated_at: string;
+}
+
+export interface CompletedVerificacionMeasurement {
+  id: string;
+  completed_id: string;
+  section_id: string;
+  section_repeticion: number;
+  item_id: string;
+  valor_observado: number | null;
+  valor_booleano: boolean | null;
+  valor_texto: string | null;
+  error_calculado: number | null;
+  cumple: boolean | null;
+  observacion: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VerificacionEvidencia {
+  id: string;
+  completed_id: string;
+  section_id: string | null;
+  section_repeticion: number | null;
+  storage_path: string;
+  mime_type: string | null;
+  caption: string | null;
+  uploaded_at: string;
+  uploaded_by: string | null;
+}
+
+export interface VerificacionSignature {
+  id: string;
+  completed_id: string;
+  rol: RolFirma;
+  signer_user_id: string;
+  signer_name: string;
+  signature_storage_path: string;
+  signed_at: string;
+}
+
+export interface VerificacionIssue {
+  id: string;
+  completed_id: string;
+  measurement_id: string | null;
+  severidad: SeveridadIncidente | null;
+  descripcion: string;
+  estado: 'abierta' | 'en_proceso' | 'resuelta' | 'ignorada';
+  resuelto_por: string | null;
+  resuelto_at: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface CompletedVerificacionDetalle extends CompletedVerificacion {
+  snapshot: VerificacionTemplateSnapshot;
+  template_version_number: number | null;
+  measurements: CompletedVerificacionMeasurement[];
+  evidencias: VerificacionEvidencia[];
+  signatures: VerificacionSignature[];
+  issues: VerificacionIssue[];
+  instrumento?: InstrumentoCard;
+  instrumento_maestro?: InstrumentoCard | null;
+  created_by_profile?: { id: string; full_name: string } | null;
+}
+
+export type CreateCompletedVerificacionInput = {
+  instrumento_id: string;
+  template_version_id: string;
+  instrumento_maestro_id?: string | null;
+  fecha_verificacion?: string;
+  condiciones_ambientales?: CondicionesAmbientales | null;
+};
+
+export type UpsertMeasurementInput = {
+  section_id: string;
+  section_repeticion?: number;
+  item_id: string;
+  valor_observado?: number | null;
+  valor_booleano?: boolean | null;
+  valor_texto?: string | null;
+  observacion?: string | null;
+};
+
+export type UpdateCompletedVerificacionInput = Partial<Pick<CompletedVerificacion,
+  'instrumento_maestro_id' | 'fecha_verificacion' | 'fecha_proxima_verificacion' |
+  'resultado' | 'condiciones_ambientales' | 'observaciones_generales' | 'estado'>>;
 
 // ─────────────────────────────────────────
 // programa_calibraciones
@@ -344,31 +546,6 @@ export type ResolverIncidenteInput = {
 };
 
 // ─────────────────────────────────────────
-// checklist_instrumento
-// ─────────────────────────────────────────
-
-export interface ChecklistItem {
-  item_nombre: string;
-  passed: boolean;
-  observacion: string;
-}
-
-export interface ChecklistInstrumento {
-  id: string;
-  instrumento_id: string;
-  tipo_checklist: TipoChecklist;
-  fecha_inspeccion: string;    // ISO date
-  realizado_por: string | null;
-  estado_general: EstadoGeneralChecklist;
-  items: ChecklistItem[];
-  observaciones_generales: string | null;
-  created_at: string;
-}
-
-export type CreateChecklistInput = Omit<ChecklistInstrumento,
-  'id' | 'created_at'>;
-
-// ─────────────────────────────────────────
 // ema_configuracion
 // ─────────────────────────────────────────
 
@@ -394,6 +571,7 @@ export interface InstrumentosListParams {
   tipo?: TipoInstrumento;
   estado?: EstadoInstrumento;
   categoria?: string;
+  conjunto_id?: string;
   search?: string;
   page?: number;
   limit?: number;
@@ -431,11 +609,24 @@ export interface TrazabilidadUsoEnsayo {
   estado_al_momento: EstadoSnapshot;
 }
 
+/** Lightweight summary of a completed verification for lists */
+export interface CompletedVerificacionCard {
+  id: string;
+  fecha_verificacion: string;
+  fecha_proxima_verificacion: string | null;
+  resultado: ResultadoVerificacion;
+  estado: EstadoCompletedVerificacion;
+  template_codigo: string;
+  template_version_number: number;
+  created_by_name: string | null;
+  created_at: string;
+}
+
 /** Trazabilidad view from instrument perspective */
 export interface InstrumentoTrazabilidad {
   instrumento: InstrumentoDetalle;
   certificados: CertificadoCalibracion[];
-  verificaciones: VerificacionInternaDetalle[];
+  verificaciones: CompletedVerificacionCard[];
   muestreos_count: number;
   ensayos_count: number;
   ultimo_muestreo_fecha: string | null;

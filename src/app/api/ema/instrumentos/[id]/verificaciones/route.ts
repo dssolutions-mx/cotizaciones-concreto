@@ -1,31 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getVerificacionesByInstrumento, createVerificacion, getInstrumentoById } from '@/services/emaInstrumentoService';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
 const READ_ROLES = [...WRITE_ROLES, 'ADMIN_OPERATIONS'];
 
-const LecturaSchema = z.object({
-  punto: z.string().min(1),
-  lectura_maestro: z.number(),
-  lectura_trabajo: z.number(),
-  desviacion: z.number(),
-  unidad: z.string().min(1),
-});
-
 const CreateVerifSchema = z.object({
-  instrumento_maestro_id: z.string().uuid(),
-  fecha_verificacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  fecha_proxima_verificacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  resultado: z.enum(['conforme', 'no_conforme', 'condicional']),
-  lecturas: z.array(LecturaSchema).optional().default([]),
-  criterio_aceptacion: z.string().optional().nullable(),
+  fecha_verificacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  instrumento_maestro_id: z.string().uuid().nullable().optional(),
   condiciones_ambientales: z.object({
     temperatura: z.string().optional(),
     humedad: z.string().optional(),
-  }).optional().nullable(),
-  observaciones: z.string().optional().nullable(),
+    lugar: z.string().optional(),
+  }).nullable().optional(),
 });
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -40,8 +27,40 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const verifs = await getVerificacionesByInstrumento(id);
-    return NextResponse.json({ data: verifs });
+    // Query completed_verificaciones with template version + creator info
+    const { data: rows, error: qErr } = await supabase
+      .from('completed_verificaciones')
+      .select(`
+        id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado, created_at,
+        template_version:verificacion_template_versions!completed_verificaciones_template_version_id_fkey (
+          version_number,
+          template:verificacion_templates!verificacion_template_versions_template_id_fkey (
+            codigo
+          )
+        ),
+        creator:user_profiles!completed_verificaciones_created_by_fkey (
+          full_name
+        )
+      `)
+      .eq('instrumento_id', id)
+      .order('fecha_verificacion', { ascending: false })
+      .limit(50);
+
+    if (qErr) throw qErr;
+
+    const cards = (rows ?? []).map((r: any) => ({
+      id: r.id,
+      fecha_verificacion: r.fecha_verificacion,
+      fecha_proxima_verificacion: r.fecha_proxima_verificacion,
+      resultado: r.resultado,
+      estado: r.estado,
+      created_at: r.created_at,
+      template_codigo: r.template_version?.template?.codigo ?? '—',
+      template_version_number: r.template_version?.version_number ?? 1,
+      created_by_name: r.creator?.full_name ?? null,
+    }));
+
+    return NextResponse.json({ data: cards });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -49,7 +68,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
+    const { id: instrumento_id } = await params;
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -59,21 +78,47 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!profile || !WRITE_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    // Ensure instrument is Type C
-    const instrumento = await getInstrumentoById(id);
-    if (!instrumento) return NextResponse.json({ error: 'Instrumento no encontrado' }, { status: 404 });
-    if (instrumento.tipo !== 'C')
-      return NextResponse.json({ error: 'Solo instrumentos Tipo C tienen verificaciones internas' }, { status: 400 });
-
     const json = await request.json();
     const parsed = CreateVerifSchema.safeParse(json);
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
-    const verif = await createVerificacion(
-      { ...parsed.data, instrumento_id: id } as any,
-      user.id,
-    );
+    // Get the instrument to find its conjunto
+    const { data: instrumento, error: iErr } = await supabase
+      .from('instrumentos')
+      .select('id, conjunto_id')
+      .eq('id', instrumento_id)
+      .single();
+    if (iErr || !instrumento) return NextResponse.json({ error: 'Instrumento no encontrado' }, { status: 404 });
+    if (!instrumento.conjunto_id)
+      return NextResponse.json({ error: 'El instrumento no tiene conjunto asignado' }, { status: 400 });
+
+    // Get the active template version for this conjunto
+    const { data: template, error: tErr } = await supabase
+      .from('verificacion_templates')
+      .select('id, active_version_id, estado')
+      .eq('conjunto_id', instrumento.conjunto_id)
+      .single();
+    if (tErr || !template) return NextResponse.json({ error: 'No hay plantilla para este conjunto' }, { status: 400 });
+    if (!template.active_version_id || template.estado !== 'publicado')
+      return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
+
+    const { data: verif, error: vErr } = await supabase
+      .from('completed_verificaciones')
+      .insert({
+        instrumento_id,
+        template_version_id: template.active_version_id,
+        instrumento_maestro_id: parsed.data.instrumento_maestro_id ?? null,
+        fecha_verificacion: parsed.data.fecha_verificacion ?? new Date().toISOString().split('T')[0],
+        resultado: 'pendiente',
+        estado: 'en_proceso',
+        condiciones_ambientales: parsed.data.condiciones_ambientales ?? null,
+        created_by: user.id,
+      })
+      .select('id, fecha_verificacion, resultado, estado, template_version_id')
+      .single();
+
+    if (vErr) throw vErr;
     return NextResponse.json({ data: verif }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

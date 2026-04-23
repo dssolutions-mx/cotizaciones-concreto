@@ -31,6 +31,7 @@ interface SummaryMetrics {
   weightedConcretePriceWithVAT: number;
   weightedPumpPriceWithVAT: number;
   weightedEmptyTruckPriceWithVAT: number;
+  additionalAmount?: number;
 }
 
 interface ConcreteByRecipe {
@@ -268,7 +269,7 @@ export const SalesStatisticsCards: React.FC<SalesStatisticsCardsProps> = ({
               <div className="pt-4 border-t border-label-tertiary/10">
                 <p className="text-footnote text-label-tertiary mb-1">SubTotal</p>
                 <p className="text-title-3 font-semibold text-label-primary">
-                  ${formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
+                  {formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
                 </p>
                 {includeVAT && (
                   <p className="text-caption text-label-tertiary mt-1">Con IVA</p>
@@ -307,7 +308,7 @@ export const SalesStatisticsCards: React.FC<SalesStatisticsCardsProps> = ({
               <div className="pt-4 border-t border-label-tertiary/10">
                 <p className="text-footnote text-label-tertiary mb-1">SubTotal</p>
                 <p className="text-title-3 font-semibold text-label-primary">
-                  ${formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
+                  {formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
                 </p>
                 {includeVAT && (
                   <p className="text-caption text-label-tertiary mt-1">Con IVA</p>

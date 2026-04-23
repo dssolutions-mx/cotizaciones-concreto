@@ -6,17 +6,24 @@ import { z } from 'zod';
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
 
+const mesSchema = z.number().int().min(1).max(12).optional().nullable();
+
 const CreateInstrumentoSchema = z.object({
-  codigo: z.string().min(1).max(50),
+  // `codigo` is server-generated via ema_next_instrument_code — never accepted from client.
   nombre: z.string().min(1).max(200),
-  modelo_id: z.string().uuid(),
+  conjunto_id: z.string().uuid(),
   tipo: z.enum(['A', 'B', 'C']),
   plant_id: z.string().uuid(),
   numero_serie: z.string().optional().nullable(),
   marca: z.string().optional().nullable(),
   modelo_comercial: z.string().optional().nullable(),
   instrumento_maestro_id: z.string().uuid().optional().nullable(),
-  periodo_calibracion_dias: z.number().int().positive().optional().nullable(),
+  mes_inicio_servicio_override: mesSchema,
+  mes_fin_servicio_override: mesSchema,
+  ubicacion_dentro_planta: z.string().optional().nullable(),
+  fecha_alta: z.string().optional().nullable(),
+  fecha_baja: z.string().optional().nullable(),
+  baja_observaciones: z.string().optional().nullable(),
   fecha_proximo_evento: z.string().optional().nullable(),
   notas: z.string().optional().nullable(),
 });
@@ -38,9 +45,10 @@ export async function GET(request: NextRequest) {
       tipo: searchParams.get('tipo') as any ?? undefined,
       estado: searchParams.get('estado') as any ?? undefined,
       categoria: searchParams.get('categoria') ?? undefined,
+      conjunto_id: searchParams.get('conjunto_id') ?? undefined,
       search: searchParams.get('search') ?? undefined,
       page: parseInt(searchParams.get('page') ?? '1'),
-      limit: parseInt(searchParams.get('limit') ?? '50'),
+      limit: parseInt(searchParams.get('limit') ?? '200'),
     });
 
     return NextResponse.json({ data: instrumentos });

@@ -3,172 +3,488 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, Info, Loader2, Minus, Plus, Shield, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle,
+  ClipboardList, ChevronRight, RefreshCw,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
-import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
-import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import type { InstrumentoDetalle, InstrumentoCard, LecturaVerificacion } from '@/types/ema'
+import type {
+  InstrumentoDetalle,
+  VerificacionTemplateSnapshot,
+  VerificacionTemplateItem,
+} from '@/types/ema'
 
-interface LecturaRow {
-  punto: string
-  lectura_maestro: string
-  lectura_trabajo: string
-  unidad: string
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Step {
+  kind: 'inicio' | 'section' | 'cierre'
+  sectionIndex?: number   // index into snapshot.sections
+  repeticion?: number     // 1-based
 }
 
-const EMPTY_LECTURA: LecturaRow = { punto: '', lectura_maestro: '', lectura_trabajo: '', unidad: '' }
+type MeasurementKey = string // `${section_id}:${repeticion}:${item_id}`
+interface MeasurementValue {
+  valor_observado?: number | null
+  valor_booleano?: boolean | null
+  valor_texto?: string | null
+  observacion?: string | null
+}
+
+// ─── Pass/fail logic ──────────────────────────────────────────────────────────
+
+function computeCumple(item: VerificacionTemplateItem, val: number | null): boolean | null {
+  if (item.tipo !== 'medicion' || val == null) return null
+  if (item.tolerancia_tipo === 'rango') {
+    const ok1 = item.tolerancia_min == null || val >= item.tolerancia_min
+    const ok2 = item.tolerancia_max == null || val <= item.tolerancia_max
+    return ok1 && ok2
+  }
+  if (item.valor_esperado == null || item.tolerancia == null) return null
+  const err = Math.abs(val - item.valor_esperado)
+  if (item.tolerancia_tipo === 'absoluta') return err <= item.tolerancia
+  if (item.tolerancia_tipo === 'porcentual' && item.valor_esperado !== 0)
+    return (err / Math.abs(item.valor_esperado)) * 100 <= item.tolerancia
+  return null
+}
+
+function autoSuggestResultado(
+  snapshot: VerificacionTemplateSnapshot,
+  measurements: Record<MeasurementKey, MeasurementValue>,
+): 'conforme' | 'no_conforme' | 'condicional' {
+  let hasNoConforme = false
+  let hasCondicional = false
+
+  for (const section of snapshot.sections) {
+    const reps = section.repetible ? section.repeticiones_default : 1
+    for (let rep = 1; rep <= reps; rep++) {
+      for (const item of section.items) {
+        const key: MeasurementKey = `${section.id}:${rep}:${item.id}`
+        const mv = measurements[key]
+        if (!mv) continue
+        if (item.tipo === 'medicion') {
+          const cumple = computeCumple(item, mv.valor_observado ?? null)
+          if (cumple === false) hasNoConforme = true
+        }
+        if (item.tipo === 'booleano' && mv.valor_booleano === false) {
+          hasNoConforme = true
+        }
+      }
+    }
+  }
+
+  if (hasNoConforme) return hasCondicional ? 'no_conforme' : 'no_conforme'
+  return 'conforme'
+}
+
+// ─── Item Row Component ───────────────────────────────────────────────────────
+
+function ItemRow({
+  item,
+  value,
+  onChange,
+}: {
+  item: VerificacionTemplateItem
+  value: MeasurementValue
+  onChange: (v: MeasurementValue) => void
+}) {
+  const cumple = item.tipo === 'booleano'
+    ? value.valor_booleano
+    : computeCumple(item, value.valor_observado ?? null)
+
+  const hasValue = item.tipo === 'booleano'
+    ? value.valor_booleano !== undefined && value.valor_booleano !== null
+    : (value.valor_observado !== undefined && value.valor_observado !== null) ||
+      (value.valor_texto !== undefined && value.valor_texto !== '')
+
+  return (
+    <div className="border border-stone-200 rounded-lg p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-stone-800">{item.punto}</p>
+          {item.observacion_prompt && (
+            <p className="text-xs text-stone-500 mt-0.5">{item.observacion_prompt}</p>
+          )}
+          {item.tipo === 'medicion' && item.valor_esperado != null && (
+            <p className="text-xs text-stone-400 mt-0.5 font-mono">
+              Esperado: {item.valor_esperado}{item.unidad ? ` ${item.unidad}` : ''}
+              {item.tolerancia != null && ` ± ${item.tolerancia}${item.tolerancia_tipo === 'porcentual' ? '%' : (item.unidad ? ` ${item.unidad}` : '')}`}
+              {item.tolerancia_tipo === 'rango' && item.tolerancia_min != null && ` (mín. ${item.tolerancia_min}${item.unidad ? ` ${item.unidad}` : ''})`}
+            </p>
+          )}
+        </div>
+        {hasValue && cumple !== null && (
+          <span className={cn(
+            'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold border',
+            cumple
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-red-50 text-red-700 border-red-200',
+          )}>
+            {cumple ? 'CUMPLE' : 'NO CUMPLE'}
+          </span>
+        )}
+      </div>
+
+      {/* Input area by tipo */}
+      {item.tipo === 'booleano' ? (
+        <div className="flex gap-2">
+          {[{ label: 'Sí / Cumple', val: true }, { label: 'No / No cumple', val: false }].map(opt => (
+            <button
+              key={String(opt.val)}
+              type="button"
+              onClick={() => onChange({ ...value, valor_booleano: opt.val })}
+              className={cn(
+                'flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all',
+                value.valor_booleano === opt.val
+                  ? opt.val
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                    : 'border-red-400 bg-red-50 text-red-800'
+                  : 'border-stone-200 text-stone-600 hover:border-stone-300',
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      ) : item.tipo === 'texto' ? (
+        <Textarea
+          rows={2}
+          placeholder="Escribir..."
+          value={value.valor_texto ?? ''}
+          onChange={e => onChange({ ...value, valor_texto: e.target.value })}
+          className="border-stone-200 text-sm resize-none"
+        />
+      ) : item.tipo === 'referencia_equipo' ? (
+        <Input
+          placeholder="Código / N° serie / fecha calibración"
+          value={value.valor_texto ?? ''}
+          onChange={e => onChange({ ...value, valor_texto: e.target.value })}
+          className="border-stone-200 text-sm font-mono"
+        />
+      ) : item.tipo === 'calculado' ? (
+        <div className="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-500 font-mono">
+          Calculado: <code>{item.formula}</code>
+        </div>
+      ) : (
+        /* medicion or numero */
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            step="any"
+            placeholder="0.000"
+            value={value.valor_observado ?? ''}
+            onChange={e => {
+              const v = e.target.value === '' ? null : parseFloat(e.target.value)
+              onChange({ ...value, valor_observado: isNaN(v as number) ? null : v })
+            }}
+            className={cn(
+              'flex-1 border-stone-200 font-mono text-sm',
+              hasValue && cumple === false && 'border-red-300 bg-red-50/30',
+              hasValue && cumple === true && 'border-emerald-300 bg-emerald-50/30',
+            )}
+          />
+          {item.unidad && (
+            <span className="text-xs text-stone-400 font-mono w-10 shrink-0">{item.unidad}</span>
+          )}
+          {hasValue && item.valor_esperado != null && value.valor_observado != null && (
+            <span className={cn(
+              'text-xs font-mono w-20 shrink-0 text-right',
+              cumple ? 'text-emerald-600' : 'text-red-600',
+            )}>
+              err: {(Math.abs(value.valor_observado - item.valor_esperado)).toFixed(3)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Observación */}
+      {item.tipo !== 'texto' && item.tipo !== 'calculado' && (
+        <Input
+          placeholder="Observación (opcional)"
+          value={value.observacion ?? ''}
+          onChange={e => onChange({ ...value, observacion: e.target.value || null })}
+          className="border-stone-200 text-xs text-stone-600"
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function VerificarPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
 
   const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
-  const [maestros, setMaestros] = useState<InstrumentoCard[]>([])
-  const [loadingInst, setLoadingInst] = useState(true)
+  const [snapshot, setSnapshot] = useState<VerificacionTemplateSnapshot | null>(null)
+  const [templateVersionId, setTemplateVersionId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [noTemplate, setNoTemplate] = useState(false)
 
-  const [form, setForm] = useState({
-    instrumento_maestro_id: '',
-    fecha_verificacion: new Date().toISOString().split('T')[0],
-    resultado: '',
-    fecha_proxima_verificacion: '',
-    criterio_aceptacion: '',
-    condiciones_temperatura: '',
-    condiciones_humedad: '',
-    observaciones: '',
-  })
-  const [lecturas, setLecturas] = useState<LecturaRow[]>([{ ...EMPTY_LECTURA }])
-  const [submitting, setSubmitting] = useState(false)
+  // Execution state
+  const [verifId, setVerifId] = useState<string | null>(null)
+  const [steps, setSteps] = useState<Step[]>([])
+  const [currentStep, setCurrentStep] = useState(0)
+  const [measurements, setMeasurements] = useState<Record<MeasurementKey, MeasurementValue>>({})
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Inicio form
+  const [inicioForm, setInicioForm] = useState({
+    fecha_verificacion: new Date().toISOString().split('T')[0],
+    temperatura: '',
+    humedad: '',
+    lugar: '',
+  })
+
+  // Cierre form
+  const [cierreForm, setCierreForm] = useState({
+    resultado: '' as '' | 'conforme' | 'no_conforme' | 'condicional',
+    fecha_proxima_verificacion: '',
+    observaciones_generales: '',
+  })
 
   useEffect(() => {
     Promise.all([
       fetch(`/api/ema/instrumentos/${id}`).then(r => r.json()),
-      fetch('/api/ema/instrumentos?tipo=A&limit=100').then(r => r.json()),
-    ]).then(([instJ, maestrosJ]) => {
+    ]).then(([instJ]) => {
       const inst = instJ.data ?? instJ
       setInstrumento(inst)
-      setMaestros(maestrosJ.data ?? [])
 
-      // Pre-select master if instrument has one
-      if (inst.instrumento_maestro_id) {
-        setForm(f => ({ ...f, instrumento_maestro_id: inst.instrumento_maestro_id }))
+      // Load template for this conjunto
+      if (inst.conjunto_id) {
+        fetch(`/api/ema/conjuntos/${inst.conjunto_id}/templates`)
+          .then(r => r.json())
+          .then(tj => {
+            const tmpl = tj.data
+            if (!tmpl?.active_version_id) {
+              setNoTemplate(true)
+              setLoading(false)
+              return
+            }
+            setTemplateVersionId(tmpl.active_version_id)
+
+            // Load the snapshot
+            fetch(`/api/ema/template-versions/${tmpl.active_version_id}`)
+              .then(r => r.json())
+              .then(vj => {
+                const snap: VerificacionTemplateSnapshot = vj.data?.snapshot
+                if (!snap) { setNoTemplate(true); setLoading(false); return }
+                setSnapshot(snap)
+
+                // Build steps
+                const built: Step[] = [{ kind: 'inicio' }]
+                for (let si = 0; si < snap.sections.length; si++) {
+                  const sec = snap.sections[si]
+                  const reps = sec.repetible ? sec.repeticiones_default : 1
+                  for (let rep = 1; rep <= reps; rep++) {
+                    built.push({ kind: 'section', sectionIndex: si, repeticion: rep })
+                  }
+                }
+                built.push({ kind: 'cierre' })
+                setSteps(built)
+
+                // Compute suggested next date
+                const meses = inst.conjunto?.cadencia_meses ?? 12
+                const next = new Date()
+                next.setMonth(next.getMonth() + meses)
+                setCierreForm(f => ({ ...f, fecha_proxima_verificacion: next.toISOString().split('T')[0] }))
+
+                setLoading(false)
+              })
+          })
+      } else {
+        setNoTemplate(true)
+        setLoading(false)
       }
-
-      // Auto-calculate next verification date
-      const period = inst.periodo_efectivo_dias ?? inst.periodo_calibracion_dias
-      if (period) {
-        const next = new Date()
-        next.setDate(next.getDate() + period)
-        setForm(f => ({ ...f, fecha_proxima_verificacion: next.toISOString().split('T')[0] }))
-      }
-
-      // Pre-fill unit from modelo
-      if (inst.modelo?.unidad_medicion) {
-        setLecturas([{ ...EMPTY_LECTURA, unidad: inst.modelo.unidad_medicion }])
-      }
-
-      setLoadingInst(false)
-    }).catch(() => setLoadingInst(false))
+    }).catch(() => setLoading(false))
   }, [id])
 
-  // Recalculate next date when verification date changes
-  useEffect(() => {
-    if (form.fecha_verificacion && instrumento) {
-      const period = instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias
-      if (period) {
-        const next = new Date(form.fecha_verificacion)
-        next.setDate(next.getDate() + period)
-        setForm(f => ({ ...f, fecha_proxima_verificacion: next.toISOString().split('T')[0] }))
-      }
-    }
-  }, [form.fecha_verificacion, instrumento])
+  const mKey = useCallback((sectionId: string, rep: number, itemId: string): MeasurementKey =>
+    `${sectionId}:${rep}:${itemId}`, [])
 
-  const addLectura = useCallback(() => {
-    const lastUnit = lecturas.length > 0 ? lecturas[lecturas.length - 1].unidad : ''
-    setLecturas(prev => [...prev, { ...EMPTY_LECTURA, unidad: lastUnit }])
-  }, [lecturas])
-
-  const removeLectura = useCallback((idx: number) => {
-    setLecturas(prev => prev.filter((_, i) => i !== idx))
+  const updateMeasurement = useCallback((key: MeasurementKey, val: MeasurementValue) => {
+    setMeasurements(prev => ({ ...prev, [key]: val }))
   }, [])
 
-  const updateLectura = useCallback((idx: number, key: keyof LecturaRow, val: string) => {
-    setLecturas(prev => prev.map((l, i) => i === idx ? { ...l, [key]: val } : l))
-  }, [])
-
-  // Build lecturas payload with computed deviation
-  const buildLecturasPayload = (): LecturaVerificacion[] => {
-    return lecturas
-      .filter(l => l.punto && l.lectura_maestro && l.lectura_trabajo)
-      .map(l => ({
-        punto: l.punto,
-        lectura_maestro: parseFloat(l.lectura_maestro),
-        lectura_trabajo: parseFloat(l.lectura_trabajo),
-        desviacion: parseFloat(l.lectura_trabajo) - parseFloat(l.lectura_maestro),
-        unidad: l.unidad,
-      }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSubmitting(true)
+  // Step 0 → create the verif record + advance
+  const handleInicioNext = async () => {
+    setSaving(true)
     setError(null)
     try {
-      const body = {
-        instrumento_maestro_id: form.instrumento_maestro_id,
-        fecha_verificacion: form.fecha_verificacion,
-        fecha_proxima_verificacion: form.fecha_proxima_verificacion,
-        resultado: form.resultado,
-        lecturas: buildLecturasPayload(),
-        criterio_aceptacion: form.criterio_aceptacion || null,
-        condiciones_ambientales: (form.condiciones_temperatura || form.condiciones_humedad) ? {
-          temperatura: form.condiciones_temperatura || undefined,
-          humedad: form.condiciones_humedad || undefined,
-        } : null,
-        observaciones: form.observaciones || null,
-      }
       const res = await fetch(`/api/ema/instrumentos/${id}/verificaciones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          fecha_verificacion: inicioForm.fecha_verificacion,
+          condiciones_ambientales: {
+            temperatura: inicioForm.temperatura || undefined,
+            humedad: inicioForm.humedad || undefined,
+            lugar: inicioForm.lugar || undefined,
+          },
+        }),
       })
       if (!res.ok) {
         const j = await res.json()
-        throw new Error(j.error ?? 'Error registrando verificación')
+        throw new Error(j.error ?? 'Error creando verificación')
       }
-      router.push(`/quality/instrumentos/${id}`)
+      const j = await res.json()
+      setVerifId(j.data.id)
+      setCurrentStep(1)
     } catch (e: any) {
       setError(e.message)
     } finally {
-      setSubmitting(false)
+      setSaving(false)
     }
   }
 
-  const selectedMaestro = maestros.find(m => m.id === form.instrumento_maestro_id)
+  // Section step → save measurements + advance
+  const handleSectionNext = async () => {
+    if (!verifId || !snapshot) return
+    const step = steps[currentStep]
+    if (step.kind !== 'section') return
 
-  if (loadingInst) {
+    const section = snapshot.sections[step.sectionIndex!]
+    const rep = step.repeticion!
+
+    // Collect measurements for this section/rep
+    const toSave = section.items
+      .filter(item => item.tipo !== 'calculado')
+      .map(item => {
+        const key = mKey(section.id, rep, item.id)
+        const mv = measurements[key] ?? {}
+        return {
+          section_id: section.id,
+          section_repeticion: rep,
+          item_id: item.id,
+          valor_observado: mv.valor_observado ?? null,
+          valor_booleano: mv.valor_booleano ?? null,
+          valor_texto: mv.valor_texto ?? null,
+          observacion: mv.observacion ?? null,
+        }
+      })
+      .filter(m =>
+        m.valor_observado != null || m.valor_booleano != null || m.valor_texto != null
+      )
+
+    if (toSave.length > 0) {
+      setSaving(true)
+      setError(null)
+      try {
+        const res = await fetch(`/api/ema/verificaciones/${verifId}/measurements`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ measurements: toSave }),
+        })
+        if (!res.ok) {
+          const j = await res.json()
+          throw new Error(j.error ?? 'Error guardando mediciones')
+        }
+      } catch (e: any) {
+        setError(e.message)
+        setSaving(false)
+        return
+      } finally {
+        setSaving(false)
+      }
+    }
+
+    // Auto-suggest resultado when reaching cierre
+    if (currentStep + 1 === steps.length - 1 && snapshot) {
+      const suggested = autoSuggestResultado(snapshot, measurements)
+      setCierreForm(f => ({ ...f, resultado: f.resultado || suggested }))
+    }
+
+    setCurrentStep(s => s + 1)
+  }
+
+  // Cierre → close the verification
+  const handleClose = async () => {
+    if (!verifId) return
+    if (!cierreForm.resultado) { setError('Seleccione el resultado'); return }
+    if (!cierreForm.fecha_proxima_verificacion) { setError('Ingrese fecha próxima verificación'); return }
+
+    setSaving(true)
+    setError(null)
+    try {
+      // Update conditions/observations
+      await fetch(`/api/ema/verificaciones/${verifId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observaciones_generales: cierreForm.observaciones_generales || null }),
+      })
+
+      const res = await fetch(`/api/ema/verificaciones/${verifId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resultado: cierreForm.resultado,
+          fecha_proxima_verificacion: cierreForm.fecha_proxima_verificacion,
+          observaciones_generales: cierreForm.observaciones_generales || null,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        throw new Error(j.error ?? 'Error cerrando verificación')
+      }
+      router.push(`/quality/instrumentos/${id}/verificaciones/${verifId}`)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) {
     return (
-      <div className="flex flex-col gap-4">
-        <div className="h-4 w-64 bg-stone-200 rounded animate-pulse" />
-        <div className="h-48 rounded-lg bg-stone-100 animate-pulse" />
+      <div className="flex flex-col gap-4 max-w-2xl">
+        <div className="h-4 w-48 bg-stone-200 rounded animate-pulse" />
+        <div className="h-64 rounded-lg bg-stone-100 animate-pulse" />
       </div>
     )
   }
 
+  if (noTemplate) {
+    return (
+      <div className="flex flex-col gap-5 max-w-2xl">
+        <EmaBreadcrumb items={[
+          { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
+          { label: 'Verificar' },
+        ]} />
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6 text-center space-y-3">
+          <AlertTriangle className="h-8 w-8 text-amber-500 mx-auto" />
+          <h2 className="font-semibold text-stone-800">Sin plantilla de verificación</h2>
+          <p className="text-sm text-stone-600">
+            Este conjunto no tiene una plantilla publicada. Configure y publique la plantilla antes de ejecutar verificaciones.
+          </p>
+          {instrumento?.conjunto_id && (
+            <Button variant="outline" className="border-stone-300" asChild>
+              <Link href={`/quality/conjuntos/${instrumento.conjunto_id}/plantilla`}>
+                Configurar plantilla
+              </Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const step = steps[currentStep]
+  const totalSteps = steps.length
+  const progress = Math.round((currentStep / (totalSteps - 1)) * 100)
+
   return (
-    <div className="flex flex-col gap-5 max-w-3xl">
+    <div className="flex flex-col gap-5 max-w-2xl">
       <EmaBreadcrumb items={[
         { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
-        { label: 'Registrar verificación' },
+        { label: 'Nueva verificación' },
       ]} />
 
-      {/* Back + Title */}
       <div className="flex items-center gap-3">
         <Link
           href={`/quality/instrumentos/${id}`}
@@ -176,357 +492,261 @@ export default function VerificarPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-stone-900 flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-            Registrar verificación interna
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-semibold tracking-tight text-stone-900 flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-emerald-600 shrink-0" />
+            {snapshot?.template.nombre}
           </h1>
-          <p className="text-sm text-stone-500 mt-0.5">
+          <p className="text-xs text-stone-500 mt-0.5 truncate">
             {instrumento?.nombre} · {instrumento?.codigo}
+            {snapshot?.template.norma_referencia && ` · ${snapshot.template.norma_referencia}`}
           </p>
         </div>
       </div>
 
-      {/* Context card */}
-      {instrumento && (
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex items-center gap-2 flex-wrap flex-1">
-            <EmaTipoBadge tipo={instrumento.tipo} showLabel />
-            <EmaEstadoBadge estado={instrumento.estado} />
-          </div>
-          <div className="text-xs text-stone-500 font-mono">
-            Período: {instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias ?? '—'} días
-            {instrumento.modelo?.unidad_medicion && ` · ${instrumento.modelo.unidad_medicion}`}
-          </div>
+      {/* Progress bar */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-xs text-stone-500">
+          <span>Paso {currentStep + 1} de {totalSteps}</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-stone-100 overflow-hidden">
+          <div
+            className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
 
-      {/* Traceability mini-diagram */}
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="h-4 w-4 text-emerald-600" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Cadena de verificación</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className={cn(
-            'rounded-md border px-2.5 py-1.5 font-medium',
-            selectedMaestro
-              ? 'border-sky-200 bg-sky-50 text-sky-800'
-              : 'border-stone-200 bg-stone-50 text-stone-500'
-          )}>
-            {selectedMaestro
-              ? `${selectedMaestro.nombre} (${selectedMaestro.codigo})`
-              : 'Seleccione instrumento maestro'
-            }
-          </span>
-          <span className="text-stone-400">→</span>
-          <span className="rounded-md border border-stone-400 bg-stone-50 px-2.5 py-1.5 font-medium text-stone-800 ring-1 ring-stone-300">
-            {instrumento?.nombre ?? '—'}
-          </span>
-        </div>
-        <p className="text-[11px] text-emerald-700 mt-2">
-          La verificación interna compara las lecturas del instrumento de trabajo contra el instrumento maestro (Tipo A) calibrado externamente.
-        </p>
-      </div>
-
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-        )}
-
-        {/* Master instrument */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Instrumento maestro</h2>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-stone-600">Instrumento maestro (Tipo A) <span className="text-red-500">*</span></Label>
-            <Select
-              required
-              value={form.instrumento_maestro_id}
-              onValueChange={v => setForm(f => ({ ...f, instrumento_maestro_id: v }))}
-            >
-              <SelectTrigger className="border-stone-200">
-                <SelectValue placeholder="Seleccionar instrumento maestro vigente" />
-              </SelectTrigger>
-              <SelectContent>
-                {maestros.filter(m => m.estado === 'vigente').map(m => (
-                  <SelectItem key={m.id} value={m.id}>
-                    <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
-                    {' — '}{m.nombre}
-                    {m.marca && <span className="text-stone-400"> · {m.marca}</span>}
-                  </SelectItem>
-                ))}
-                {maestros.filter(m => m.estado !== 'vigente').length > 0 && (
-                  <>
-                    <div className="px-2 py-1.5 text-[10px] font-semibold uppercase text-stone-400">No vigentes</div>
-                    {maestros.filter(m => m.estado !== 'vigente').map(m => (
-                      <SelectItem key={m.id} value={m.id} disabled>
-                        <span className="font-mono text-xs text-stone-400">{m.codigo}</span>
-                        {' — '}{m.nombre} ({m.estado})
-                      </SelectItem>
-                    ))}
-                  </>
-                )}
-              </SelectContent>
-            </Select>
+      {/* ── Inicio ── */}
+      {step.kind === 'inicio' && (
+        <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100">
+          <div className="px-5 py-4">
+            <h2 className="text-sm font-semibold text-stone-800">Inicio de verificación</h2>
+            <p className="text-xs text-stone-500 mt-0.5">Confirme los datos iniciales antes de comenzar las mediciones.</p>
           </div>
-        </div>
-
-        {/* Verification dates */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Datos de verificación</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-stone-600">Fecha de verificación <span className="text-red-500">*</span></Label>
-              <Input
-                type="date"
-                required
-                value={form.fecha_verificacion}
-                onChange={e => setForm(f => ({ ...f, fecha_verificacion: e.target.value }))}
-                className="border-stone-200"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-stone-600">Próxima verificación</Label>
-              <Input
-                type="date"
-                value={form.fecha_proxima_verificacion}
-                onChange={e => setForm(f => ({ ...f, fecha_proxima_verificacion: e.target.value }))}
-                className="border-stone-200"
-              />
-              <p className="text-[11px] text-stone-400">Auto-calculada según el período del instrumento</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-stone-600">Criterio de aceptación</Label>
-              <Input
-                value={form.criterio_aceptacion}
-                onChange={e => setForm(f => ({ ...f, criterio_aceptacion: e.target.value }))}
-                placeholder="ej. ±1% de la lectura"
-                className="border-stone-200 font-mono text-sm"
-                list="criterios-list"
-              />
-              <datalist id="criterios-list">
-                <option value="±1% de la lectura" />
-                <option value="±0.5% de la lectura" />
-                <option value="±2% del fondo de escala" />
-                <option value="±0.1 °C" />
-                <option value="±0.5 °C" />
-                <option value="±0.01 mm" />
-                <option value="±1 g" />
-              </datalist>
-              <p className="text-[11px] text-stone-400">Tolerancia máxima aceptable entre lecturas</p>
-            </div>
-            <div className="space-y-1.5 grid grid-cols-2 gap-2">
+          <div className="px-5 py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs text-stone-600">Temp. ambiente</Label>
+                <Label className="text-xs text-stone-600">Fecha de verificación <span className="text-red-500">*</span></Label>
                 <Input
-                  value={form.condiciones_temperatura}
-                  onChange={e => setForm(f => ({ ...f, condiciones_temperatura: e.target.value }))}
+                  type="date"
+                  value={inicioForm.fecha_verificacion}
+                  onChange={e => setInicioForm(f => ({ ...f, fecha_verificacion: e.target.value }))}
+                  className="border-stone-200"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">Temperatura</Label>
+                <Input
                   placeholder="ej. 23 °C"
+                  value={inicioForm.temperatura}
+                  onChange={e => setInicioForm(f => ({ ...f, temperatura: e.target.value }))}
                   className="border-stone-200 font-mono text-sm"
                 />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-stone-600">Humedad</Label>
                 <Input
-                  value={form.condiciones_humedad}
-                  onChange={e => setForm(f => ({ ...f, condiciones_humedad: e.target.value }))}
                   placeholder="ej. 50 %HR"
+                  value={inicioForm.humedad}
+                  onChange={e => setInicioForm(f => ({ ...f, humedad: e.target.value }))}
                   className="border-stone-200 font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">Lugar</Label>
+                <Input
+                  placeholder="ej. Lab central"
+                  value={inicioForm.lugar}
+                  onChange={e => setInicioForm(f => ({ ...f, lugar: e.target.value }))}
+                  className="border-stone-200 text-sm"
                 />
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Measurement readings table */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Lecturas de comparación</h2>
-              <p className="text-xs text-stone-500 mt-0.5">
-                Compare las lecturas del instrumento maestro con el instrumento de trabajo en cada punto de verificación.
-              </p>
-            </div>
+          <div className="px-5 py-3 flex justify-end">
             <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addLectura}
-              className="border-stone-300 text-stone-700 gap-1 text-xs"
+              onClick={handleInicioNext}
+              disabled={saving || !inicioForm.fecha_verificacion}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
             >
-              <Plus className="h-3 w-3" /> Punto
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              Comenzar
             </Button>
           </div>
-
-          {lecturas.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-stone-200">
-                    <th className="text-left py-2 pr-2 font-semibold text-stone-500 uppercase tracking-wide w-[25%]">Punto</th>
-                    <th className="text-left py-2 pr-2 font-semibold text-stone-500 uppercase tracking-wide w-[20%]">Maestro</th>
-                    <th className="text-left py-2 pr-2 font-semibold text-stone-500 uppercase tracking-wide w-[20%]">Trabajo</th>
-                    <th className="text-left py-2 pr-2 font-semibold text-stone-500 uppercase tracking-wide w-[15%]">Desviación</th>
-                    <th className="text-left py-2 pr-2 font-semibold text-stone-500 uppercase tracking-wide w-[12%]">Unidad</th>
-                    <th className="w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lecturas.map((l, idx) => {
-                    const maestroVal = parseFloat(l.lectura_maestro)
-                    const trabajoVal = parseFloat(l.lectura_trabajo)
-                    const desviacion = !isNaN(maestroVal) && !isNaN(trabajoVal)
-                      ? (trabajoVal - maestroVal)
-                      : null
-                    return (
-                      <tr key={idx} className="border-b border-stone-100">
-                        <td className="py-1.5 pr-2">
-                          <Input
-                            value={l.punto}
-                            onChange={e => updateLectura(idx, 'punto', e.target.value)}
-                            placeholder={`Punto ${idx + 1}`}
-                            className="border-stone-200 h-8 text-xs"
-                          />
-                        </td>
-                        <td className="py-1.5 pr-2">
-                          <Input
-                            type="number"
-                            step="any"
-                            value={l.lectura_maestro}
-                            onChange={e => updateLectura(idx, 'lectura_maestro', e.target.value)}
-                            placeholder="0.00"
-                            className="border-stone-200 h-8 text-xs font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 pr-2">
-                          <Input
-                            type="number"
-                            step="any"
-                            value={l.lectura_trabajo}
-                            onChange={e => updateLectura(idx, 'lectura_trabajo', e.target.value)}
-                            placeholder="0.00"
-                            className="border-stone-200 h-8 text-xs font-mono"
-                          />
-                        </td>
-                        <td className="py-1.5 pr-2">
-                          <span className={cn(
-                            'font-mono text-xs px-2 py-1 rounded',
-                            desviacion === null
-                              ? 'text-stone-400'
-                              : Math.abs(desviacion) < 0.001
-                                ? 'text-emerald-700 bg-emerald-50'
-                                : 'text-stone-700 bg-stone-50',
-                          )}>
-                            {desviacion !== null ? (desviacion >= 0 ? '+' : '') + desviacion.toFixed(3) : '—'}
-                          </span>
-                        </td>
-                        <td className="py-1.5 pr-2">
-                          <Input
-                            value={l.unidad}
-                            onChange={e => updateLectura(idx, 'unidad', e.target.value)}
-                            placeholder="kN"
-                            className="border-stone-200 h-8 text-xs font-mono w-16"
-                          />
-                        </td>
-                        <td className="py-1.5">
-                          {lecturas.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeLectura(idx)}
-                              className="p-1 text-stone-400 hover:text-red-500 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {lecturas.filter(l => l.lectura_maestro && l.lectura_trabajo).length > 0 && (
-            <div className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
-              <span className="font-medium">{lecturas.filter(l => l.lectura_maestro && l.lectura_trabajo).length}</span> punto(s) registrado(s)
-              {(() => {
-                const filled = lecturas.filter(l => l.lectura_maestro && l.lectura_trabajo)
-                if (filled.length === 0) return null
-                const maxDev = Math.max(...filled.map(l => Math.abs(parseFloat(l.lectura_trabajo) - parseFloat(l.lectura_maestro))))
-                return <> · Desviación máxima: <span className="font-mono font-medium">{maxDev.toFixed(3)}</span></>
-              })()}
-            </div>
-          )}
         </div>
+      )}
 
-        {/* Result */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Resultado</h2>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { value: 'conforme', label: 'Conforme', dotClass: 'bg-emerald-400', activeClass: 'border-emerald-400 bg-emerald-50 ring-1 ring-emerald-300', desc: 'Lecturas dentro de tolerancia' },
-              { value: 'no_conforme', label: 'No conforme', dotClass: 'bg-red-400', activeClass: 'border-red-400 bg-red-50 ring-1 ring-red-300', desc: 'Fuera de tolerancia — requiere acción' },
-              { value: 'condicional', label: 'Condicional', dotClass: 'bg-amber-400', activeClass: 'border-amber-400 bg-amber-50 ring-1 ring-amber-300', desc: 'Uso limitado con restricciones' },
-            ].map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setForm(f => ({ ...f, resultado: opt.value }))}
-                className={cn(
-                  'rounded-lg border p-3 text-left transition-all',
-                  form.resultado === opt.value
-                    ? opt.activeClass
-                    : 'border-stone-200 bg-white hover:border-stone-300',
+      {/* ── Section step ── */}
+      {step.kind === 'section' && snapshot && (() => {
+        const section = snapshot.sections[step.sectionIndex!]
+        const rep = step.repeticion!
+        const totalReps = section.repetible ? section.repeticiones_default : 1
+
+        return (
+          <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100">
+            <div className="px-5 py-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-stone-800">{section.titulo}</h2>
+                {section.repetible && (
+                  <span className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] font-medium text-stone-600">
+                    {rep} / {totalReps}
+                  </span>
                 )}
+              </div>
+              {section.descripcion && (
+                <p className="text-xs text-stone-500 mt-0.5">{section.descripcion}</p>
+              )}
+            </div>
+
+            <div className="px-5 py-4 space-y-3">
+              {section.items
+                .filter(item => item.tipo !== 'calculado')
+                .map(item => {
+                  const key = mKey(section.id, rep, item.id)
+                  return (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      value={measurements[key] ?? {}}
+                      onChange={val => updateMeasurement(key, val)}
+                    />
+                  )
+                })}
+            </div>
+
+            <div className="px-5 py-3 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCurrentStep(s => s - 1)}
+                className="text-stone-500 gap-1"
               >
-                <div className={cn('h-3 w-3 rounded-full mb-2', opt.dotClass)} />
-                <p className="text-sm font-medium text-stone-900">{opt.label}</p>
-                <p className="text-[11px] text-stone-500 mt-0.5">{opt.desc}</p>
-              </button>
-            ))}
+                <ArrowLeft className="h-3.5 w-3.5" /> Anterior
+              </Button>
+              <Button
+                onClick={handleSectionNext}
+                disabled={saving}
+                className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
+              >
+                {saving
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Guardando…</>
+                  : <><ArrowRight className="h-4 w-4" /> {currentStep + 1 === totalSteps - 1 ? 'Ir al cierre' : 'Siguiente'}</>
+                }
+              </Button>
+            </div>
           </div>
-          {!form.resultado && (
-            <p className="text-xs text-stone-400">Seleccione el resultado de la verificación</p>
-          )}
-        </div>
+        )
+      })()}
 
-        {/* Notes */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Observaciones</h2>
-          <Textarea
-            rows={3}
-            value={form.observaciones}
-            onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))}
-            placeholder="Notas sobre la verificación, condiciones observadas, lecturas atípicas..."
-            className="border-stone-200 resize-none"
-          />
-        </div>
+      {/* ── Cierre ── */}
+      {step.kind === 'cierre' && (
+        <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100">
+          <div className="px-5 py-4">
+            <h2 className="text-sm font-semibold text-stone-800">Cierre de verificación</h2>
+            <p className="text-xs text-stone-500 mt-0.5">
+              Revise el resultado global y confirme para cerrar la verificación.
+            </p>
+          </div>
 
-        {/* Actions */}
-        <div className="flex items-center justify-between pt-2">
-          <Link
-            href={`/quality/instrumentos/${id}`}
-            className="text-sm text-stone-500 hover:text-stone-700 transition-colors"
-          >
-            Cancelar
-          </Link>
-          <Button
-            type="submit"
-            className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
-            disabled={submitting || !form.resultado}
-          >
-            {submitting ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</>
-            ) : (
-              <><CheckCircle2 className="h-4 w-4" /> Registrar verificación</>
-            )}
-          </Button>
+          {/* Result selection */}
+          <div className="px-5 py-4 space-y-3">
+            <Label className="text-xs text-stone-600 font-semibold uppercase tracking-wide">Resultado global</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: 'conforme', label: 'Conforme', cls: 'border-emerald-400 bg-emerald-50 text-emerald-800' },
+                { value: 'no_conforme', label: 'No conforme', cls: 'border-red-400 bg-red-50 text-red-800' },
+                { value: 'condicional', label: 'Condicional', cls: 'border-amber-400 bg-amber-50 text-amber-800' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setCierreForm(f => ({ ...f, resultado: opt.value }))}
+                  className={cn(
+                    'rounded-lg border px-3 py-3 text-sm font-medium transition-all',
+                    cierreForm.resultado === opt.value
+                      ? opt.cls
+                      : 'border-stone-200 text-stone-600 hover:border-stone-300',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Next date */}
+          <div className="px-5 py-4 space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Próxima verificación <span className="text-red-500">*</span></Label>
+              <Input
+                type="date"
+                value={cierreForm.fecha_proxima_verificacion}
+                onChange={e => setCierreForm(f => ({ ...f, fecha_proxima_verificacion: e.target.value }))}
+                className="border-stone-200 max-w-48"
+              />
+              <p className="text-[11px] text-stone-400">
+                Auto-calculada según período del conjunto ({instrumento?.conjunto?.cadencia_meses ?? 12} meses)
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-stone-600">Observaciones generales</Label>
+              <Textarea
+                rows={3}
+                placeholder="Notas sobre la verificación..."
+                value={cierreForm.observaciones_generales}
+                onChange={e => setCierreForm(f => ({ ...f, observaciones_generales: e.target.value }))}
+                className="border-stone-200 resize-none"
+              />
+            </div>
+          </div>
+
+          <div className="px-5 py-3 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCurrentStep(s => s - 1)}
+              className="text-stone-500 gap-1"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Anterior
+            </Button>
+            <Button
+              onClick={handleClose}
+              disabled={saving || !cierreForm.resultado || !cierreForm.fecha_proxima_verificacion}
+              className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
+            >
+              {saving
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Cerrando…</>
+                : <><CheckCircle2 className="h-4 w-4" /> Cerrar verificación</>
+              }
+            </Button>
+          </div>
         </div>
-      </form>
+      )}
+
+      {/* Step map */}
+      {steps.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap">
+          {steps.map((s, i) => (
+            <div
+              key={i}
+              className={cn(
+                'h-1.5 rounded-full flex-1 min-w-4 transition-colors',
+                i < currentStep ? 'bg-emerald-400' : i === currentStep ? 'bg-emerald-600' : 'bg-stone-200',
+              )}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

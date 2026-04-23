@@ -55,22 +55,20 @@ export default function CertificarPage() {
       .catch(() => setLoadingInst(false))
   }, [id])
 
-  // Auto-calculate fecha_vencimiento when fecha_emision changes
+  // Auto-calculate fecha_vencimiento when fecha_emision changes (cadencia_meses from conjunto)
   useEffect(() => {
     if (form.fecha_emision && instrumento) {
-      const period = instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias
-      if (period) {
-        const emision = new Date(form.fecha_emision)
-        emision.setDate(emision.getDate() + period)
-        setForm(f => ({ ...f, fecha_vencimiento: emision.toISOString().split('T')[0] }))
-      }
+      const meses = instrumento.conjunto?.cadencia_meses ?? 12
+      const emision = new Date(form.fecha_emision)
+      emision.setMonth(emision.getMonth() + meses)
+      setForm(f => ({ ...f, fecha_vencimiento: emision.toISOString().split('T')[0] }))
     }
   }, [form.fecha_emision, instrumento])
 
-  // Auto-fill unit from modelo when instrument loads
+  // Auto-fill unit from conjunto when instrument loads
   useEffect(() => {
-    if (instrumento?.modelo?.unidad_medicion && !form.incertidumbre_unidad) {
-      setForm(f => ({ ...f, incertidumbre_unidad: instrumento.modelo.unidad_medicion ?? '' }))
+    if (instrumento?.conjunto?.unidad_medicion && !form.incertidumbre_unidad) {
+      setForm(f => ({ ...f, incertidumbre_unidad: instrumento.conjunto.unidad_medicion ?? '' }))
     }
   }, [instrumento])
 
@@ -164,8 +162,8 @@ export default function CertificarPage() {
             )}
           </div>
           <div className="text-xs text-stone-500 font-mono">
-            Período: {instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias ?? '—'} días
-            {instrumento.modelo?.unidad_medicion && ` · ${instrumento.modelo.unidad_medicion}`}
+            Cadencia: {instrumento.conjunto?.cadencia_meses ?? 12} meses
+            {instrumento.conjunto?.unidad_medicion && ` · ${instrumento.conjunto.unidad_medicion}`}
           </div>
         </div>
       )}

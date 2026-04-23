@@ -345,10 +345,10 @@ export default function EmaHubPage() {
             description="Calendario de calibraciones"
           />
           <NavCard
-            href="/quality/modelos"
+            href="/quality/conjuntos"
             icon={<BookOpen className="h-5 w-5 text-stone-600" />}
-            label="Modelos"
-            description="Modelos de instrumento"
+            label="Conjuntos"
+            description="Conjuntos de herramientas"
           />
           <NavCard
             href="/quality/paquetes"

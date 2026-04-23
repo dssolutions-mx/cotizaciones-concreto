@@ -6,33 +6,6 @@ const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY');
 const FRONTEND_URL = Deno.env.get('FRONTEND_URL') || 'https://dcconcretos-hub.com';
 
-/** TEMPORARY: prepended to credit-validator notification emails only (not escalation). Remove when no longer needed. */
-const TEMP_CREDIT_VALIDATION_EXTRA_RECIPIENTS = [
-  { email: 'hector.morales@dcconcretos.com.mx', first_name: 'Héctor', last_name: 'Morales' },
-];
-
-function prependTemporaryCreditValidators(dbRows) {
-  const list = Array.isArray(dbRows) ? [...dbRows] : [];
-  const seen = new Set(
-    list.map((r) => (r.email || '').toLowerCase().trim()).filter(Boolean)
-  );
-  for (let i = TEMP_CREDIT_VALIDATION_EXTRA_RECIPIENTS.length - 1; i >= 0; i--) {
-    const extra = TEMP_CREDIT_VALIDATION_EXTRA_RECIPIENTS[i];
-    const norm = (extra.email || '').toLowerCase().trim();
-    if (!norm || seen.has(norm)) continue;
-    seen.add(norm);
-    list.unshift({
-      email: norm,
-      first_name: extra.first_name,
-      last_name: extra.last_name,
-      role: 'CREDIT_VALIDATOR',
-      business_unit_id: null,
-      plant_id: null,
-    });
-  }
-  return list;
-}
-
 // Helper function to format currency
 const formatCurrency = (amount) => {
   if (amount === null || amount === undefined) return 'N/A';
@@ -270,11 +243,6 @@ serve(async (req)=>{
     });
   }
 
-  let emailRecipients = recipients || [];
-  if (notificationType === 'new_order' || notificationType === 'client_approved_order') {
-    emailRecipients = prependTemporaryCreditValidators(emailRecipients);
-  }
-  
   // Limit special requirements text
   const truncateText = (text, maxLength = 100) => {
     if (!text) return '';
@@ -311,7 +279,7 @@ serve(async (req)=>{
   let emailSubject, emailContent;
   
   // Send email using SendGrid API for each recipient
-  for (const recipient of emailRecipients) {
+  for (const recipient of recipients) {
     // Generate action tokens for this recipient
     const approveToken = await generateActionToken(order.id, 'approve', recipient.email);
     const rejectToken = await generateActionToken(order.id, 'reject', recipient.email);

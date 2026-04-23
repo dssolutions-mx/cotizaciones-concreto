@@ -13,7 +13,13 @@ interface Options {
   newestFirst?: boolean;
 }
 
-export function useProgressiveGuaranteeAge(from?: Date, to?: Date, plantId?: string | null, options: Options = {}) {
+/** When `plantIds` is non-empty, remisiones are restricted with `.in('plant_id', plantIds)`. */
+export function useProgressiveGuaranteeAge(
+  from?: Date,
+  to?: Date,
+  plantIds?: string[] | null,
+  options: Options = {}
+) {
   const { newestFirst = true } = options;
 
   const [data, setData] = useState<GuaranteeAgeData | null>(null);
@@ -93,8 +99,8 @@ export function useProgressiveGuaranteeAge(from?: Date, to?: Date, plantId?: str
             .lte('fecha', format(slice.end, 'yyyy-MM-dd'))
             .not('recipe_id', 'is', null);
 
-          if (plantId) {
-            query = query.eq('plant_id', plantId);
+          if (plantIds && plantIds.length > 0) {
+            query = query.in('plant_id', plantIds);
           }
 
           const { data: remisiones, error: remErr } = await query;
@@ -142,7 +148,7 @@ export function useProgressiveGuaranteeAge(from?: Date, to?: Date, plantId?: str
     return () => {
       abortRef.current.aborted = true;
     };
-  }, [from, to, plantId, timeSlices]);
+  }, [from, to, plantIds?.join(','), timeSlices]);
 
   return { data, loading, error, streaming, progress };
 }

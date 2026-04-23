@@ -1,52 +1,52 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { startOfMonth, endOfMonth, format, isValid, addMonths } from 'date-fns';
-import { es } from 'date-fns/locale';
+import React, { useState, useMemo, useEffect } from 'react';
+import { startOfMonth, endOfMonth } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from '@/lib/utils';
 import { VAT_RATE } from '@/lib/sales-utils';
 import { DateRange } from "react-day-picker";
 import { usePlantContext } from '@/contexts/PlantContext';
 
-// Import modular components
 import { SalesFilters } from '@/components/finanzas/SalesFilters';
 import { SalesStatisticsCards } from '@/components/finanzas/SalesStatisticsCards';
 import { SalesDataTable } from '@/components/finanzas/SalesDataTable';
 import { SalesVATIndicators } from '@/components/finanzas/SalesVATIndicators';
 
-// Import utilities
 import { exportSalesToExcel } from '@/utils/salesExport';
 import { SalesDataProcessor, SummaryMetrics, ConcreteByRecipe } from '@/utils/salesDataProcessor';
 
-// Import hooks
-import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
+import { useSalesData } from '@/hooks/useSalesData';
 
 export default function VentasDashboardSimple() {
-  const { currentPlant } = usePlantContext();
+  const { currentPlant, availablePlants, businessUnits } = usePlantContext();
+  const plantIdsForQuery = useMemo(
+    () => (currentPlant?.id ? [currentPlant.id] : []),
+    [currentPlant?.id]
+  );
+  const selectedPlantIds = useMemo(
+    () => (currentPlant?.id ? [currentPlant.id] : []),
+    [currentPlant?.id]
+  );
+
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [searchTerm, setSearchTerm] = useState('');
-  const [clientFilter, setClientFilter] = useState<string>('all');
-  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('current');
-
-  // PowerBI Filters
+  const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [resistanceFilter, setResistanceFilter] = useState<string>('all');
   const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>('all');
-  const [tipoFilter, setTipoFilter] = useState<string>('all');
-  const [codigoProductoFilter, setCodigoProductoFilter] = useState<string>('all');
+  const [tipoFilter, setTipoFilter] = useState<string[]>([]);
+  const [codigoProductoFilter, setCodigoProductoFilter] = useState<string[]>([]);
   const [includeVAT, setIncludeVAT] = useState<boolean>(false);
 
-  // Processed data state
   const [summaryMetrics, setSummaryMetrics] = useState<SummaryMetrics | null>(null);
   const [concreteByRecipe, setConcreteByRecipe] = useState<ConcreteByRecipe>({});
 
-  // Use custom hook for data fetching
   const {
     salesData,
     remisionesData,
+    orderItems,
+    pricingMap,
     clients,
     resistances,
     tipos,
@@ -56,19 +56,16 @@ export default function VentasDashboardSimple() {
   } = useSalesData({
     startDate,
     endDate,
-    currentPlant
+    plantIdsForQuery,
   });
 
-  // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
     let filtered = [...remisionesData];
 
-    // Apply client filter
-    if (clientFilter && clientFilter !== 'all') {
-      filtered = filtered.filter(r => r.order?.client_id === clientFilter);
+    if (clientFilter.length > 0) {
+      filtered = filtered.filter(r => r.order?.client_id && clientFilter.includes(r.order.client_id));
     }
 
-    // Apply search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(r =>
@@ -79,64 +76,82 @@ export default function VentasDashboardSimple() {
       );
     }
 
-    // Apply PowerBI Filters
-    if (layoutType === 'powerbi') {
-      if (resistanceFilter && resistanceFilter !== 'all') {
-        filtered = filtered.filter(r => r.recipe?.strength_fc?.toString() === resistanceFilter);
-      }
-      if (efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
-        const requiresInvoice = efectivoFiscalFilter === 'fiscal';
-        filtered = filtered.filter(r => {
-          const order = salesData.find(o => o.id === r.order_id);
-          return order?.requires_invoice === requiresInvoice;
-        });
-      }
-      if (tipoFilter && tipoFilter !== 'all') {
-        filtered = filtered.filter(r => r.tipo_remision === tipoFilter);
-      }
-      if (codigoProductoFilter && codigoProductoFilter !== 'all') {
-        filtered = filtered.filter(r => r.recipe?.recipe_code === codigoProductoFilter);
-      }
+    if (resistanceFilter && resistanceFilter !== 'all') {
+      filtered = filtered.filter(r => r.recipe?.strength_fc?.toString() === resistanceFilter);
+    }
+    if (efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
+      const requiresInvoice = efectivoFiscalFilter === 'fiscal';
+      filtered = filtered.filter(r => {
+        const order = salesData.find(o => o.id === r.order_id);
+        return order?.requires_invoice === requiresInvoice;
+      });
+    }
+    if (tipoFilter.length > 0) {
+      filtered = filtered.filter(r =>
+        r.tipo_remision && tipoFilter.includes(r.tipo_remision)
+      );
+    }
+    if (codigoProductoFilter.length > 0) {
+      filtered = filtered.filter(r =>
+        r.recipe?.recipe_code && codigoProductoFilter.includes(r.recipe.recipe_code)
+      );
     }
 
     return filtered;
-  }, [remisionesData, clientFilter, searchTerm, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
+  }, [remisionesData, clientFilter, searchTerm, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
 
-  // Calculate summary metrics using the utility
-  useMemo(() => {
-    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisiones, salesData, clientFilter);
-    setSummaryMetrics(metrics);
-  }, [filteredRemisiones, salesData, clientFilter]);
+  const virtualVacioDeOllaRemisiones = useMemo(() => {
+    const shouldIncludeVacioDeOlla =
+      tipoFilter.length === 0 ||
+      tipoFilter.includes('VACÍO DE OLLA');
 
-  // Calculate concrete by recipe using the utility
-  useMemo(() => {
-    const concreteRemisiones = filteredRemisiones.filter(r =>
-      r.tipo_remision === 'CONCRETO' ||
-      (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
-    );
-    const result = SalesDataProcessor.calculateConcreteByRecipe(concreteRemisiones);
-    setConcreteByRecipe(result);
-  }, [filteredRemisiones]);
+    if (!shouldIncludeVacioDeOlla) return [];
 
-  // Create virtual vacío de olla remisiones
-  const virtualVacioDeOllaRemisiones = useMemo(() =>
-    SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
+    if (codigoProductoFilter.length > 0 && !codigoProductoFilter.includes('SER001')) {
+      return [];
+    }
+
+    return SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
       salesData,
       remisionesData,
       clientFilter,
       searchTerm,
-      layoutType,
       tipoFilter,
       efectivoFiscalFilter
-    ), [salesData, remisionesData, clientFilter, searchTerm, layoutType, tipoFilter, efectivoFiscalFilter]);
+    );
+  }, [salesData, remisionesData, clientFilter, searchTerm, tipoFilter, efectivoFiscalFilter, codigoProductoFilter]);
 
-  // Combine regular and virtual remisiones
   const filteredRemisionesWithVacioDeOlla = useMemo(() =>
     [...filteredRemisiones, ...virtualVacioDeOllaRemisiones],
     [filteredRemisiones, virtualVacioDeOllaRemisiones]
   );
 
-  // Use processed summary metrics from state
+  useEffect(() => {
+    if (filteredRemisionesWithVacioDeOlla.length > 0 && (!orderItems || orderItems.length === 0)) {
+      return;
+    }
+
+    const metrics = SalesDataProcessor.calculateSummaryMetrics(
+      filteredRemisionesWithVacioDeOlla,
+      salesData,
+      clientFilter,
+      orderItems || [],
+      pricingMap
+    );
+
+    if (filteredRemisionesWithVacioDeOlla.length > 0 || metrics.totalAmount > 0 || metrics.totalVolume > 0) {
+      setSummaryMetrics(metrics);
+    }
+  }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, pricingMap]);
+
+  useEffect(() => {
+    const concreteRemisiones = filteredRemisionesWithVacioDeOlla.filter(r =>
+      r.tipo_remision === 'CONCRETO' ||
+      (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
+    );
+    setConcreteByRecipe(SalesDataProcessor.calculateConcreteByRecipe(concreteRemisiones));
+  }, [filteredRemisionesWithVacioDeOlla]);
+
   const currentSummaryMetrics = summaryMetrics || {
     concreteVolume: 0,
     pumpVolume: 0,
@@ -158,33 +173,21 @@ export default function VentasDashboardSimple() {
     invoiceAmountWithVAT: 0,
     weightedConcretePriceWithVAT: 0,
     weightedPumpPriceWithVAT: 0,
-    weightedEmptyTruckPriceWithVAT: 0
+    weightedEmptyTruckPriceWithVAT: 0,
+    additionalAmount: 0,
   };
 
-  // Calculate date range for display
   const dateRangeText = useMemo(() => SalesDataProcessor.getDateRangeText(startDate, endDate), [startDate, endDate]);
 
-  // Event handlers
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from) setStartDate(range.from);
     if (range?.to) setEndDate(range.to);
-  };
-
-  const handleClientFilterChange = (value: string) => {
-    setClientFilter(value);
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
   };
 
-  const handleResistanceFilterChange = (value: string) => setResistanceFilter(value);
-  const handleEfectivoFiscalFilterChange = (value: string) => setEfectivoFiscalFilter(value);
-  const handleTipoFilterChange = (value: string) => setTipoFilter(value);
-  const handleCodigoProductoFilterChange = (value: string) => setCodigoProductoFilter(value);
-  const handleIncludeVATChange = (checked: boolean) => setIncludeVAT(checked);
-
-  // Excel Export Function using utility
   const exportToExcel = () => {
     const result = exportSalesToExcel(
       filteredRemisionesWithVacioDeOlla,
@@ -230,35 +233,26 @@ export default function VentasDashboardSimple() {
 
   return (
     <div className="container mx-auto p-6">
-      {/* Layout Toggle */}
-      <div className="flex items-center justify-end space-x-2 mb-4">
-        <label className="text-sm">Vista Actual</label>
-        <button
-          onClick={() => setLayoutType(layoutType === 'current' ? 'powerbi' : 'current')}
-          className={`px-3 py-1 rounded text-sm ${layoutType === 'powerbi' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-        >
-          {layoutType === 'powerbi' ? 'PowerBI' : 'Actual'}
-        </button>
-      </div>
-
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Reporte de Ventas Mensual</CardTitle>
           <p className="text-sm text-muted-foreground">{dateRangeText}</p>
         </CardHeader>
         <CardContent>
-          {/* Sales Filters Component */}
           <SalesFilters
             currentPlant={currentPlant}
+            availablePlants={availablePlants}
+            businessUnits={businessUnits}
+            selectedPlantIds={selectedPlantIds}
+            onPlantsChange={() => { /* Alcance fijado por planta actual del contexto */ }}
             startDate={startDate}
             endDate={endDate}
             clientFilter={clientFilter}
             searchTerm={searchTerm}
             clients={clients}
             onDateRangeChange={handleDateRangeChange}
-            onClientFilterChange={handleClientFilterChange}
+            onClientFilterChange={setClientFilter}
             onSearchChange={handleSearchChange}
-            layoutType={layoutType}
             resistanceFilter={resistanceFilter}
             efectivoFiscalFilter={efectivoFiscalFilter}
             tipoFilter={tipoFilter}
@@ -266,17 +260,15 @@ export default function VentasDashboardSimple() {
             resistances={resistances}
             tipos={tipos}
             productCodes={productCodes}
-            onResistanceFilterChange={handleResistanceFilterChange}
-            onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
-            onTipoFilterChange={handleTipoFilterChange}
-            onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
+            onResistanceFilterChange={setResistanceFilter}
+            onEfectivoFiscalFilterChange={setEfectivoFiscalFilter}
+            onTipoFilterChange={setTipoFilter}
+            onCodigoProductoFilterChange={setCodigoProductoFilter}
             includeVAT={includeVAT}
-            onIncludeVATChange={handleIncludeVATChange}
+            onIncludeVATChange={setIncludeVAT}
           />
 
-          {/* VAT Indicators */}
           <SalesVATIndicators
-            layoutType={layoutType}
             includeVAT={includeVAT}
             currentPlant={currentPlant}
             clientFilter={clientFilter}
@@ -285,7 +277,6 @@ export default function VentasDashboardSimple() {
             summaryMetrics={currentSummaryMetrics}
           />
 
-          {/* Summary Cards */}
           {summaryMetrics && (
             <SalesStatisticsCards
               loading={false}
@@ -297,7 +288,6 @@ export default function VentasDashboardSimple() {
             />
           )}
 
-          {/* Data Table */}
           <SalesDataTable
             loading={false}
             filteredRemisionesWithVacioDeOlla={filteredRemisionesWithVacioDeOlla}

@@ -39,25 +39,20 @@ export async function GET(req: NextRequest) {
       .slice(0, 8);
 
     // ── Recent activity (last 10 events across all tables) ─────────────────
-    const [certsRes, verifsRes, incidentesRes, checklistsRes] = await Promise.all([
+    const [certsRes, verifsRes, incidentesRes] = await Promise.all([
       supabase
         .from('certificados_calibracion')
         .select('id, instrumento_id, laboratorio_externo, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })
         .limit(5),
       supabase
-        .from('verificaciones_internas')
-        .select('id, instrumento_id, resultado, created_at, instrumentos(codigo, nombre)')
+        .from('completed_verificaciones')
+        .select('id, instrumento_id, resultado, estado, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })
         .limit(5),
       supabase
         .from('incidentes_instrumento')
         .select('id, instrumento_id, tipo, severidad, estado, created_at, instrumentos(codigo, nombre)')
-        .order('created_at', { ascending: false })
-        .limit(5),
-      supabase
-        .from('checklist_instrumento')
-        .select('id, instrumento_id, tipo_checklist, estado_general, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })
         .limit(5),
     ]);
@@ -99,17 +94,6 @@ export async function GET(req: NextRequest) {
         fecha: row.created_at,
       });
     }
-    for (const row of (checklistsRes.data ?? [])) {
-      const inst = (row.instrumentos as any);
-      if (!inst) continue;
-      activities.push({
-        type: 'checklist',
-        instrumento: { id: row.instrumento_id, codigo: inst.codigo, nombre: inst.nombre },
-        descripcion: `Checklist ${row.tipo_checklist} — ${row.estado_general}`,
-        fecha: row.created_at,
-      });
-    }
-
     // Sort combined activities descending by fecha, take top 10
     activities.sort((a, b) => b.fecha.localeCompare(a.fecha));
     const recentActivity = activities.slice(0, 10);

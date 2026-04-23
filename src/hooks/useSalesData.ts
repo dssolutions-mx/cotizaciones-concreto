@@ -1,17 +1,26 @@
 import { useRef, useState, useEffect } from 'react';
-import { addDays, endOfWeek, format, isAfter, isBefore, max as dateMax, min as dateMin, startOfDay, startOfWeek } from 'date-fns';
+import {
+  addDays,
+  endOfWeek,
+  format,
+  isAfter,
+  isBefore,
+  isValid,
+  max as dateMax,
+  min as dateMin,
+  startOfDay,
+  startOfWeek,
+} from 'date-fns';
 import { supabase } from '@/lib/supabase';
-import { usePlantContext } from '@/contexts/PlantContext';
-import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
 interface UseSalesDataProps {
   startDate: Date | undefined;
   endDate: Date | undefined;
-  currentPlant: any;
+  /** Finite plant scope for remisiones, pricing view, and orders (intersected with ACL by caller). */
+  plantIdsForQuery: string[];
 }
 
-export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataProps) => {
-  const { userAccess, isGlobalAdmin } = usePlantContext();
+export const useSalesData = ({ startDate, endDate, plantIdsForQuery }: UseSalesDataProps) => {
   const [salesData, setSalesData] = useState<any[]>([]);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
   const [orderItems, setOrderItems] = useState<any[]>([]); // Add order items for sophisticated price matching
@@ -28,7 +37,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
 
   useEffect(() => {
     async function fetchSalesDataProgressively() {
-      if (!startDate || !endDate) {
+      if (!startDate || !endDate || !plantIdsForQuery.length) {
         setSalesData([]);
         setRemisionesData([]);
         setOrderItems([]);
@@ -36,6 +45,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         setResistances([]);
         setTipos([]);
         setProductCodes([]);
+        setPricingMap(new Map());
         setLoading(false);
         return;
       }
@@ -87,19 +97,13 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           const formattedStart = format(slice.from, 'yyyy-MM-dd');
           const formattedEnd = format(slice.to, 'yyyy-MM-dd');
 
-          // Get accessible plant IDs (handles business unit access)
-          const plantIds = await plantAwareDataService.getAccessiblePlantIds({
-            userAccess,
-            isGlobalAdmin,
-            currentPlantId: currentPlant?.id || null
-          });
-
           // Fetch remisiones for the slice
           let remisionesQuery = supabase
             .from('remisiones')
             .select(`
               *,
-              recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
+              recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours, master_recipe_id),
+              master_recipes:master_recipe_id(id, master_code, strength_fc, slump, placement_type),
               order:orders(
                 id,
                 order_number,
@@ -112,16 +116,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
             `)
             .gte('fecha', formattedStart)
             .lte('fecha', formattedEnd)
-            .eq('is_production_record', false);
-
-          // Apply plant filtering based on accessible plant IDs
-          if (plantIds && plantIds.length > 0) {
-            remisionesQuery = remisionesQuery.in('plant_id', plantIds);
-          } else if (plantIds && plantIds.length === 0) {
-            // User has no access - return empty by filtering on non-existent condition
-            remisionesQuery = remisionesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
-          }
-          // If plantIds is null, user can access all plants (global admin), so no filter applied
+            .eq('is_production_record', false)
+            .in('plant_id', plantIdsForQuery);
 
           const { data: sliceRemisiones, error: remErr } = await remisionesQuery.order('fecha', { ascending: false });
           if (remErr) throw remErr;
@@ -130,17 +126,11 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           if (sliceRemisiones && sliceRemisiones.length > 0) {
             const remisionIds = sliceRemisiones.map(r => r.id);
             try {
-              let pricingQuery = supabase
+              const pricingQuery = supabase
                 .from('remisiones_with_pricing')
                 .select('remision_id, subtotal_amount, volumen_fabricado')
-                .in('remision_id', remisionIds.map(id => String(id)));
-
-              // Apply same plant filtering for pricing data
-              if (plantIds && plantIds.length > 0) {
-                pricingQuery = pricingQuery.in('plant_id', plantIds);
-              } else if (plantIds && plantIds.length === 0) {
-                pricingQuery = pricingQuery.eq('id', '00000000-0000-0000-0000-000000000000');
-              }
+                .in('remision_id', remisionIds.map(id => String(id)))
+                .in('plant_id', plantIdsForQuery);
 
               const { data: pricingData, error: pricingErr } = await pricingQuery;
               if (!pricingErr && pricingData) {
@@ -171,7 +161,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           const orderIdsToFetch = newOrderIds.filter(id => id && !ordersById.has(String(id)));
 
           if (orderIdsToFetch.length > 0) {
-            let ordersQuery = supabase
+            const ordersQuery = supabase
               .from('orders')
               .select(`
                 id,
@@ -183,11 +173,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
                 clients:clients(business_name)
               `)
               .in('id', orderIdsToFetch)
+              .in('plant_id', plantIdsForQuery)
               .not('order_status', 'eq', 'cancelled');
-
-            if (currentPlant?.id) {
-              ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-            }
 
             const { data: newOrders, error: ordersError } = await ordersQuery;
             if (ordersError) throw ordersError;
@@ -324,7 +311,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
     return () => {
       abortRef.current.aborted = true;
     };
-  }, [startDate, endDate, currentPlant]);
+  }, [startDate, endDate, plantIdsForQuery.join(',')]);
 
   return {
     salesData,
@@ -342,9 +329,19 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
   };
 };
 
-// Hook for fetching historical sales data (matching main sales data processing)
-export const useHistoricalSalesData = (currentPlant: any) => {
-  const { userAccess, isGlobalAdmin } = usePlantContext();
+export type UseHistoricalSalesDataParams = {
+  plantIdsForQuery: string[];
+  /** When both set, historical series matches the ventas report window (remisión `fecha`). */
+  startDate?: Date | null;
+  endDate?: Date | null;
+};
+
+// Hook for fetching historical sales data (same remisión date window as the report when dates are passed)
+export const useHistoricalSalesData = ({
+  plantIdsForQuery,
+  startDate: rangeStartProp,
+  endDate: rangeEndProp,
+}: UseHistoricalSalesDataParams) => {
   const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [historicalRemisiones, setHistoricalRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -356,27 +353,43 @@ export const useHistoricalSalesData = (currentPlant: any) => {
       setError(null);
 
       try {
-        // Calculate date range for last 24 months (2 years of historical data)
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setMonth(startDate.getMonth() - 24);
+        if (!plantIdsForQuery.length) {
+          setHistoricalData([]);
+          setHistoricalRemisiones([]);
+          setLoading(false);
+          return;
+        }
 
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+        let rangeStart: Date;
+        let rangeEnd: Date;
+        if (
+          rangeStartProp &&
+          rangeEndProp &&
+          isValid(rangeStartProp) &&
+          isValid(rangeEndProp)
+        ) {
+          const safeStart = startOfDay(rangeStartProp);
+          const safeEnd = startOfDay(rangeEndProp);
+          rangeStart = isBefore(safeStart, safeEnd) ? safeStart : safeEnd;
+          rangeEnd = isAfter(safeStart, safeEnd) ? safeStart : safeEnd;
+        } else {
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setMonth(startDate.getMonth() - 24);
+          rangeStart = startOfDay(startDate);
+          rangeEnd = startOfDay(endDate);
+        }
 
-        // Get accessible plant IDs (handles business unit access)
-        const plantIds = await plantAwareDataService.getAccessiblePlantIds({
-          userAccess,
-          isGlobalAdmin,
-          currentPlantId: currentPlant?.id || null
-        });
+        const formattedStartDate = format(rangeStart, 'yyyy-MM-dd');
+        const formattedEndDate = format(rangeEnd, 'yyyy-MM-dd');
 
         // 1. Fetch remisiones directly by their fecha field (MATCHING MAIN SALES LOGIC)
-        let remisionesQuery = supabase
+        const remisionesQuery = supabase
           .from('remisiones')
           .select(`
             *,
-            recipe:recipes(id, recipe_code, strength_fc),
+            recipe:recipes(id, recipe_code, strength_fc, master_recipe_id),
+            master_recipes:master_recipe_id(id, master_code, strength_fc, slump, placement_type),
             order:orders(
               id,
               order_number,
@@ -389,14 +402,8 @@ export const useHistoricalSalesData = (currentPlant: any) => {
           `)
           .gte('fecha', formattedStartDate)
           .lte('fecha', formattedEndDate)
-          .eq('is_production_record', false);
-
-        // Apply plant filtering based on accessible plant IDs
-        if (plantIds && plantIds.length > 0) {
-          remisionesQuery = remisionesQuery.in('plant_id', plantIds);
-        } else if (plantIds && plantIds.length === 0) {
-          remisionesQuery = remisionesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
-        }
+          .eq('is_production_record', false)
+          .in('plant_id', plantIdsForQuery);
 
         const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: true });
 
@@ -414,7 +421,7 @@ export const useHistoricalSalesData = (currentPlant: any) => {
         }
 
         // 2. Fetch all relevant orders (MATCHING MAIN SALES LOGIC)
-        let ordersQuery = supabase
+        const ordersQuery = supabase
           .from('orders')
           .select(`
             id,
@@ -426,12 +433,8 @@ export const useHistoricalSalesData = (currentPlant: any) => {
             clients:clients(business_name)
           `)
           .in('id', uniqueOrderIds)
+          .in('plant_id', plantIdsForQuery)
           .not('order_status', 'eq', 'cancelled');
-
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-        }
 
         const { data: orders, error: ordersError } = await ordersQuery;
 
@@ -483,13 +486,17 @@ export const useHistoricalSalesData = (currentPlant: any) => {
               const assignedRemisionNumber = sortedRemisiones[0].remision_number;
 
               // Create a virtual remision object for this vacío de olla item
+              const anchor = sortedRemisiones[0] as any;
               const virtualRemision = {
                 id: `vacio-${order.id}-${emptyTruckItem.id}`, // Generate a unique ID
                 remision_number: assignedRemisionNumber, // Use the assigned remision number
                 order_id: order.id,
-                fecha: order.delivery_date, // Use the order's delivery date
+                // Align with main report: anchor to an actual remisión date (not delivery_date),
+                // so vacío stays inside the same fecha window as concrete remisiones.
+                fecha: anchor?.fecha || order.delivery_date,
                 tipo_remision: 'VACÍO DE OLLA',
                 volumen_fabricado: parseFloat(emptyTruckItem.empty_truck_volume) || parseFloat(emptyTruckItem.volume) || 1,
+                plant_id: anchor?.plant_id,
                 recipe: { recipe_code: 'SER001' }, // Standard code for vacío de olla
                 order: {
                   client_id: order.client_id,
@@ -540,7 +547,11 @@ export const useHistoricalSalesData = (currentPlant: any) => {
     }
 
     fetchHistoricalData();
-  }, [currentPlant]);
+  }, [
+    plantIdsForQuery.join(','),
+    rangeStartProp?.getTime() ?? '',
+    rangeEndProp?.getTime() ?? '',
+  ]);
 
   return {
     historicalData,

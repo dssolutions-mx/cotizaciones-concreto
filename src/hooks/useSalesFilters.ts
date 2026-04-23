@@ -12,7 +12,6 @@ export const useSalesFilters = ({ remisionesData, salesData }: UseSalesFiltersPr
   const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>('all');
   const [tipoFilter, setTipoFilter] = useState<string>('all');
   const [codigoProductoFilter, setCodigoProductoFilter] = useState<string>('all');
-  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
 
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
@@ -34,35 +33,28 @@ export const useSalesFilters = ({ remisionesData, salesData }: UseSalesFiltersPr
       );
     }
 
-    // --- Apply PowerBI Filters ---
-    if (layoutType === 'powerbi') {
-      // Resistance Filter
-      if (resistanceFilter && resistanceFilter !== 'all') {
-        filtered = filtered.filter(r => r.recipe?.strength_fc?.toString() === resistanceFilter);
-      }
+    if (resistanceFilter && resistanceFilter !== 'all') {
+      filtered = filtered.filter(r => r.recipe?.strength_fc?.toString() === resistanceFilter);
+    }
 
-      // Efectivo/Fiscal Filter
-      if (efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
-        const requiresInvoice = efectivoFiscalFilter === 'fiscal';
-        filtered = filtered.filter(r => {
-          const order = salesData.find(o => o.id === r.order_id);
-          return order?.requires_invoice === requiresInvoice;
-        });
-      }
+    if (efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
+      const requiresInvoice = efectivoFiscalFilter === 'fiscal';
+      filtered = filtered.filter(r => {
+        const order = salesData.find(o => o.id === r.order_id);
+        return order?.requires_invoice === requiresInvoice;
+      });
+    }
 
-      // Tipo Filter
-      if (tipoFilter && tipoFilter !== 'all') {
-        filtered = filtered.filter(r => r.tipo_remision === tipoFilter);
-      }
+    if (tipoFilter && tipoFilter !== 'all') {
+      filtered = filtered.filter(r => r.tipo_remision === tipoFilter);
+    }
 
-      // Codigo Producto Filter
-      if (codigoProductoFilter && codigoProductoFilter !== 'all') {
-        filtered = filtered.filter(r => r.recipe?.recipe_code === codigoProductoFilter);
-      }
+    if (codigoProductoFilter && codigoProductoFilter !== 'all') {
+      filtered = filtered.filter(r => r.recipe?.recipe_code === codigoProductoFilter);
     }
 
     return filtered;
-  }, [remisionesData, clientFilter, searchTerm, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
+  }, [remisionesData, clientFilter, searchTerm, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
 
   // Create virtual remisiones entries for "vacío de olla" orders
   const filteredRemisionesWithVacioDeOlla = useMemo(() => {
@@ -140,8 +132,6 @@ export const useSalesFilters = ({ remisionesData, salesData }: UseSalesFiltersPr
     setTipoFilter,
     codigoProductoFilter,
     setCodigoProductoFilter,
-    layoutType,
-    setLayoutType,
 
     // Filtered data
     filteredRemisiones,

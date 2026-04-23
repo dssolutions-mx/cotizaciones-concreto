@@ -1,27 +1,26 @@
 /**
- * EMA Instrument Service
- * Handles instrument models, physical instruments, calibration certs,
- * internal verifications, incidents, checklists, packages, and snapshots.
+ * EMA Instrument Service — instruments, conjuntos, certs, mantenimientos,
+ * incidents, packages, and muestreo/ensayo snapshots.
+ *
+ * Verification templates + completed verifications live in
+ * `emaVerificacionService.ts`.
  */
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type {
-  ModeloInstrumento,
-  CreateModeloInput,
-  UpdateModeloInput,
+  ConjuntoHerramientas,
+  CreateConjuntoInput,
+  UpdateConjuntoInput,
   Instrumento,
   InstrumentoDetalle,
   InstrumentoCard,
   CreateInstrumentoInput,
   UpdateInstrumentoInput,
+  EffectiveServiceWindow,
   CertificadoCalibracion,
   CreateCertificadoInput,
-  VerificacionInterna,
-  CreateVerificacionInput,
   IncidenteInstrumento,
   CreateIncidenteInput,
-  ChecklistInstrumento,
-  CreateChecklistInput,
   PaqueteEquipo,
   PaqueteConInstrumentos,
   CreatePaqueteInput,
@@ -34,21 +33,24 @@ import type {
   EmaConfiguracion,
   UpdateEmaConfigInput,
   EstadoSnapshot,
+  MantenimientoInstrumento,
+  CreateMantenimientoInput,
+  CompletedVerificacionCard,
 } from '@/types/ema';
 
 // ─────────────────────────────────────────
-// Modelos
+// Conjuntos de herramientas
 // ─────────────────────────────────────────
 
-export async function getModelos(params?: {
+export async function getConjuntos(params?: {
   business_unit_id?: string;
   is_active?: boolean;
-}): Promise<ModeloInstrumento[]> {
+}): Promise<ConjuntoHerramientas[]> {
   const supabase = await createServerSupabaseClient();
   let query = supabase
-    .from('modelos_instrumento')
+    .from('conjuntos_herramientas')
     .select('*')
-    .order('nombre_modelo');
+    .order('codigo_conjunto');
 
   if (params?.business_unit_id) {
     query = query.or(`business_unit_id.eq.${params.business_unit_id},business_unit_id.is.null`);
@@ -62,10 +64,10 @@ export async function getModelos(params?: {
   return data ?? [];
 }
 
-export async function getModeloById(id: string): Promise<ModeloInstrumento | null> {
+export async function getConjuntoById(id: string): Promise<ConjuntoHerramientas | null> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('modelos_instrumento')
+    .from('conjuntos_herramientas')
     .select('*')
     .eq('id', id)
     .single();
@@ -73,13 +75,13 @@ export async function getModeloById(id: string): Promise<ModeloInstrumento | nul
   return data;
 }
 
-export async function createModelo(
-  input: CreateModeloInput,
+export async function createConjunto(
+  input: CreateConjuntoInput,
   userId: string,
-): Promise<ModeloInstrumento> {
+): Promise<ConjuntoHerramientas> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('modelos_instrumento')
+    .from('conjuntos_herramientas')
     .insert({ ...input, created_by: userId })
     .select()
     .single();
@@ -87,13 +89,13 @@ export async function createModelo(
   return data;
 }
 
-export async function updateModelo(
+export async function updateConjunto(
   id: string,
-  input: UpdateModeloInput,
-): Promise<ModeloInstrumento> {
+  input: UpdateConjuntoInput,
+): Promise<ConjuntoHerramientas> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('modelos_instrumento')
+    .from('conjuntos_herramientas')
     .update(input)
     .eq('id', id)
     .select()
@@ -110,22 +112,23 @@ export async function getInstrumentos(
   params: InstrumentosListParams = {},
 ): Promise<InstrumentoCard[]> {
   const supabase = await createServerSupabaseClient();
-  const { plant_id, tipo, estado, categoria, search, page = 1, limit = 50 } = params;
+  const { plant_id, tipo, estado, categoria, conjunto_id, search, page = 1, limit = 50 } = params;
 
   let query = supabase
     .from('instrumentos')
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento,
       plant_id, marca, modelo_comercial,
-      modelos_instrumento!inner(categoria)
+      conjuntos_herramientas!inner(categoria)
     `)
-    .order('nombre');
+    .order('codigo');
 
-  if (plant_id) query = query.eq('plant_id', plant_id);
-  if (tipo)     query = query.eq('tipo', tipo);
-  if (estado)   query = query.eq('estado', estado);
-  if (categoria) query = query.eq('modelos_instrumento.categoria', categoria);
-  if (search)   query = query.or(`nombre.ilike.%${search}%,codigo.ilike.%${search}%`);
+  if (plant_id)    query = query.eq('plant_id', plant_id);
+  if (tipo)        query = query.eq('tipo', tipo);
+  if (estado)      query = query.eq('estado', estado);
+  if (categoria)   query = query.eq('conjuntos_herramientas.categoria', categoria);
+  if (conjunto_id) query = query.eq('conjunto_id', conjunto_id);
+  if (search)      query = query.or(`nombre.ilike.%${search}%,codigo.ilike.%${search}%`);
 
   query = query.range((page - 1) * limit, page * limit - 1);
 
@@ -137,7 +140,7 @@ export async function getInstrumentos(
     codigo: row.codigo,
     nombre: row.nombre,
     tipo: row.tipo,
-    categoria: row.modelos_instrumento?.categoria ?? '',
+    categoria: row.conjuntos_herramientas?.categoria ?? '',
     estado: row.estado,
     fecha_proximo_evento: row.fecha_proximo_evento,
     plant_id: row.plant_id,
@@ -152,10 +155,10 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
     .from('instrumentos')
     .select(`
       *,
-      modelo:modelos_instrumento(*),
+      conjunto:conjuntos_herramientas(*),
       instrumento_maestro:instrumentos!instrumento_maestro_id(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       ),
       plant:plants(id, name, code)
     `)
@@ -164,20 +167,46 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
 
   if (error) return null;
 
-  const periodo_efectivo_dias =
-    data.periodo_calibracion_dias ?? data.modelo?.periodo_calibracion_dias ?? 365;
-
-  return { ...data, periodo_efectivo_dias };
+  const ventana_efectiva = computeEffectiveWindow(data);
+  return { ...data, ventana_efectiva };
 }
 
+/** Client-side mirror of ema_effective_service_window: override → conjunto. */
+export function computeEffectiveWindow(
+  row: { mes_inicio_servicio_override: number | null; mes_fin_servicio_override: number | null; conjunto: ConjuntoHerramientas },
+): EffectiveServiceWindow {
+  const mes_inicio = row.mes_inicio_servicio_override ?? row.conjunto.mes_inicio_servicio ?? null;
+  const mes_fin    = row.mes_fin_servicio_override    ?? row.conjunto.mes_fin_servicio    ?? null;
+  const from_override = row.mes_inicio_servicio_override !== null || row.mes_fin_servicio_override !== null;
+  return {
+    tipo_servicio: row.conjunto.tipo_servicio,
+    mes_inicio,
+    mes_fin,
+    cadencia_meses: row.conjunto.cadencia_meses,
+    from_override,
+  };
+}
+
+/**
+ * Create an instrument.  `codigo` is always server-generated via
+ * ema_next_instrument_code(conjunto_id) — never accept it from the client.
+ */
 export async function createInstrumento(
   input: CreateInstrumentoInput,
   userId: string,
 ): Promise<Instrumento> {
   const supabase = await createServerSupabaseClient();
+
+  // 1. Generate the next code atomically.
+  const { data: codeData, error: codeErr } = await supabase
+    .rpc('ema_next_instrument_code', { p_conjunto_id: input.conjunto_id });
+  if (codeErr) throw codeErr;
+  const codigo = codeData as unknown as string;
+
+  // 2. Insert the instrument with the generated code.
   const { data, error } = await supabase
     .from('instrumentos')
-    .insert({ ...input, created_by: userId })
+    .insert({ ...input, codigo, created_by: userId })
     .select()
     .single();
   if (error) throw error;
@@ -245,35 +274,37 @@ export async function createCertificado(
 }
 
 // ─────────────────────────────────────────
-// Verificaciones internas (Type C)
+// Completed verifications — lightweight card list for trazabilidad
+// (Full CRUD lives in emaVerificacionService.ts)
 // ─────────────────────────────────────────
 
-export async function getVerificacionesByInstrumento(
+export async function getCompletedVerificacionesByInstrumento(
   instrumento_id: string,
-): Promise<VerificacionInterna[]> {
+): Promise<CompletedVerificacionCard[]> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('verificaciones_internas')
-    .select('*')
+    .from('completed_verificaciones')
+    .select(`
+      id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado,
+      template_version:verificacion_template_versions(
+        version_number,
+        template:verificacion_templates(codigo)
+      ),
+      created_by_profile:user_profiles!completed_verificaciones_created_by_fkey(full_name)
+    `)
     .eq('instrumento_id', instrumento_id)
     .order('fecha_verificacion', { ascending: false });
   if (error) throw error;
-  return data ?? [];
-}
-
-export async function createVerificacion(
-  input: CreateVerificacionInput,
-  userId: string,
-): Promise<VerificacionInterna> {
-  const supabase = await createServerSupabaseClient();
-  // Trigger trg_after_verificacion handles: updating instrumento + scheduling next event
-  const { data, error } = await supabase
-    .from('verificaciones_internas')
-    .insert({ ...input, realizado_por: userId })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    fecha_verificacion: row.fecha_verificacion,
+    fecha_proxima_verificacion: row.fecha_proxima_verificacion,
+    resultado: row.resultado,
+    estado: row.estado,
+    template_codigo: row.template_version?.template?.codigo ?? '',
+    template_version_number: row.template_version?.version_number ?? 0,
+    created_by_name: row.created_by_profile?.full_name ?? null,
+  }));
 }
 
 // ─────────────────────────────────────────
@@ -298,7 +329,6 @@ export async function createIncidente(
   userId: string,
 ): Promise<IncidenteInstrumento> {
   const supabase = await createServerSupabaseClient();
-  // Trigger trg_incidente_severidad handles: alta/critica → en_revision + programa entry
   const { data, error } = await supabase
     .from('incidentes_instrumento')
     .insert({ ...input, reportado_por: userId })
@@ -330,30 +360,30 @@ export async function resolverIncidente(
 }
 
 // ─────────────────────────────────────────
-// Checklists
+// Mantenimientos preventivos
 // ─────────────────────────────────────────
 
-export async function getChecklistsByInstrumento(
+export async function getMantenimientosByInstrumento(
   instrumento_id: string,
-): Promise<ChecklistInstrumento[]> {
+): Promise<MantenimientoInstrumento[]> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('checklist_instrumento')
+    .from('mantenimientos_instrumento')
     .select('*')
     .eq('instrumento_id', instrumento_id)
-    .order('fecha_inspeccion', { ascending: false });
+    .order('fecha_mantenimiento', { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createChecklist(
-  input: CreateChecklistInput,
+export async function createMantenimiento(
+  input: CreateMantenimientoInput,
   userId: string,
-): Promise<ChecklistInstrumento> {
+): Promise<MantenimientoInstrumento> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('checklist_instrumento')
-    .insert({ ...input, realizado_por: userId })
+    .from('mantenimientos_instrumento')
+    .insert({ ...input, created_by: userId, realizado_por: input.realizado_por ?? userId })
     .select()
     .single();
   if (error) throw error;
@@ -378,7 +408,7 @@ export async function getPaquetes(params?: {
         id, paquete_id, instrumento_id, orden, is_required,
         instrumento:instrumentos(
           id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-          modelos_instrumento(categoria)
+          conjuntos_herramientas(categoria)
         )
       )
     `)
@@ -386,14 +416,10 @@ export async function getPaquetes(params?: {
 
   if (params?.is_active !== undefined) query = query.eq('is_active', params.is_active);
   if (params?.plant_id) {
-    query = query.or(
-      `plant_id.eq.${params.plant_id},plant_id.is.null`
-    );
+    query = query.or(`plant_id.eq.${params.plant_id},plant_id.is.null`);
   }
   if (params?.business_unit_id) {
-    query = query.or(
-      `business_unit_id.eq.${params.business_unit_id},business_unit_id.is.null`
-    );
+    query = query.or(`business_unit_id.eq.${params.business_unit_id},business_unit_id.is.null`);
   }
 
   const { data, error } = await query;
@@ -407,7 +433,7 @@ export async function getPaquetes(params?: {
         ...pi,
         instrumento: {
           ...pi.instrumento,
-          categoria: pi.instrumento?.modelos_instrumento?.categoria ?? '',
+          categoria: pi.instrumento?.conjuntos_herramientas?.categoria ?? '',
         },
       })),
   }));
@@ -423,7 +449,7 @@ export async function getPaqueteById(id: string): Promise<PaqueteConInstrumentos
         id, paquete_id, instrumento_id, orden, is_required,
         instrumento:instrumentos(
           id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-          modelos_instrumento(categoria)
+          conjuntos_herramientas(categoria)
         )
       )
     `)
@@ -439,7 +465,7 @@ export async function getPaqueteById(id: string): Promise<PaqueteConInstrumentos
         ...pi,
         instrumento: {
           ...pi.instrumento,
-          categoria: pi.instrumento?.modelos_instrumento?.categoria ?? '',
+          categoria: pi.instrumento?.conjuntos_herramientas?.categoria ?? '',
         },
       })),
   };
@@ -477,10 +503,6 @@ export async function createPaquete(
 // Snapshot helpers for muestreo / ensayo
 // ─────────────────────────────────────────
 
-/**
- * Load InstrumentoCard rows for snapshot APIs (UUID list from client).
- * Used to enrich POST /api/ema/muestreos|ensayos/.../instrumentos bodies.
- */
 export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<string, InstrumentoCard>> {
   const map = new Map<string, InstrumentoCard>();
   if (ids.length === 0) return map;
@@ -491,7 +513,7 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento,
       plant_id, marca, modelo_comercial,
-      modelos_instrumento!inner(categoria)
+      conjuntos_herramientas!inner(categoria)
     `)
     .in('id', ids);
 
@@ -504,7 +526,7 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
       codigo: r.codigo,
       nombre: r.nombre,
       tipo: r.tipo,
-      categoria: r.modelos_instrumento?.categoria ?? '',
+      categoria: r.conjuntos_herramientas?.categoria ?? '',
       estado: r.estado,
       fecha_proximo_evento: r.fecha_proximo_evento,
       plant_id: r.plant_id,
@@ -516,10 +538,6 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
   return map;
 }
 
-/**
- * Validate selected instruments against bloquear_vencidos config.
- * Call before saving a muestreo or ensayo.
- */
 export async function validateInstrumentos(
   seleccionados: InstrumentoSeleccionado[],
 ): Promise<InstrumentosValidationResult> {
@@ -545,10 +563,6 @@ export async function validateInstrumentos(
   };
 }
 
-/**
- * Persist muestreo_instrumentos snapshot rows.
- * Called after muestreo is saved (inside the same API route transaction).
- */
 export async function saveMuestreoInstrumentos(
   muestreo_id: string,
   seleccionados: InstrumentoSeleccionado[],
@@ -573,10 +587,6 @@ export async function saveMuestreoInstrumentos(
   return data ?? [];
 }
 
-/**
- * Persist ensayo_instrumentos snapshot rows.
- * Called after ensayo is saved.
- */
 export async function saveEnsayoInstrumentos(
   ensayo_id: string,
   seleccionados: InstrumentoSeleccionado[],
@@ -600,7 +610,6 @@ export async function saveEnsayoInstrumentos(
   return data ?? [];
 }
 
-/** Map full instrument estado to the snapshot enum (vigente/proximo_vencer/vencido) */
 function mapEstadoToSnapshot(estado: string): 'vigente' | 'proximo_vencer' | 'vencido' {
   if (estado === 'vencido') return 'vencido';
   if (estado === 'proximo_vencer') return 'proximo_vencer';
@@ -611,7 +620,6 @@ function mapEstadoToSnapshot(estado: string): 'vigente' | 'proximo_vencer' | 've
 // Trazabilidad
 // ─────────────────────────────────────────
 
-/** Instruments used in a specific muestreo with their snapshot state */
 export async function getInstrumentosByMuestreo(
   muestreo_id: string,
 ): Promise<Array<MuestreoInstrumento & { instrumento: InstrumentoCard }>> {
@@ -622,7 +630,7 @@ export async function getInstrumentosByMuestreo(
       *,
       instrumento:instrumentos(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .eq('muestreo_id', muestreo_id);
@@ -631,12 +639,11 @@ export async function getInstrumentosByMuestreo(
     ...row,
     instrumento: {
       ...row.instrumento,
-      categoria: row.instrumento?.modelos_instrumento?.categoria ?? '',
+      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
     },
   }));
 }
 
-/** Instruments used in a specific ensayo with their snapshot state */
 export async function getInstrumentosByEnsayo(
   ensayo_id: string,
 ): Promise<Array<EnsayoInstrumento & { instrumento: InstrumentoCard }>> {
@@ -647,7 +654,7 @@ export async function getInstrumentosByEnsayo(
       *,
       instrumento:instrumentos(
         id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        modelos_instrumento(categoria)
+        conjuntos_herramientas(categoria)
       )
     `)
     .eq('ensayo_id', ensayo_id);
@@ -656,12 +663,11 @@ export async function getInstrumentosByEnsayo(
     ...row,
     instrumento: {
       ...row.instrumento,
-      categoria: row.instrumento?.modelos_instrumento?.categoria ?? '',
+      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
     },
   }));
 }
 
-/** Full trazabilidad summary for an instrument */
 export async function getInstrumentoTrazabilidad(
   instrumento_id: string,
 ): Promise<InstrumentoTrazabilidad | null> {
@@ -678,7 +684,7 @@ export async function getInstrumentoTrazabilidad(
   ] = await Promise.all([
     getInstrumentoById(instrumento_id),
     getCertificadosByInstrumento(instrumento_id),
-    getVerificacionesByInstrumento(instrumento_id),
+    getCompletedVerificacionesByInstrumento(instrumento_id),
     supabase
       .from('muestreo_instrumentos')
       .select('id', { count: 'exact', head: true })
@@ -689,29 +695,19 @@ export async function getInstrumentoTrazabilidad(
       .eq('instrumento_id', instrumento_id),
     supabase
       .from('muestreo_instrumentos')
-      .select(
-        `
-        id,
-        muestreo_id,
-        estado_al_momento,
-        created_at,
+      .select(`
+        id, muestreo_id, estado_al_momento, created_at,
         muestreos(fecha_muestreo)
-      `,
-      )
+      `)
       .eq('instrumento_id', instrumento_id)
       .order('created_at', { ascending: false })
       .limit(10),
     supabase
       .from('ensayo_instrumentos')
-      .select(
-        `
-        id,
-        ensayo_id,
-        estado_al_momento,
-        created_at,
+      .select(`
+        id, ensayo_id, estado_al_momento, created_at,
         ensayos(fecha_ensayo)
-      `,
-      )
+      `)
       .eq('instrumento_id', instrumento_id)
       .order('created_at', { ascending: false })
       .limit(10),

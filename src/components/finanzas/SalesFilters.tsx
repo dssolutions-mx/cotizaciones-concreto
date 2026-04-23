@@ -289,8 +289,6 @@ interface SalesFiltersProps {
   onClientFilterChange: (values: string[]) => void;  // Changed signature for multi-select
   onSearchChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 
-  // PowerBI Filters
-  layoutType: 'current' | 'powerbi';
   resistanceFilter: string;
   efectivoFiscalFilter: string;
   tipoFilter: string[];  // Changed to array for multi-select (CONCRETO, BOMBEO, VACÍO DE OLLA)
@@ -324,8 +322,6 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
   onClientFilterChange,
   onSearchChange,
 
-  // PowerBI Filters
-  layoutType,
   resistanceFilter,
   efectivoFiscalFilter,
   tipoFilter,
@@ -349,179 +345,6 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
   
   return (
       <div className="space-y-6">
-        {/* Current Layout Filters - Only show when layoutType is 'current' */}
-        {layoutType === 'current' && (
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* Enhanced Plant Selector - Multi-select */}
-            <div className="flex flex-col">
-              <Label className="mb-1">Planta</Label>
-              <PlantMultiSelector
-                availablePlants={availablePlants}
-                businessUnits={businessUnits}
-                selectedPlantIds={selectedPlantIds.length > 0 ? selectedPlantIds : (currentPlant?.id ? [currentPlant.id] : [])}
-                onPlantsChange={(ids) => {
-                  if (onPlantsChange) {
-                    onPlantsChange(ids);
-                  } else if (onPlantChange) {
-                    // Fallback to single selection mode
-                    onPlantChange(ids.length > 0 ? ids[0] : null);
-                  }
-                }}
-              />
-            </div>
-
-            {/* Date Range Picker */}
-            <div className="flex flex-col flex-1">
-              <Label htmlFor="dateRange" className="mb-1">Rango de Fechas</Label>
-              <DateRangePickerWithPresets
-                dateRange={{
-                  from: startDate || new Date(),
-                  to: endDate || new Date()
-                }}
-                onDateRangeChange={onDateRangeChange}
-              />
-            </div>
-
-            {/* Client Filter - Multi-select */}
-            <div className="flex flex-col flex-1">
-              <Label className="mb-1">Cliente</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    className="w-full justify-between text-sm font-normal"
-                  >
-                    {safeClientFilter.length === 0 ? (
-                      "Todos los clientes"
-                    ) : safeClientFilter.length === 1 ? (
-                      clients.find(c => c.id === safeClientFilter[0])?.name || "1 cliente seleccionado"
-                    ) : (
-                      `${safeClientFilter.length} clientes seleccionados`
-                    )}
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-64 p-2 z-[9999]" align="start">
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
-                    <div className="flex items-center justify-between pb-2 border-b">
-                      <span className="text-xs font-semibold">Seleccionar Clientes</span>
-                      {safeClientFilter.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          onClick={() => onClientFilterChange([])}
-                        >
-                          Limpiar
-                        </Button>
-                      )}
-                    </div>
-                    {clients.map((client) => (
-                      <div key={client.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={`client-${client.id}`}
-                          checked={safeClientFilter.includes(client.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              onClientFilterChange([...safeClientFilter, client.id]);
-                            } else {
-                              onClientFilterChange(
-                                safeClientFilter.filter((id) => id !== client.id)
-                              );
-                            }
-                          }}
-                        />
-                        <label
-                          htmlFor={`client-${client.id}`}
-                          className="text-xs cursor-pointer flex-1"
-                        >
-                          {client.name}
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              {safeClientFilter.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {safeClientFilter.slice(0, 3).map((clientId) => {
-                    const client = clients.find(c => c.id === clientId);
-                    if (!client) return null;
-                    return (
-                      <Badge
-                        key={clientId}
-                        variant="secondary"
-                        className="text-xs px-1.5 py-0 h-5"
-                      >
-                        {client.name}
-                        <X
-                          className="ml-1 h-3 w-3 cursor-pointer"
-                          onClick={() =>
-                            onClientFilterChange(
-                              safeClientFilter.filter((id) => id !== clientId)
-                            )
-                          }
-                        />
-                      </Badge>
-                    );
-                  })}
-                  {safeClientFilter.length > 3 && (
-                    <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">
-                      +{safeClientFilter.length - 3} más
-                    </Badge>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Search Input */}
-            <div className="flex flex-col flex-1">
-              <Label htmlFor="search" className="mb-1">Buscar</Label>
-              <div className="relative">
-                <Input
-                  id="search"
-                  type="text"
-                  placeholder="Buscar por remisión, cliente o producto..."
-                  value={searchTerm}
-                  onChange={onSearchChange}
-                  className="pl-9"
-                />
-                <svg
-                  className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-            </div>
-
-            {/* VAT Toggle for Current Layout */}
-            <div className="flex flex-col">
-              <Label className="mb-1">Incluir IVA</Label>
-              <div className="flex items-center space-x-2 h-10">
-                <Switch
-                  id="vat-toggle-current"
-                  checked={includeVAT}
-                  onCheckedChange={onIncludeVATChange}
-                />
-                <Label htmlFor="vat-toggle-current" className="text-sm">
-                  {includeVAT ? 'Sí' : 'No'}
-                </Label>
-              </div>
-            </div>
-          </div>
-        )}
-
-      {/* PowerBI Filters Section - Apple HIG Style */}
-      {layoutType === 'powerbi' && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -529,7 +352,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
           className="glass-thick rounded-3xl p-8 border border-label-tertiary/10 relative"
         >
           <h2 className="text-title-3 font-semibold text-label-primary mb-6">
-            Filtros Avanzados
+            Filtros del reporte
           </h2>
           <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 relative'>
             {/* Enhanced Plant Selector - Multi-select with Business Unit filter */}
@@ -538,12 +361,11 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
               <PlantMultiSelector
                 availablePlants={availablePlants}
                 businessUnits={businessUnits}
-                selectedPlantIds={selectedPlantIds.length > 0 ? selectedPlantIds : (currentPlant?.id ? [currentPlant.id] : [])}
+                selectedPlantIds={selectedPlantIds}
                 onPlantsChange={(ids) => {
                   if (onPlantsChange) {
                     onPlantsChange(ids);
                   } else if (onPlantChange) {
-                    // Fallback to single selection mode
                     onPlantChange(ids.length > 0 ? ids[0] : null);
                   }
                 }}
@@ -614,7 +436,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                     {clients.map((client) => (
                       <div key={client.id} className="flex items-center space-x-2">
                         <Checkbox
-                          id={`client-powerbi-${client.id}`}
+                          id={`client-${client.id}`}
                           checked={safeClientFilter.includes(client.id)}
                           onCheckedChange={(checked) => {
                             if (checked) {
@@ -627,7 +449,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                           }}
                         />
                         <label
-                          htmlFor={`client-powerbi-${client.id}`}
+                          htmlFor={`client-${client.id}`}
                           className="text-xs cursor-pointer flex-1"
                         >
                           {client.name}
@@ -862,9 +684,24 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                 </Label>
               </div>
             </div>
+
+            {/* Búsqueda de texto */}
+            <div className="flex flex-col space-y-2 lg:col-span-2">
+              <Label htmlFor="sales-report-search" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Buscar</Label>
+              <div className="relative">
+                <Input
+                  id="sales-report-search"
+                  type="text"
+                  placeholder="Remisión, pedido, cliente, código de receta…"
+                  value={searchTerm}
+                  onChange={onSearchChange}
+                  className="h-8 pl-9 text-sm"
+                />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
           </div>
         </motion.div>
-      )}
     </div>
   );
 };

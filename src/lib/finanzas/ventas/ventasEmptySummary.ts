@@ -1,0 +1,26 @@
+import type { SummaryMetrics } from '@/utils/salesDataProcessor';
+
+export const EMPTY_VENTAS_SUMMARY_METRICS: SummaryMetrics = {
+  concreteVolume: 0,
+  pumpVolume: 0,
+  emptyTruckVolume: 0,
+  totalVolume: 0,
+  concreteAmount: 0,
+  pumpAmount: 0,
+  emptyTruckAmount: 0,
+  totalAmount: 0,
+  cashAmount: 0,
+  invoiceAmount: 0,
+  weightedConcretePrice: 0,
+  weightedPumpPrice: 0,
+  weightedEmptyTruckPrice: 0,
+  weightedResistance: 0,
+  resistanceTooltip: '',
+  totalAmountWithVAT: 0,
+  cashAmountWithVAT: 0,
+  invoiceAmountWithVAT: 0,
+  weightedConcretePriceWithVAT: 0,
+  weightedPumpPriceWithVAT: 0,
+  weightedEmptyTruckPriceWithVAT: 0,
+  additionalAmount: 0,
+};

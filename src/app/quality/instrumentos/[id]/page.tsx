@@ -9,31 +9,26 @@ import {
   Plus,
   Award,
   FlaskConical,
-  ClipboardList,
   Building2,
   CalendarDays,
   Hash,
   Tag,
   Clock,
   CheckCircle2,
-  XCircle,
   Shield,
   ExternalLink,
   TestTube2,
   ChevronRight,
+  Pencil,
+  FileSignature,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import type { InstrumentoDetalle, InstrumentoTrazabilidad } from '@/types/ema'
+import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard } from '@/types/ema'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -70,9 +65,6 @@ export default function InstrumentoDetailPage() {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // Only checklist uses a sheet (simpler form)
-  const [checklistSheetOpen, setChecklistSheetOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -176,6 +168,17 @@ export default function InstrumentoDetailPage() {
             <Button
               variant="outline"
               size="sm"
+              className="border-stone-300 text-stone-700 hover:bg-stone-50 gap-1.5"
+              asChild
+            >
+              <Link href={`/quality/instrumentos/${id}/editar`}>
+                <Pencil className="h-3.5 w-3.5" />
+                Editar
+              </Link>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="border-red-200 text-red-700 hover:bg-red-50 gap-1.5"
               asChild
             >
@@ -215,8 +218,14 @@ export default function InstrumentoDetailPage() {
           />
           <MetaField
             icon={<Clock className="h-3.5 w-3.5" />}
-            label="Período calibración"
-            value={`${instrumento.periodo_efectivo_dias ?? instrumento.periodo_calibracion_dias ?? '—'} días`}
+            label="Ventana de servicio"
+            value={(() => {
+              const w = instrumento.ventana_efectiva
+              if (!w || w.tipo_servicio === 'ninguno' || !w.mes_inicio_servicio || !w.mes_fin_servicio) return '—'
+              const m = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+              return `${m[w.mes_inicio_servicio - 1]}–${m[w.mes_fin_servicio - 1]}`
+            })()}
+            sub={instrumento.ventana_efectiva?.from_override ? 'Override' : undefined}
           />
           {instrumento.marca && (
             <MetaField
@@ -247,7 +256,6 @@ export default function InstrumentoDetailPage() {
               <TabButton value="verificaciones" icon={<CheckCircle2 className="h-3.5 w-3.5" />} label="Verificaciones" />
               <TabButton value="incidentes" icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Incidentes" />
               <TabButton value="trazabilidad" icon={<FlaskConical className="h-3.5 w-3.5" />} label="Trazabilidad" />
-              <TabButton value="checklists" icon={<ClipboardList className="h-3.5 w-3.5" />} label="Checklists" />
             </TabsList>
           </div>
 
@@ -255,7 +263,7 @@ export default function InstrumentoDetailPage() {
             <CertificadosSection instrumentoId={id} />
           </TabsContent>
           <TabsContent value="verificaciones" className="m-0">
-            <VerificacionesSection instrumentoId={id} />
+            <VerificacionesSection instrumentoId={id} conjuntoId={instrumento.conjunto_id ?? null} />
           </TabsContent>
           <TabsContent value="incidentes" className="m-0">
             <IncidentesSection instrumentoId={id} />
@@ -263,19 +271,8 @@ export default function InstrumentoDetailPage() {
           <TabsContent value="trazabilidad" className="m-0">
             <TrazabilidadSection instrumentoId={id} />
           </TabsContent>
-          <TabsContent value="checklists" className="m-0">
-            <ChecklistsSection instrumentoId={id} onOpen={() => setChecklistSheetOpen(true)} />
-          </TabsContent>
         </Tabs>
       </div>
-
-      {/* Only checklist uses Sheet */}
-      <ChecklistSheet
-        open={checklistSheetOpen}
-        onClose={() => setChecklistSheetOpen(false)}
-        instrumentoId={id}
-        onSuccess={() => { setChecklistSheetOpen(false); load() }}
-      />
     </div>
   )
 }
@@ -534,9 +531,19 @@ function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
 
 // ─── Verificaciones Section ──────────────────────────────────────────────────
 
-function VerificacionesSection({ instrumentoId }: { instrumentoId: string }) {
-  const [verifs, setVerifs] = useState<any[]>([])
+function VerificacionesSection({
+  instrumentoId,
+  conjuntoId,
+}: { instrumentoId: string; conjuntoId: string | null }) {
+  const [verifs, setVerifs] = useState<CompletedVerificacionCard[]>([])
   const [loading, setLoading] = useState(true)
+  const [template, setTemplate] = useState<{
+    id: string
+    codigo: string
+    nombre: string
+    active_version_id: string | null
+    active_version_number: number | null
+  } | null>(null)
 
   useEffect(() => {
     fetch(`/api/ema/instrumentos/${instrumentoId}/verificaciones`)
@@ -544,48 +551,99 @@ function VerificacionesSection({ instrumentoId }: { instrumentoId: string }) {
       .then(j => { setVerifs(j.data ?? []); setLoading(false) })
   }, [instrumentoId])
 
+  useEffect(() => {
+    if (!conjuntoId) return
+    fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => setTemplate(j?.data ?? null))
+      .catch(() => {})
+  }, [conjuntoId])
+
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
 
   const resultadoStyle = (r: string) =>
     r === 'conforme' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
       : r === 'no_conforme' ? 'bg-red-100 text-red-800 border-red-200'
-      : 'bg-amber-100 text-amber-800 border-amber-200'
+      : r === 'condicional' ? 'bg-amber-100 text-amber-800 border-amber-200'
+      : 'bg-stone-100 text-stone-600 border-stone-200'
 
   const resultadoLabel = (r: string) =>
-    r === 'conforme' ? 'Conforme' : r === 'no_conforme' ? 'No conforme' : 'Condicional'
+    r === 'conforme' ? 'Conforme'
+      : r === 'no_conforme' ? 'No conforme'
+      : r === 'condicional' ? 'Condicional'
+      : 'Pendiente'
+
+  const estadoLabel = (e: string) =>
+    e === 'cerrado' ? 'Cerrada'
+      : e === 'firmado_revisor' ? 'Firmada (revisor)'
+      : e === 'firmado_operador' ? 'Firmada (operador)'
+      : e === 'cancelado' ? 'Cancelada'
+      : 'En proceso'
+
+  const canStart = !!(template?.active_version_id)
 
   return (
     <div>
       <SectionHeader
         title="Verificaciones internas"
         action={
-          <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
-            <Link href={`/quality/instrumentos/${instrumentoId}/verificar`}>
-              <Plus className="h-3 w-3" /> Registrar
-            </Link>
-          </Button>
+          canStart ? (
+            <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
+              <Link href={`/quality/instrumentos/${instrumentoId}/verificar`}>
+                <Plus className="h-3 w-3" /> Iniciar verificación
+              </Link>
+            </Button>
+          ) : conjuntoId ? (
+            <Button size="sm" variant="outline" className="h-7 border-amber-200 text-amber-700 hover:bg-amber-50 gap-1 text-xs" asChild>
+              <Link href={`/quality/conjuntos/${conjuntoId}/plantilla`}>
+                <FileSignature className="h-3 w-3" /> Configurar plantilla
+              </Link>
+            </Button>
+          ) : null
         }
       />
+      {!canStart && (
+        <div className="mx-4 my-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+          <span className="text-xs text-amber-800">
+            Este conjunto no tiene una plantilla de verificación publicada. Para ejecutar verificaciones bajo NMX-EC-17025 es necesario publicar una versión activa.
+          </span>
+        </div>
+      )}
       {verifs.length === 0 ? (
         <EmptyTabState message="Sin verificaciones registradas" />
       ) : (
         <div className="divide-y divide-stone-100">
-          {verifs.map((v: any) => (
-            <div key={v.id} className="flex items-start gap-3 px-4 py-3">
+          {verifs.map(v => (
+            <Link
+              key={v.id}
+              href={`/quality/instrumentos/${instrumentoId}/verificaciones/${v.id}`}
+              className="flex items-start gap-3 px-4 py-3 hover:bg-stone-50 transition-colors group"
+            >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-mono text-sm font-medium text-stone-900">{v.fecha_verificacion}</span>
                   <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', resultadoStyle(v.resultado))}>
                     {resultadoLabel(v.resultado)}
                   </span>
+                  <span className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] text-stone-600">
+                    {estadoLabel(v.estado)}
+                  </span>
                 </div>
                 <div className="font-mono text-xs text-stone-500 mt-0.5">
-                  Próxima: {v.fecha_proxima_verificacion}
+                  {v.template_codigo}
+                  {v.template_version_number != null && <> · v{v.template_version_number}</>}
+                  {v.fecha_proxima_verificacion && <> · Próxima: {v.fecha_proxima_verificacion}</>}
                 </div>
-                {v.observaciones && <p className="text-xs text-stone-500 mt-0.5">{v.observaciones}</p>}
+                {v.created_by_name && (
+                  <div className="text-xs text-stone-400 mt-0.5">Por {v.created_by_name}</div>
+                )}
               </div>
-              <span className="shrink-0 font-mono text-xs text-stone-400">{timeAgo(v.created_at)}</span>
-            </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-mono text-xs text-stone-400">{timeAgo(v.created_at)}</span>
+                <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500" />
+              </div>
+            </Link>
           ))}
         </div>
       )}
@@ -813,170 +871,6 @@ function TrazabilidadSection({ instrumentoId }: { instrumentoId: string }) {
   )
 }
 
-// ─── Checklists Section ──────────────────────────────────────────────────────
-
-const CHECKLIST_ESTADO_STYLE: Record<string, string> = {
-  bueno: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-  regular: 'bg-amber-100 text-amber-800 border-amber-200',
-  malo: 'bg-red-100 text-red-800 border-red-200',
-  fuera_de_servicio: 'bg-red-100 text-red-800 border-red-200',
-}
-
-const CHECKLIST_TIPO_LABEL: Record<string, string> = {
-  recepcion: 'Recepción',
-  periodico: 'Periódico',
-  post_calibracion: 'Post-calibración',
-  post_incidente: 'Post-incidente',
-}
-
-function ChecklistsSection({ instrumentoId, onOpen }: { instrumentoId: string; onOpen: () => void }) {
-  const [checklists, setChecklists] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetch(`/api/ema/instrumentos/${instrumentoId}/checklists`)
-      .then(r => r.json())
-      .then(j => { setChecklists(j.data ?? []); setLoading(false) })
-  }, [instrumentoId])
-
-  if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
-
-  return (
-    <div>
-      <SectionHeader
-        title="Checklists de inspección"
-        action={
-          <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" onClick={onOpen}>
-            <Plus className="h-3 w-3" /> Nuevo
-          </Button>
-        }
-      />
-      {checklists.length === 0 ? (
-        <EmptyTabState message="Sin checklists registrados" />
-      ) : (
-        <div className="divide-y divide-stone-100">
-          {checklists.map((c: any) => (
-            <div key={c.id} className="flex items-start gap-3 px-4 py-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-stone-900">
-                    {CHECKLIST_TIPO_LABEL[c.tipo_checklist] ?? c.tipo_checklist}
-                  </span>
-                  <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', CHECKLIST_ESTADO_STYLE[c.estado_general] ?? 'bg-stone-100 text-stone-700')}>
-                    {c.estado_general}
-                  </span>
-                </div>
-                <div className="font-mono text-xs text-stone-500 mt-0.5">{c.fecha_inspeccion}</div>
-                {c.items?.length > 0 && (
-                  <div className="text-xs text-stone-400 mt-0.5">
-                    {c.items.filter((i: any) => i.passed).length}/{c.items.length} ítems conformes
-                  </div>
-                )}
-                {c.observaciones_generales && <p className="text-xs text-stone-500 mt-0.5">{c.observaciones_generales}</p>}
-              </div>
-              <span className="shrink-0 font-mono text-xs text-stone-400">{timeAgo(c.created_at)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Checklist Sheet (only form that stays as Sheet) ─────────────────────────
-
-function ChecklistSheet({ open, onClose, instrumentoId, onSuccess }: {
-  open: boolean; onClose: () => void; instrumentoId: string; onSuccess: () => void
-}) {
-  const [form, setForm] = useState({
-    tipo_checklist: '', fecha_inspeccion: new Date().toISOString().split('T')[0],
-    estado_general: '', observaciones_generales: '',
-  })
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const reset = () => {
-    setForm({ tipo_checklist: '', fecha_inspeccion: new Date().toISOString().split('T')[0], estado_general: '', observaciones_generales: '' })
-    setError(null)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSubmitting(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/ema/instrumentos/${instrumentoId}/checklists`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, items: [] }),
-      })
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error) }
-      reset()
-      onSuccess()
-    } catch (e: any) { setError(e.message) }
-    finally { setSubmitting(false) }
-  }
-
-  return (
-    <Sheet open={open} onOpenChange={v => { if (!v) { reset(); onClose() } }}>
-      <SheetContent className="sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2 text-stone-900">
-            <ClipboardList className="h-4 w-4 text-stone-600" />
-            Nuevo checklist de inspección
-          </SheetTitle>
-        </SheetHeader>
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {error && (
-            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-          )}
-          <div>
-            <Label className="text-xs text-stone-600">Tipo de checklist *</Label>
-            <Select required value={form.tipo_checklist} onValueChange={v => setForm(f => ({ ...f, tipo_checklist: v }))}>
-              <SelectTrigger className="h-8 text-sm border-stone-200 mt-1">
-                <SelectValue placeholder="Seleccionar tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="recepcion">Recepción</SelectItem>
-                <SelectItem value="periodico">Periódico</SelectItem>
-                <SelectItem value="post_calibracion">Post-calibración</SelectItem>
-                <SelectItem value="post_incidente">Post-incidente</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs text-stone-600">Fecha de inspección *</Label>
-            <Input type="date" required value={form.fecha_inspeccion} onChange={e => setForm(f => ({ ...f, fecha_inspeccion: e.target.value }))} className="h-8 text-sm border-stone-200 mt-1" />
-          </div>
-          <div>
-            <Label className="text-xs text-stone-600">Estado general *</Label>
-            <Select required value={form.estado_general} onValueChange={v => setForm(f => ({ ...f, estado_general: v }))}>
-              <SelectTrigger className="h-8 text-sm border-stone-200 mt-1">
-                <SelectValue placeholder="Seleccionar estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="bueno">Bueno</SelectItem>
-                <SelectItem value="regular">Regular</SelectItem>
-                <SelectItem value="malo">Malo</SelectItem>
-                <SelectItem value="fuera_de_servicio">Fuera de servicio</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs text-stone-600">Observaciones</Label>
-            <Textarea rows={3} value={form.observaciones_generales} onChange={e => setForm(f => ({ ...f, observaciones_generales: e.target.value }))} className="text-sm border-stone-200 resize-none mt-1" />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" size="sm" className="border-stone-300" onClick={() => { reset(); onClose() }}>Cancelar</Button>
-            <Button type="submit" size="sm" disabled={submitting}>
-              {submitting ? 'Guardando…' : 'Guardar checklist'}
-            </Button>
-          </div>
-        </form>
-      </SheetContent>
-    </Sheet>
-  )
-}
 
 // ─── Loading skeleton ────────────────────────────────────────────────────────
 
