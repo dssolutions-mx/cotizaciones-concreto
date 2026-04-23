@@ -6,6 +6,7 @@ This repository uses **calendar versioning (CalVer)** for product releases docum
 
 - **Format:** `YYYY.M.patch` (npm-compatible semver).
 - **Marketing / Git tag:** `vYYYY.M.0` for the monthly baseline (for example `v2026.4.0`).
+- **GitHub Release:** Each tag should have a matching **Release** on GitHub (the Releases page lists those; bare tags alone do not). Releases for `v2025.3.0` … `v2026.4.0` are published and use the same notes as [CHANGELOG.md](../CHANGELOG.md).
 - **Meaning:**
   - `YYYY` — year.
   - `M` — month number without leading zero (4 = April).
@@ -25,11 +26,17 @@ The `version` field in [package.json](../package.json) reflects the **current re
    git push origin v2026.4.0
    ```
 
-4. **GitHub Release** — From the repository **Releases** page, choose “Draft a new release”, select the tag, title `YYYY.M.0 — Month YYYY`, and paste the corresponding section from `CHANGELOG.md` as the description.
+4. **GitHub Release** — Publish a release for the tag (UI: **Releases → Draft a new release**). Title example: `2026.4.0 (2026-04-30)`. Paste the new section from `CHANGELOG.md` as the description.
 
-## Historical tags
+   With [GitHub CLI](https://cli.github.com/) (`gh`), after writing the notes to a file:
 
-Tags `v2025.3.0` … `v2026.4.0` point to month-end snapshots (or month-to-date for the current period) so the history is navigable even before GitHub Releases were curated.
+   ```bash
+   gh release create v2026.4.0 --title "2026.4.0 (2026-04-30)" --notes-file ./release-notes.md
+   ```
+
+## Historical releases
+
+Tags `v2025.3.0` … `v2026.4.0` point to month-end snapshots (April 2026 is month-to-date where noted in the changelog). Each has a **GitHub Release** so the timeline is visible under **Releases**.
 
 ## Relation to in-app announcements
 
