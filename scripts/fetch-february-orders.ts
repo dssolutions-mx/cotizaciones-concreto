@@ -1,5 +1,5 @@
 /**
- * Fetches February 2026 orders for Plant 2 (Tijuana) and saves to february_orders.json.
+ * Fetches February 2026 orders for Plant 2 (Tijuana) and saves to archive/data/february_orders.json.
  * Also fetches client IDs for DECODI and GRUPO ARZER.
  *
  * Run: npx ts-node --project tsconfig.json scripts/fetch-february-orders.ts
@@ -45,7 +45,7 @@ async function main() {
     plant_id: o.plant_id,
   }));
 
-  const outPath = path.join(process.cwd(), 'february_orders.json');
+  const outPath = path.join(process.cwd(), 'archive', 'data', 'february_orders.json');
   fs.writeFileSync(outPath, JSON.stringify(normalized, null, 2), 'utf-8');
   console.log(`Saved ${normalized.length} orders to ${outPath}`);
 

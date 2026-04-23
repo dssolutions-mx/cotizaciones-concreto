@@ -1,5 +1,5 @@
 /**
- * Fetches March 2026 orders for Plant 2 (Tijuana) and saves to march_orders.json.
+ * Fetches March 2026 orders for Plant 2 (Tijuana) and saves to archive/data/march_orders.json.
  * Same shape as fetch-february-orders.ts for use with generate_plant2_pumping_migration.py.
  *
  * Run: node --env-file=.env.local -r ts-node/register scripts/fetch-march-orders.ts
@@ -43,7 +43,7 @@ async function main() {
     plant_id: o.plant_id,
   }));
 
-  const outPath = path.join(process.cwd(), 'march_orders.json');
+  const outPath = path.join(process.cwd(), 'archive', 'data', 'march_orders.json');
   fs.writeFileSync(outPath, JSON.stringify(normalized, null, 2), 'utf-8');
   console.log(`Saved ${normalized.length} orders to ${outPath}`);
 }

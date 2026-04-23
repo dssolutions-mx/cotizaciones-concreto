@@ -9,6 +9,7 @@ This directory contains comprehensive documentation for the Concrete Quotation S
 - [CI/CD Setup](./CI_CD_SETUP.md) - Setting up Continuous Integration and Deployment
 - [Versioning and releases](./VERSIONING.md) - CalVer, tags, and GitHub Releases workflow
 - [Changelog](../CHANGELOG.md) - Monthly release notes
+- [Archived root materials](./archive/README.md) - Legacy notes and data moved out of the repo root
 
 ## Additional Resources
 

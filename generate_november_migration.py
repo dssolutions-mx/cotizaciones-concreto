@@ -1,5 +1,6 @@
 import csv
 from collections import defaultdict
+from pathlib import Path
 
 # Plant IDs
 PLANT_2_ID = '836cbbcf-67b2-4534-97cc-b83e71722ff7'  # Tijuana Planta 2
@@ -9,7 +10,11 @@ JESUS_OCHOA_CLIENT_ID = '2690972d-b975-4a69-a35d-5c4461a7554c'  # JESUS OCHOA
 
 # Read CSV
 remisiones = []
-with open('BOMBEO P2 Y P4.csv', 'r', encoding='utf-8-sig') as f:
+
+_ROOT = Path(__file__).resolve().parent
+_CSV = _ROOT / 'archive' / 'data' / 'BOMBEO P2 Y P4.csv'
+
+with open(_CSV, 'r', encoding='utf-8-sig') as f:
     reader = csv.DictReader(f)
     for row in reader:
         remision_num = row['REMISION'].strip()

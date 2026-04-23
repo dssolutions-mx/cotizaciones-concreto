@@ -48,7 +48,7 @@ A dedicated component that:
 - Triggers context updates on auth events
 - Handles `SIGNED_IN`, `TOKEN_REFRESHED`, and `SIGNED_OUT` events
 
-#### Middleware (`middleware.ts`)
+#### Proxy (`proxy.ts`, Next.js 16)
 
 Intercepts all requests to:
 - Validate authentication status

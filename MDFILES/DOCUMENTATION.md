@@ -74,7 +74,7 @@ The project follows a Next.js application structure:
 
 Key files:
 - `next.config.ts`: Next.js configuration
-- `middleware.ts`: Authentication middleware
+- `proxy.ts`: Next.js 16 Proxy (request interception; auth, CSP, route guards)
 - `tailwind.config.js`: Tailwind CSS configuration
 
 ---

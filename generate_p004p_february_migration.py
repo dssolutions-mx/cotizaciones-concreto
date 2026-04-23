@@ -11,6 +11,10 @@ Same procedure as Plant 2: order_items first, remisiones second, total_amount up
 import csv
 from datetime import datetime
 from collections import defaultdict
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent
+_DATA = _REPO_ROOT / 'archive' / 'data'
 
 PLANT_P004P_ID = 'af86c90f-c76f-44fb-9e2d-d5460ae51aca'
 
@@ -107,7 +111,7 @@ def parse_csv(file_path):
 
 
 def main():
-    csv_path = 'BOMBEO PLATA P004P FEB.csv'
+    csv_path = str(_DATA / 'BOMBEO PLATA P004P FEB.csv')
     remisiones = parse_csv(csv_path)
     print(f"Parsed {len(remisiones)} remisiones from {csv_path}")
 
@@ -204,7 +208,7 @@ WHERE id = '{order_id}';""")
     sql_parts.append("")
     sql_parts.append("COMMIT;")
 
-    out_path = 'supabase/migrations/20260203_p004p_february_pumping_remisiones.sql'
+    out_path = str(_REPO_ROOT / 'supabase/migrations/20260203_p004p_february_pumping_remisiones.sql')
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(sql_parts))
 
