@@ -2,6 +2,7 @@
   "name": "cotizaciones-concreto",
   "version": "2026.4.0",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "postinstall": "node scripts/sync-pdfjs-worker.mjs",
     "dev": "next dev",
