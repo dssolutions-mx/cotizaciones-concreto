@@ -62,7 +62,6 @@
     "@supabase/supabase-js": "^2.49.4",
     "@types/file-saver": "^2.0.7",
     "@types/react-window": "^1.8.8",
-    "@types/uuid": "^10.0.0",
     "@types/xlsx": "^0.0.35",
     "@vercel/analytics": "^1.5.0",
     "antd": "^5.24.8",
@@ -103,7 +102,7 @@
     "tailwind-merge": "^3.2.0",
     "tailwindcss-animate": "^1.0.7",
     "use-debounce": "^10.0.4",
-    "uuid": "^11.1.0",
+    "uuid": "^14.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "xlsx-js-style": "^1.2.0",
     "zod": "^3.24.3",
@@ -132,6 +131,7 @@
   "overrides": {
     "glob": ">=10.5.0",
     "js-yaml": ">=4.1.1",
-    "eslint-visitor-keys": "4.2.1"
+    "eslint-visitor-keys": "4.2.1",
+    "uuid": "^14.0.0"
   }
 }
