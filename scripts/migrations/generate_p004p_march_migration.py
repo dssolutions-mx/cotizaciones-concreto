@@ -10,6 +10,10 @@ order_items first, remisiones second, total_amount updates.
 import csv
 from datetime import datetime
 from collections import defaultdict
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA = _REPO_ROOT / 'archive' / 'data'
 
 PLANT_P004P_ID = 'af86c90f-c76f-44fb-9e2d-d5460ae51aca'
 
@@ -101,7 +105,7 @@ def sql_escape(s):
 
 
 def main():
-    csv_path = 'BOMBEO P4p MARZO 2026.csv'
+    csv_path = str(_DATA / 'BOMBEO P4p MARZO 2026.csv')
     remisiones = parse_csv(csv_path)
     print(f"Parsed {len(remisiones)} remisiones from {csv_path}")
 
@@ -198,7 +202,7 @@ WHERE id = '{order_id}';""")
     sql_parts.append("")
     sql_parts.append("COMMIT;")
 
-    out_path = 'supabase/migrations/20260407_p004p_march_pumping_remisiones.sql'
+    out_path = str(_REPO_ROOT / 'supabase/migrations/20260407_p004p_march_pumping_remisiones.sql')
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(sql_parts))
 

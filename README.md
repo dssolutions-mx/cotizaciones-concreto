@@ -93,7 +93,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_clave_anon
 npm run dev
 ```
 
-Build de producción (usa `build.js` del repo):
+Build de producción (usa `scripts/build.js`):
 
 ```bash
 npm run build
@@ -101,6 +101,13 @@ npm start
 ```
 
 Más detalle: [MDFILES/DOCUMENTATION.md](./MDFILES/DOCUMENTATION.md) y [docs/README.md](./docs/README.md).
+
+### Estructura del repositorio
+
+- **`src/`** — Aplicación Next.js.
+- **`docs/`** — Documentación activa; **`docs/archive/`** — notas y planes viejos sacados de la raíz.
+- **`archive/data/`** — CSV/JSON de apoyo a scripts (no usados en runtime).
+- **`middleware.ts`** — Middleware de Next (auth, CSP, rutas); **`scripts/build.js`** — build con comprobaciones de entorno.
 
 ---
 

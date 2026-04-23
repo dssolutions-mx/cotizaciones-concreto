@@ -10,7 +10,7 @@ Do **not** paste generic Supabase SSR snippets without checking how this app is 
 
 ## What to read before changing auth
 
-- **`proxy.ts`** (root): Next.js routing proxy; session refresh and route guards. Uses `@supabase/auth-helpers-nextjs` (`createMiddlewareClient`).
+- **`middleware.ts`** (root): Next.js middleware; session refresh and route guards. Uses `@supabase/auth-helpers-nextjs` (`createMiddlewareClient`).
 - **`src/lib/supabase/client.ts`**: Browser client — `@supabase/ssr` `createBrowserClient`.
 - **`src/lib/supabase/server.ts`**: Server client — `@supabase/ssr` `createServerClient` with `get` / `set` / `remove` cookie helpers (legacy style; migration to `getAll`/`setAll` would be a deliberate refactor).
 - **`src/app/page.tsx`**: Root `/` — must send **guests** to marketing (`/landing`) and **signed-in users** to their role default (see `getDefaultPathForRole` in `src/lib/auth/default-route.ts`). Never blindly client-redirect everyone to `/landing`.
@@ -18,4 +18,4 @@ Do **not** paste generic Supabase SSR snippets without checking how this app is 
 ## When adding features
 
 - Prefer **`@supabase/ssr`** for new server/client helpers aligned with current Supabase docs.
-- If you change cookie or session behavior, validate **`proxy.ts`**, **login**, and **`/auth/callback`** together so redirects and sessions stay consistent.
+- If you change cookie or session behavior, validate **`middleware.ts`**, **login**, and **`/auth/callback`** together so redirects and sessions stay consistent.

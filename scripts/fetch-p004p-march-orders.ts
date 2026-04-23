@@ -1,6 +1,6 @@
 /**
  * Fetches March 2026 orders for Plant P004P (Pitahaya / Bajío) for bombeo migration.
- * Output: p004p_march_orders.json (shape for generate_plant2_pumping_migration.py)
+ * Output: archive/data/p004p_march_orders.json (shape for generate_plant2_pumping_migration.py)
  *
  * Run: npm run fetch:p004p-march-orders
  */
@@ -43,7 +43,7 @@ async function main() {
     plant_id: o.plant_id,
   }));
 
-  const outPath = path.join(process.cwd(), 'p004p_march_orders.json');
+  const outPath = path.join(process.cwd(), 'archive', 'data', 'p004p_march_orders.json');
   fs.writeFileSync(outPath, JSON.stringify(normalized, null, 2), 'utf-8');
   console.log(`Saved ${normalized.length} orders to ${outPath}`);
 }

@@ -2,6 +2,10 @@ import csv
 from datetime import datetime
 from collections import defaultdict
 import json
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA = _REPO_ROOT / 'archive' / 'data'
 
 # Fixed IDs from database queries
 CLIENT_IDS = {
@@ -344,7 +348,7 @@ WHERE id = '{order_id}';""")
 
 if __name__ == "__main__":
     # Load orders from JSON file (saved from database query)
-    orders_file = 'january_orders.json'
+    orders_file = str(_DATA / 'january_orders.json')
     try:
         with open(orders_file, 'r') as f:
             orders_data = json.load(f)
@@ -355,7 +359,7 @@ if __name__ == "__main__":
         exit(1)
     
     # Parse CSV
-    csv_file_path = 'RELACION DE BOMBEO 2026 (1).csv'
+    csv_file_path = str(_DATA / 'RELACION DE BOMBEO 2026 (1).csv')
     print(f"Parsing CSV: {csv_file_path}")
     csv_rows = parse_csv(csv_file_path)
     
@@ -375,7 +379,7 @@ if __name__ == "__main__":
     # Generate migration
     migration_sql, unmatched = generate_migration_sql(groups, orders_data)
     
-    migration_file = 'supabase/migrations/20260102_january_pumping_remisiones_p2_p3.sql'
+    migration_file = str(_REPO_ROOT / 'supabase/migrations/20260102_january_pumping_remisiones_p2_p3.sql')
     with open(migration_file, 'w', encoding='utf-8') as f:
         f.write(migration_sql)
     

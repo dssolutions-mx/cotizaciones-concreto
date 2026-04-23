@@ -6,7 +6,7 @@
   "scripts": {
     "postinstall": "node scripts/sync-pdfjs-worker.mjs",
     "dev": "next dev",
-    "build": "node build.js",
+    "build": "node scripts/build.js",
     "start": "next start",
     "lint": "next lint",
     "test:sales-report": "npx tsx src/lib/finanzas/resolveSalesPlantScope.test.ts && npx tsx src/utils/salesDataProcessor.summary.test.ts && npx tsx src/lib/finanzas/ventas/buildVentasMonthlyTrendFromRemisiones.test.ts",

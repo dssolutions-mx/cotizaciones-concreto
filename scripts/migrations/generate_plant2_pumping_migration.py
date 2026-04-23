@@ -3,19 +3,24 @@
 Generate SQL migration for Plant 2 (P002) pumping remisiones from CSV + orders JSON.
 Used for February, March, etc. — same logic as the original generate_february_migration.py.
 
-Example (March 2026):
-  python3 generate_plant2_pumping_migration.py \\
-    --csv "BOMBEO P.2 MARZO 2026.csv" \\
-    --orders-json march_orders.json \\
+Example (March 2026), from repo root:
+  python3 scripts/migrations/generate_plant2_pumping_migration.py \\
+    --csv "archive/data/BOMBEO P.2 MARZO 2026.csv" \\
+    --orders-json archive/data/march_orders.json \\
     --output-sql supabase/migrations/20260406_p2_march_2026_pumping_remisiones.sql \\
     --title "MARCH 2026"
 """
 import argparse
 import csv
 import json
+import os
 import sys
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+os.chdir(_REPO_ROOT)
 
 CLIENT_IDS = {
     'SEDENA': '241d39e9-ec9b-41b9-a93b-7c20e3638f1c',
