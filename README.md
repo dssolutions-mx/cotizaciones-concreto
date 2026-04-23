@@ -107,7 +107,7 @@ Más detalle: [MDFILES/DOCUMENTATION.md](./MDFILES/DOCUMENTATION.md) y [docs/REA
 - **`src/`** — Aplicación Next.js.
 - **`docs/`** — Documentación activa; **`docs/archive/`** — notas y planes viejos sacados de la raíz.
 - **`archive/data/`** — CSV/JSON de apoyo a scripts (no usados en runtime).
-- **`middleware.ts`** — Middleware de Next (auth, CSP, rutas); **`scripts/build.js`** — build con comprobaciones de entorno.
+- **`proxy.ts`** — Next.js 16 **Proxy** (antes `middleware.ts`; auth, CSP, rutas). Debe exportar la función **`proxy`**. Ver [convención Proxy en Next.js](https://nextjs.org/docs/app/api-reference/file-conventions/proxy). **`scripts/build.js`** — build con comprobaciones de entorno.
 
 ---
 

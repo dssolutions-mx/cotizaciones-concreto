@@ -122,7 +122,7 @@ function isMaliciousPath(pathname: string): boolean {
   return false;
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Extract pathname early for security checks
   const url = request.nextUrl.clone();
   const { pathname } = url;

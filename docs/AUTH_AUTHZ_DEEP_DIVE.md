@@ -203,7 +203,7 @@ Passwords are delegated to Supabase Auth. No custom hashing, reset logic, or pol
 1. ~~**create-profile:**~~ FIXED — uses `getUser()`; role derived server-side.
 2. ~~**clients/[id]/details:**~~ FIXED — requires auth; returns 401 if unauthenticated.
 3. **Replace getSession with getUser** in server-side/auth decision paths (High).
-4. **Migrate middleware.ts** from auth-helpers-nextjs to @supabase/ssr (Medium).
+4. **Migrate `proxy.ts`** from auth-helpers-nextjs to @supabase/ssr (Medium).
 5. **MFA for admin roles** (Medium; NIST AAL2).
 6. **Audit RLS** for remaining `USING (true)` policies (e.g., orders_tables); clients, construction_sites, client_balances verified correct.
 

@@ -208,7 +208,7 @@ Note: The deployed `weekly-balance-report` writes into `system_notifications` wh
 
 4) User feedback in UI
 
-- **`/quote-action-result`** (public page; allowlisted in `middleware.ts`): shows success, error, or “already processed” messaging from `action`, `reason`, and `already_processed` query params, plus Sonner toasts and an “Iniciar sesión” link to `/login?redirect=/quotes`. Recipients often open the email without an app session, so feedback must not depend on `/quotes` (which requires auth).
+- **`/quote-action-result`** (public page; allowlisted in `proxy.ts`): shows success, error, or “already processed” messaging from `action`, `reason`, and `already_processed` query params, plus Sonner toasts and an “Iniciar sesión” link to `/login?redirect=/quotes`. Recipients often open the email without an app session, so feedback must not depend on `/quotes` (which requires auth).
 - **`src/app/quotes/page.tsx`**: still uses `QuotesActionBanner` for users who land on `/quotes?action=...` while already logged in (e.g. bookmarks).
 
 ## Secrets and configuration
