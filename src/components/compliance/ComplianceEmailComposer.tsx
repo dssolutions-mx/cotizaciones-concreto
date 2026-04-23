@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -99,6 +100,25 @@ function ChipInput({
   );
 }
 
+type PreviewFinding = { findingKey: string; message: string };
+
+function buildPreviewSearchParams(
+  date: string,
+  plantCode: string,
+  category: string,
+  orderedFindingKeys: string[],
+): string {
+  const params = new URLSearchParams({
+    date,
+    plantCode,
+    category,
+  });
+  for (const k of orderedFindingKeys) {
+    params.append('findingKey', k);
+  }
+  return params.toString();
+}
+
 export function ComplianceEmailComposer({
   open,
   onClose,
@@ -108,6 +128,7 @@ export function ComplianceEmailComposer({
   date,
 }: EmailComposerProps) {
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
   const [subject, setSubject] = useState('');
   const [note, setNote] = useState('');
@@ -115,39 +136,112 @@ export function ComplianceEmailComposer({
   const [cc, setCc] = useState<string[]>([]);
   const [previewHtml, setPreviewHtml] = useState('');
   const [tab, setTab] = useState<'edit' | 'preview'>('edit');
+  const [availableFindings, setAvailableFindings] = useState<PreviewFinding[]>([]);
+  const [selectedByKey, setSelectedByKey] = useState<Record<string, boolean>>({});
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const orderedSelectedKeys = availableFindings
+    .filter((f) => selectedByKey[f.findingKey])
+    .map((f) => f.findingKey);
+
+  const applyPreviewJson = useCallback((json: Record<string, unknown>) => {
+    setSubject((json.subject as string) ?? '');
+    setPreviewHtml((json.html as string) ?? '');
+    setTo((json.to as string[]) ?? []);
+    setCc((json.cc as string[]) ?? []);
+  }, []);
+
+  const fetchPreview = useCallback(
+    async (orderedKeys: string[]) => {
+      const qs = buildPreviewSearchParams(date, plantCode, category, orderedKeys);
+      const res = await fetch(`/api/compliance/daily/dispute/preview?${qs}`);
+      const json = (await res.json()) as Record<string, unknown>;
+      if (!res.ok || json.error) {
+        throw new Error((json.error as string) || 'preview_failed');
+      }
+      return json;
+    },
+    [date, plantCode, category],
+  );
 
   useEffect(() => {
     if (!open) return;
     setTab('edit');
     setNote('');
+    setAvailableFindings([]);
+    setSelectedByKey({});
     setLoading(true);
 
-    fetch(
-      `/api/compliance/daily/dispute/preview?date=${encodeURIComponent(date)}&plantCode=${encodeURIComponent(plantCode)}&category=${encodeURIComponent(category)}`,
-    )
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.error) {
-          toast.error(json.error);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const json = await fetchPreview([]);
+        if (cancelled) return;
+        const findings = (json.availableFindings as PreviewFinding[] | undefined) ?? [];
+        setAvailableFindings(findings);
+        setSelectedByKey(Object.fromEntries(findings.map((f) => [f.findingKey, true])));
+        applyPreviewJson(json);
+      } catch {
+        if (!cancelled) {
+          toast.error('Error al cargar vista previa');
           onClose();
-          return;
         }
-        setSubject(json.subject ?? '');
-        setPreviewHtml(json.html ?? '');
-        setTo(json.to ?? []);
-        setCc(json.cc ?? []);
-      })
-      .catch(() => {
-        toast.error('Error al cargar vista previa');
-        onClose();
-      })
-      .finally(() => setLoading(false));
-  }, [open, date, plantCode, category, onClose]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, date, plantCode, category, onClose, fetchPreview, applyPreviewJson]);
+
+  const schedulePreviewRefresh = useCallback(
+    (orderedKeys: string[]) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+        void (async () => {
+          setRefreshing(true);
+          try {
+            const json = await fetchPreview(orderedKeys);
+            applyPreviewJson(json);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'No se pudo actualizar la vista previa');
+          } finally {
+            setRefreshing(false);
+          }
+        })();
+      }, 350);
+    },
+    [fetchPreview, applyPreviewJson],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const toggleFinding = (findingKey: string, checked: boolean) => {
+    const next = { ...selectedByKey, [findingKey]: checked };
+    const ordered = availableFindings.filter((f) => next[f.findingKey]).map((f) => f.findingKey);
+    if (ordered.length === 0) {
+      toast.error('Debe quedar al menos un hallazgo seleccionado');
+      return;
+    }
+    setSelectedByKey(next);
+    schedulePreviewRefresh(ordered);
+  };
 
   const handleSend = async () => {
     if (to.length === 0) {
       toast.error('Agrega al menos un destinatario en "Para"');
+      return;
+    }
+    if (orderedSelectedKeys.length === 0) {
+      toast.error('Selecciona al menos un hallazgo');
       return;
     }
     setSending(true);
@@ -155,7 +249,16 @@ export function ComplianceEmailComposer({
       const res = await fetch('/api/compliance/daily/dispute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetDate: date, plantCode, category, subject, note, to, cc }),
+        body: JSON.stringify({
+          targetDate: date,
+          plantCode,
+          category,
+          subject,
+          note,
+          to,
+          cc,
+          includedFindingKeys: orderedSelectedKeys,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -220,6 +323,42 @@ export function ComplianceEmailComposer({
                       className="font-medium"
                     />
                   </div>
+
+                  {availableFindings.length > 0 ? (
+                    <div className="space-y-2 rounded-md border border-stone-200 bg-stone-50/80 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-stone-800">Hallazgos en este correo</Label>
+                        {refreshing ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-stone-400" />
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        Desmarca los que no apliquen; el cuerpo del correo y el registro de incidente
+                        reflejan solo los seleccionados.
+                      </p>
+                      <ul className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                        {availableFindings.map((f, idx) => (
+                          <li
+                            key={`${f.findingKey}:${idx}`}
+                            className="flex items-start gap-2 rounded border border-stone-100 bg-white p-2 text-xs"
+                          >
+                            <Checkbox
+                              id={`compliance-finding-${idx}`}
+                              checked={Boolean(selectedByKey[f.findingKey])}
+                              onCheckedChange={(v) => toggleFinding(f.findingKey, v === true)}
+                              className="mt-0.5"
+                            />
+                            <label
+                              htmlFor={`compliance-finding-${idx}`}
+                              className="cursor-pointer leading-snug text-stone-700"
+                            >
+                              {f.message}
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
 
                   <ChipInput label="Para" values={to} onChange={setTo} />
                   <ChipInput label="CC" values={cc} onChange={setCc} />

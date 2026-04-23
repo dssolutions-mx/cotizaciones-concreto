@@ -35,6 +35,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'category required and must be a valid email category' }, { status: 400 });
   }
 
+  const findingKeyFilters = searchParams
+    .getAll('findingKey')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   const cot = createServiceClient();
 
   const { data: runData, error: rErr } = await cot
@@ -57,6 +62,7 @@ export async function GET(req: NextRequest) {
     targetDate,
     category,
     runRow.report as DailyComplianceReport,
+    findingKeyFilters.length > 0 ? { includedFindingKeys: findingKeyFilters } : undefined,
   );
 
   if ('error' in result) {

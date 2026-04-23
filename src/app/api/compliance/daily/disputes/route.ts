@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     .from('compliance_daily_disputes')
     .select(
       `id, category, status, subject, body, sent_at, sent_by,
-       resolved_at, resolved_by, resolution_notes, recipients,
+       resolved_at, resolved_by, resolution_notes, recipients, included_finding_keys,
        run:run_id(target_date),
        plant:plant_id(id, code, name),
        sender:sent_by(email)`,
@@ -51,5 +51,14 @@ export async function GET(req: NextRequest) {
       })
     : rows;
 
-  return NextResponse.json({ disputes: filtered });
+  const disputes = filtered.map((r) => {
+    const row = r as Record<string, unknown> & {
+      included_finding_keys?: string[] | null;
+    };
+    const { included_finding_keys: keys, ...rest } = row;
+    const includedFindingKeys = Array.isArray(keys) ? keys : [];
+    return { ...rest, includedFindingKeys };
+  });
+
+  return NextResponse.json({ disputes });
 }

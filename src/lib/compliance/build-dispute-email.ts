@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DailyComplianceReport, ComplianceRuleId } from './run';
+import type { DailyComplianceReport, ComplianceFinding, ComplianceRuleId } from './run';
 import { resolveComplianceRecipients } from './recipients';
 import { fetchMergedComplianceOverrides } from './server-overrides';
 import {
@@ -21,6 +21,15 @@ export type DisputeEmailDraft = {
   to: string[];
   cc: string[];
   dosificadoresEnSistema: string[];
+  /** Finding keys included in this draft (same order as email rows where applicable). */
+  includedFindingKeys: string[];
+  /** Full list for plant+category before subset (composer checkboxes). */
+  availableFindings: Array<{ findingKey: string; message: string }>;
+};
+
+export type BuildDisputeEmailDraftOptions = {
+  /** If non-empty, only these finding keys (must all exist for plant+category). */
+  includedFindingKeys?: string[];
 };
 
 export async function buildDisputeEmailDraft(
@@ -29,6 +38,7 @@ export async function buildDisputeEmailDraft(
   targetDate: string,
   category: ComplianceRuleId,
   rawReport: DailyComplianceReport,
+  options?: BuildDisputeEmailDraftOptions,
 ): Promise<DisputeEmailDraft | { error: string; status: number }> {
   const plantRow = await cot
     .from('plants')
@@ -41,11 +51,38 @@ export async function buildDisputeEmailDraft(
   let report = rawReport;
   report = await enrichComplianceReport(cot, report);
 
-  const plantFindings = report.findings.filter(
+  const plantFindingsAll = report.findings.filter(
     (f) => f.plantId === plant.id && f.rule === category,
   );
-  if (plantFindings.length === 0) {
+  if (plantFindingsAll.length === 0) {
     return { error: 'No findings for that category/plant on this date', status: 400 };
+  }
+
+  const availableFindings = plantFindingsAll.map((f) => ({
+    findingKey: f.findingKey,
+    message: f.message,
+  }));
+
+  const requested = options?.includedFindingKeys?.filter(Boolean) ?? [];
+  let plantFindings: ComplianceFinding[];
+  let includedFindingKeys: string[];
+
+  if (requested.length > 0) {
+    const allowed = new Set(plantFindingsAll.map((f) => f.findingKey));
+    for (const k of requested) {
+      if (!allowed.has(k)) {
+        return {
+          error: `findingKey not in scope for this plant/category: ${k}`,
+          status: 400,
+        };
+      }
+    }
+    const byKey = new Map(plantFindingsAll.map((f) => [f.findingKey, f] as const));
+    plantFindings = requested.map((k) => byKey.get(k)!);
+    includedFindingKeys = [...requested];
+  } else {
+    plantFindings = plantFindingsAll;
+    includedFindingKeys = plantFindingsAll.map((f) => f.findingKey);
   }
 
   const { data: dosRows } = await cot
@@ -86,5 +123,13 @@ export async function buildDisputeEmailDraft(
     ({ subject, html } = buildMissingProductionHtml(plantCode, targetDate));
   }
 
-  return { subject, html, to, cc, dosificadoresEnSistema: dosEmails };
+  return {
+    subject,
+    html,
+    to,
+    cc,
+    dosificadoresEnSistema: dosEmails,
+    includedFindingKeys,
+    availableFindings,
+  };
 }

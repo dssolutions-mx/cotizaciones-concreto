@@ -111,9 +111,10 @@ function ItemRow({
           )}
           {item.tipo === 'medicion' && item.valor_esperado != null && (
             <p className="text-xs text-stone-400 mt-0.5 font-mono">
-              Esperado: {item.valor_esperado}{item.unidad ? ` ${item.unidad}` : ''}
-              {item.tolerancia != null && ` ± ${item.tolerancia}${item.tolerancia_tipo === 'porcentual' ? '%' : (item.unidad ? ` ${item.unidad}` : '')}`}
-              {item.tolerancia_tipo === 'rango' && item.tolerancia_min != null && ` (mín. ${item.tolerancia_min}${item.unidad ? ` ${item.unidad}` : ''})`}
+              {item.tolerancia_tipo === 'rango'
+                ? `${item.tolerancia_min ?? '?'} – ${item.tolerancia_max ?? '?'}${item.unidad ? ` ${item.unidad}` : ''}`
+                : `${item.valor_esperado}${item.unidad ? ` ${item.unidad}` : ''}${item.tolerancia != null ? ` ± ${item.tolerancia}${item.tolerancia_tipo === 'porcentual' ? '%' : (item.unidad ? ` ${item.unidad}` : '')}` : ''}`
+              }
             </p>
           )}
         </div>
@@ -234,6 +235,10 @@ export default function VerificarPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Master instrument picker (for Tipo C)
+  const [maestros, setMaestros] = useState<Array<{ id: string; codigo: string; nombre: string; estado: string }>>([])
+  const [instrumento_maestro_id, setInstrumentoMaestroId] = useState<string>('')
+
   // Inicio form
   const [inicioForm, setInicioForm] = useState({
     fecha_verificacion: new Date().toISOString().split('T')[0],
@@ -255,6 +260,19 @@ export default function VerificarPage() {
     ]).then(([instJ]) => {
       const inst = instJ.data ?? instJ
       setInstrumento(inst)
+
+      // Pre-fill maestro from existing instrumento_maestro_id
+      if (inst.instrumento_maestro_id) {
+        setInstrumentoMaestroId(inst.instrumento_maestro_id)
+      }
+
+      // Fetch Tipo A instruments as maestro candidates (only for Tipo C)
+      if (inst.tipo === 'C') {
+        fetch(`/api/ema/instrumentos?tipo=A&limit=200`)
+          .then(r => r.json())
+          .then(j => setMaestros(j.data ?? []))
+          .catch(() => {})
+      }
 
       // Load template for this conjunto
       if (inst.conjunto_id) {
@@ -314,6 +332,10 @@ export default function VerificarPage() {
 
   // Step 0 → create the verif record + advance
   const handleInicioNext = async () => {
+    if (instrumento?.tipo === 'C' && !instrumento_maestro_id) {
+      setError('Debe seleccionar el instrumento maestro (Tipo A) para instrumentos de trabajo.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -322,6 +344,7 @@ export default function VerificarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha_verificacion: inicioForm.fecha_verificacion,
+          instrumento_maestro_id: instrumento_maestro_id || null,
           condiciones_ambientales: {
             temperatura: inicioForm.temperatura || undefined,
             humedad: inicioForm.humedad || undefined,
@@ -543,6 +566,31 @@ export default function VerificarPage() {
                 />
               </div>
             </div>
+
+            {/* Master instrument — only for Tipo C */}
+            {instrumento?.tipo === 'C' && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">
+                  Instrumento maestro (Tipo A) <span className="text-red-500">*</span>
+                </Label>
+                <select
+                  value={instrumento_maestro_id}
+                  onChange={e => setInstrumentoMaestroId(e.target.value)}
+                  className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">— Seleccionar maestro —</option>
+                  {maestros.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.codigo} · {m.nombre} ({m.estado})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-stone-400">
+                  Instrumento patrón Tipo A con el que se realiza la verificación (trazabilidad NMX-EC-17025).
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs text-stone-600">Temperatura</Label>

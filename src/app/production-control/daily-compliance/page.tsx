@@ -305,7 +305,9 @@ function DailyComplianceContent() {
                         </Button>
                       </div>
                       <p className="text-xs text-stone-500">
-                        Cada botón abre el compositor para <strong>un correo</strong> con todos los ítems de esa categoría. El número entre paréntesis es la cantidad de hallazgos.
+                        Cada botón abre el compositor para <strong>un correo</strong> por categoría. El número entre
+                        paréntesis es la cantidad de hallazgos; en el compositor puedes desmarcar los que no apliquen
+                        antes de enviar. El incidente guarda cuántos hallazgos incluyó ese correo.
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {EMAIL_RULES.map((er) => {
@@ -351,8 +353,8 @@ function DailyComplianceContent() {
                                   ) : null}
                                 </div>
                                 <div className="space-y-2">
-                                  {list.map((f) => (
-                                    <ComplianceFindingRow key={f.findingKey} f={f} />
+                                  {list.map((f, idx) => (
+                                    <ComplianceFindingRow key={`${f.findingKey}:${idx}`} f={f} />
                                   ))}
                                 </div>
                               </div>

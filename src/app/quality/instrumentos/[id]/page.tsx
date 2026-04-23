@@ -221,9 +221,9 @@ export default function InstrumentoDetailPage() {
             label="Ventana de servicio"
             value={(() => {
               const w = instrumento.ventana_efectiva
-              if (!w || w.tipo_servicio === 'ninguno' || !w.mes_inicio_servicio || !w.mes_fin_servicio) return '—'
+              if (!w || w.tipo_servicio === 'ninguno' || !w.mes_inicio || !w.mes_fin) return '—'
               const m = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-              return `${m[w.mes_inicio_servicio - 1]}–${m[w.mes_fin_servicio - 1]}`
+              return `${m[w.mes_inicio - 1]}–${m[w.mes_fin - 1]}`
             })()}
             sub={instrumento.ventana_efectiva?.from_override ? 'Override' : undefined}
           />

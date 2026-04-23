@@ -37,7 +37,7 @@ La función valida el header `x-compliance-secret` antes de reenviar el request 
 **Ruta:** `/production-control/daily-compliance`.
 
 - Los hallazgos se agrupan por tipo (sin producción, sin entradas de material, evidencia, bombeo, checklist, conductor vs operador, unidad desconocida; diesel solo informativo en panel).
-- **Un botón = un correo** para esa categoría y esa planta. El número entre paréntesis es la **cantidad de hallazgos** incluidos en ese único correo, no la cantidad de envíos.
+- **Un botón = un correo** para esa categoría y esa planta. El número entre paréntesis es la **cantidad de hallazgos** detectados; en el compositor puedes **desmarcar** hallazgos que no deban ir en el correo. Al enviar, se guarda `included_finding_keys` en `compliance_daily_disputes` para que incidentes/RH muestren cuántos hallazgos cubrió cada correo (filas legacy vacías cuentan como 1).
 - Categorías con botón de envío: `missingProduction`, `missingMaterialEntries`, `missingEvidence`, `missingPumping`, `missingChecklist`, `operatorMismatch`, `unknownUnit`. Reglas de diesel (`noDieselActivity`, `dieselWithoutProduction`) se muestran en pantalla sin botón de correo.
 - El reporte en caliente enriquece pedidos con número de orden y cliente/obra cuando hay `orderId` en el hallazgo (lectura al cargar reporte y al enviar disputa).
 - **CC:** Tijuana (P002, P003, P004, DIACE) usa Alberto BU + Enrique + RH. Resto: Héctor + Enrique + RH; **P004P y P005** agregan a Mario (`marioperez@dcconcretos.com.mx`) por operaciones (no se usa `planta5@` como CC fijo).

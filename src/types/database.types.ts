@@ -216,6 +216,7 @@ export interface Database {
           plant_id: string | null
           category: string
           finding_key: string | null
+          included_finding_keys: string[]
           recipients: Json | null
           subject: string | null
           body: string | null
@@ -234,6 +235,7 @@ export interface Database {
           plant_id?: string | null
           category: string
           finding_key?: string | null
+          included_finding_keys?: string[]
           recipients?: Json | null
           subject?: string | null
           body?: string | null
@@ -252,6 +254,7 @@ export interface Database {
           plant_id?: string | null
           category?: string
           finding_key?: string | null
+          included_finding_keys?: string[]
           recipients?: Json | null
           subject?: string | null
           body?: string | null

@@ -13,6 +13,8 @@ export type HrWeeklyComplianceDispute = {
   run: { target_date: string } | null;
   plant: { id: string; code: string | null; name: string | null } | null;
   sender: { email: string | null } | null;
+  /** Empty = legacy row; use hallazgosInDispute() for display count. */
+  includedFindingKeys?: string[];
 };
 
 export type HrWeeklyRemisionRow = {

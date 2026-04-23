@@ -19,6 +19,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { toast } from 'sonner';
+import { hallazgosInDispute } from '@/lib/compliance/dispute-hallazgos';
 
 type DisputeStatus =
   | 'pending_dispute'
@@ -69,6 +70,7 @@ type Dispute = {
   run: { target_date: string } | null;
   plant: { code: string; name: string } | null;
   sender: { email: string } | null;
+  includedFindingKeys?: string[];
 };
 
 function StatusBadge({ status }: { status: DisputeStatus }) {
@@ -90,6 +92,7 @@ function DisputeDrawer({
   onClose: () => void;
   onResolved: (updated: Partial<Dispute>) => void;
 }) {
+  const hallazgos = hallazgosInDispute(dispute.includedFindingKeys);
   const [status, setStatus] = useState<DisputeStatus>(dispute.status);
   const [notes, setNotes] = useState(dispute.resolution_notes ?? '');
   const [saving, setSaving] = useState(false);
@@ -134,6 +137,7 @@ function DisputeDrawer({
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
             <span>Enviado: {new Date(dispute.sent_at).toLocaleString('es-MX')}</span>
             {dispute.sender?.email && <span>· Por: {dispute.sender.email}</span>}
+            <span>· {hallazgos} hallazgo{hallazgos !== 1 ? 's' : ''} en este correo</span>
           </div>
         </SheetHeader>
 
@@ -250,6 +254,11 @@ export function ComplianceIncidentsTab({ dateFrom, dateTo, plantCode }: Props) {
     ? disputes
     : disputes.filter((d) => d.status === statusFilter);
 
+  const totalHallazgos = visible.reduce(
+    (acc, d) => acc + hallazgosInDispute(d.includedFindingKeys),
+    0,
+  );
+
   const handleResolved = (id: string, updated: Partial<Dispute>) => {
     setDisputes((prev) => prev.map((d) => d.id === id ? { ...d, ...updated } : d));
   };
@@ -272,7 +281,9 @@ export function ComplianceIncidentsTab({ dateFrom, dateTo, plantCode }: Props) {
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Actualizar'}
         </Button>
         <span className="text-xs text-stone-500">
-          {visible.length} incidente{visible.length !== 1 ? 's' : ''}
+          {visible.length} registro{visible.length !== 1 ? 's' : ''} de correo
+          {' · '}
+          {totalHallazgos} hallazgo{totalHallazgos !== 1 ? 's' : ''} cubiertos
         </span>
       </div>
 
@@ -294,6 +305,7 @@ export function ComplianceIncidentsTab({ dateFrom, dateTo, plantCode }: Props) {
                 <th className="px-4 py-3">Fecha</th>
                 <th className="px-4 py-3">Planta</th>
                 <th className="px-4 py-3">Categoría</th>
+                <th className="px-4 py-3 text-right">Hallazgos</th>
                 <th className="px-4 py-3">Para</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Enviado el</th>
@@ -307,6 +319,9 @@ export function ComplianceIncidentsTab({ dateFrom, dateTo, plantCode }: Props) {
                   <td className="px-4 py-3 text-xs font-mono">{d.run?.target_date ?? '—'}</td>
                   <td className="px-4 py-3 font-medium">{d.plant?.code ?? '—'}</td>
                   <td className="px-4 py-3">{CATEGORY_LABELS[d.category] ?? d.category}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-stone-700">
+                    {hallazgosInDispute(d.includedFindingKeys)}
+                  </td>
                   <td className="px-4 py-3 text-xs text-stone-500 max-w-[160px] truncate">
                     {d.recipients?.to.join(', ') ?? '—'}
                   </td>

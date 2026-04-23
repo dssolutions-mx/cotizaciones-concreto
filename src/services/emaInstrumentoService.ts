@@ -156,10 +156,6 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
     .select(`
       *,
       conjunto:conjuntos_herramientas(*),
-      instrumento_maestro:instrumentos!instrumento_maestro_id(
-        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        conjuntos_herramientas(categoria)
-      ),
       plant:plants(id, name, code)
     `)
     .eq('id', id)
@@ -167,8 +163,19 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
 
   if (error) return null;
 
+  // Supabase self-referential joins are unreliable — fetch maestro separately
+  let instrumento_maestro = null;
+  if (data.instrumento_maestro_id) {
+    const { data: maestro } = await supabase
+      .from('instrumentos')
+      .select('id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id')
+      .eq('id', data.instrumento_maestro_id)
+      .single();
+    instrumento_maestro = maestro ?? null;
+  }
+
   const ventana_efectiva = computeEffectiveWindow(data);
-  return { ...data, ventana_efectiva };
+  return { ...data, instrumento_maestro, ventana_efectiva };
 }
 
 /** Client-side mirror of ema_effective_service_window: override → conjunto. */

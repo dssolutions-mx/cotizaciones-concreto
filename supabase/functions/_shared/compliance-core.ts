@@ -552,7 +552,7 @@ export async function runComplianceCheck(
         severity: 'high',
         plantId: p.id,
         plantCode: p.code,
-        findingKey: `${p.id}:unknown:${nk}`,
+        findingKey: `${p.id}:unknown:${nk}:${r.id}`,
         message: `Unidad ${rawU} no registrada en mantenimiento`,
         details: {
           unidad: rawU,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight, ClipboardList } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
@@ -176,6 +176,15 @@ export default function ConjuntosPage() {
                 <div className="shrink-0 text-right">
                   <div className="font-mono text-xs text-stone-400">#{c.secuencia_actual ?? 0} instr.</div>
                 </div>
+                {c.tipo_servicio === 'verificacion' && (
+                  <button
+                    onClick={e => { e.stopPropagation(); router.push(`/quality/conjuntos/${c.id}/plantilla`) }}
+                    title="Editar plantilla de verificación"
+                    className="shrink-0 p-1.5 rounded-md text-stone-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                  >
+                    <ClipboardList className="h-4 w-4" />
+                  </button>
+                )}
                 <ChevronRight className="h-4 w-4 text-stone-300 group-hover:text-stone-500 transition-colors shrink-0" />
               </button>
             ))}

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Save, Loader2, ChevronRight, AlertTriangle, Plus,
+  ArrowLeft, Save, Loader2, ChevronRight, AlertTriangle, Plus, ClipboardList, ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,6 +45,71 @@ function MissingBadge() {
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">
       <AlertTriangle className="h-2.5 w-2.5" /> Sin definir
     </span>
+  )
+}
+
+function PlantillaCard({ conjuntoId }: { conjuntoId: string }) {
+  const [tmpl, setTmpl] = useState<{
+    id: string; codigo: string; nombre: string; estado: string;
+    active_version?: { version_number: number; published_at: string } | null;
+    items_count?: number;
+  } | null>(null)
+  const [loadingTmpl, setLoadingTmpl] = useState(true)
+
+  useEffect(() => {
+    fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
+      .then(r => r.json())
+      .then(j => { setTmpl(j.data ?? null); setLoadingTmpl(false) })
+      .catch(() => setLoadingTmpl(false))
+  }, [conjuntoId])
+
+  return (
+    <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 bg-stone-50/60">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-3.5 w-3.5 text-stone-500" />
+          <span className="text-xs font-semibold text-stone-600 uppercase tracking-wide">
+            Plantilla de verificación
+          </span>
+        </div>
+        <Link
+          href={`/quality/conjuntos/${conjuntoId}/plantilla`}
+          className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 font-medium"
+        >
+          <ExternalLink className="h-3 w-3" />
+          {tmpl ? 'Editar plantilla' : 'Crear plantilla'}
+        </Link>
+      </div>
+      {loadingTmpl ? (
+        <div className="px-4 py-4 text-xs text-stone-400">Cargando…</div>
+      ) : !tmpl ? (
+        <div className="px-4 py-4 text-sm text-stone-500 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          Sin plantilla de verificación. Cree una para habilitar la ejecución de verificaciones.
+        </div>
+      ) : (
+        <div className="px-4 py-3 flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-stone-800 truncate">{tmpl.nombre}</p>
+            <p className="text-xs text-stone-400 font-mono">{tmpl.codigo}</p>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-stone-500 shrink-0">
+            {tmpl.active_version ? (
+              <span className="rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 font-medium">
+                v{tmpl.active_version.version_number} publicada
+              </span>
+            ) : (
+              <span className="rounded-full bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 font-medium">
+                Borrador
+              </span>
+            )}
+            {tmpl.items_count != null && (
+              <span>{tmpl.items_count} puntos de verificación</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -400,6 +465,11 @@ export default function ConjuntoDetailPage() {
           </Button>
         </div>
       </form>
+
+      {/* ── Plantilla de verificación ─────────────────────────── */}
+      {conjunto.tipo_servicio === 'verificacion' && (
+        <PlantillaCard conjuntoId={id} />
+      )}
 
       {/* ── Instrumentos en este conjunto ─────────────────────── */}
       <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">

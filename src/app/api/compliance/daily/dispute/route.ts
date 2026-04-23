@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
     note?: string;
     to?: string[];
     cc?: string[];
+    /** Subset of report finding keys to include; omit = all for plant+category. */
+    includedFindingKeys?: string[];
   };
   try {
     body = await req.json();
@@ -78,13 +80,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Build default draft (resolves recipients, enriches, builds HTML)
+  const keysFilter =
+    Array.isArray(body.includedFindingKeys) && body.includedFindingKeys.length > 0
+      ? body.includedFindingKeys.map((k) => String(k).trim()).filter(Boolean)
+      : undefined;
+
   const draft = await buildDisputeEmailDraft(
     cot as any,
     plantCode,
     targetDate,
     category,
     runRow.report as DailyComplianceReport,
+    keysFilter?.length ? { includedFindingKeys: keysFilter } : undefined,
   );
   if ('error' in draft) {
     return NextResponse.json({ error: draft.error }, { status: draft.status });
@@ -127,6 +134,7 @@ export async function POST(req: NextRequest) {
       plant_id: (plantRow as { id: string } | null)?.id ?? null,
       category,
       finding_key: `${(plantRow as { id: string } | null)?.id ?? plantCode}:${category}`,
+      included_finding_keys: draft.includedFindingKeys,
       recipients: { to: finalTo, cc: ccClean } as unknown as Record<string, unknown>,
       subject: finalSubject,
       body: finalHtml,

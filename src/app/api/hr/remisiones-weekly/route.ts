@@ -438,6 +438,7 @@ export async function POST(request: NextRequest) {
       run: { target_date: string } | null;
       plant: { id: string; code: string | null; name: string | null } | null;
       sender: { email: string | null } | null;
+      includedFindingKeys: string[];
     }> | undefined;
 
     if (body.includeCompliance) {
@@ -467,7 +468,7 @@ export async function POST(request: NextRequest) {
         const { data: discRows, error: discErr } = await service
           .from('compliance_daily_disputes')
           .select(
-            `id, category, status, subject, body, sent_at, resolved_at, resolution_notes, recipients,
+            `id, category, status, subject, body, sent_at, resolved_at, resolution_notes, recipients, included_finding_keys,
              run:run_id(target_date),
              plant:plant_id(id, code, name),
              sender:sent_by(email)`,
@@ -504,6 +505,9 @@ export async function POST(request: NextRequest) {
                 name: string | null;
               } | null) ?? null,
               sender: (r.sender as { email: string | null } | null) ?? null,
+              includedFindingKeys: Array.isArray(r.included_finding_keys)
+                ? (r.included_finding_keys as string[])
+                : [],
             }));
         }
       } else {

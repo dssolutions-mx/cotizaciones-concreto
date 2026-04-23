@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import type { HrWeeklyComplianceDispute } from '@/services/hrWeeklyRemisionesService';
+import { hallazgosInDispute } from '@/lib/compliance/dispute-hallazgos';
 
 type DisputeStatus =
   | 'pending_dispute'
@@ -81,6 +82,7 @@ function DisputeDrawer({
   onClose: () => void;
   onResolved: (updated: Partial<HrWeeklyComplianceDispute>) => void;
 }) {
+  const hallazgos = hallazgosInDispute(dispute.includedFindingKeys);
   const [status, setStatus] = useState<DisputeStatus>(dispute.status as DisputeStatus);
   const [notes, setNotes] = useState(dispute.resolution_notes ?? '');
   const [saving, setSaving] = useState(false);
@@ -127,6 +129,7 @@ function DisputeDrawer({
               <span>Enviado: {new Date(dispute.sent_at).toLocaleString('es-MX')}</span>
             )}
             {dispute.sender?.email && <span>· Por: {dispute.sender.email}</span>}
+            <span>· {hallazgos} hallazgo{hallazgos !== 1 ? 's' : ''} en este correo</span>
           </div>
         </SheetHeader>
 
@@ -236,6 +239,11 @@ export function HrWeeklyCompliancePanel({ disputes: initial, onRefresh }: Props)
   const visible =
     statusFilter === 'all' ? disputes : disputes.filter((d) => d.status === statusFilter);
 
+  const totalHallazgos = visible.reduce(
+    (acc, d) => acc + hallazgosInDispute(d.includedFindingKeys),
+    0,
+  );
+
   const handleResolved = (id: string, updated: Partial<HrWeeklyComplianceDispute>) => {
     setDisputes((prev) => prev.map((d) => (d.id === id ? { ...d, ...updated } : d)));
   };
@@ -264,7 +272,9 @@ export function HrWeeklyCompliancePanel({ disputes: initial, onRefresh }: Props)
           Actualizar
         </Button>
         <span className="text-xs text-gray-500">
-          {visible.length} registro{visible.length !== 1 ? 's' : ''}
+          {visible.length} registro{visible.length !== 1 ? 's' : ''} de correo
+          {' · '}
+          {totalHallazgos} hallazgo{totalHallazgos !== 1 ? 's' : ''} cubiertos
         </span>
       </div>
 
@@ -280,6 +290,7 @@ export function HrWeeklyCompliancePanel({ disputes: initial, onRefresh }: Props)
                 <th className="px-4 py-3">Fecha</th>
                 <th className="px-4 py-3">Planta</th>
                 <th className="px-4 py-3">Categoría</th>
+                <th className="px-4 py-3 text-right">Hallazgos</th>
                 <th className="px-4 py-3">Para</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Enviado</th>
@@ -295,6 +306,9 @@ export function HrWeeklyCompliancePanel({ disputes: initial, onRefresh }: Props)
                   </td>
                   <td className="px-4 py-3 font-medium">{d.plant?.code ?? '—'}</td>
                   <td className="px-4 py-3">{CATEGORY_LABELS[d.category] ?? d.category}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                    {hallazgosInDispute(d.includedFindingKeys)}
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate">
                     {d.recipients?.to?.join(', ') ?? '—'}
                   </td>
