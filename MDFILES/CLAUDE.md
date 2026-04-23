@@ -13,7 +13,7 @@ This is a Next.js-based concrete quotation management system (Sistema de Cotizac
 # Start development server with Turbopack
 npm run dev
 
-# Build the application (uses custom scripts/build.js)
+# Build the application (uses custom build.js script)
 npm run build
 
 # Start production server
@@ -24,7 +24,7 @@ npm run lint
 ```
 
 ### Custom Build Process
-The project uses a custom build script (`scripts/build.js`) that:
+The project uses a custom build script (`build.js`) that:
 - Validates environment variables with fallbacks for build process
 - Runs `next build --no-lint` to skip linting during build
 - Creates fallback client reference manifests if needed

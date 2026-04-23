@@ -12,7 +12,7 @@ from datetime import datetime
 from collections import defaultdict
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent
 _DATA = _REPO_ROOT / 'archive' / 'data'
 
 PLANT_P004P_ID = 'af86c90f-c76f-44fb-9e2d-d5460ae51aca'

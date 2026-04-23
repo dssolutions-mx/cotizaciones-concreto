@@ -93,7 +93,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_clave_anon
 npm run dev
 ```
 
-Build de producción (usa `scripts/build.js`):
+Build de producción (usa `build.js` en la raíz):
 
 ```bash
 npm run build
@@ -105,9 +105,11 @@ Más detalle: [MDFILES/DOCUMENTATION.md](./MDFILES/DOCUMENTATION.md) y [docs/REA
 ### Estructura del repositorio
 
 - **`src/`** — Aplicación Next.js.
+- **`scripts/`** — Herramientas operativas (TypeScript/Node usados por `npm run`, backfills, validaciones).
 - **`docs/`** — Documentación activa; **`docs/archive/`** — notas y planes viejos sacados de la raíz.
-- **`archive/data/`** — CSV/JSON de apoyo a scripts (no usados en runtime).
-- **`proxy.ts`** — Next.js 16 **Proxy** (antes `middleware.ts`; auth, CSP, rutas). Debe exportar la función **`proxy`**. Ver [convención Proxy en Next.js](https://nextjs.org/docs/app/api-reference/file-conventions/proxy). **`scripts/build.js`** — build con comprobaciones de entorno.
+- **`archive/data/`** — CSV/JSON de apoyo a migraciones puntuales (no usados en runtime).
+- **`proxy.ts`** — Next.js 16 **Proxy** (auth, CSP, rutas); exportar **`proxy`**. **`build.js`** — build en la raíz (referenciado por `package.json` / Vercel).
+- **`generate_*_migration.py`** — Generadores SQL puntuales en la raíz (mismo directorio que `archive/data/`).
 
 ---
 

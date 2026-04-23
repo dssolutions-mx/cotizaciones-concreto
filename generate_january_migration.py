@@ -4,7 +4,7 @@ from collections import defaultdict
 import json
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent
 _DATA = _REPO_ROOT / 'archive' / 'data'
 
 # Fixed IDs from database queries

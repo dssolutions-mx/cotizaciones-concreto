@@ -11,7 +11,7 @@ JESUS_OCHOA_CLIENT_ID = '2690972d-b975-4a69-a35d-5c4461a7554c'  # JESUS OCHOA
 # Read CSV
 remisiones = []
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
+_ROOT = Path(__file__).resolve().parent
 _CSV = _ROOT / 'archive' / 'data' / 'BOMBEO P2 Y P4.csv'
 
 with open(_CSV, 'r', encoding='utf-8-sig') as f:
