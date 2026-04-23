@@ -59,9 +59,7 @@ export const formatRemisionesForAccounting = (
     return item?.pump_price ?? item?.unit_price ?? qd(item)?.final_price ?? 0
   }
 
-  const getOrderSpecificEmptyTruckPrice = (orderId: string): number => {
-    const qd = (p: any) =>
-      p?.quote_details ? (Array.isArray(p.quote_details) ? p.quote_details[0] : p.quote_details) : undefined
+  const findEmptyTruckOrderItem = (orderId: string): any | undefined => {
     const normalizeName = (s: string) =>
       (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase()
     const items = orderProducts.filter((p: any) => String(p.order_id) === String(orderId))
@@ -75,7 +73,20 @@ export const formatRemisionesForAccounting = (
           p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001'
       )
     }
+    return item
+  }
+
+  const getOrderSpecificEmptyTruckPrice = (orderId: string): number => {
+    const qd = (p: any) =>
+      p?.quote_details ? (Array.isArray(p.quote_details) ? p.quote_details[0] : p.quote_details) : undefined
+    const item = findEmptyTruckOrderItem(orderId)
     return item?.empty_truck_price ?? item?.unit_price ?? qd(item)?.final_price ?? 0
+  }
+
+  const getOrderSpecificEmptyTruckVolume = (orderId: string): number => {
+    const item = findEmptyTruckOrderItem(orderId)
+    if (!item) return 1
+    return Number(item.empty_truck_volume) || Number(item.volume) || 1
   }
 
   const getDisplayProductCodeForRemision = (remision: any): string => {
@@ -92,13 +103,14 @@ export const formatRemisionesForAccounting = (
     const plantaPrefix = requiresInvoice ? 'Remision ' : 'NVRemision '
     const dateFormatted = formatDateString(firstRemision.fecha)
     const emptyTruckPrice = getOrderSpecificEmptyTruckPrice(firstRemision.order_id)
+    const emptyTruckVolume = getOrderSpecificEmptyTruckVolume(firstRemision.order_id)
     rows.push(
       [
         `${prefix}${firstRemision.remision_number}`,
         dateFormatted,
         constructionSite || 'N/A',
         'SER001',
-        '1.00',
+        emptyTruckVolume.toFixed(2),
         emptyTruckPrice.toFixed(2),
         `${plantaPrefix}1-SILAO`,
       ].join('\t')

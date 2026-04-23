@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
+import { replaceCompletedVerificacionMaestros } from '@/services/emaInstrumentoService';
+import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -8,7 +10,7 @@ const READ_ROLES = [...WRITE_ROLES, 'ADMIN_OPERATIONS'];
 
 const CreateVerifSchema = z.object({
   fecha_verificacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  instrumento_maestro_id: z.string().uuid().nullable().optional(),
+  instrumento_maestro_ids: z.array(z.string().uuid()).max(EMA_INSTRUMENTO_MAESTRO_IDS_MAX).optional(),
   template_id: z.string().uuid().optional(),
   condiciones_ambientales: z.object({
     temperatura: z.string().optional(),
@@ -91,11 +93,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Get the instrument to find its conjunto
     const admin = createServiceClient();
-    const { data: instrumento, error: iErr } = await admin
+    const { data: instrumentoRow, error: iErr } = await admin
       .from('instrumentos')
-      .select('id, conjunto_id')
+      .select('id, conjunto_id, tipo')
       .eq('id', instrumento_id)
       .single();
+    const instrumento = instrumentoRow as {
+      id: string;
+      conjunto_id: string | null;
+      tipo: string;
+    } | null;
     if (iErr || !instrumento) return NextResponse.json({ error: 'Instrumento no encontrado' }, { status: 404 });
     if (!instrumento.conjunto_id)
       return NextResponse.json({ error: 'El instrumento no tiene conjunto asignado' }, { status: 400 });
@@ -103,7 +110,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Resolve plantilla: if template_id provided, validate it belongs to the conjunto.
     // Otherwise: if there's exactly one publicada plantilla on the conjunto, auto-select.
     // If there are multiple, return PLANTILLA_REQUIRED with candidates.
-    let template: { id: string; active_version_id: string | null; estado: string } | null = null;
+    let template: {
+      id: string;
+      active_version_id: string | null;
+      estado: string;
+      conjunto_id?: string;
+    } | null = null;
 
     if (parsed.data.template_id) {
       const { data: t, error: tErr } = await admin
@@ -112,11 +124,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         .eq('id', parsed.data.template_id)
         .single();
       if (tErr || !t) return NextResponse.json({ error: 'Plantilla no encontrada' }, { status: 404 });
-      if (t.conjunto_id !== instrumento.conjunto_id)
+      const tpl = t as {
+        id: string;
+        conjunto_id: string;
+        active_version_id: string | null;
+        estado: string;
+      };
+      if (tpl.conjunto_id !== instrumento.conjunto_id)
         return NextResponse.json({ error: 'La plantilla no pertenece al conjunto del instrumento' }, { status: 400 });
-      if (t.estado !== 'publicado' || !t.active_version_id)
+      if (tpl.estado !== 'publicado' || !tpl.active_version_id)
         return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
-      template = t;
+      template = tpl;
     } else {
       const { data: candidates, error: cErr } = await admin
         .from('verificacion_templates')
@@ -140,28 +158,72 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           })),
         }, { status: 400 });
       }
-      template = publicadas[0];
+      const pub0 = publicadas[0] as {
+        id: string;
+        active_version_id: string | null;
+        estado: string;
+      };
+      template = pub0;
     }
 
     if (!template.active_version_id)
       return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
+
+    const { data: vincRows } = await admin
+      .from('instrumento_maestro_vinculos')
+      .select('maestro_id')
+      .eq('instrumento_id', instrumento_id);
+    const allowed = new Set((vincRows ?? []).map((v: { maestro_id: string }) => v.maestro_id));
+
+    const maestroIds = Array.from(new Set(parsed.data.instrumento_maestro_ids ?? []));
+
+    if (instrumento.tipo === 'C') {
+      if (maestroIds.length < 1) {
+        return NextResponse.json(
+          { error: 'Seleccione al menos un instrumento patrón para la verificación.' },
+          { status: 400 },
+        );
+      }
+      if (allowed.size < 1) {
+        return NextResponse.json(
+          {
+            error:
+              'Este instrumento no tiene patrones configurados. Edite el instrumento y asigne al menos un instrumento tipo A.',
+          },
+          { status: 400 },
+        );
+      }
+      for (const mid of maestroIds) {
+        if (!allowed.has(mid)) {
+          return NextResponse.json(
+            { error: 'Solo puede usar instrumentos patrón configurados para este instrumento.' },
+            { status: 400 },
+          );
+        }
+      }
+    }
 
     const { data: verif, error: vErr } = await admin
       .from('completed_verificaciones')
       .insert({
         instrumento_id,
         template_version_id: template.active_version_id,
-        instrumento_maestro_id: parsed.data.instrumento_maestro_id ?? null,
         fecha_verificacion: parsed.data.fecha_verificacion ?? new Date().toISOString().split('T')[0],
         resultado: 'pendiente',
         estado: 'en_proceso',
         condiciones_ambientales: parsed.data.condiciones_ambientales ?? null,
         created_by: user.id,
-      })
+      } as never)
       .select('id, fecha_verificacion, resultado, estado, template_version_id')
       .single();
 
     if (vErr) throw vErr;
+
+    const verifRow = verif as { id: string };
+    if (instrumento.tipo === 'C' && maestroIds.length > 0) {
+      await replaceCompletedVerificacionMaestros(verifRow.id, maestroIds);
+    }
+
     return NextResponse.json({ data: verif }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

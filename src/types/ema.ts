@@ -100,6 +100,9 @@ export type UpdateConjuntoInput = Partial<CreateConjuntoInput>;
 // instrumentos
 // ─────────────────────────────────────────
 
+/** Max Type A pattern instruments linked to one Type C instrument (API + DB trigger guard). */
+export const EMA_INSTRUMENTO_MAESTRO_IDS_MAX = 20;
+
 export interface Instrumento {
   id: string;
   codigo: string;                          // 'DC-CC-NN' — server-generated
@@ -110,7 +113,6 @@ export interface Instrumento {
   numero_serie: string | null;
   marca: string | null;
   modelo_comercial: string | null;
-  instrumento_maestro_id: string | null;   // only for Type C
   mes_inicio_servicio_override: number | null; // per-instrument window override
   mes_fin_servicio_override: number | null;
   ubicacion_dentro_planta: string | null;
@@ -138,7 +140,9 @@ export interface EffectiveServiceWindow {
 /** Instrumento with joined relations for detail views */
 export interface InstrumentoDetalle extends Instrumento {
   conjunto: ConjuntoHerramientas;
-  instrumento_maestro?: Instrumento | null;
+  /** Type A pattern instruments that verify this instrument (tipo C); from `instrumento_maestro_vinculos` */
+  instrumento_maestro_ids: string[];
+  instrumentos_maestro?: Instrumento[];
   plant?: { id: string; name: string; code: string };
   /** Effective window resolved from override → conjunto */
   ventana_efectiva: EffectiveServiceWindow;
@@ -156,18 +160,47 @@ export interface InstrumentoCard {
   plant_id: string;
   marca: string | null;
   modelo_comercial: string | null;
+  /** From conjunto join — lists / workspace */
+  conjunto_id: string;
+  conjunto_codigo: string;
+  conjunto_nombre: string;
+}
+
+/** Conjunto row with aggregate counts for workspace tables */
+export interface ConjuntoHerramientasListRow extends ConjuntoHerramientas {
+  instrument_count: number;
+  template_count: number;
+}
+
+/** Per-id outcome from POST /api/ema/instrumentos/batch (HTTP 200 + body; see route comment). */
+export interface EmaBatchInstrumentResult {
+  id: string;
+  success: boolean;
+  error?: string;
+}
+
+/** Per-id outcome from POST /api/ema/conjuntos/batch */
+export interface EmaBatchConjuntoResult {
+  id: string;
+  success: boolean;
+  error?: string;
 }
 
 /** Payload for creating an instrument — server generates `codigo` via ema_next_instrument_code. */
 export type CreateInstrumentoInput = Omit<Instrumento,
-  'id' | 'codigo' | 'estado' | 'created_by' | 'created_at' | 'updated_at'>;
+  'id' | 'codigo' | 'estado' | 'created_by' | 'created_at' | 'updated_at'> & {
+  /** Required for tipo C (≥1 id, max `EMA_INSTRUMENTO_MAESTRO_IDS_MAX`) — persisted in `instrumento_maestro_vinculos`. */
+  instrumento_maestro_ids?: string[];
+};
 
 export type UpdateInstrumentoInput = Partial<Pick<Instrumento,
   'nombre' | 'tipo' | 'numero_serie' | 'marca' | 'modelo_comercial' |
-  'instrumento_maestro_id' | 'plant_id' |
+  'plant_id' |
   'mes_inicio_servicio_override' | 'mes_fin_servicio_override' |
   'ubicacion_dentro_planta' | 'fecha_alta' | 'fecha_baja' | 'baja_observaciones' |
-  'estado' | 'fecha_proximo_evento' | 'motivo_inactivo' | 'notas'>>;
+  'estado' | 'fecha_proximo_evento' | 'motivo_inactivo' | 'notas'>> & {
+  instrumento_maestro_ids?: string[] | null;
+};
 
 // ─────────────────────────────────────────
 // mantenimientos_instrumento (Phase-1 preventive-maintenance log)
@@ -222,6 +255,7 @@ export interface CondicionesAmbientales {
   temperatura?: string;   // e.g. "22 ± 1 °C"
   humedad?: string;       // e.g. "45 ± 5 %HR"
   presion?: string;       // e.g. "780 mmHg" (calibration only)
+  lugar?: string;         // e.g. laboratorio / área (internal verification)
 }
 
 export type CreateCertificadoInput = Omit<CertificadoCalibracion,
@@ -410,7 +444,8 @@ export interface CompletedVerificacion {
   id: string;
   instrumento_id: string;
   template_version_id: string;
-  instrumento_maestro_id: string | null;
+  /** Type A instruments used in this run (`completed_verificacion_maestros`). */
+  instrumento_maestro_ids: string[];
   fecha_verificacion: string;            // ISO date
   fecha_proxima_verificacion: string | null;
   resultado: ResultadoVerificacion;      // includes 'pendiente'
@@ -485,14 +520,14 @@ export interface CompletedVerificacionDetalle extends CompletedVerificacion {
   signatures: VerificacionSignature[];
   issues: VerificacionIssue[];
   instrumento?: InstrumentoCard;
-  instrumento_maestro?: InstrumentoCard | null;
+  instrumentos_maestro?: InstrumentoCard[];
   created_by_profile?: { id: string; full_name: string } | null;
 }
 
 export type CreateCompletedVerificacionInput = {
   instrumento_id: string;
   template_version_id: string;
-  instrumento_maestro_id?: string | null;
+  instrumento_maestro_ids?: string[];
   fecha_verificacion?: string;
   condiciones_ambientales?: CondicionesAmbientales | null;
 };
@@ -508,8 +543,10 @@ export type UpsertMeasurementInput = {
 };
 
 export type UpdateCompletedVerificacionInput = Partial<Pick<CompletedVerificacion,
-  'instrumento_maestro_id' | 'fecha_verificacion' | 'fecha_proxima_verificacion' |
-  'resultado' | 'condiciones_ambientales' | 'observaciones_generales' | 'estado'>>;
+  'fecha_verificacion' | 'fecha_proxima_verificacion' |
+  'resultado' | 'condiciones_ambientales' | 'observaciones_generales' | 'estado'>> & {
+  instrumento_maestro_ids?: string[] | null;
+};
 
 // ─────────────────────────────────────────
 // programa_calibraciones

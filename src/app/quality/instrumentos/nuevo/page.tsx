@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -104,7 +105,7 @@ export default function NuevoInstrumentoPage() {
     numero_serie: '',
     marca: '',
     modelo_comercial: '',
-    instrumento_maestro_id: '',
+    instrumento_maestro_ids: [] as string[],
     mes_inicio_servicio_override: '' as string,
     mes_fin_servicio_override: '' as string,
     ubicacion_dentro_planta: '',
@@ -171,6 +172,7 @@ export default function NuevoInstrumentoPage() {
       tipo: (selectedConjunto.tipo_defecto as 'A' | 'B' | 'C') || f.tipo,
       mes_inicio_servicio_override: '',
       mes_fin_servicio_override: '',
+      instrumento_maestro_ids: [],
     }))
     setOverrideWindow(false)
     setStep(2)
@@ -178,7 +180,7 @@ export default function NuevoInstrumentoPage() {
 
   const handleStep2Next = () => {
     if (!form.nombre || !form.tipo || !form.plant_id) return
-    if (form.tipo === 'C' && !form.instrumento_maestro_id) return
+    if (form.tipo === 'C' && form.instrumento_maestro_ids.length === 0) return
     if (overrideWindow) {
       const hasIni = !!form.mes_inicio_servicio_override
       const hasFin = !!form.mes_fin_servicio_override
@@ -200,7 +202,9 @@ export default function NuevoInstrumentoPage() {
         numero_serie: form.numero_serie || undefined,
         marca: form.marca || undefined,
         modelo_comercial: form.modelo_comercial || undefined,
-        instrumento_maestro_id: form.instrumento_maestro_id || undefined,
+        ...(form.tipo === 'C' && form.instrumento_maestro_ids.length > 0
+          ? { instrumento_maestro_ids: form.instrumento_maestro_ids }
+          : {}),
         ubicacion_dentro_planta: form.ubicacion_dentro_planta || undefined,
         fecha_alta: form.fecha_alta || undefined,
         notas: form.notas || undefined,
@@ -230,6 +234,15 @@ export default function NuevoInstrumentoPage() {
   }
 
   const update = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
+
+  const toggleMaestroPatron = (mid: string, on: boolean) => {
+    setForm((f) => {
+      const s = new Set(f.instrumento_maestro_ids)
+      if (on) s.add(mid)
+      else s.delete(mid)
+      return { ...f, instrumento_maestro_ids: Array.from(s) }
+    })
+  }
 
   const tipoInfo = form.tipo ? TIPO_EXPLAIN[form.tipo] : null
 
@@ -437,7 +450,13 @@ export default function NuevoInstrumentoPage() {
                   <button
                     key={tipo}
                     type="button"
-                    onClick={() => update('tipo', tipo)}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        tipo,
+                        instrumento_maestro_ids: tipo === 'C' ? f.instrumento_maestro_ids : [],
+                      }))
+                    }
                     className={cn(
                       'rounded-lg border p-3 text-left transition-all',
                       isSelected ? `${info.borderColor} ring-1` : 'border-stone-200 hover:border-stone-300',
@@ -544,48 +563,46 @@ export default function NuevoInstrumentoPage() {
             </div>
           </div>
 
-          {/* Type C: master instrument selector */}
+          {/* Type C: pattern instruments (Tipo A) */}
           {form.tipo === 'C' && (
             <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-5 space-y-4">
               <div className="flex items-center gap-2">
                 <Shield className="h-4 w-4 text-amber-600" />
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-800">Instrumento maestro</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-800">Instrumentos patrón</h2>
               </div>
               <p className="text-xs text-amber-700 -mt-2">
-                El instrumento Tipo C se verifica comparando sus lecturas contra un instrumento maestro (Tipo A) calibrado.
-                Seleccione cuál instrumento maestro será su referencia.
+                Seleccione uno o más instrumentos Tipo A que servirán de referencia para la verificación interna de este
+                instrumento de trabajo.
               </p>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-amber-800">Instrumento maestro (Tipo A) <span className="text-red-500">*</span></Label>
-                <Select
-                  required
-                  value={form.instrumento_maestro_id}
-                  onValueChange={v => update('instrumento_maestro_id', v)}
-                >
-                  <SelectTrigger className="border-amber-200 bg-white">
-                    <SelectValue placeholder="Seleccionar instrumento maestro vigente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {instrumentosTypeA.filter(m => m.estado === 'vigente').map(m => (
-                      <SelectItem key={m.id} value={m.id}>
-                        <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
-                        {' — '}{m.nombre}
-                        {m.marca && <span className="text-stone-400"> · {m.marca}</span>}
-                      </SelectItem>
-                    ))}
-                    {instrumentosTypeA.filter(m => m.estado !== 'vigente').length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-[10px] font-semibold uppercase text-stone-400">No vigentes</div>
-                        {instrumentosTypeA.filter(m => m.estado !== 'vigente').map(m => (
-                          <SelectItem key={m.id} value={m.id} disabled>
-                            <span className="font-mono text-xs text-stone-400">{m.codigo}</span>
-                            {' — '}{m.nombre} ({m.estado})
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2 max-h-[240px] overflow-y-auto border border-amber-200 rounded-md bg-white p-3">
+                <Label className="text-xs text-amber-800">
+                  Instrumentos patrón (Tipo A) <span className="text-red-500">*</span>
+                </Label>
+                {instrumentosTypeA.filter((m) => m.estado === 'vigente').map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={form.instrumento_maestro_ids.includes(m.id)}
+                      onCheckedChange={(c) => toggleMaestroPatron(m.id, c === true)}
+                    />
+                    <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
+                    <span>— {m.nombre}</span>
+                    {m.marca && <span className="text-stone-400"> · {m.marca}</span>}
+                  </label>
+                ))}
+                {instrumentosTypeA.some((m) => m.estado !== 'vigente') && (
+                  <p className="text-[10px] font-semibold uppercase text-stone-400 pt-2">No vigentes (deshabilitados)</p>
+                )}
+                {instrumentosTypeA
+                  .filter((m) => m.estado !== 'vigente')
+                  .map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 text-sm text-stone-400 cursor-not-allowed">
+                      <Checkbox disabled checked={false} />
+                      <span className="font-mono text-xs">{m.codigo}</span>
+                      <span>
+                        — {m.nombre} ({m.estado})
+                      </span>
+                    </label>
+                  ))}
               </div>
             </div>
           )}
@@ -700,7 +717,7 @@ export default function NuevoInstrumentoPage() {
                 !form.nombre ||
                 !form.tipo ||
                 !form.plant_id ||
-                (form.tipo === 'C' && !form.instrumento_maestro_id) ||
+                (form.tipo === 'C' && form.instrumento_maestro_ids.length === 0) ||
                 (overrideWindow && (!!form.mes_inicio_servicio_override !== !!form.mes_fin_servicio_override))
               }
               className="bg-stone-900 hover:bg-stone-800 text-white gap-1.5"
@@ -764,11 +781,13 @@ export default function NuevoInstrumentoPage() {
                   </p>
                 </div>
               )}
-              {form.tipo === 'C' && form.instrumento_maestro_id && (
-                <div>
-                  <span className="text-[11px] text-stone-400 uppercase">Maestro</span>
-                  <p className="text-stone-900">
-                    {instrumentosTypeA.find(i => i.id === form.instrumento_maestro_id)?.codigo ?? '—'}
+              {form.tipo === 'C' && form.instrumento_maestro_ids.length > 0 && (
+                <div className="col-span-2">
+                  <span className="text-[11px] text-stone-400 uppercase">Patrones (Tipo A)</span>
+                  <p className="text-stone-900 text-sm">
+                    {form.instrumento_maestro_ids
+                      .map((mid) => instrumentosTypeA.find((i) => i.id === mid)?.codigo ?? mid)
+                      .join(', ')}
                   </p>
                 </div>
               )}

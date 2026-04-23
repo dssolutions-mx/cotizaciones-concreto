@@ -18,12 +18,14 @@ const roleDescriptions: Record<UserRole, string> = {
   SALES_AGENT: 'Puede crear y editar cotizaciones, ver reportes básicos',
   EXTERNAL_SALES_AGENT: 'Vendedor externo con acceso limitado',
   QUALITY_TEAM: 'Gestiona recetas, ensayos y control de calidad',
+  LABORATORY: 'Laboratorio y ensayos',
   PLANT_MANAGER: 'Administra operaciones de planta, costos y producción',
   DOSIFICADOR: 'Acceso a dosificación y recetas',
   CREDIT_VALIDATOR: 'Valida créditos y aprobaciones financieras',
   EXECUTIVE: 'Acceso completo al sistema',
   ADMIN_OPERATIONS: 'Administración operativa del sistema',
   ADMINISTRATIVE: 'Acceso administrativo y financiero',
+  ADMIN: 'Administrador del sistema',
   EXTERNAL_CLIENT: 'Cliente externo con acceso al portal',
 };
 
@@ -31,12 +33,14 @@ const allRoles: UserRole[] = [
   'SALES_AGENT',
   'EXTERNAL_SALES_AGENT',
   'QUALITY_TEAM',
+  'LABORATORY',
   'PLANT_MANAGER',
   'DOSIFICADOR',
   'CREDIT_VALIDATOR',
   'EXECUTIVE',
   'ADMIN_OPERATIONS',
   'ADMINISTRATIVE',
+  'ADMIN',
   'EXTERNAL_CLIENT',
 ];
 

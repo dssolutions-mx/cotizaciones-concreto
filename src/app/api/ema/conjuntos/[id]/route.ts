@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getConjuntoById, updateConjunto, deleteConjunto, EmaDeleteConflictError } from '@/services/emaInstrumentoService';
 import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles';
+import { EMA_CONJUNTO_UPDATE_ROLES } from '@/lib/ema/emaWorkspaceRoles';
+import type { UserRole } from '@/store/auth/types';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
@@ -35,7 +37,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !MANAGER_ROLES.includes(profile.role))
+    const role = (profile as { role: string } | null)?.role;
+    if (!role || !EMA_CONJUNTO_UPDATE_ROLES.includes(role as UserRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();

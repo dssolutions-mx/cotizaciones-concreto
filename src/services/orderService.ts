@@ -899,6 +899,10 @@ export async function updateOrderItem(id: string, itemData: {
   product_type?: string;
   unit_price?: number;
   quote_detail_id?: string | null;
+  /** Must stay equal to `volume` on VACÍO DE OLLA / EMPTY_TRUCK_CHARGE lines (billing). */
+  empty_truck_volume?: number | null;
+  empty_truck_price?: number | null;
+  has_empty_truck_charge?: boolean;
 }) {
   try {
     const { data, error } = await supabase

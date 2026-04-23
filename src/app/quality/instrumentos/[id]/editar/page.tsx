@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -50,7 +51,7 @@ export default function EditarInstrumentoPage() {
   const [form, setForm] = useState({
     nombre: '',
     tipo: '' as 'A' | 'B' | 'C' | '',
-    instrumento_maestro_id: '' as string | null,
+    instrumento_maestro_ids: [] as string[],
     numero_serie: '',
     marca: '',
     modelo_comercial: '',
@@ -83,7 +84,7 @@ export default function EditarInstrumentoPage() {
       setForm({
         nombre: inst.nombre ?? '',
         tipo: inst.tipo ?? '',
-        instrumento_maestro_id: inst.instrumento_maestro_id ?? null,
+        instrumento_maestro_ids: [...(inst.instrumento_maestro_ids ?? [])],
         numero_serie: inst.numero_serie ?? '',
         marca: inst.marca ?? '',
         modelo_comercial: inst.modelo_comercial ?? '',
@@ -127,7 +128,9 @@ export default function EditarInstrumentoPage() {
       const body: Record<string, any> = {
         nombre: form.nombre.trim(),
         tipo: form.tipo,
-        instrumento_maestro_id: form.tipo === 'C' ? (form.instrumento_maestro_id || null) : null,
+        ...(form.tipo === 'C'
+          ? { instrumento_maestro_ids: form.instrumento_maestro_ids }
+          : { instrumento_maestro_ids: [] }),
         numero_serie: form.numero_serie.trim() || null,
         marca: form.marca.trim() || null,
         modelo_comercial: form.modelo_comercial.trim() || null,
@@ -247,7 +250,17 @@ export default function EditarInstrumentoPage() {
             </Field>
 
             <Field label="Tipo de instrumento" required>
-              <Select value={form.tipo} onValueChange={v => update('tipo', v as 'A' | 'B' | 'C')}>
+              <Select
+                value={form.tipo}
+                onValueChange={(v) => {
+                  const t = v as 'A' | 'B' | 'C'
+                  setForm((prev) => ({
+                    ...prev,
+                    tipo: t,
+                    instrumento_maestro_ids: t === 'C' ? prev.instrumento_maestro_ids : [],
+                  }))
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar tipo" />
                 </SelectTrigger>
@@ -275,26 +288,29 @@ export default function EditarInstrumentoPage() {
             </Field>
           </div>
 
-          {/* Maestro selector — only for Tipo C */}
+          {/* Patrones — only for Tipo C */}
           {form.tipo === 'C' && (
-            <Field label="Instrumento maestro (Tipo A verificador)">
-              <Select
-                value={form.instrumento_maestro_id ?? '__none__'}
-                onValueChange={v => update('instrumento_maestro_id', v === '__none__' ? null : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sin maestro asignado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Sin maestro asignado</SelectItem>
-                  {maestros.map(m => (
-                    <SelectItem key={m.id} value={m.id}>
-                      <span className="font-mono text-xs">{m.codigo}</span>
-                      <span className="ml-2 text-stone-600">{m.nombre}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Field label="Instrumentos patrón (Tipo A)">
+              <div className="border border-stone-200 rounded-md p-3 max-h-[220px] overflow-y-auto space-y-2">
+                {maestros.map((m) => (
+                  <label key={m.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                    <Checkbox
+                      checked={form.instrumento_maestro_ids.includes(m.id)}
+                      onCheckedChange={(c) => {
+                        const on = c === true
+                        setForm((prev) => {
+                          const s = new Set(prev.instrumento_maestro_ids)
+                          if (on) s.add(m.id)
+                          else s.delete(m.id)
+                          return { ...prev, instrumento_maestro_ids: Array.from(s) }
+                        })
+                      }}
+                    />
+                    <span className="font-mono text-xs">{m.codigo}</span>
+                    <span className="text-stone-700">{m.nombre}</span>
+                  </label>
+                ))}
+              </div>
             </Field>
           )}
         </div>

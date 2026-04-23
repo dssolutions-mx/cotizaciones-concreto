@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   getInstrumentoById,
-  updateInstrumento,
+  applyInstrumentoUpdate,
   inactivarInstrumento,
   deleteInstrumento,
   EmaDeleteConflictError,
 } from '@/services/emaInstrumentoService';
 import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles';
+import { EMA_INSTRUMENT_UPDATE_ROLES, EMA_MANAGER_ROLES } from '@/lib/ema/emaWorkspaceRoles';
+import type { UserRole } from '@/store/auth/types';
 
-const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
-/** Calidad y laboratorio pueden editar ficha; alta / inactivar siguen restringidos a managers. */
-const INSTRUMENT_UPDATE_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
+const MANAGER_ROLES = [...EMA_MANAGER_ROLES];
+const INSTRUMENT_UPDATE_ROLES = EMA_INSTRUMENT_UPDATE_ROLES;
 const READ_ROLES = INSTRUMENT_UPDATE_ROLES;
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -24,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
     const readRole = (profile as { role: string } | null)?.role;
-    if (!readRole || !READ_ROLES.includes(readRole))
+    if (!readRole || !READ_ROLES.includes(readRole as UserRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const instrumento = await getInstrumentoById(id);
@@ -51,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     // Special action: inactivate — solo planta / administración
     if (json.action === 'inactivar') {
-      if (!MANAGER_ROLES.includes(role)) {
+      if (!MANAGER_ROLES.includes(role as UserRole)) {
         return NextResponse.json(
           { error: 'Solo personal de planta o administración puede inactivar instrumentos.' },
           { status: 403 },
@@ -62,11 +63,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ success: true });
     }
 
-    if (!INSTRUMENT_UPDATE_ROLES.includes(role)) {
+    if (!INSTRUMENT_UPDATE_ROLES.includes(role as UserRole)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
-    const instrumento = await updateInstrumento(id, json);
+    const instrumento = await applyInstrumentoUpdate(id, json);
     return NextResponse.json({ data: instrumento });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

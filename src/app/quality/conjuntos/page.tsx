@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight, ClipboardList, Trash2 } from 'lucide-react'
+import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight, ClipboardList, Trash2, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -96,6 +97,12 @@ export default function ConjuntosPage() {
               disabled={loading}
             >
               <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            </Button>
+            <Button variant="outline" size="sm" className="border-stone-300 text-stone-700 gap-1.5" asChild>
+              <Link href="/quality/conjuntos/gestion">
+                <Table2 className="h-3.5 w-3.5" />
+                Vista de gestión
+              </Link>
             </Button>
             <Button
               size="sm"

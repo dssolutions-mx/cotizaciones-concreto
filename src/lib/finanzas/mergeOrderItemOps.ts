@@ -1,4 +1,5 @@
 import type { OrderItemLike } from '@/lib/finanzas/estimateOrderFinancials'
+import { expandDedicatedVacioOrderItemPatch } from '@/lib/finanzas/expandDedicatedVacioOrderItemPatch'
 
 export type FinanzasItemOp =
   | { type: 'update'; id: string; patch: Record<string, unknown> }
@@ -46,7 +47,11 @@ export function mergeOrderItemOpsForPreview(
       list = list.map((row) => {
         const r = row as OrderItemLike & { id?: string }
         if (String(r.id) !== op.id) return row
-        return { ...r, ...sanitizePatch(op.patch) } as OrderItemLike & { id?: string }
+        const patch = expandDedicatedVacioOrderItemPatch(
+          r as Record<string, unknown>,
+          sanitizePatch(op.patch)
+        )
+        return { ...r, ...patch } as OrderItemLike & { id?: string }
       })
     } else if (op.type === 'delete') {
       list = list.filter((row) => String((row as { id?: string }).id) !== op.id)

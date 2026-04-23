@@ -35,11 +35,20 @@ import QualityOverview from './QualityOverview';
 import CreditContextPanel from '@/components/credit/CreditContextPanel';
 import { supabase } from '@/lib/supabase';
 import { fetchCatalogAdditionalProducts } from '@/lib/finanzas/additionalProductsCatalog';
+import { isDedicatedVacioOllaLine } from '@/lib/finanzas/expandDedicatedVacioOrderItemPatch';
 import { masterRecipeService } from '@/lib/services/masterRecipeService';
 import { toast } from 'sonner';
 
 // Regex to parse additional product from product_type; captures last (Code) to handle names with parentheses
 const ADDL_PRODUCT_REGEX = /PRODUCTO ADICIONAL: (.+) \(([^)]+)\)$/;
+
+/** m³ that drive billing for dedicated vacío lines (kept equal to `volume` in normal operation). */
+function dedicatedVacioBillingM3(
+  p: { product_type?: string | null; volume?: number | null; empty_truck_volume?: number | null } | null | undefined
+): number {
+  if (!p || !isDedicatedVacioOllaLine(p)) return Number(p?.volume) || 0
+  return Number(p.empty_truck_volume ?? p.volume) || 0
+}
 
 // Component to handle signed URL fetching for evidence images
 function EvidenceImage({ path }: { path: string }) {
@@ -568,6 +577,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         .filter(p => p.product_type !== 'SERVICIO DE BOMBEO') // Exclude global pump service items from product editing
         .map(p => { 
           const masterId = (p as any).master_recipe_id || null;
+          if (isDedicatedVacioOllaLine(p)) {
+            const m3 =
+              (Number(p.volume) || 0) || (Number((p as { empty_truck_volume?: number }).empty_truck_volume) || 0);
+            return ({
+              id: p.id, 
+              volume: m3,
+              empty_truck_volume: m3,
+              pump_volume: p.pump_volume,
+              recipe_id: masterId ? null : (p.recipe_id || null),
+              master_recipe_id: masterId,
+              temp_recipe_code: p.product_type
+            });
+          }
           return ({ 
             id: p.id, 
             volume: p.volume,
@@ -1014,14 +1036,22 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
   function handleProductVolumeChange(id: string, newVolume: number) {
     if (!editedOrder || !editedOrder.products) return;
-    
-    const updatedProducts = editedOrder.products.map(product => {
-      if (product.id === id) {
-        return { ...product, volume: newVolume };
+
+    const updatedProducts = editedOrder.products.map((product) => {
+      if (product.id !== id) return product;
+      const op = order?.products.find((p) => p.id === id);
+      if (op && isDedicatedVacioOllaLine(op)) {
+        const unit = op.empty_truck_price || op.unit_price || 0;
+        return {
+          ...product,
+          volume: newVolume,
+          empty_truck_volume: newVolume,
+          total_price: newVolume * unit,
+        } as typeof product;
       }
-      return product;
+      return { ...product, volume: newVolume };
     });
-    
+
     setEditedOrder({
       ...editedOrder,
       products: updatedProducts
@@ -1404,8 +1434,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             console.log(`Updated additional product: ${ap.name} (${ap.code})`);
           }
         }
-        // Recalculate order totals after additional products changes
-        await orderService.recalculateOrderAmount(orderId);
       }
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
@@ -1455,10 +1483,22 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   originalProduct.has_empty_truck_charge);
         });
 
-        // Update volume-only for special items if changed
+        // Update volume for special service items; dedicated vacío lines must set empty_truck_volume = volume (billing).
         for (const sp of specialProducts) {
           const originalProduct = order.products.find(op => op.id === sp.id);
-          if (originalProduct && originalProduct.volume !== sp.volume) {
+          if (!originalProduct) continue
+          if (isDedicatedVacioOllaLine(originalProduct)) {
+            const unit = originalProduct.empty_truck_price || originalProduct.unit_price || 0
+            const m3 = Number(sp.volume) || 0
+            if (m3 !== originalProduct.volume || m3 !== Number((originalProduct as { empty_truck_volume?: number }).empty_truck_volume)) {
+              await orderService.updateOrderItem(sp.id, {
+                volume: m3,
+                empty_truck_volume: m3,
+                empty_truck_price: originalProduct.empty_truck_price ?? originalProduct.unit_price,
+                total_price: m3 * unit
+              });
+            }
+          } else if (originalProduct.volume !== sp.volume) {
             console.log(`Updating special item ${sp.id} volume from ${originalProduct.volume} to ${sp.volume}`);
             await orderService.updateOrderItem(sp.id, {
               volume: sp.volume,
@@ -1469,6 +1509,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       } else if (!hasRemisiones) {
         // No products to normalize, just update order header
         await orderService.updateOrder(orderId, orderUpdate);
+      }
+
+      if (!hasRemisiones) {
+        try {
+          await orderService.recalculateOrderAmount(orderId);
+        } catch (e) {
+          console.warn('recalculateOrderAmount after order save', e);
+        }
       }
       
       // Reload order details after saving
@@ -2561,7 +2609,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                    </div>
                                  )}
                               </TableCell>
-                              <TableCell>
+                              <TableCell
+                                title={
+                                  originalProduct && isDedicatedVacioOllaLine(originalProduct)
+                                    ? 'M³ de vacío de olla: este valor se usa en vacío = precio vacío × m³, y deberá coincidir con el monto final.'
+                                    : undefined
+                                }
+                              >
                                 <input
                                   type="number"
                                   min="0.01"
@@ -2604,7 +2658,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                   <TableCell className="text-right">
                                     {formatCurrency(
                                       isSpecialService
-                                        ? (product.volume * (originalProduct.unit_price || originalProduct.empty_truck_price || 0))
+                                        ? (isDedicatedVacioOllaLine(originalProduct)
+                                            ? (dedicatedVacioBillingM3({ ...originalProduct, ...product } as any) *
+                                                (originalProduct.empty_truck_price || originalProduct.unit_price || 0))
+                                            : (product.volume * (originalProduct.unit_price || originalProduct.empty_truck_price || 0)))
                                         : getProductUnitPrice(product) * product.volume
                                     )}
                                   </TableCell>
@@ -2673,6 +2730,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                         ? `${product.volume} unidad(es)`
                                         : `${product.volume} × ${concreteDelivered.toFixed(2)} m³ = ${(product.volume * concreteDelivered).toFixed(2)}`}
                                   </span>
+                                ) : isDedicatedVacioOllaLine(product) ? (
+                                  <span
+                                    className="tabular-nums"
+                                    title="M³ de vacío de olla; el monto final multiplica esto por el precio de vacío."
+                                  >
+                                    {dedicatedVacioBillingM3(product).toFixed(2)} m³
+                                  </span>
                                 ) : (
                                   `${product.volume} m³`
                                 )}
@@ -2692,7 +2756,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     {formatCurrency(isAdditionalProduct ? (product.unit_price || 0) : getProductUnitPrice(product))}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {formatCurrency(isAdditionalProduct ? additionalProductTotal : (getProductUnitPrice(product) * product.volume))}
+                                    {formatCurrency(
+                                      isAdditionalProduct
+                                        ? additionalProductTotal
+                                        : isDedicatedVacioOllaLine(product)
+                                            ? (dedicatedVacioBillingM3(product) * (getProductUnitPrice(product) || 0))
+                                            : (getProductUnitPrice(product) * product.volume)
+                                    )}
                                   </TableCell>
                                 </>
                               )}

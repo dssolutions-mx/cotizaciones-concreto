@@ -102,6 +102,18 @@ export interface OfflineSliceState {
 export type AuthStoreState = AuthSliceState & SessionSliceState & CacheSliceState & MetricsSliceState & OfflineSliceState;
 
 // New unified store state with consolidated auth and session management
-export type UnifiedAuthStoreState = UnifiedAuthSliceState & CacheSliceState & MetricsSliceState & OfflineSliceState;
+export type UnifiedAuthStoreState = UnifiedAuthSliceState &
+  CacheSliceState &
+  MetricsSliceState &
+  OfflineSliceState & {
+    /** Enhanced cache slice (optional on partial mocks / bridge fallbacks). */
+    getCachedProfile?: (userId: string) => UserProfile | null;
+    setCachedProfile?: (profile: UserProfile, ttl?: number) => void;
+    invalidateProfile?: (userId: string) => void;
+    getCacheStats?: () => Record<string, unknown>;
+    clearCache?: () => void;
+    warmupCache?: () => Promise<void>;
+    preloadUserData?: (userId: string) => Promise<void>;
+  };
 
 

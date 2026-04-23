@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getConjuntos, createConjunto } from '@/services/emaInstrumentoService';
+import { getConjuntos, getConjuntosWithListCounts, createConjunto } from '@/services/emaInstrumentoService';
 import { z } from 'zod';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
@@ -43,10 +43,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
-    const conjuntos = await getConjuntos({
+    const params = {
       business_unit_id: searchParams.get('business_unit_id') ?? undefined,
       is_active: searchParams.get('is_active') === 'false' ? false : true,
-    });
+    };
+    const conjuntos =
+      searchParams.get('with_counts') === '1'
+        ? await getConjuntosWithListCounts(params)
+        : await getConjuntos(params);
 
     return NextResponse.json({ data: conjuntos });
   } catch (err: any) {

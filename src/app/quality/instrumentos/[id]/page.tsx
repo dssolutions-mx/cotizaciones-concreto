@@ -533,26 +533,27 @@ function TraceabilityCard({
           </>
         )}
 
-        {/* Node 2: Master instrument (for Type C) */}
-        {tipo === 'C' && instrumento.instrumento_maestro && (
-          <>
-            <TraceNode
-              title="Instrumento maestro (Tipo A)"
-              subtitle={instrumento.instrumento_maestro.nombre}
-              detail={instrumento.instrumento_maestro.codigo}
-              status={instrumento.instrumento_maestro.estado === 'vigente' ? 'vigente' : 'warning'}
-              accent="sky"
-              href={`/quality/instrumentos/${instrumento.instrumento_maestro.id}`}
-            />
-            <TraceConnector />
-          </>
-        )}
+        {/* Node 2: Pattern instruments (for Type C) */}
+        {tipo === 'C' &&
+          (instrumento.instrumentos_maestro ?? []).map((m) => (
+            <React.Fragment key={m.id}>
+              <TraceNode
+                title="Instrumento patrón (Tipo A)"
+                subtitle={m.nombre}
+                detail={m.codigo}
+                status={m.estado === 'vigente' ? 'vigente' : 'warning'}
+                accent="sky"
+                href={`/quality/instrumentos/${m.id}`}
+              />
+              <TraceConnector />
+            </React.Fragment>
+          ))}
 
-        {tipo === 'C' && !instrumento.instrumento_maestro && (
+        {tipo === 'C' && (!instrumento.instrumentos_maestro || instrumento.instrumentos_maestro.length === 0) && (
           <>
             <TraceNode
-              title="Instrumento maestro (Tipo A)"
-              subtitle="Sin maestro asignado"
+              title="Instrumentos patrón (Tipo A)"
+              subtitle="Sin patrones asignados"
               status="vencido"
               accent="stone"
             />

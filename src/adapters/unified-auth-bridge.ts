@@ -194,10 +194,10 @@ export function useUnifiedAuthBridge(options: { preferUnified?: boolean } = {}):
     refreshSessionNow: currentStore.refreshSessionNow,
     
     // Cache methods (unified store only)
-    getCachedProfile: isUsingUnified ? unifiedStore.getCachedProfile : () => null,
-    setCachedProfile: isUsingUnified ? unifiedStore.setCachedProfile : () => {},
-    getCacheStats: isUsingUnified ? unifiedStore.getCacheStats : () => ({}),
-    clearCache: isUsingUnified ? unifiedStore.clearCache : () => {},
+    getCachedProfile: isUsingUnified ? unifiedStore.getCachedProfile! : (_userId: string) => null,
+    setCachedProfile: isUsingUnified ? unifiedStore.setCachedProfile! : (_profile: UserProfile, _ttl?: number) => {},
+    getCacheStats: isUsingUnified ? unifiedStore.getCacheStats ?? (() => ({})) : () => ({}),
+    clearCache: isUsingUnified ? unifiedStore.clearCache ?? (() => {}) : () => {},
     
     // Bridge-specific features
     isUsingUnifiedStore: isUsingUnified,

@@ -16,6 +16,7 @@ import {
   sanitizePatch,
   type FinanzasItemOp,
 } from '@/lib/finanzas/mergeOrderItemOps'
+import { expandDedicatedVacioOrderItemPatch } from '@/lib/finanzas/expandDedicatedVacioOrderItemPatch'
 import { augmentFinanzasItemOpsWithPriceLinkage } from '@/lib/finanzas/augmentOrderItemUpdatesForPriceLinkage'
 import { buildOrderItemLineDiffs } from '@/lib/finanzas/buildOrderItemLineDiffs'
 
@@ -216,7 +217,7 @@ export async function POST(
 
     for (const op of augmentedOps) {
       if (op.type === 'update') {
-        const patch = sanitizePatch(op.patch)
+        let patch = sanitizePatch(op.patch) as Record<string, unknown>
         const { data: prev } = await admin
           .from('order_items')
           .select('*')
@@ -226,6 +227,10 @@ export async function POST(
         if (!prev) {
           return NextResponse.json({ error: `Ítem no encontrado: ${op.id}` }, { status: 400 })
         }
+        patch = expandDedicatedVacioOrderItemPatch(
+          prev as Record<string, unknown>,
+          patch
+        )
         const { error: upErr } = await admin.from('order_items').update(patch).eq('id', op.id)
         if (upErr) {
           console.error('audit items update', upErr)

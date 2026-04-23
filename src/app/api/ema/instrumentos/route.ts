@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getInstrumentos, createInstrumento } from '@/services/emaInstrumentoService';
+import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX, type CreateInstrumentoInput } from '@/types/ema';
 import { z } from 'zod';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
@@ -17,7 +18,7 @@ const CreateInstrumentoSchema = z.object({
   numero_serie: z.string().optional().nullable(),
   marca: z.string().optional().nullable(),
   modelo_comercial: z.string().optional().nullable(),
-  instrumento_maestro_id: z.string().uuid().optional().nullable(),
+  instrumento_maestro_ids: z.array(z.string().uuid()).max(EMA_INSTRUMENTO_MAESTRO_IDS_MAX).optional(),
   mes_inicio_servicio_override: mesSchema,
   mes_fin_servicio_override: mesSchema,
   ubicacion_dentro_planta: z.string().optional().nullable(),
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
-    const instrumento = await createInstrumento(parsed.data as any, user.id);
+    const instrumento = await createInstrumento(parsed.data as CreateInstrumentoInput, user.id);
     return NextResponse.json({ data: instrumento }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

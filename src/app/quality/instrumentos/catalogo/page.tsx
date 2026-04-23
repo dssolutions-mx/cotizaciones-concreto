@@ -11,6 +11,7 @@ import {
   Gauge,
   ChevronRight,
   Package,
+  Table2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -182,6 +183,12 @@ export default function CatalogoInstrumentosPage() {
                   {activeFilterCount}
                 </span>
               )}
+            </Button>
+            <Button variant="outline" size="sm" className="border-stone-300 text-stone-700 gap-1.5" asChild>
+              <Link href="/quality/instrumentos/gestion">
+                <Table2 className="h-3.5 w-3.5" />
+                Vista de gestión
+              </Link>
             </Button>
             <Button
               size="sm"
@@ -401,6 +408,11 @@ function InstrumentRow({ instrumento: inst }: { instrumento: InstrumentoCard }) 
           <EmaTipoBadge tipo={inst.tipo} />
         </div>
         <span className="font-mono text-xs text-stone-500">{inst.codigo}</span>
+        {inst.conjunto_codigo ? (
+          <span className="block text-[11px] text-stone-400 mt-0.5">
+            Conjunto <span className="font-mono">{inst.conjunto_codigo}</span>
+          </span>
+        ) : null}
       </div>
 
       {/* Marca / modelo */}

@@ -7,6 +7,7 @@ import {
   ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle,
   ClipboardList, ChevronRight, RefreshCw,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -247,7 +248,7 @@ export default function VerificarPage() {
 
   // Master instrument picker (for Tipo C)
   const [maestros, setMaestros] = useState<Array<{ id: string; codigo: string; nombre: string; estado: string }>>([])
-  const [instrumento_maestro_id, setInstrumentoMaestroId] = useState<string>('')
+  const [selectedMaestroIds, setSelectedMaestroIds] = useState<string[]>([])
 
   // Inicio form
   const [inicioForm, setInicioForm] = useState({
@@ -271,16 +272,18 @@ export default function VerificarPage() {
       const inst = instJ.data ?? instJ
       setInstrumento(inst)
 
-      // Pre-fill maestro from existing instrumento_maestro_id
-      if (inst.instrumento_maestro_id) {
-        setInstrumentoMaestroId(inst.instrumento_maestro_id)
-      }
+      const configured = inst.instrumento_maestro_ids ?? []
+      setSelectedMaestroIds([...configured])
 
-      // Fetch Tipo A instruments as maestro candidates (only for Tipo C)
+      // Fetch Tipo A instruments; limit to patrones configurados en el instrumento
       if (inst.tipo === 'C') {
         fetch(`/api/ema/instrumentos?tipo=A&limit=200`)
-          .then(r => r.json())
-          .then(j => setMaestros(j.data ?? []))
+          .then((r) => r.json())
+          .then((j) => {
+            const all = j.data ?? []
+            const allow = new Set(configured)
+            setMaestros(allow.size ? all.filter((m: { id: string }) => allow.has(m.id)) : all)
+          })
           .catch(() => {})
       }
 
@@ -424,8 +427,8 @@ export default function VerificarPage() {
       setError('Complete los campos de cabecera de la plantilla antes de continuar.')
       return
     }
-    if (instrumento?.tipo === 'C' && !instrumento_maestro_id) {
-      setError('Debe seleccionar el instrumento maestro (Tipo A) para instrumentos de trabajo.')
+    if (instrumento?.tipo === 'C' && selectedMaestroIds.length === 0) {
+      setError('Seleccione al menos un instrumento patrón (Tipo A) para la verificación.')
       return
     }
     setSaving(true)
@@ -436,7 +439,7 @@ export default function VerificarPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha_verificacion: inicioForm.fecha_verificacion,
-          instrumento_maestro_id: instrumento_maestro_id || null,
+          instrumento_maestro_ids: instrumento?.tipo === 'C' ? selectedMaestroIds : undefined,
           template_id: selectedPlantillaId || undefined,
           condiciones_ambientales: {
             temperatura: inicioForm.temperatura || undefined,
@@ -704,10 +707,10 @@ export default function VerificarPage() {
             <p className="text-xs text-stone-500 mt-0.5">Confirme los datos iniciales antes de comenzar las mediciones.</p>
           </div>
           <div className="px-5 py-4 space-y-4">
-            {(snapshot.header_fields ?? []).length > 0 && (
+            {(snapshot?.header_fields ?? []).length > 0 && (
               <div className="rounded-md border border-stone-100 bg-stone-50/80 p-3 space-y-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">Datos de cabecera</p>
-                {[...(snapshot.header_fields ?? [])].sort((a, b) => a.orden - b.orden).map(h => {
+                {Array.from(snapshot?.header_fields ?? []).sort((a, b) => a.orden - b.orden).map(h => {
                   if (h.source === 'manual' && h.variable_name) {
                     return (
                       <div key={h.id} className="space-y-1.5">
@@ -726,7 +729,7 @@ export default function VerificarPage() {
                     let preview = '—'
                     try {
                       const scope: Record<string, number> = {}
-                      for (const x of (snapshot.header_fields ?? []).sort((a, b) => a.orden - b.orden)) {
+                      for (const x of Array.from(snapshot?.header_fields ?? []).sort((a, b) => a.orden - b.orden)) {
                         if (x.source === 'manual' && x.variable_name) {
                           const n = Number(headerValues[x.variable_name]?.trim())
                           if (!Number.isNaN(n)) scope[x.variable_name] = n
@@ -761,26 +764,44 @@ export default function VerificarPage() {
               </div>
             </div>
 
-            {/* Master instrument — only for Tipo C */}
+            {/* Pattern instruments — only for Tipo C */}
             {instrumento?.tipo === 'C' && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs text-stone-600">
-                  Instrumento maestro (Tipo A) <span className="text-red-500">*</span>
+                  Instrumentos patrón (Tipo A) <span className="text-red-500">*</span>
                 </Label>
-                <select
-                  value={instrumento_maestro_id}
-                  onChange={e => setInstrumentoMaestroId(e.target.value)}
-                  className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="">— Seleccionar maestro —</option>
-                  {maestros.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.codigo} · {m.nombre} ({m.estado})
-                    </option>
-                  ))}
-                </select>
+                <div className="rounded-md border border-stone-200 bg-white p-3 max-h-[200px] overflow-y-auto space-y-2">
+                  {maestros.length === 0 ? (
+                    <p className="text-xs text-amber-700">
+                      No hay instrumentos patrón configurados para este instrumento. Configúrelos en la ficha antes de
+                      verificar.
+                    </p>
+                  ) : (
+                    maestros.map((m) => (
+                      <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={selectedMaestroIds.includes(m.id)}
+                          onCheckedChange={(c) => {
+                            const on = c === true
+                            setSelectedMaestroIds((prev) => {
+                              const s = new Set(prev)
+                              if (on) s.add(m.id)
+                              else s.delete(m.id)
+                              return Array.from(s)
+                            })
+                          }}
+                        />
+                        <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
+                        <span>
+                          · {m.nombre} ({m.estado})
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
                 <p className="text-[10px] text-stone-400">
-                  Instrumento patrón Tipo A con el que se realiza la verificación (trazabilidad NMX-EC-17025).
+                  Patrones Tipo A definidos para este instrumento (trazabilidad NMX-EC-17025). Puede usar uno o varios en
+                  esta corrida.
                 </p>
               </div>
             )}

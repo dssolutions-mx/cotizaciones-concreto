@@ -32,8 +32,8 @@ export async function getProgramaCalendar(
     .select(`
       *,
       instrumento:instrumentos(
-        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        conjuntos_herramientas(categoria)
+        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+        conjuntos_herramientas(id, categoria, codigo_conjunto, nombre_conjunto)
       )
     `)
     .order('fecha_programada');
@@ -51,13 +51,30 @@ export async function getProgramaCalendar(
   const { data, error } = await query;
   if (error) throw error;
 
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    instrumento: {
-      ...row.instrumento,
-      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
-    },
-  }));
+  return (data ?? []).map((row: any) => {
+    const inst = row.instrumento;
+    const ch = inst?.conjuntos_herramientas ?? {};
+    return {
+      ...row,
+      instrumento: inst
+        ? {
+            id: inst.id,
+            codigo: inst.codigo,
+            nombre: inst.nombre,
+            tipo: inst.tipo,
+            estado: inst.estado,
+            fecha_proximo_evento: inst.fecha_proximo_evento,
+            plant_id: inst.plant_id,
+            marca: inst.marca,
+            modelo_comercial: inst.modelo_comercial,
+            categoria: ch.categoria ?? '',
+            conjunto_id: inst.conjunto_id ?? ch.id ?? '',
+            conjunto_codigo: ch.codigo_conjunto ?? '',
+            conjunto_nombre: ch.nombre_conjunto ?? '',
+          }
+        : undefined,
+    };
+  });
 }
 
 export async function getProgramaByInstrumento(
@@ -87,8 +104,8 @@ export async function getPendingUpcoming(
     .select(`
       *,
       instrumento:instrumentos!inner(
-        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        conjuntos_herramientas(categoria)
+        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+        conjuntos_herramientas(id, categoria, codigo_conjunto, nombre_conjunto)
       )
     `)
     .eq('estado', 'pendiente')
@@ -98,13 +115,30 @@ export async function getPendingUpcoming(
     .order('fecha_programada');
 
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    instrumento: {
-      ...row.instrumento,
-      categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '',
-    },
-  }));
+  return (data ?? []).map((row: any) => {
+    const inst = row.instrumento;
+    const ch = inst?.conjuntos_herramientas ?? {};
+    return {
+      ...row,
+      instrumento: inst
+        ? {
+            id: inst.id,
+            codigo: inst.codigo,
+            nombre: inst.nombre,
+            tipo: inst.tipo,
+            estado: inst.estado,
+            fecha_proximo_evento: inst.fecha_proximo_evento,
+            plant_id: inst.plant_id,
+            marca: inst.marca,
+            modelo_comercial: inst.modelo_comercial,
+            categoria: ch.categoria ?? '',
+            conjunto_id: inst.conjunto_id ?? ch.id ?? '',
+            conjunto_codigo: ch.codigo_conjunto ?? '',
+            conjunto_nombre: ch.nombre_conjunto ?? '',
+          }
+        : undefined,
+    };
+  });
 }
 
 // ─────────────────────────────────────────
@@ -204,8 +238,8 @@ export async function getPendingNotif7Dias(): Promise<ProgramaCalibacionConInstr
     .select(`
       *,
       instrumento:instrumentos(
-        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        conjuntos_herramientas(categoria)
+        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+        conjuntos_herramientas(id, categoria, codigo_conjunto, nombre_conjunto)
       )
     `)
     .eq('estado', 'pendiente')
@@ -213,10 +247,30 @@ export async function getPendingNotif7Dias(): Promise<ProgramaCalibacionConInstr
     .eq('notif_7dias_enviada', false);
 
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    instrumento: { ...row.instrumento, categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '' },
-  }));
+  return (data ?? []).map((row: any) => {
+    const inst = row.instrumento;
+    const ch = inst?.conjuntos_herramientas ?? {};
+    return {
+      ...row,
+      instrumento: inst
+        ? {
+            id: inst.id,
+            codigo: inst.codigo,
+            nombre: inst.nombre,
+            tipo: inst.tipo,
+            estado: inst.estado,
+            fecha_proximo_evento: inst.fecha_proximo_evento,
+            plant_id: inst.plant_id,
+            marca: inst.marca,
+            modelo_comercial: inst.modelo_comercial,
+            categoria: ch.categoria ?? '',
+            conjunto_id: inst.conjunto_id ?? ch.id ?? '',
+            conjunto_codigo: ch.codigo_conjunto ?? '',
+            conjunto_nombre: ch.nombre_conjunto ?? '',
+          }
+        : undefined,
+    };
+  });
 }
 
 /** Get programa entries that need 1-day notification sent */
@@ -229,8 +283,8 @@ export async function getPendingNotif1Dia(): Promise<ProgramaCalibacionConInstru
     .select(`
       *,
       instrumento:instrumentos(
-        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial,
-        conjuntos_herramientas(categoria)
+        id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+        conjuntos_herramientas(id, categoria, codigo_conjunto, nombre_conjunto)
       )
     `)
     .eq('estado', 'pendiente')
@@ -238,10 +292,30 @@ export async function getPendingNotif1Dia(): Promise<ProgramaCalibacionConInstru
     .eq('notif_1dia_enviada', false);
 
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
-    ...row,
-    instrumento: { ...row.instrumento, categoria: row.instrumento?.conjuntos_herramientas?.categoria ?? '' },
-  }));
+  return (data ?? []).map((row: any) => {
+    const inst = row.instrumento;
+    const ch = inst?.conjuntos_herramientas ?? {};
+    return {
+      ...row,
+      instrumento: inst
+        ? {
+            id: inst.id,
+            codigo: inst.codigo,
+            nombre: inst.nombre,
+            tipo: inst.tipo,
+            estado: inst.estado,
+            fecha_proximo_evento: inst.fecha_proximo_evento,
+            plant_id: inst.plant_id,
+            marca: inst.marca,
+            modelo_comercial: inst.modelo_comercial,
+            categoria: ch.categoria ?? '',
+            conjunto_id: inst.conjunto_id ?? ch.id ?? '',
+            conjunto_codigo: ch.codigo_conjunto ?? '',
+            conjunto_nombre: ch.nombre_conjunto ?? '',
+          }
+        : undefined,
+    };
+  });
 }
 
 export async function markNotif7DiasEnviada(ids: string[]): Promise<void> {

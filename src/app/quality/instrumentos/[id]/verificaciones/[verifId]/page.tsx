@@ -162,8 +162,8 @@ export default function VerificacionDetailPage() {
 
   const snap = data.snapshot
   const measurements = data.measurements ?? []
-  const mMap = new Map(
-    measurements.map(m => [`${m.section_id}:${m.section_repeticion}:${m.item_id}`, m] as const)
+  const mMap = new Map<string, CompletedVerificacionMeasurement>(
+    measurements.map((m) => [`${m.section_id}:${m.section_repeticion}:${m.item_id}`, m]),
   )
 
   const totalItems = measurements.length

@@ -15,6 +15,7 @@ import {
   Clock,
   XCircle,
   RefreshCw,
+  Table2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -330,13 +331,19 @@ export default function EmaHubPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600 mb-3">
           Módulos
         </h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <NavCard
             href="/quality/instrumentos/catalogo"
             icon={<Wrench className="h-5 w-5 text-stone-600" />}
             label="Catálogo"
             description="Todos los instrumentos"
             count={data?.stats.total}
+          />
+          <NavCard
+            href="/quality/instrumentos/gestion"
+            icon={<Table2 className="h-5 w-5 text-stone-600" />}
+            label="Gestión tabular"
+            description="Tabla, panel y lotes"
           />
           <NavCard
             href="/quality/instrumentos/programa"
