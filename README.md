@@ -106,7 +106,7 @@ Más detalle: [MDFILES/DOCUMENTATION.md](./MDFILES/DOCUMENTATION.md) y [docs/REA
 
 ## Licencia
 
-El código es **propietario** de **Juan Jose Aguirre Segarra**. No se concede licencia de uso, copia ni distribución salvo acuerdo por escrito con el titular. Consulta el archivo **[LICENSE](./LICENSE)**.
+El código es **propietario** de **Juan Jose Aguirre Segarra**. No se concede licencia de uso, copia ni distribución salvo acuerdo por escrito con el titular. Consulta el archivo **[LICENSE](./LICENSE)**. Contacto para licencias: **juan.aguirre@dssolutions-mx.com**.
 
 `package.json` declara `"license": "UNLICENSED"` para indicar que **no** es un paquete npm de código abierto con permisos generales.
 
@@ -128,4 +128,4 @@ Esto resume prácticas habituales; **no es asesoría legal**. Para contratos con
 
 ### ¿Cómo “obtener” una licencia pública tipo paquete npm?
 
-No hace falta un trámite gubernamental general para “tener licencia”: defines **permisos** en **texto legal** (`LICENSE` + contratos). Para software **cerrado**, lo habitual es **contacto directo** con el titular (Juan Jose Aguirre Segarra) y un **contrato firmado**.
+No hace falta un trámite gubernamental general para “tener licencia”: defines **permisos** en **texto legal** (`LICENSE` + contratos). Para software **cerrado**, lo habitual es **contacto directo** con el titular (Juan Jose Aguirre Segarra, **juan.aguirre@dssolutions-mx.com**) y un **contrato firmado**.
