@@ -7,10 +7,12 @@ This directory contains comprehensive documentation for the Concrete Quotation S
 - [Deployment Guide](./DEPLOYMENT.md) - How to deploy the application to production
 - [Development Workflow](./DEVELOPMENT_WORKFLOW.md) - Guide for development process and Git workflow
 - [CI/CD Setup](./CI_CD_SETUP.md) - Setting up Continuous Integration and Deployment
+- [Versioning and releases](./VERSIONING.md) - CalVer, tags, and GitHub Releases workflow
+- [Changelog](../CHANGELOG.md) - Monthly release notes
 
 ## Additional Resources
 
-The main project documentation is available in the root [DOCUMENTATION.md](../DOCUMENTATION.md) file.
+The main project overview is in [MDFILES/DOCUMENTATION.md](../MDFILES/DOCUMENTATION.md).
 
 ## Contributing to Documentation
 
