@@ -27,6 +27,7 @@ const CreateCertSchema = z.object({
   fecha_emision: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   fecha_vencimiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   archivo_path: z.string().min(1),
+  archivo_nombre_original: z.string().max(512).optional().nullable(),
   incertidumbre_expandida: z.number().positive().optional().nullable(),
   incertidumbre_unidad: z.string().optional().nullable(),
   factor_cobertura: z.number().positive().optional().nullable(),
@@ -91,7 +92,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json(
         {
           error:
-            'Solo se aceptan PDF subidos desde esta pantalla (botón Subir PDF). No se permiten rutas escritas a mano ni desde el panel de Storage.',
+            'Solo se aceptan PDF subidos desde esta pantalla (botón Subir PDF). No se permiten rutas escritas a mano ni pegadas desde el panel de administración.',
         },
         { status: 400 },
       );
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json(
         {
           error:
-            'No se encontró el PDF en Storage. Suba de nuevo el archivo con «Subir PDF» y vuelva a intentar.',
+            'No se encontró el PDF adjunto. Suba de nuevo el archivo con «Subir PDF» y vuelva a intentar.',
         },
         { status: 400 },
       );

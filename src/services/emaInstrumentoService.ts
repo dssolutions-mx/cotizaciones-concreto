@@ -7,6 +7,7 @@
  */
 
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
 import type {
   ConjuntoHerramientas,
   CreateConjuntoInput,
@@ -412,16 +413,16 @@ export async function getCompletedVerificacionesByInstrumento(
   const { data, error } = await supabase
     .from('completed_verificaciones')
     .select(`
-      id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado,
+      id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado, created_by,
       template_version:verificacion_template_versions(
         version_number,
         template:verificacion_templates(codigo)
-      ),
-      created_by_profile:user_profiles!completed_verificaciones_created_by_fkey(full_name)
+      )
     `)
     .eq('instrumento_id', instrumento_id)
     .order('fecha_verificacion', { ascending: false });
   if (error) throw error;
+  const names = await mapCreatorNames(supabase, data ?? []);
   return (data ?? []).map((row: any) => ({
     id: row.id,
     fecha_verificacion: row.fecha_verificacion,
@@ -430,7 +431,7 @@ export async function getCompletedVerificacionesByInstrumento(
     estado: row.estado,
     template_codigo: row.template_version?.template?.codigo ?? '',
     template_version_number: row.template_version?.version_number ?? 0,
-    created_by_name: row.created_by_profile?.full_name ?? null,
+    created_by_name: (row.created_by && names[row.created_by]) ?? null,
   }));
 }
 

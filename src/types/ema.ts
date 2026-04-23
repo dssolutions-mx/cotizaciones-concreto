@@ -202,6 +202,8 @@ export interface CertificadoCalibracion {
   fecha_emision: string;       // ISO date
   fecha_vencimiento: string;   // ISO date
   archivo_path: string;        // Object key in bucket calibration-certificates (no bucket name prefix)
+  /** Original client file name at upload (optional; for lists / exports). */
+  archivo_nombre_original: string | null;
   // Measurement uncertainty (NMX-EC-17025 §5.4.6)
   incertidumbre_expandida: number | null;   // Expanded uncertainty U (±)
   incertidumbre_unidad: string | null;      // Unit for uncertainty value

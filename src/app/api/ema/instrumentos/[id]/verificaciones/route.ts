@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -36,15 +37,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const { data: rows, error: qErr } = await admin
       .from('completed_verificaciones')
       .select(`
-        id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado, created_at,
+        id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado, created_at, created_by,
         template_version:verificacion_template_versions!completed_verificaciones_template_version_id_fkey (
           version_number,
           template:verificacion_templates!verificacion_template_versions_template_id_fkey (
             codigo
           )
-        ),
-        creator:user_profiles!completed_verificaciones_created_by_fkey (
-          full_name
         )
       `)
       .eq('instrumento_id', id)
@@ -52,6 +50,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .limit(50);
 
     if (qErr) throw qErr;
+
+    const creatorNames = await mapCreatorNames(admin, rows ?? []);
 
     const cards = (rows ?? []).map((r: any) => ({
       id: r.id,
@@ -62,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       created_at: r.created_at,
       template_codigo: r.template_version?.template?.codigo ?? '—',
       template_version_number: r.template_version?.version_number ?? 1,
-      created_by_name: r.creator?.full_name ?? null,
+      created_by_name: (r.created_by && creatorNames[r.created_by]) ?? null,
     }));
 
     return NextResponse.json({ data: cards });
@@ -90,7 +90,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
     // Get the instrument to find its conjunto
-    const { data: instrumento, error: iErr } = await supabase
+    const admin = createServiceClient();
+    const { data: instrumento, error: iErr } = await admin
       .from('instrumentos')
       .select('id, conjunto_id')
       .eq('id', instrumento_id)
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     let template: { id: string; active_version_id: string | null; estado: string } | null = null;
 
     if (parsed.data.template_id) {
-      const { data: t, error: tErr } = await supabase
+      const { data: t, error: tErr } = await admin
         .from('verificacion_templates')
         .select('id, active_version_id, estado, conjunto_id')
         .eq('id', parsed.data.template_id)
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
       template = t;
     } else {
-      const { data: candidates, error: cErr } = await supabase
+      const { data: candidates, error: cErr } = await admin
         .from('verificacion_templates')
         .select('id, codigo, nombre, norma_referencia, active_version_id, estado')
         .eq('conjunto_id', instrumento.conjunto_id)
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!template.active_version_id)
       return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
 
-    const { data: verif, error: vErr } = await supabase
+    const { data: verif, error: vErr } = await admin
       .from('completed_verificaciones')
       .insert({
         instrumento_id,

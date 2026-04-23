@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
 
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
@@ -30,12 +31,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .from('completed_verificaciones')
       .select(`
         id, instrumento_id, fecha_verificacion, fecha_proxima_verificacion,
-        resultado, estado, created_at,
+        resultado, estado, created_at, created_by,
         template_version:verificacion_template_versions!completed_verificaciones_template_version_id_fkey (
           version_number,
           template:verificacion_templates!verificacion_template_versions_template_id_fkey (codigo, nombre)
-        ),
-        creator:user_profiles!completed_verificaciones_created_by_fkey (full_name)
+        )
       `)
       .in('instrumento_id', instrIds)
       .order('fecha_verificacion', { ascending: false })
@@ -44,6 +44,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (qErr) throw qErr;
 
     const instrMap = Object.fromEntries(instrs.map((i: any) => [i.id, i]));
+    const creatorNames = await mapCreatorNames(admin, rows ?? []);
 
     const data = (rows ?? []).map((r: any) => ({
       id: r.id,
@@ -58,7 +59,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       created_at: r.created_at,
       template_codigo: r.template_version?.template?.codigo ?? '—',
       template_version_number: r.template_version?.version_number ?? 1,
-      created_by_name: r.creator?.full_name ?? null,
+      created_by_name: (r.created_by && creatorNames[r.created_by]) ?? null,
     }));
 
     return NextResponse.json({ data });

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Award, CheckCircle2, FileText, Info, Loader2, Upload, X } from 'lucide-react'
+import { ArrowLeft, Award, CheckCircle2, Info, Loader2, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -41,16 +41,18 @@ export default function CertificarPage() {
     condiciones_temperatura: '',
     condiciones_humedad: '',
     condiciones_presion: '',
-    // Document
+    // Document (archivo_path is internal object key; never shown in UI)
     archivo_path: '',
+    archivo_nombre_original: '',
     observaciones: '',
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadBusy, setUploadBusy] = useState(false)
   const [uploadNotice, setUploadNotice] = useState<{ variant: 'ok' | 'error'; text: string } | null>(null)
-  /** Nombre del archivo tras subida exitosa por API (para mensaje claro; se limpia si edita la ruta a mano). */
+  /** Nombre del archivo mostrado tras subida exitosa (mismo valor que se guarda como archivo_nombre_original). */
   const [pdfUploadLabel, setPdfUploadLabel] = useState<string | null>(null)
+  const [pdfUploadSizeLabel, setPdfUploadSizeLabel] = useState<string | null>(null)
   const calibrationPdfRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -94,6 +96,7 @@ export default function CertificarPage() {
         fecha_emision: form.fecha_emision,
         fecha_vencimiento: form.fecha_vencimiento,
         archivo_path: form.archivo_path,
+        archivo_nombre_original: form.archivo_nombre_original.trim() || null,
         incertidumbre_expandida: form.incertidumbre_expandida ? parseFloat(form.incertidumbre_expandida) : null,
         incertidumbre_unidad: form.incertidumbre_unidad || null,
         factor_cobertura: form.factor_cobertura ? parseFloat(form.factor_cobertura) : null,
@@ -139,11 +142,19 @@ export default function CertificarPage() {
       const path = j.data?.archivo_path as string | undefined
       if (!path) throw new Error('Respuesta inválida del servidor')
       const label = (j.data?.original_name as string | undefined) || file.name || 'PDF'
-      setForm((f) => ({ ...f, archivo_path: path }))
+      setForm((f) => ({
+        ...f,
+        archivo_path: path,
+        archivo_nombre_original: label,
+      }))
       setPdfUploadLabel(label)
+      const bytes = file.size
+      setPdfUploadSizeLabel(
+        bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`,
+      )
       setUploadNotice({
         variant: 'ok',
-        text: 'Archivo guardado en Storage. Revise el resto del formulario y pulse «Registrar certificado».',
+        text: 'PDF listo. Complete el formulario y pulse «Registrar certificado».',
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error al subir'
@@ -433,13 +444,13 @@ export default function CertificarPage() {
         {/* 5. Document */}
         <div className="space-y-4 rounded-lg border border-stone-200 bg-white p-5">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Documento del certificado</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Documento PDF</h2>
             <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] text-stone-600 marker:font-medium">
               <li>
-                Pulse <strong className="text-stone-800">Subir PDF</strong> y elija el certificado del laboratorio (solo PDF válidos).
+                Pulse <strong className="text-stone-800">Subir PDF</strong> y elija el certificado del laboratorio (solo PDF válidos, máx. 10&nbsp;MB).
               </li>
               <li>
-                La clave en Storage se asigna <strong className="text-stone-800">solo por la aplicación</strong>; no puede escribirla ni pegarla.
+                El archivo se adjunta <strong className="text-stone-800">solo desde este formulario</strong>; no es necesario pegar rutas ni claves técnicas.
               </li>
               <li>Complete el formulario y pulse <strong className="text-stone-800">Registrar certificado</strong>.</li>
             </ol>
@@ -463,17 +474,21 @@ export default function CertificarPage() {
               {uploadBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
               Subir PDF
             </Button>
-            <span className="text-[11px] text-stone-500">
-              Bucket <span className="font-mono text-stone-700">calibration-certificates</span> · máx. 10&nbsp;MB
-            </span>
+            <span className="text-[11px] text-stone-500">PDF · máx. 10&nbsp;MB</span>
           </div>
           {pdfUploadLabel && (
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50/90 px-3 py-2 text-xs text-emerald-900">
-              <div className="flex min-w-0 items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                <span className="min-w-0 truncate font-medium" title={pdfUploadLabel}>
-                  {pdfUploadLabel}
-                </span>
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800/90">Archivo adjunto</p>
+                  <p className="min-w-0 truncate font-medium text-emerald-950" title={pdfUploadLabel}>
+                    {pdfUploadLabel}
+                  </p>
+                  {pdfUploadSizeLabel && (
+                    <p className="text-[11px] text-emerald-800/80 mt-0.5">{pdfUploadSizeLabel}</p>
+                  )}
+                </div>
               </div>
               <Button
                 type="button"
@@ -482,7 +497,8 @@ export default function CertificarPage() {
                 className="h-7 shrink-0 gap-1 px-2 text-emerald-900 hover:bg-emerald-100/80"
                 onClick={() => {
                   setPdfUploadLabel(null)
-                  setForm((f) => ({ ...f, archivo_path: '' }))
+                  setPdfUploadSizeLabel(null)
+                  setForm((f) => ({ ...f, archivo_path: '', archivo_nombre_original: '' }))
                   setUploadNotice(null)
                 }}
               >
@@ -503,25 +519,14 @@ export default function CertificarPage() {
               {uploadNotice.text}
             </p>
           )}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-stone-600">
-              Clave en Storage <span className="text-red-500">*</span>
-            </Label>
-            {form.archivo_path ? (
-              <div className="flex min-w-0 gap-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
-                <FileText className="mt-0.5 h-4 w-4 shrink-0 text-stone-400" />
-                <p className="min-w-0 break-all font-mono text-xs text-stone-800">{form.archivo_path}</p>
-              </div>
-            ) : (
-              <div className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
-                Aún no hay PDF adjunto. Use <strong>Subir PDF</strong> para continuar.
-              </div>
-            )}
-            <p className="text-[11px] text-stone-400">
-              El PDF debe incluir resultados, incertidumbre, trazabilidad y firma. Bucket{' '}
-              <span className="font-mono text-stone-600">calibration-certificates</span>.
-            </p>
-          </div>
+          {!form.archivo_path && !pdfUploadLabel && (
+            <div className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+              Aún no hay PDF adjunto. Use <strong>Subir PDF</strong> para continuar.
+            </div>
+          )}
+          <p className="text-[11px] text-stone-400">
+            El PDF debe incluir resultados, incertidumbre, trazabilidad y firma del laboratorio, según su acreditación.
+          </p>
         </div>
 
         {/* 6. Notes */}

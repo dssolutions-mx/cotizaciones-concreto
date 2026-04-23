@@ -109,14 +109,38 @@ export default function VerificacionDetailPage() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/ema/verificaciones/${verifId}`)
-      .then(r => r.json())
-      .then(j => {
-        if (j.error) { setError(j.error); setLoading(false); return }
-        setData(j.data)
-        setLoading(false)
-      })
-      .catch(e => { setError(e.message); setLoading(false) })
+    if (!verifId) return
+    let cancelled = false
+    const ac = new AbortController()
+    ;(async () => {
+      try {
+        const r = await fetch(`/api/ema/verificaciones/${verifId}`, { signal: ac.signal })
+        const j = (await r.json().catch(() => ({}))) as { data?: CompletedVerificacionDetalle; error?: string }
+        if (!r.ok) {
+          if (!cancelled) {
+            setError(j.error ?? 'Error cargando la verificación')
+            setData(null)
+          }
+          return
+        }
+        if (!cancelled) {
+          setData(j.data ?? null)
+          setError(null)
+        }
+      } catch (e: unknown) {
+        const err = e as { name?: string; message?: string }
+        if (!cancelled && err.name !== 'AbortError') {
+          setError(err.message ?? 'Error de red')
+          setData(null)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+      ac.abort()
+    }
   }, [verifId])
 
   if (loading) {

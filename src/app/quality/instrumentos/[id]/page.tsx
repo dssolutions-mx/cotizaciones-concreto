@@ -43,6 +43,10 @@ import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
+import {
+  publishedPlantillaSummaryFromTemplatesPayload,
+  type PublishedPlantillaSummary,
+} from '@/lib/ema/publishedPlantillaFromTemplatesResponse'
 import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard, EmaDeleteBlocker } from '@/types/ema'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -88,17 +92,35 @@ export default function InstrumentoDetailPage() {
   const [deleteBlockers, setDeleteBlockers] = useState<EmaDeleteBlocker[]>([])
   const [deleteConfirmCodigo, setDeleteConfirmCodigo] = useState('')
 
+  /** Preloaded with instrument so the Verificaciones tab avoids a client waterfall (Next.js: parallelize, avoid child-only fetch after parent). */
+  const [verificacionesTabData, setVerificacionesTabData] = useState<{
+    verificaciones: CompletedVerificacionCard[]
+    plantilla: PublishedPlantillaSummary | null
+  }>({ verificaciones: [], plantilla: null })
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/ema/instrumentos/${id}`)
-      if (!res.ok) throw new Error('Instrumento no encontrado')
-      const j = await res.json()
-      const inst: InstrumentoDetalle = j.data ?? j
+      const [instRes, verifRes] = await Promise.all([
+        fetch(`/api/ema/instrumentos/${id}`),
+        fetch(`/api/ema/instrumentos/${id}/verificaciones`),
+      ])
+      const [instJ, verifJ] = await Promise.all([instRes.json(), verifRes.json()])
+      if (!instRes.ok) throw new Error('Instrumento no encontrado')
+      const inst: InstrumentoDetalle = instJ.data ?? instJ
       setInstrumento(inst)
 
-      const certRes = await fetch(`/api/ema/instrumentos/${id}/certificados?limit=1&vigente=true`)
+      const verificaciones: CompletedVerificacionCard[] = verifRes.ok
+        ? ((verifJ as { data?: CompletedVerificacionCard[] }).data ?? [])
+        : []
+
+      const cid = inst.conjunto_id
+      const [certRes, tmplRes] = await Promise.all([
+        fetch(`/api/ema/instrumentos/${id}/certificados?limit=1&vigente=true`),
+        cid ? fetch(`/api/ema/conjuntos/${cid}/templates`) : Promise.resolve(null as Response | null),
+      ])
+
       if (certRes.ok) {
         const certJ = await certRes.json()
         const certs = certJ.data ?? []
@@ -108,8 +130,19 @@ export default function InstrumentoDetailPage() {
             fecha_vencimiento: certs[0].fecha_vencimiento,
             fecha_emision: certs[0].fecha_emision,
           })
+        } else {
+          setCertificadoVigente(null)
         }
+      } else {
+        setCertificadoVigente(null)
       }
+
+      let plantilla: PublishedPlantillaSummary | null = null
+      if (tmplRes?.ok) {
+        const tmplJ = await tmplRes.json()
+        plantilla = publishedPlantillaSummaryFromTemplatesPayload(tmplJ)
+      }
+      setVerificacionesTabData({ verificaciones, plantilla })
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -285,7 +318,12 @@ export default function InstrumentoDetailPage() {
             <CertificadosSection instrumentoId={id} />
           </TabsContent>
           <TabsContent value="verificaciones" className="m-0">
-            <VerificacionesSection instrumentoId={id} conjuntoId={instrumento.conjunto_id ?? null} />
+            <VerificacionesSection
+              instrumentoId={id}
+              conjuntoId={instrumento.conjunto_id ?? null}
+              verificaciones={verificacionesTabData.verificaciones}
+              plantillaPublicada={verificacionesTabData.plantilla}
+            />
           </TabsContent>
           <TabsContent value="incidentes" className="m-0">
             <IncidentesSection instrumentoId={id} />
@@ -644,6 +682,11 @@ function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
                   {c.numero_certificado && `#${c.numero_certificado} · `}
                   Emitido: {c.fecha_emision} · Vence: {c.fecha_vencimiento}
                 </div>
+                {c.archivo_nombre_original && (
+                  <p className="text-xs text-stone-600 mt-0.5 truncate" title={c.archivo_nombre_original}>
+                    Archivo: {c.archivo_nombre_original}
+                  </p>
+                )}
                 {c.observaciones && <p className="text-xs text-stone-500 mt-0.5">{c.observaciones}</p>}
               </div>
               <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -669,88 +712,16 @@ function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
 function VerificacionesSection({
   instrumentoId,
   conjuntoId,
-}: { instrumentoId: string; conjuntoId: string | null }) {
-  const [verifs, setVerifs] = useState<CompletedVerificacionCard[]>([])
-  const [loading, setLoading] = useState(true)
-  const [template, setTemplate] = useState<{
-    id: string
-    codigo: string
-    nombre: string
-    active_version_id: string | null
-    active_version_number: number | null
-  } | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/ema/instrumentos/${instrumentoId}/verificaciones`)
-      .then(async (r) => {
-        const j = await r.json().catch(() => ({}))
-        if (!r.ok) throw new Error((j as { error?: string }).error ?? 'Error cargando verificaciones')
-        if (!cancelled) setVerifs((j as { data?: CompletedVerificacionCard[] }).data ?? [])
-      })
-      .catch(() => {
-        if (!cancelled) setVerifs([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [instrumentoId])
-
-  useEffect(() => {
-    if (!conjuntoId) {
-      setTemplate(null)
-      return
-    }
-    let cancelled = false
-    fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
-      .then(async (r) => {
-        if (!r.ok) return null
-        return r.json() as Promise<{ data?: unknown }>
-      })
-      .then((j) => {
-        if (cancelled || !j) {
-          if (!cancelled && !j) setTemplate(null)
-          return
-        }
-        // API returns an array of templates; pick published + active version (same logic as /verificar page).
-        const raw = j.data
-        const list: unknown[] = Array.isArray(raw) ? raw : raw != null ? [raw] : []
-        const publicadas = (list as Record<string, unknown>[]).filter(
-          (t) => t.estado === 'publicado' && typeof t.active_version_id === 'string' && t.active_version_id,
-        )
-        if (publicadas.length === 0) {
-          if (!cancelled) setTemplate(null)
-          return
-        }
-        const t = publicadas[0] as {
-          id: string
-          codigo: string
-          nombre: string
-          active_version_id: string
-          active_version?: { version_number?: number }
-        }
-        if (!cancelled) {
-          setTemplate({
-            id: t.id,
-            codigo: t.codigo,
-            nombre: t.nombre,
-            active_version_id: t.active_version_id,
-            active_version_number: t.active_version?.version_number ?? null,
-          })
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setTemplate(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [conjuntoId])
-
-  if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
+  verificaciones,
+  plantillaPublicada,
+}: {
+  instrumentoId: string
+  conjuntoId: string | null
+  verificaciones: CompletedVerificacionCard[]
+  plantillaPublicada: PublishedPlantillaSummary | null
+}) {
+  const verifs = verificaciones
+  const template = plantillaPublicada
 
   const resultadoStyle = (r: string) =>
     r === 'conforme' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
@@ -799,6 +770,11 @@ function VerificacionesSection({
           <span className="text-xs text-amber-800">
             Este conjunto no tiene una plantilla de verificación publicada. Para ejecutar verificaciones bajo NMX-EC-17025 es necesario publicar una versión activa.
           </span>
+        </div>
+      )}
+      {verifs.some((v) => v.estado === 'en_proceso') && (
+        <div className="mx-4 my-3 rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs text-sky-900">
+          Hay una verificación <strong>en proceso</strong>. El instrumento sigue en <strong>vigente</strong> hasta que cierre el flujo (último paso) y se registre la próxima fecha; entonces se actualizan <strong>fecha próximo evento</strong> y el estado.
         </div>
       )}
       {verifs.length === 0 ? (

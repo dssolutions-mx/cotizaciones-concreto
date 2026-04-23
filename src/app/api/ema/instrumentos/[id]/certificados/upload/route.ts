@@ -3,7 +3,13 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import {
   CALIBRATION_CERTIFICATES_BUCKET,
   normalizeCalibrationArchivoPath,
+  sanitizeCalibrationPdfBasename,
 } from '@/lib/ema/calibrationCertificateStorage';
+
+function isStorageObjectConflict(err: { message?: string }): boolean {
+  const m = (err.message || '').toLowerCase();
+  return m.includes('already exists') || m.includes('resource already exists') || m.includes('duplicate');
+}
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
 
@@ -87,31 +93,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: 'El archivo excede el tamaño máximo de 10MB' }, { status: 400 });
     }
 
-    const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 12);
-    const objectKey = `${instrumentoId}/certificados/${timestamp}_${randomString}.pdf`;
+    const originalName = file.name?.trim() || null;
+    const safeBase = sanitizeCalibrationPdfBasename(file.name || 'certificado.pdf');
 
-    const { error: uploadError } = await supabase.storage
-      .from(CALIBRATION_CERTIFICATES_BUCKET)
-      .upload(objectKey, file, {
-        cacheControl: '3600',
-        contentType: 'application/pdf',
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error('EMA calibration upload error:', uploadError);
-      return NextResponse.json(
-        { error: `Error al subir certificado: ${uploadError.message}` },
-        { status: 500 },
-      );
+    let objectKey = '';
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const ts = Date.now() + attempt;
+      const namePart =
+        attempt === 0
+          ? safeBase
+          : sanitizeCalibrationPdfBasename(
+              `${safeBase}-${attempt}-${Math.random().toString(36).slice(2, 12)}.pdf`,
+            );
+      objectKey = `${instrumentoId}/certificados/${ts}__${namePart}.pdf`;
+      const { error } = await supabase.storage
+        .from(CALIBRATION_CERTIFICATES_BUCKET)
+        .upload(objectKey, file, {
+          cacheControl: '3600',
+          contentType: 'application/pdf',
+          upsert: false,
+        });
+      if (!error) {
+        break;
+      }
+      if (!isStorageObjectConflict(error) || attempt === 3) {
+        console.error('EMA calibration upload error:', error);
+        return NextResponse.json(
+          { error: `Error al subir certificado: ${error.message}` },
+          { status: 500 },
+        );
+      }
     }
 
     const normalized = normalizeCalibrationArchivoPath(objectKey);
     return NextResponse.json({
       data: {
         archivo_path: normalized,
-        original_name: file.name || null,
+        original_name: originalName,
       },
       message: 'PDF subido correctamente',
     });
