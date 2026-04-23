@@ -19,3 +19,7 @@ Do **not** paste generic Supabase SSR snippets without checking how this app is 
 
 - Prefer **`@supabase/ssr`** for new server/client helpers aligned with current Supabase docs.
 - If you change cookie or session behavior, validate **`proxy.ts`**, **login**, and **`/auth/callback`** together so redirects and sessions stay consistent.
+
+## Migrations and hosted DB
+
+For migrations, DDL, and SQL against production/linked Supabase (not local Docker), see **`.cursor/rules/supabase-database-workflow.mdc`**.

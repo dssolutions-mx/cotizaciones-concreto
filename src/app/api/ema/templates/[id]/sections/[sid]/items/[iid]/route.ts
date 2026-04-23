@@ -24,6 +24,22 @@ const PatchItemSchema = z.object({
   requerido: z.boolean().optional(),
   observacion_prompt: z.string().nullable().optional(),
   orden: z.number().int().optional(),
+  primitive: z.enum(['numero', 'booleano', 'texto']).optional(),
+  item_role: z
+    .enum([
+      'input_medicion',
+      'input_numero',
+      'input_booleano',
+      'input_texto',
+      'input_referencia',
+      'derivado',
+      'reference_point',
+    ])
+    .optional(),
+  variable_name: z.string().nullable().optional(),
+  pass_fail_rule: z.any().optional(),
+  contributes_to_cumple: z.boolean().optional(),
+  depends_on: z.array(z.string()).optional(),
 });
 
 /** PATCH /api/ema/templates/[id]/sections/[sid]/items/[iid] */

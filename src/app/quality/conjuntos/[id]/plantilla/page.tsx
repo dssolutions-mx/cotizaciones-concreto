@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Plus, Trash2, Save, BookOpen, CheckCircle2,
-  AlertTriangle, Loader2, ChevronDown, ChevronRight, GripVertical,
+  AlertTriangle, Loader2, ChevronDown, ChevronRight, GripVertical, Eye,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,6 +19,14 @@ import type {
   VerificacionTemplateItem,
   TipoItemVerificacion,
 } from '@/types/ema'
+import { TemplateFicha } from '@/components/ema/TemplateFicha'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +73,62 @@ interface ItemFormState {
   formula: string
   observacion_prompt: string
   requerido: boolean
+  variable_name: string
+  contributes_to_cumple: boolean
+  expected_bool_value: boolean
+}
+
+function tipoToItemRole(tipo: TipoItemVerificacion): string {
+  switch (tipo) {
+    case 'medicion': return 'input_medicion'
+    case 'booleano': return 'input_booleano'
+    case 'numero': return 'input_numero'
+    case 'texto': return 'input_texto'
+    case 'calculado': return 'derivado'
+    case 'referencia_equipo': return 'input_referencia'
+    default: return 'input_texto'
+  }
+}
+
+function tipoToPrimitive(tipo: TipoItemVerificacion): string {
+  if (tipo === 'booleano') return 'booleano'
+  if (tipo === 'texto' || tipo === 'referencia_equipo') return 'texto'
+  return 'numero'
+}
+
+function defaultContributesForTipo(tipo: TipoItemVerificacion): boolean {
+  return !['numero', 'texto', 'referencia_equipo'].includes(tipo)
+}
+
+function buildPassFailRuleFromForm(f: ItemFormState): Record<string, unknown> {
+  if (f.tipo === 'booleano') return { kind: 'expected_bool', value: f.expected_bool_value }
+  if (f.tipo === 'medicion') {
+    if (f.tolerancia_tipo === 'rango') {
+      return {
+        kind: 'range',
+        min: f.tolerancia_min !== '' ? parseFloat(f.tolerancia_min) : null,
+        max: f.tolerancia_max !== '' ? parseFloat(f.tolerancia_max) : null,
+        unit: f.unidad.trim() || null,
+      }
+    }
+    if (f.tolerancia_tipo === 'porcentual' && f.valor_esperado !== '') {
+      return {
+        kind: 'tolerance_pct',
+        expected: parseFloat(f.valor_esperado),
+        tolerance_pct: f.tolerancia !== '' ? parseFloat(f.tolerancia) : 0,
+        unit: f.unidad.trim() || null,
+      }
+    }
+    if (f.valor_esperado !== '' && f.tolerancia !== '') {
+      return {
+        kind: 'tolerance_abs',
+        expected: parseFloat(f.valor_esperado),
+        tolerance: parseFloat(f.tolerancia),
+        unit: f.unidad.trim() || null,
+      }
+    }
+  }
+  return { kind: 'none' }
 }
 
 const emptyItemForm = (): ItemFormState => ({
@@ -79,6 +143,9 @@ const emptyItemForm = (): ItemFormState => ({
   formula: '',
   observacion_prompt: '',
   requerido: true,
+  variable_name: '',
+  contributes_to_cumple: true,
+  expected_bool_value: true,
 })
 
 function itemFormToPayload(f: ItemFormState) {
@@ -94,10 +161,16 @@ function itemFormToPayload(f: ItemFormState) {
     formula: f.formula.trim() || null,
     observacion_prompt: f.observacion_prompt.trim() || null,
     requerido: f.requerido,
+    primitive: tipoToPrimitive(f.tipo),
+    item_role: tipoToItemRole(f.tipo),
+    variable_name: f.variable_name.trim() || null,
+    pass_fail_rule: buildPassFailRuleFromForm(f),
+    contributes_to_cumple: f.contributes_to_cumple,
   }
 }
 
 function itemToForm(item: VerificacionTemplateItem): ItemFormState {
+  const pr = item.pass_fail_rule as { kind?: string; value?: boolean } | undefined
   return {
     tipo: item.tipo,
     punto: item.punto,
@@ -110,6 +183,9 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
     formula: item.formula ?? '',
     observacion_prompt: item.observacion_prompt ?? '',
     requerido: item.requerido,
+    variable_name: item.variable_name ?? '',
+    contributes_to_cumple: item.contributes_to_cumple ?? defaultContributesForTipo(item.tipo),
+    expected_bool_value: pr?.kind === 'expected_bool' ? !!pr.value : true,
   }
 }
 
@@ -127,7 +203,14 @@ function ItemForm({
         <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Tipo</Label>
         <select
           value={form.tipo}
-          onChange={e => set('tipo', e.target.value)}
+          onChange={e => {
+            const t = e.target.value as TipoItemVerificacion
+            onChange({
+              ...form,
+              tipo: t,
+              contributes_to_cumple: defaultContributesForTipo(t),
+            })
+          }}
           className="w-full rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
         >
           {(Object.keys(TIPO_LABEL) as TipoItemVerificacion[]).map(t => (
@@ -145,6 +228,32 @@ function ItemForm({
           className="border-stone-200 text-sm"
         />
       </div>
+
+      <div className="space-y-1 col-span-2">
+        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Nombre de variable (fórmulas)</Label>
+        <Input
+          value={form.variable_name}
+          onChange={e => set('variable_name', e.target.value)}
+          placeholder="d1, lectura, capacidad_real…"
+          className="border-stone-200 text-sm font-mono"
+        />
+      </div>
+
+      {form.tipo === 'booleano' && (
+        <div className="space-y-1 col-span-2">
+          <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Respuesta esperada para «Cumple»</Label>
+          <div className="flex gap-3 text-xs">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={form.expected_bool_value} onChange={() => set('expected_bool_value', true)} />
+              Sí
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" checked={!form.expected_bool_value} onChange={() => set('expected_bool_value', false)} />
+              No
+            </label>
+          </div>
+        </div>
+      )}
 
       {isMedicion && (
         <>
@@ -215,10 +324,17 @@ function ItemForm({
           className="border-stone-200 text-sm" />
       </div>
 
-      <div className="col-span-2 flex items-center gap-2">
-        <input type="checkbox" id="req-chk" checked={form.requerido}
-          onChange={e => set('requerido', e.target.checked)} className="h-3.5 w-3.5" />
-        <label htmlFor="req-chk" className="text-xs text-stone-600">Requerido</label>
+      <div className="col-span-2 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="req-chk" checked={form.requerido}
+            onChange={e => set('requerido', e.target.checked)} className="h-3.5 w-3.5" />
+          <label htmlFor="req-chk" className="text-xs text-stone-600">Requerido</label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input type="checkbox" id="ctc-chk" checked={form.contributes_to_cumple}
+            onChange={e => set('contributes_to_cumple', e.target.checked)} className="h-3.5 w-3.5" />
+          <label htmlFor="ctc-chk" className="text-xs text-stone-600">Cuenta para resultado global</label>
+        </div>
       </div>
     </div>
   )
@@ -307,11 +423,13 @@ function SectionCard({
             : <ChevronRight className="h-3.5 w-3.5 text-stone-400 shrink-0" />
           }
           <span className="text-sm font-semibold text-stone-700">{section.titulo}</span>
-          {section.repetible && (
+          {(section.layout && section.layout !== 'linear') || section.repetible ? (
             <span className="rounded-full bg-violet-50 border border-violet-200 text-violet-700 px-2 py-0.5 text-[10px] font-medium">
-              ×{section.repeticiones_default}
+              {section.layout === 'instrument_grid' || section.repetible
+                ? `×${section.repeticiones_default}`
+                : section.layout}
             </span>
-          )}
+          ) : null}
           <span className="ml-auto text-xs text-stone-400">{section.items.length} punto{section.items.length !== 1 ? 's' : ''}</span>
         </button>
         <button
@@ -440,13 +558,30 @@ export default function PlantillaPage() {
 
   // Add section form
   const [addingSection, setAddingSection] = useState(false)
-  const [sectionForm, setSectionForm] = useState({ titulo: '', descripcion: '', repetible: false, repeticiones_default: 1 })
+  const [sectionForm, setSectionForm] = useState({
+    titulo: '',
+    descripcion: '',
+    repetible: false,
+    repeticiones_default: 1,
+    layout: 'linear' as 'linear' | 'instrument_grid' | 'reference_series',
+    inst_min: 1,
+    inst_max: 3,
+  })
   const [sectionErr, setSectionErr] = useState<string | null>(null)
   const [sectionSaving, setSectionSaving] = useState(false)
 
   // Publish
   const [publishing, setPublishing] = useState(false)
   const [publishMsg, setPublishMsg] = useState<string | null>(null)
+
+  // Header fields (ficha metadata)
+  const [headerFieldForm, setHeaderFieldForm] = useState({
+    field_key: '',
+    label: '',
+    source: 'manual' as 'instrumento' | 'manual' | 'computed',
+  })
+  const [headerSaving, setHeaderSaving] = useState(false)
+  const [headerErr, setHeaderErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -514,23 +649,75 @@ export default function PlantillaPage() {
     setSectionSaving(true)
     setSectionErr(null)
     try {
+      const isGrid = sectionForm.layout === 'instrument_grid'
+      const repDef = isGrid ? sectionForm.inst_max : sectionForm.repeticiones_default
       const res = await fetch(`/api/ema/templates/${template.id}/sections`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           titulo: sectionForm.titulo.trim(),
           descripcion: sectionForm.descripcion.trim() || null,
-          repetible: sectionForm.repetible,
-          repeticiones_default: sectionForm.repeticiones_default,
+          repetible: isGrid || sectionForm.repetible,
+          repeticiones_default: repDef,
+          layout: sectionForm.layout,
+          instances_config: isGrid
+            ? {
+                min_count: sectionForm.inst_min,
+                max_count: sectionForm.inst_max,
+                instance_label: 'Instancia',
+                codigo_required: true,
+              }
+            : {},
+          series_config:
+            sectionForm.layout === 'reference_series'
+              ? { reference_variable: 'carga', input_variable: 'lectura', points: [] }
+              : {},
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error)
       const j = await res.json()
       setTemplate(t => t ? { ...t, sections: [...t.sections, j.data] } : t)
-      setSectionForm({ titulo: '', descripcion: '', repetible: false, repeticiones_default: 1 })
+      setSectionForm({
+        titulo: '',
+        descripcion: '',
+        repetible: false,
+        repeticiones_default: 1,
+        layout: 'linear',
+        inst_min: 1,
+        inst_max: 3,
+      })
       setAddingSection(false)
     } catch (e: any) { setSectionErr(e.message) }
     finally { setSectionSaving(false) }
+  }
+
+  async function handleAddHeaderField(e: React.FormEvent) {
+    e.preventDefault()
+    if (!template) return
+    if (!headerFieldForm.field_key.trim() || !headerFieldForm.label.trim()) {
+      setHeaderErr('Clave y etiqueta son requeridos')
+      return
+    }
+    setHeaderSaving(true)
+    setHeaderErr(null)
+    try {
+      const res = await fetch(`/api/ema/templates/${template.id}/header-fields`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          field_key: headerFieldForm.field_key.trim(),
+          label: headerFieldForm.label.trim(),
+          source: headerFieldForm.source,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setHeaderFieldForm({ field_key: '', label: '', source: 'manual' })
+      await load()
+    } catch (err: any) {
+      setHeaderErr(err.message)
+    } finally {
+      setHeaderSaving(false)
+    }
   }
 
   async function handlePublish() {
@@ -538,6 +725,14 @@ export default function PlantillaPage() {
     setPublishing(true)
     setPublishMsg(null)
     try {
+      const valRes = await fetch(`/api/ema/templates/${template.id}/validate`, { method: 'POST' })
+      const valJ = await valRes.json().catch(() => ({}))
+      if (!valJ.ok) {
+        setPublishMsg(`Error validación: ${(valJ.errors ?? []).join('; ') || valJ.error || 'revisar plantilla'}`)
+        setPublishing(false)
+        return
+      }
+
       const res = await fetch(`/api/ema/templates/${template.id}/publish`, { method: 'POST' })
       const j = await res.json()
       if (!res.ok) throw new Error(j.error)
@@ -655,15 +850,40 @@ export default function PlantillaPage() {
             {template.active_version && ` · v${template.active_version.version_number} activa`}
           </p>
         </div>
-        <Button
-          onClick={handlePublish}
-          disabled={publishing || template.sections.length === 0}
-          className="shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
-          title={template.sections.length === 0 ? 'Agrega al menos una sección antes de publicar' : ''}
-        >
-          {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
-          Publicar versión
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5 border-stone-300">
+                <Eye className="h-4 w-4" />
+                Vista previa
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Ficha (vista previa)</DialogTitle>
+              </DialogHeader>
+              <TemplateFicha
+                template={{
+                  codigo: template.codigo,
+                  nombre: template.nombre,
+                  norma_referencia: template.norma_referencia,
+                  descripcion: template.descripcion,
+                }}
+                sections={template.sections}
+                header_fields={template.header_fields}
+              />
+            </DialogContent>
+          </Dialog>
+          <Button
+            onClick={handlePublish}
+            disabled={publishing || template.sections.length === 0}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
+            title={template.sections.length === 0 ? 'Agrega al menos una sección antes de publicar' : ''}
+          >
+            {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookOpen className="h-4 w-4" />}
+            Publicar versión
+          </Button>
+        </div>
       </div>
 
       {publishMsg && (
@@ -692,6 +912,53 @@ export default function PlantillaPage() {
             <p className="text-sm font-medium text-stone-800 mt-0.5">{s.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Cabecera de ficha (metadata) */}
+      <div className="rounded-lg border border-stone-200 bg-white p-4 space-y-3">
+        <p className="text-sm font-semibold text-stone-800">Campos de cabecera (ficha)</p>
+        <p className="text-xs text-stone-500">Equipo, normas, fechas de calibración, etc. Se muestran en la vista previa.</p>
+        {(template.header_fields ?? []).length > 0 && (
+          <ul className="text-xs space-y-1 font-mono text-stone-600">
+            {(template.header_fields ?? []).map(h => (
+              <li key={h.id}>{h.field_key} — {h.label} ({h.source})</li>
+            ))}
+          </ul>
+        )}
+        <form onSubmit={handleAddHeaderField} className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-stone-500">Clave</Label>
+            <Input value={headerFieldForm.field_key}
+              onChange={e => setHeaderFieldForm(f => ({ ...f, field_key: e.target.value }))}
+              placeholder="ej. capacidad_nominal" className="border-stone-200 text-xs font-mono" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-stone-500">Etiqueta</Label>
+            <Input value={headerFieldForm.label}
+              onChange={e => setHeaderFieldForm(f => ({ ...f, label: e.target.value }))}
+              placeholder="Capacidad nominal" className="border-stone-200 text-xs" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-stone-500">Origen</Label>
+            <select
+              value={headerFieldForm.source}
+              onChange={e => setHeaderFieldForm(f => ({
+                ...f,
+                source: e.target.value as typeof f.source,
+              }))}
+              className="w-full rounded-md border border-stone-200 bg-white px-2 py-1.5 text-xs"
+            >
+              <option value="manual">Manual</option>
+              <option value="instrumento">Instrumento</option>
+              <option value="computed">Calculado</option>
+            </select>
+          </div>
+          <Button type="submit" size="sm" disabled={headerSaving} className="h-8 text-xs bg-stone-800 text-white">
+            {headerSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            Agregar
+          </Button>
+        </form>
+        {headerErr && <p className="text-xs text-red-600">{headerErr}</p>}
       </div>
 
       {/* Sections */}
@@ -729,13 +996,44 @@ export default function PlantillaPage() {
                   placeholder="Instrucciones o contexto para esta sección…"
                   rows={2} className="border-stone-200 text-sm resize-none" />
               </div>
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs text-stone-600">Layout de sección</Label>
+                <select
+                  value={sectionForm.layout}
+                  onChange={e => setSectionForm(f => ({
+                    ...f,
+                    layout: e.target.value as typeof f.layout,
+                  }))}
+                  className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="linear">Lista de puntos (un instrumento)</option>
+                  <option value="instrument_grid">Grilla (varias piezas / códigos)</option>
+                  <option value="reference_series">Serie de referencia (balanza / flexómetro)</option>
+                </select>
+              </div>
+              {sectionForm.layout === 'instrument_grid' && (
+                <div className="col-span-2 grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-stone-600">Instancias mín.</Label>
+                    <Input type="number" min={1} max={20} value={sectionForm.inst_min}
+                      onChange={e => setSectionForm(f => ({ ...f, inst_min: parseInt(e.target.value) || 1 }))}
+                      className="border-stone-200 text-sm font-mono" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-stone-600">Instancias máx.</Label>
+                    <Input type="number" min={1} max={20} value={sectionForm.inst_max}
+                      onChange={e => setSectionForm(f => ({ ...f, inst_max: parseInt(e.target.value) || 1 }))}
+                      className="border-stone-200 text-sm font-mono" />
+                  </div>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="rep-chk" checked={sectionForm.repetible}
                   onChange={e => setSectionForm(f => ({ ...f, repetible: e.target.checked }))}
                   className="h-3.5 w-3.5" />
-                <label htmlFor="rep-chk" className="text-xs text-stone-600">Sección repetible</label>
+                <label htmlFor="rep-chk" className="text-xs text-stone-600">Sección repetible (legacy)</label>
               </div>
-              {sectionForm.repetible && (
+              {sectionForm.repetible && sectionForm.layout === 'linear' && (
                 <div className="space-y-1">
                   <Label className="text-xs text-stone-600">N° repeticiones</Label>
                   <Input type="number" min={1} max={10}

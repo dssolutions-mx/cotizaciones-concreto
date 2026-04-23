@@ -62,8 +62,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .eq('template_id', id)
       .order('version_number', { ascending: false });
 
+    const { data: header_fields } = await supabase
+      .from('verificacion_template_header_fields')
+      .select('*')
+      .eq('template_id', id)
+      .order('orden', { ascending: true });
+
     return NextResponse.json({
-      data: { ...template, sections: sectionsWithItems, active_version, versions: versions ?? [] },
+      data: {
+        ...template,
+        sections: sectionsWithItems,
+        header_fields: header_fields ?? [],
+        active_version,
+        versions: versions ?? [],
+      },
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

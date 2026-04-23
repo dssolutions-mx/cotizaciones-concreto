@@ -11,18 +11,16 @@ async function auth(supabase: Awaited<ReturnType<typeof createServerSupabaseClie
   return { user, profile };
 }
 
-const SectionSchema = z.object({
-  titulo: z.string().min(1),
-  descripcion: z.string().nullable().optional(),
-  repetible: z.boolean().default(false),
-  repeticiones_default: z.number().int().min(1).max(10).default(1),
-  layout: z.enum(['linear', 'instrument_grid', 'reference_series']).optional(),
-  instances_config: z.record(z.string(), z.any()).optional(),
-  series_config: z.record(z.string(), z.any()).optional(),
+const HeaderFieldSchema = z.object({
+  field_key: z.string().min(1),
+  label: z.string().min(1),
+  source: z.enum(['instrumento', 'manual', 'computed']),
+  variable_name: z.string().nullable().optional(),
+  formula: z.string().nullable().optional(),
   orden: z.number().int().optional(),
 });
 
-/** POST /api/ema/templates/[id]/sections */
+/** POST /api/ema/templates/[id]/header-fields */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: template_id } = await params;
@@ -32,51 +30,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await req.json();
-    const parsed = SectionSchema.safeParse(json);
+    const parsed = HeaderFieldSchema.safeParse(json);
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
-    // Determine next orden
     let orden = parsed.data.orden;
     if (orden == null) {
       const { count } = await supabase
-        .from('verificacion_template_sections')
+        .from('verificacion_template_header_fields')
         .select('id', { count: 'exact', head: true })
         .eq('template_id', template_id);
       orden = (count ?? 0) + 1;
     }
 
-    const layout = parsed.data.layout ?? (parsed.data.repetible ? 'instrument_grid' : 'linear');
-    const instances_config =
-      parsed.data.instances_config ??
-      (parsed.data.repetible
-        ? {
-            min_count: parsed.data.repeticiones_default,
-            max_count: parsed.data.repeticiones_default,
-            instance_label: 'Instancia',
-            codigo_required: true,
-          }
-        : {});
-    const series_config = parsed.data.series_config ?? {};
-
     const { data, error } = await supabase
-      .from('verificacion_template_sections')
+      .from('verificacion_template_header_fields')
       .insert({
         template_id,
-        titulo: parsed.data.titulo,
-        descripcion: parsed.data.descripcion ?? null,
-        repetible: parsed.data.repetible,
-        repeticiones_default: parsed.data.repeticiones_default,
-        layout,
-        instances_config,
-        series_config,
         orden,
-        evidencia_config: {},
+        field_key: parsed.data.field_key,
+        label: parsed.data.label,
+        source: parsed.data.source,
+        variable_name: parsed.data.variable_name ?? null,
+        formula: parsed.data.formula ?? null,
       })
       .select()
       .single();
     if (error) throw error;
-    return NextResponse.json({ data: { ...data, items: [] } }, { status: 201 });
+    return NextResponse.json({ data }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

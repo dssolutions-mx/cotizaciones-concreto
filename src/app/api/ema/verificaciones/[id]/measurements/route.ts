@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { z } from 'zod';
-import type { VerificacionTemplateItem } from '@/types/ema';
+import type { VerificacionTemplateSnapshot } from '@/types/ema';
+import { buildRowsForMeasurementPut } from '@/lib/ema/measurementCompute';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
 
@@ -13,39 +14,12 @@ const MeasurementSchema = z.object({
   valor_booleano: z.boolean().nullable().optional(),
   valor_texto: z.string().nullable().optional(),
   observacion: z.string().nullable().optional(),
+  instance_code: z.string().nullable().optional(),
 });
 
 const PutSchema = z.object({
   measurements: z.array(MeasurementSchema).min(1),
 });
-
-function computeErrorAndCumple(
-  item: VerificacionTemplateItem,
-  valor_observado: number | null,
-  valor_booleano: boolean | null,
-): { error_calculado: number | null; cumple: boolean | null } {
-  if (item.tipo === 'booleano') {
-    return { error_calculado: null, cumple: valor_booleano };
-  }
-  if (item.tipo === 'medicion' && valor_observado !== null) {
-    if (item.tolerancia_tipo === 'rango') {
-      const aboveMin = item.tolerancia_min == null || valor_observado >= item.tolerancia_min;
-      const belowMax = item.tolerancia_max == null || valor_observado <= item.tolerancia_max;
-      return { error_calculado: null, cumple: aboveMin && belowMax };
-    }
-    if (item.valor_esperado != null && item.tolerancia != null) {
-      const err = Math.abs(valor_observado - item.valor_esperado);
-      if (item.tolerancia_tipo === 'absoluta') {
-        return { error_calculado: err, cumple: err <= item.tolerancia };
-      }
-      if (item.tolerancia_tipo === 'porcentual' && item.valor_esperado !== 0) {
-        const pct = (err / Math.abs(item.valor_esperado)) * 100;
-        return { error_calculado: pct, cumple: pct <= item.tolerancia };
-      }
-    }
-  }
-  return { error_calculado: null, cumple: null };
-}
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -81,35 +55,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       .eq('id', verif.template_version_id)
       .single();
 
-    const snapshot = version?.snapshot as any;
-    const itemsMap = new Map<string, VerificacionTemplateItem>();
-    if (snapshot?.sections) {
-      for (const section of snapshot.sections) {
-        for (const item of section.items ?? []) {
-          itemsMap.set(item.id, item);
-        }
-      }
+    const snapshot = version?.snapshot as VerificacionTemplateSnapshot | undefined;
+    if (!snapshot?.sections) {
+      return NextResponse.json({ error: 'Snapshot de plantilla inválido' }, { status: 400 });
     }
 
-    const rows = parsed.data.measurements.map(m => {
-      const item = itemsMap.get(m.item_id);
-      const { error_calculado, cumple } = item
-        ? computeErrorAndCumple(item, m.valor_observado ?? null, m.valor_booleano ?? null)
-        : { error_calculado: null, cumple: null };
-
-      return {
-        completed_id,
-        section_id: m.section_id,
-        section_repeticion: m.section_repeticion ?? 1,
-        item_id: m.item_id,
-        valor_observado: m.valor_observado ?? null,
-        valor_booleano: m.valor_booleano ?? null,
-        valor_texto: m.valor_texto ?? null,
-        error_calculado,
-        cumple,
-        observacion: m.observacion ?? null,
-      };
-    });
+    const rows = buildRowsForMeasurementPut(snapshot, parsed.data.measurements as any, completed_id);
 
     const { data: saved, error: sErr } = await supabase
       .from('completed_verificacion_measurements')

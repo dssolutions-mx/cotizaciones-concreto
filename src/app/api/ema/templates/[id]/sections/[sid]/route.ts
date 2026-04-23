@@ -16,6 +16,9 @@ const PatchSectionSchema = z.object({
   descripcion: z.string().nullable().optional(),
   repetible: z.boolean().optional(),
   repeticiones_default: z.number().int().min(1).max(10).optional(),
+  layout: z.enum(['linear', 'instrument_grid', 'reference_series']).optional(),
+  instances_config: z.record(z.string(), z.any()).optional(),
+  series_config: z.record(z.string(), z.any()).optional(),
   orden: z.number().int().optional(),
 });
 

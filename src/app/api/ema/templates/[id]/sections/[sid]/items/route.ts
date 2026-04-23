@@ -24,6 +24,22 @@ const ItemSchema = z.object({
   requerido: z.boolean().default(true),
   observacion_prompt: z.string().nullable().optional(),
   orden: z.number().int().optional(),
+  primitive: z.enum(['numero', 'booleano', 'texto']).optional(),
+  item_role: z
+    .enum([
+      'input_medicion',
+      'input_numero',
+      'input_booleano',
+      'input_texto',
+      'input_referencia',
+      'derivado',
+      'reference_point',
+    ])
+    .optional(),
+  variable_name: z.string().nullable().optional(),
+  pass_fail_rule: z.any().optional(),
+  contributes_to_cumple: z.boolean().optional(),
+  depends_on: z.array(z.string()).optional(),
 });
 
 /** POST /api/ema/templates/[id]/sections/[sid]/items */
@@ -65,6 +81,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         requerido: parsed.data.requerido,
         observacion_prompt: parsed.data.observacion_prompt ?? null,
         orden,
+        primitive: parsed.data.primitive ?? null,
+        item_role: parsed.data.item_role ?? null,
+        variable_name: parsed.data.variable_name ?? null,
+        pass_fail_rule: parsed.data.pass_fail_rule ?? null,
+        contributes_to_cumple: parsed.data.contributes_to_cumple ?? null,
+        depends_on: parsed.data.depends_on ?? null,
       })
       .select()
       .single();

@@ -18,6 +18,9 @@ import type {
   VerificacionTemplateSnapshot,
   VerificacionTemplateItem,
 } from '@/types/ema'
+import { effectiveSectionRepetitions, effectiveLayout, referencePointForRow } from '@/lib/ema/sectionLayout'
+import { normalizeTemplateItem } from '@/lib/ema/templateItem'
+import { evaluatePassFailRule } from '@/lib/ema/passFail'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,23 +36,19 @@ interface MeasurementValue {
   valor_booleano?: boolean | null
   valor_texto?: string | null
   observacion?: string | null
+  instance_code?: string | null
 }
 
 // ─── Pass/fail logic ──────────────────────────────────────────────────────────
 
-function computeCumple(item: VerificacionTemplateItem, val: number | null): boolean | null {
-  if (item.tipo !== 'medicion' || val == null) return null
-  if (item.tolerancia_tipo === 'rango') {
-    const ok1 = item.tolerancia_min == null || val >= item.tolerancia_min
-    const ok2 = item.tolerancia_max == null || val <= item.tolerancia_max
-    return ok1 && ok2
-  }
-  if (item.valor_esperado == null || item.tolerancia == null) return null
-  const err = Math.abs(val - item.valor_esperado)
-  if (item.tolerancia_tipo === 'absoluta') return err <= item.tolerancia
-  if (item.tolerancia_tipo === 'porcentual' && item.valor_esperado !== 0)
-    return (err / Math.abs(item.valor_esperado)) * 100 <= item.tolerancia
-  return null
+function computeCumpleForItem(item: VerificacionTemplateItem, mv: MeasurementValue): boolean | null {
+  const n = normalizeTemplateItem(item)
+  if (!n.contributes_to_cumple || !n.pass_fail_rule || n.pass_fail_rule.kind === 'none') return null
+  return evaluatePassFailRule(n.pass_fail_rule, {
+    valor_observado: mv.valor_observado ?? null,
+    valor_booleano: mv.valor_booleano ?? null,
+    scope: {},
+  })
 }
 
 function autoSuggestResultado(
@@ -60,19 +59,14 @@ function autoSuggestResultado(
   let hasCondicional = false
 
   for (const section of snapshot.sections) {
-    const reps = section.repetible ? section.repeticiones_default : 1
+    const reps = effectiveSectionRepetitions(section as any)
     for (let rep = 1; rep <= reps; rep++) {
       for (const item of section.items) {
         const key: MeasurementKey = `${section.id}:${rep}:${item.id}`
         const mv = measurements[key]
         if (!mv) continue
-        if (item.tipo === 'medicion') {
-          const cumple = computeCumple(item, mv.valor_observado ?? null)
-          if (cumple === false) hasNoConforme = true
-        }
-        if (item.tipo === 'booleano' && mv.valor_booleano === false) {
-          hasNoConforme = true
-        }
+        const cumple = computeCumpleForItem(item, mv)
+        if (cumple === false) hasNoConforme = true
       }
     }
   }
@@ -92,11 +86,9 @@ function ItemRow({
   value: MeasurementValue
   onChange: (v: MeasurementValue) => void
 }) {
-  const cumple = item.tipo === 'booleano'
-    ? value.valor_booleano
-    : computeCumple(item, value.valor_observado ?? null)
+  const cumple = computeCumpleForItem(item, value)
 
-  const hasValue = item.tipo === 'booleano'
+  const hasValue = normalizeTemplateItem(item).primitive === 'booleano'
     ? value.valor_booleano !== undefined && value.valor_booleano !== null
     : (value.valor_observado !== undefined && value.valor_observado !== null) ||
       (value.valor_texto !== undefined && value.valor_texto !== '')
@@ -109,12 +101,16 @@ function ItemRow({
           {item.observacion_prompt && (
             <p className="text-xs text-stone-500 mt-0.5">{item.observacion_prompt}</p>
           )}
-          {item.tipo === 'medicion' && item.valor_esperado != null && (
+          {normalizeTemplateItem(item).item_role === 'input_medicion' && (
             <p className="text-xs text-stone-400 mt-0.5 font-mono">
-              {item.tolerancia_tipo === 'rango'
-                ? `${item.tolerancia_min ?? '?'} – ${item.tolerancia_max ?? '?'}${item.unidad ? ` ${item.unidad}` : ''}`
-                : `${item.valor_esperado}${item.unidad ? ` ${item.unidad}` : ''}${item.tolerancia != null ? ` ± ${item.tolerancia}${item.tolerancia_tipo === 'porcentual' ? '%' : (item.unidad ? ` ${item.unidad}` : '')}` : ''}`
-              }
+              {(() => {
+                const r = normalizeTemplateItem(item).pass_fail_rule
+                if (!r || r.kind === 'none') return '—'
+                if (r.kind === 'range') return `${r.min ?? '?'} – ${r.max ?? '?'}${r.unit ? ` ${r.unit}` : ''}`
+                if (r.kind === 'tolerance_pct') return `${r.expected}${r.unit ? ` ${r.unit}` : ''} ± ${r.tolerance_pct}%`
+                if (r.kind === 'tolerance_abs') return `${r.expected}${r.unit ? ` ${r.unit}` : ''} ± ${r.tolerance}`
+                return '—'
+              })()}
             </p>
           )}
         </div>
@@ -131,25 +127,28 @@ function ItemRow({
       </div>
 
       {/* Input area by tipo */}
-      {item.tipo === 'booleano' ? (
-        <div className="flex gap-2">
-          {[{ label: 'Sí / Cumple', val: true }, { label: 'No / No cumple', val: false }].map(opt => (
-            <button
-              key={String(opt.val)}
-              type="button"
-              onClick={() => onChange({ ...value, valor_booleano: opt.val })}
-              className={cn(
-                'flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all',
-                value.valor_booleano === opt.val
-                  ? opt.val
-                    ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
-                    : 'border-red-400 bg-red-50 text-red-800'
-                  : 'border-stone-200 text-stone-600 hover:border-stone-300',
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
+      {normalizeTemplateItem(item).primitive === 'booleano' ? (
+        <div className="space-y-1">
+          <p className="text-[10px] text-stone-500">Registro (el sistema calcula si cumple según la norma)</p>
+          <div className="flex gap-2">
+            {[{ label: 'Sí', val: true }, { label: 'No', val: false }].map(opt => (
+              <button
+                key={String(opt.val)}
+                type="button"
+                onClick={() => onChange({ ...value, valor_booleano: opt.val })}
+                className={cn(
+                  'flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all',
+                  value.valor_booleano === opt.val
+                    ? opt.val
+                      ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                      : 'border-red-400 bg-red-50 text-red-800'
+                    : 'border-stone-200 text-stone-600 hover:border-stone-300',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       ) : item.tipo === 'texto' ? (
         <Textarea
@@ -166,7 +165,7 @@ function ItemRow({
           onChange={e => onChange({ ...value, valor_texto: e.target.value })}
           className="border-stone-200 text-sm font-mono"
         />
-      ) : item.tipo === 'calculado' ? (
+      ) : normalizeTemplateItem(item).item_role === 'derivado' ? (
         <div className="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-500 font-mono">
           Calculado: <code>{item.formula}</code>
         </div>
@@ -191,19 +190,19 @@ function ItemRow({
           {item.unidad && (
             <span className="text-xs text-stone-400 font-mono w-10 shrink-0">{item.unidad}</span>
           )}
-          {hasValue && item.valor_esperado != null && value.valor_observado != null && (
+          {hasValue && normalizeTemplateItem(item).pass_fail_rule?.kind === 'tolerance_abs' && value.valor_observado != null && (
             <span className={cn(
               'text-xs font-mono w-20 shrink-0 text-right',
               cumple ? 'text-emerald-600' : 'text-red-600',
             )}>
-              err: {(Math.abs(value.valor_observado - item.valor_esperado)).toFixed(3)}
+              err: {(Math.abs(value.valor_observado - (normalizeTemplateItem(item).pass_fail_rule as any).expected)).toFixed(3)}
             </span>
           )}
         </div>
       )}
 
       {/* Observación */}
-      {item.tipo !== 'texto' && item.tipo !== 'calculado' && (
+      {normalizeTemplateItem(item).item_role !== 'derivado' && item.tipo !== 'texto' && (
         <Input
           placeholder="Observación (opcional)"
           value={value.observacion ?? ''}
@@ -234,6 +233,7 @@ export default function VerificarPage() {
   const [measurements, setMeasurements] = useState<Record<MeasurementKey, MeasurementValue>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [instanceCodes, setInstanceCodes] = useState<Record<string, string>>({})
 
   // Master instrument picker (for Tipo C)
   const [maestros, setMaestros] = useState<Array<{ id: string; codigo: string; nombre: string; estado: string }>>([])
@@ -299,7 +299,7 @@ export default function VerificarPage() {
                 const built: Step[] = [{ kind: 'inicio' }]
                 for (let si = 0; si < snap.sections.length; si++) {
                   const sec = snap.sections[si]
-                  const reps = sec.repetible ? sec.repeticiones_default : 1
+                  const reps = effectiveSectionRepetitions(sec as any)
                   for (let rep = 1; rep <= reps; rep++) {
                     built.push({ kind: 'section', sectionIndex: si, repeticion: rep })
                   }
@@ -376,8 +376,11 @@ export default function VerificarPage() {
     const rep = step.repeticion!
 
     // Collect measurements for this section/rep
+    const instKey = `${section.id}:${rep}`
+    const codeRow = instanceCodes[instKey]?.trim() || null
+
     const toSave = section.items
-      .filter(item => item.tipo !== 'calculado')
+      .filter(item => normalizeTemplateItem(item).item_role !== 'derivado')
       .map(item => {
         const key = mKey(section.id, rep, item.id)
         const mv = measurements[key] ?? {}
@@ -389,6 +392,7 @@ export default function VerificarPage() {
           valor_booleano: mv.valor_booleano ?? null,
           valor_texto: mv.valor_texto ?? null,
           observacion: mv.observacion ?? null,
+          instance_code: codeRow,
         }
       })
       .filter(m =>
@@ -638,27 +642,53 @@ export default function VerificarPage() {
       {step.kind === 'section' && snapshot && (() => {
         const section = snapshot.sections[step.sectionIndex!]
         const rep = step.repeticion!
-        const totalReps = section.repetible ? section.repeticiones_default : 1
+        const totalReps = effectiveSectionRepetitions(section as any)
+        const layout = effectiveLayout(section as any)
+        const refPt = layout === 'reference_series' ? referencePointForRow(section as any, rep) : null
 
         return (
-          <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100">
+          <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100 max-w-4xl">
             <div className="px-5 py-4">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm font-semibold text-stone-800">{section.titulo}</h2>
-                {section.repetible && (
+                {totalReps > 1 && (
                   <span className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] font-medium text-stone-600">
                     {rep} / {totalReps}
                   </span>
                 )}
+                <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-mono text-emerald-800">
+                  {layout}
+                </span>
               </div>
               {section.descripcion && (
                 <p className="text-xs text-stone-500 mt-0.5">{section.descripcion}</p>
               )}
+              {refPt != null && (
+                <p className="text-xs font-mono text-stone-600 mt-2">
+                  Valor patrón: <strong>{refPt}</strong>
+                  {section.series_config?.unit ? ` ${section.series_config.unit}` : ''}
+                </p>
+              )}
             </div>
+
+            {layout === 'instrument_grid' && (
+              <div className="px-5 py-3 border-b border-stone-100 bg-stone-50/50">
+                <Label className="text-xs text-stone-600">Código de instancia</Label>
+                <Input
+                  className="mt-1 border-stone-200 font-mono text-sm max-w-md"
+                  placeholder="Ej. VAR-001"
+                  value={instanceCodes[`${section.id}:${rep}`] ?? ''}
+                  onChange={e => setInstanceCodes(prev => ({
+                    ...prev,
+                    [`${section.id}:${rep}`]: e.target.value,
+                  }))}
+                />
+              </div>
+            )}
 
             <div className="px-5 py-4 space-y-3">
               {section.items
-                .filter(item => item.tipo !== 'calculado')
+                .filter(item => normalizeTemplateItem(item).item_role !== 'derivado')
                 .map(item => {
                   const key = mKey(section.id, rep, item.id)
                   return (

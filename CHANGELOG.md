@@ -8,6 +8,10 @@ All notable changes to this project are documented here. Releases follow [calend
 
 - Continue curating monthly entries from conventional commits where possible.
 
+### EMA / Centro de calidad
+
+- Plantillas de verificación v2: fórmulas sin `eval`, reglas `pass_fail_rule`, layouts de sección (lista / grilla / serie de referencia), validación antes de publicar, cumple recalculado en API, vista previa de ficha y cabecera opcional. Ver `docs/EMA_PLANTILLAS_V2.md`.
+
 ---
 
 ## [2026.4.0] - 2026-04-23

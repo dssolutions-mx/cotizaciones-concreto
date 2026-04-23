@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import type { VerificacionTemplateSnapshot } from '@/types/ema';
+import { validateTemplateForPublish } from '@/lib/ema/templateValidate';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
@@ -54,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     const version_number = (count ?? 0) + 1;
 
     // Build snapshot
-    const snapshot = {
+    const snapshot: VerificacionTemplateSnapshot = {
       template: {
         id: template.id,
         codigo: template.codigo,
@@ -64,6 +66,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       },
       sections: sectionsWithItems,
     };
+
+    const validation = validateTemplateForPublish(snapshot);
+    if (!validation.ok) {
+      return NextResponse.json(
+        { error: 'La plantilla no cumple validación', details: validation.errors },
+        { status: 400 },
+      );
+    }
 
     // Insert version
     const { data: version, error: vErr } = await supabase

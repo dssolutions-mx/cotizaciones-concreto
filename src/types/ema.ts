@@ -234,6 +234,66 @@ export type TipoItemVerificacion =
 
 export type ToleranciaTipo = 'absoluta' | 'porcentual' | 'rango';
 
+/** Section layout (v2 plantillas). Legacy snapshots may omit `layout`. */
+export type SectionLayout = 'linear' | 'instrument_grid' | 'reference_series';
+
+/** Storage primitive for template item values */
+export type ItemPrimitive = 'numero' | 'booleano' | 'texto';
+
+/** Semantic role — drives validation & UI */
+export type ItemRole =
+  | 'input_medicion'
+  | 'input_numero'
+  | 'input_booleano'
+  | 'input_texto'
+  | 'input_referencia'
+  | 'derivado'
+  | 'reference_point';
+
+/** JSONB pass/fail rule attached to items that contribute to cumple */
+export type PassFailRule =
+  | { kind: 'none' }
+  | { kind: 'tolerance_abs'; expected: number; tolerance: number; unit?: string | null }
+  | { kind: 'tolerance_pct'; expected: number; tolerance_pct: number; unit?: string | null }
+  | { kind: 'range'; min: number | null; max: number | null; unit?: string | null }
+  | { kind: 'expected_bool'; value: boolean }
+  | { kind: 'expression'; expr: string };
+
+export interface InstancesConfig {
+  min_count: number;
+  max_count: number;
+  instance_label?: string;
+  codigo_required?: boolean;
+}
+
+export interface SeriesDerivedColumn {
+  name: string;
+  formula: string;
+}
+
+/** Reference series (balanza / flexómetro rows) */
+export interface SeriesConfig {
+  reference_variable?: string;
+  input_variable?: string;
+  unit?: string | null;
+  points?: number[];
+  row_pass_expr?: string | null;
+  derived?: SeriesDerivedColumn[];
+}
+
+export interface VerificacionTemplateHeaderField {
+  id: string;
+  template_id: string;
+  orden: number;
+  field_key: string;
+  label: string;
+  source: 'instrumento' | 'manual' | 'computed';
+  variable_name: string | null;
+  formula: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface VerificacionTemplate {
   id: string;
   conjunto_id: string;
@@ -256,6 +316,10 @@ export interface VerificacionTemplateSection {
   descripcion: string | null;
   repetible: boolean;
   repeticiones_default: number;
+  /** v2: linear | instrument_grid | reference_series */
+  layout?: SectionLayout;
+  instances_config?: InstancesConfig;
+  series_config?: SeriesConfig;
   evidencia_config: { min_photos?: number; labels?: string[] };
   created_at: string;
   updated_at: string;
@@ -276,6 +340,13 @@ export interface VerificacionTemplateItem {
   formula: string | null;
   requerido: boolean;
   observacion_prompt: string | null;
+  /** v2 */
+  primitive?: ItemPrimitive | null;
+  item_role?: ItemRole | null;
+  variable_name?: string | null;
+  pass_fail_rule?: PassFailRule | null;
+  contributes_to_cumple?: boolean;
+  depends_on?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -303,6 +374,7 @@ export interface VerificacionTemplateDetalle extends VerificacionTemplate {
   sections: Array<
     VerificacionTemplateSection & { items: VerificacionTemplateItem[] }
   >;
+  header_fields?: VerificacionTemplateHeaderField[];
   active_version: VerificacionTemplateVersion | null;
   versions_count: number;
 }
@@ -348,6 +420,10 @@ export interface CompletedVerificacionMeasurement {
   error_calculado: number | null;
   cumple: boolean | null;
   observacion: string | null;
+  /** v2: código de instancia en grilla de instrumentos */
+  instance_code?: string | null;
+  /** v2: valor patrón de la fila en serie de referencia */
+  reference_point_value?: number | null;
   created_at: string;
   updated_at: string;
 }
