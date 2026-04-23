@@ -145,10 +145,10 @@ export default function ConjuntosPage() {
           </div>
           <div className="divide-y divide-stone-100">
             {filtered.map(c => (
-              <button
+              <div
                 key={c.id}
                 onClick={() => router.push(`/quality/conjuntos/${c.id}`)}
-                className="group w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-50 transition-colors text-left"
+                className="group w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-50 transition-colors cursor-pointer"
               >
                 <span className="font-mono text-[11px] font-semibold text-stone-600 bg-stone-100 border border-stone-200 px-2 py-0.5 rounded w-14 text-center shrink-0">
                   DC-{c.codigo_conjunto}
@@ -186,7 +186,7 @@ export default function ConjuntosPage() {
                   </button>
                 )}
                 <ChevronRight className="h-4 w-4 text-stone-300 group-hover:text-stone-500 transition-colors shrink-0" />
-              </button>
+              </div>
             ))}
           </div>
         </div>

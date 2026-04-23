@@ -3,7 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'ADMIN', 'ADMIN_OPERATIONS'];
+const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
 async function auth(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>) {
   const { data: { user }, error } = await supabase.auth.getUser();
@@ -56,13 +56,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       active_version = ver;
     }
 
-    const { count: versions_count } = await supabase
+    const { data: versions } = await supabase
       .from('verificacion_template_versions')
-      .select('id', { count: 'exact', head: true })
-      .eq('template_id', id);
+      .select('id, version_number, published_at')
+      .eq('template_id', id)
+      .order('version_number', { ascending: false });
 
     return NextResponse.json({
-      data: { ...template, sections: sectionsWithItems, active_version, versions_count: versions_count ?? 0 },
+      data: { ...template, sections: sectionsWithItems, active_version, versions: versions ?? [] },
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
