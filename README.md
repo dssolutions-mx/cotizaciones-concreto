@@ -115,4 +115,4 @@ Más detalle: [MDFILES/DOCUMENTATION.md](./MDFILES/DOCUMENTATION.md) y [docs/REA
 
 ## Licencia
 
-Software **propietario** — **Juan Jose Aguirre Segarra**. Términos completos en **[LICENSE](./LICENSE)**. Uso comercial o redistribución: **juan.aguirre@dssolutions-mx.com**. En `package.json`, `"license": "UNLICENSED"` indica que no se publica como paquete npm de código abierto. Notas generales (sin valor legal): [docs/LICENSE_NOTES.md](./docs/LICENSE_NOTES.md).
+Software **propietario**. Ver **[LICENSE](./LICENSE)**. Consultas de licenciamiento: **juan.aguirre@dssolutions-mx.com**.
