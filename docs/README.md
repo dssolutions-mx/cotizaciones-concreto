@@ -13,7 +13,7 @@ This directory contains comprehensive documentation for the Concrete Quotation S
 
 ## Additional Resources
 
-The main project overview is in [MDFILES/DOCUMENTATION.md](../MDFILES/DOCUMENTATION.md).
+The main project overview is in [MDFILES/DOCUMENTATION.md](../MDFILES/DOCUMENTATION.md). Informal licensing context (not legal advice): [LICENSE_NOTES.md](./LICENSE_NOTES.md).
 
 ## Contributing to Documentation
 
