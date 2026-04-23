@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Award, FileText, Info, Loader2, Upload } from 'lucide-react'
+import { ArrowLeft, Award, CheckCircle2, FileText, Info, Loader2, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -47,6 +47,11 @@ export default function CertificarPage() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uploadBusy, setUploadBusy] = useState(false)
+  const [uploadNotice, setUploadNotice] = useState<{ variant: 'ok' | 'error'; text: string } | null>(null)
+  /** Nombre del archivo tras subida exitosa por API (para mensaje claro; se limpia si edita la ruta a mano). */
+  const [pdfUploadLabel, setPdfUploadLabel] = useState<string | null>(null)
+  const calibrationPdfRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetch(`/api/ema/instrumentos/${id}`)
@@ -74,6 +79,10 @@ export default function CertificarPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.archivo_path.trim()) {
+      setError('Debe subir el PDF del certificado con el botón «Subir PDF» antes de registrar.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -116,6 +125,35 @@ export default function CertificarPage() {
 
   const update = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
+  const handleCalibrationPdfSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadBusy(true)
+    setUploadNotice(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`/api/ema/instrumentos/${id}/certificados/upload`, { method: 'POST', body: fd })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error ?? 'Error al subir el PDF')
+      const path = j.data?.archivo_path as string | undefined
+      if (!path) throw new Error('Respuesta inválida del servidor')
+      const label = (j.data?.original_name as string | undefined) || file.name || 'PDF'
+      setForm((f) => ({ ...f, archivo_path: path }))
+      setPdfUploadLabel(label)
+      setUploadNotice({
+        variant: 'ok',
+        text: 'Archivo guardado en Storage. Revise el resto del formulario y pulse «Registrar certificado».',
+      })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al subir'
+      setUploadNotice({ variant: 'error', text: msg })
+    } finally {
+      setUploadBusy(false)
+      e.target.value = ''
+    }
+  }
+
   if (loadingInst) {
     return (
       <div className="flex flex-col gap-4">
@@ -126,22 +164,22 @@ export default function CertificarPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5 max-w-3xl">
+    <div className="flex min-w-0 w-full max-w-3xl flex-col gap-5">
       <EmaBreadcrumb items={[
         { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
         { label: 'Registrar certificado' },
       ]} />
 
       {/* Back + Title */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <Link
           href={`/quality/instrumentos/${id}`}
-          className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
+          className="shrink-0 rounded-md p-1.5 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-stone-900 flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight text-stone-900">
             <Award className="h-5 w-5 text-sky-600" />
             Registrar certificado de calibración
           </h1>
@@ -153,8 +191,8 @@ export default function CertificarPage() {
 
       {/* Context card */}
       {instrumento && (
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex items-center gap-2 flex-wrap flex-1">
+        <div className="flex min-w-0 flex-col gap-3 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <EmaTipoBadge tipo={instrumento.tipo} showLabel />
             <EmaEstadoBadge estado={instrumento.estado} />
             {instrumento.marca && (
@@ -393,23 +431,95 @@ export default function CertificarPage() {
         </div>
 
         {/* 5. Document */}
-        <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Documento del certificado</h2>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-stone-600">Ruta del archivo PDF <span className="text-red-500">*</span></Label>
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-stone-400 shrink-0" />
-              <Input
-                required
-                value={form.archivo_path}
-                onChange={e => update('archivo_path', e.target.value)}
-                placeholder="calibration-certificates/2026/CC-2026-0001.pdf"
-                className="border-stone-200 font-mono text-sm"
-              />
+        <div className="space-y-4 rounded-lg border border-stone-200 bg-white p-5">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Documento del certificado</h2>
+            <ol className="mt-2 list-decimal space-y-1 pl-4 text-[11px] text-stone-600 marker:font-medium">
+              <li>
+                Pulse <strong className="text-stone-800">Subir PDF</strong> y elija el certificado del laboratorio (solo PDF válidos).
+              </li>
+              <li>
+                La clave en Storage se asigna <strong className="text-stone-800">solo por la aplicación</strong>; no puede escribirla ni pegarla.
+              </li>
+              <li>Complete el formulario y pulse <strong className="text-stone-800">Registrar certificado</strong>.</li>
+            </ol>
+          </div>
+          <input
+            ref={calibrationPdfRef}
+            type="file"
+            accept=".pdf,application/pdf,application/octet-stream"
+            className="hidden"
+            onChange={handleCalibrationPdfSelected}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 border-stone-300 text-xs text-stone-700"
+              disabled={uploadBusy}
+              onClick={() => calibrationPdfRef.current?.click()}
+            >
+              {uploadBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              Subir PDF
+            </Button>
+            <span className="text-[11px] text-stone-500">
+              Bucket <span className="font-mono text-stone-700">calibration-certificates</span> · máx. 10&nbsp;MB
+            </span>
+          </div>
+          {pdfUploadLabel && (
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50/90 px-3 py-2 text-xs text-emerald-900">
+              <div className="flex min-w-0 items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                <span className="min-w-0 truncate font-medium" title={pdfUploadLabel}>
+                  {pdfUploadLabel}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-emerald-900 hover:bg-emerald-100/80"
+                onClick={() => {
+                  setPdfUploadLabel(null)
+                  setForm((f) => ({ ...f, archivo_path: '' }))
+                  setUploadNotice(null)
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Quitar archivo
+              </Button>
             </div>
+          )}
+          {uploadNotice && (
+            <p
+              className={cn(
+                'rounded-md px-2 py-1.5 text-xs',
+                uploadNotice.variant === 'ok'
+                  ? 'border border-emerald-100 bg-emerald-50 text-emerald-800'
+                  : 'border border-red-100 bg-red-50 text-red-800',
+              )}
+            >
+              {uploadNotice.text}
+            </p>
+          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-stone-600">
+              Clave en Storage <span className="text-red-500">*</span>
+            </Label>
+            {form.archivo_path ? (
+              <div className="flex min-w-0 gap-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
+                <FileText className="mt-0.5 h-4 w-4 shrink-0 text-stone-400" />
+                <p className="min-w-0 break-all font-mono text-xs text-stone-800">{form.archivo_path}</p>
+              </div>
+            ) : (
+              <div className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+                Aún no hay PDF adjunto. Use <strong>Subir PDF</strong> para continuar.
+              </div>
+            )}
             <p className="text-[11px] text-stone-400">
-              Suba el PDF original del certificado al bucket de Supabase Storage e ingrese la ruta aquí.
-              El documento debe incluir: resultados, incertidumbre, declaración de trazabilidad y firma.
+              El PDF debe incluir resultados, incertidumbre, trazabilidad y firma. Bucket{' '}
+              <span className="font-mono text-stone-600">calibration-certificates</span>.
             </p>
           </div>
         </div>
@@ -434,7 +544,12 @@ export default function CertificarPage() {
           >
             Cancelar
           </Link>
-          <Button type="submit" className="bg-sky-700 hover:bg-sky-800 text-white gap-1.5" disabled={submitting}>
+          <Button
+            type="submit"
+            className="gap-1.5 bg-sky-700 text-white hover:bg-sky-800"
+            disabled={submitting || !form.archivo_path.trim()}
+            title={!form.archivo_path.trim() ? 'Suba primero el PDF con el botón «Subir PDF»' : undefined}
+          >
             {submitting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Guardando...</>
             ) : (

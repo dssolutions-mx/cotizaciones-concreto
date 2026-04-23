@@ -640,7 +640,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     .filter(item => item !== undefined) as typeof navItems;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f5f3f0]">
+    <div className="flex h-screen min-w-0 overflow-hidden bg-[#f5f3f0]">
       {/* Sidebar - fixed, collapsible with glass */}
       <aside
         className={cn(
@@ -1049,9 +1049,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Contenido principal - scroll independiente del sidebar */}
-      <main className="flex-1 min-h-0 overflow-y-auto bg-[#f5f3f0] p-4 md:p-6 pb-24 md:pb-6">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden bg-[#f5f3f0] p-4 md:p-6 pb-24 md:pb-6">
         {/* Header móvil */}
-        <div className="md:hidden flex items-center justify-between mb-4">
+        <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2 md:hidden">
           <Link href="/dashboard">
             <Image 
               src="/images/dcconcretos/logo-dark.svg" 
@@ -1062,8 +1062,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
             />
           </Link>
           
-          <div className="flex items-center gap-2">
-                                        <PlantContextDisplay className="min-w-[160px]" showLabel={false} />
+          <div className="flex min-w-0 max-w-[min(100%,calc(100vw-7rem))] shrink items-center justify-end gap-2">
+            <PlantContextDisplay className="min-w-0 max-w-[11rem] sm:max-w-none sm:min-w-[160px]" showLabel={false} />
             <ProfileMenu />
             
             {/* Botón de menú móvil */}
@@ -1086,9 +1086,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
         </div>
         
         {/* Header desktop */}
-        <div className="hidden md:flex justify-end items-center mb-6">
-          <div className="flex items-center gap-4">
-                                      <PlantContextDisplay className="min-w-[200px]" showLabel={false} />
+        <div className="mb-6 hidden min-w-0 items-center justify-end md:flex">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-4">
+            <PlantContextDisplay className="min-w-0 max-w-xs sm:min-w-[200px]" showLabel={false} />
             <ProfileMenu />
           </div>
         </div>
@@ -1253,8 +1253,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
           </SheetContent>
         </Sheet>
         
-        {/* Contenido de la página */}
-        <div className="mt-4">
+        {/* Contenido de la página — min-w-0 evita que flex hijos (formularios) desborden horizontalmente */}
+        <div className="mt-4 min-w-0 w-full max-w-full flex-1">
           {children}
         </div>
       </main>

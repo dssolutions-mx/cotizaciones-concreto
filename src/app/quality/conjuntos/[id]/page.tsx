@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Save, Loader2, ChevronRight, AlertTriangle, Plus, ClipboardList, ExternalLink,
-  Settings, Wrench, CheckCircle2, History,
+  Settings, Wrench, CheckCircle2, History, Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,11 +13,24 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { cn } from '@/lib/utils'
-import type { ConjuntoHerramientas, InstrumentoCard } from '@/types/ema'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
+import type { ConjuntoHerramientas, InstrumentoCard, EmaDeleteBlocker } from '@/types/ema'
 
 const MESES = [
   { v: 1, label: 'Enero' }, { v: 2, label: 'Febrero' }, { v: 3, label: 'Marzo' },
@@ -282,6 +295,7 @@ function VerificacionesTab({ conjuntoId }: { conjuntoId: string }) {
 export default function ConjuntoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { hasRole } = useAuthSelectors()
 
   const [conjunto, setConjunto] = useState<ConjuntoHerramientas | null>(null)
   const [instrumentos, setInstrumentos] = useState<InstrumentoCard[]>([])
@@ -290,6 +304,12 @@ export default function ConjuntoDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteErr, setDeleteErr] = useState<string | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<EmaDeleteBlocker[]>([])
+  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const [form, setForm] = useState({
     nombre_conjunto: '',
@@ -644,6 +664,110 @@ export default function ConjuntoDetailPage() {
           <PlantillaTab conjuntoId={id} />
         </TabsContent>
       </Tabs>
+
+      {hasRole(EMA_CATALOG_DELETE_ROLES) && conjunto && (
+        <div className="rounded-lg border border-red-200 bg-red-50/40 p-4 md:p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-red-900">Zona de peligro</h2>
+              <p className="text-xs text-red-800/90 mt-1 max-w-xl">
+                Solo se puede eliminar un conjunto sin instrumentos y sin plantillas de verificación.
+                Si necesita conservar histórico, deje el conjunto y use la configuración del catálogo.
+              </p>
+            </div>
+            <AlertDialog
+              open={deleteOpen}
+              onOpenChange={(open) => {
+                setDeleteOpen(open)
+                if (!open) {
+                  setDeleteErr(null)
+                  setDeleteBlockers([])
+                  setDeleteConfirm('')
+                }
+              }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-800 hover:bg-red-100 shrink-0 gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Eliminar conjunto
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="border-stone-200">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar conjunto de herramientas</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-3 text-sm text-stone-600">
+                      <p>
+                        ¿Confirma eliminar <span className="font-mono font-medium text-stone-900">DC-{conjunto.codigo_conjunto}</span>
+                        {' — '}
+                        <span className="font-medium text-stone-900">{conjunto.nombre_conjunto}</span>?
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        Escriba <span className="font-mono font-semibold">ELIMINAR</span> para confirmar.
+                      </p>
+                      <Input
+                        value={deleteConfirm}
+                        onChange={(e) => setDeleteConfirm(e.target.value)}
+                        placeholder="ELIMINAR"
+                        className="font-mono text-sm"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {deleteErr && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    {deleteErr}
+                    {deleteBlockers.length > 0 && (
+                      <ul className="mt-2 list-disc pl-4 space-y-1">
+                        {deleteBlockers.map((b) => (
+                          <li key={b.code}>{b.message}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleteBusy}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deleteBusy || deleteConfirm.trim() !== 'ELIMINAR'}
+                    className="bg-red-700 hover:bg-red-800 focus:ring-red-700"
+                    onClick={async (e) => {
+                      e.preventDefault()
+                      setDeleteBusy(true)
+                      setDeleteErr(null)
+                      setDeleteBlockers([])
+                      try {
+                        const res = await fetch(`/api/ema/conjuntos/${id}`, { method: 'DELETE' })
+                        const j = await res.json().catch(() => ({}))
+                        if (res.status === 409 && Array.isArray(j.blockers)) {
+                          setDeleteBlockers(j.blockers)
+                          setDeleteErr(j.error ?? 'No se puede eliminar.')
+                          return
+                        }
+                        if (!res.ok) throw new Error(j.error ?? 'Error al eliminar')
+                        setDeleteOpen(false)
+                        router.push('/quality/conjuntos')
+                      } catch (err: any) {
+                        setDeleteErr(err.message ?? 'Error al eliminar')
+                      } finally {
+                        setDeleteBusy(false)
+                      }
+                    }}
+                  >
+                    {deleteBusy ? 'Eliminando…' : 'Eliminar definitivamente'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -25,6 +25,13 @@ export type EstadoInstrumento =
   | 'en_revision'
   | 'inactivo';
 
+/** Structured dependency block for DELETE /api/ema/instrumentos|conjuntos */
+export interface EmaDeleteBlocker {
+  code: string;
+  count: number;
+  message: string;
+}
+
 export type ResultadoVerificacion = 'conforme' | 'no_conforme' | 'condicional' | 'pendiente';
 
 export type TipoEvento =
@@ -194,7 +201,7 @@ export interface CertificadoCalibracion {
   metodo_calibracion: string | null;        // Calibration method/standard reference
   fecha_emision: string;       // ISO date
   fecha_vencimiento: string;   // ISO date
-  archivo_path: string;        // Storage: calibration-certificates
+  archivo_path: string;        // Object key in bucket calibration-certificates (no bucket name prefix)
   // Measurement uncertainty (NMX-EC-17025 §5.4.6)
   incertidumbre_expandida: number | null;   // Expanded uncertainty U (±)
   incertidumbre_unidad: string | null;      // Unit for uncertainty value

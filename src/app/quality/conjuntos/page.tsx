@@ -2,13 +2,25 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight, ClipboardList } from 'lucide-react'
+import { Plus, RefreshCw, AlertTriangle, BookOpen, Search, X, ChevronRight, ClipboardList, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import type { ConjuntoHerramientas } from '@/types/ema'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
+import type { ConjuntoHerramientas, EmaDeleteBlocker } from '@/types/ema'
 
 const MESES_ABBR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
 
@@ -20,10 +32,17 @@ const TIPO_SERVICIO_LABEL: Record<string, string> = {
 
 export default function ConjuntosPage() {
   const router = useRouter()
+  const { hasRole } = useAuthSelectors()
   const [conjuntos, setConjuntos] = useState<ConjuntoHerramientas[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+
+  const [deleteTarget, setDeleteTarget] = useState<ConjuntoHerramientas | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteErr, setDeleteErr] = useState<string | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<EmaDeleteBlocker[]>([])
+  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const fetchConjuntos = async () => {
     setLoading(true)
@@ -54,6 +73,7 @@ export default function ConjuntosPage() {
   }, [conjuntos, search])
 
   return (
+    <>
     <div className="flex flex-col gap-4">
       <EmaBreadcrumb items={[{ label: 'Conjuntos de herramientas' }]} />
 
@@ -178,11 +198,28 @@ export default function ConjuntosPage() {
                 </div>
                 {c.tipo_servicio === 'verificacion' && (
                   <button
+                    type="button"
                     onClick={e => { e.stopPropagation(); router.push(`/quality/conjuntos/${c.id}/plantilla`) }}
                     title="Editar plantilla de verificación"
                     className="shrink-0 p-1.5 rounded-md text-stone-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                   >
                     <ClipboardList className="h-4 w-4" />
+                  </button>
+                )}
+                {hasRole(EMA_CATALOG_DELETE_ROLES) && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteTarget(c)
+                      setDeleteErr(null)
+                      setDeleteBlockers([])
+                      setDeleteConfirm('')
+                    }}
+                    title="Eliminar conjunto"
+                    className="shrink-0 p-1.5 rounded-md text-stone-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 )}
                 <ChevronRight className="h-4 w-4 text-stone-300 group-hover:text-stone-500 transition-colors shrink-0" />
@@ -192,5 +229,91 @@ export default function ConjuntosPage() {
         </div>
       )}
     </div>
+
+    <AlertDialog
+      open={!!deleteTarget}
+      onOpenChange={(open) => {
+        if (!open) {
+          setDeleteTarget(null)
+          setDeleteErr(null)
+          setDeleteBlockers([])
+          setDeleteConfirm('')
+        }
+      }}
+    >
+      <AlertDialogContent className="border-stone-200">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Eliminar conjunto</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm text-stone-600">
+              {deleteTarget && (
+                <>
+                  <p>
+                    ¿Eliminar <span className="font-mono font-medium text-stone-900">DC-{deleteTarget.codigo_conjunto}</span>
+                    {' — '}
+                    <span className="font-medium text-stone-900">{deleteTarget.nombre_conjunto}</span>?
+                  </p>
+                  <p className="text-xs text-stone-500">
+                    Escriba <span className="font-mono font-semibold">ELIMINAR</span> para confirmar.
+                  </p>
+                  <Input
+                    value={deleteConfirm}
+                    onChange={(e) => setDeleteConfirm(e.target.value)}
+                    placeholder="ELIMINAR"
+                    className="font-mono text-sm"
+                    autoComplete="off"
+                  />
+                </>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {deleteErr && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+            {deleteErr}
+            {deleteBlockers.length > 0 && (
+              <ul className="mt-2 list-disc pl-4 space-y-1">
+                {deleteBlockers.map((b) => (
+                  <li key={b.code}>{b.message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleteBusy}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={deleteBusy || deleteConfirm.trim() !== 'ELIMINAR' || !deleteTarget}
+            className="bg-red-700 hover:bg-red-800 focus:ring-red-700"
+            onClick={async (e) => {
+              e.preventDefault()
+              if (!deleteTarget) return
+              setDeleteBusy(true)
+              setDeleteErr(null)
+              setDeleteBlockers([])
+              try {
+                const res = await fetch(`/api/ema/conjuntos/${deleteTarget.id}`, { method: 'DELETE' })
+                const j = await res.json().catch(() => ({}))
+                if (res.status === 409 && Array.isArray(j.blockers)) {
+                  setDeleteBlockers(j.blockers)
+                  setDeleteErr(j.error ?? 'No se puede eliminar.')
+                  return
+                }
+                if (!res.ok) throw new Error(j.error ?? 'Error al eliminar')
+                setDeleteTarget(null)
+                await fetchConjuntos()
+              } catch (err: any) {
+                setDeleteErr(err.message ?? 'Error al eliminar')
+              } finally {
+                setDeleteBusy(false)
+              }
+            }}
+          >
+            {deleteBusy ? 'Eliminando…' : 'Eliminar definitivamente'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   )
 }

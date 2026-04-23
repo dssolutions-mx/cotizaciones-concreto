@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCertificadosByInstrumento, createCertificado } from '@/services/emaInstrumentoService';
+import {
+  calibrationCertificateObjectExists,
+  createCalibrationCertificateSignedUrl,
+  isAppGeneratedCalibrationCertificatePath,
+  isSafeCalibrationStoragePath,
+  normalizeCalibrationArchivoPath,
+} from '@/lib/ema/calibrationCertificateStorage';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -38,11 +45,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !READ_ROLES.includes(profile.role))
+    const readRole = (profile as { role: string } | null)?.role;
+    if (!readRole || !READ_ROLES.includes(readRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const certs = await getCertificadosByInstrumento(id);
-    return NextResponse.json({ data: certs });
+    const withPdf = await Promise.all(
+      certs.map(async (c) => {
+        const pdf_url = await createCalibrationCertificateSignedUrl(supabase, c.archivo_path, 3600);
+        return { ...c, pdf_url };
+      }),
+    );
+    return NextResponse.json({ data: withPdf });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -57,7 +71,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !WRITE_ROLES.includes(profile.role))
+    const writeRole = (profile as { role: string } | null)?.role;
+    if (!writeRole || !WRITE_ROLES.includes(writeRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();
@@ -65,8 +80,35 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
+    const archivoNorm = normalizeCalibrationArchivoPath(parsed.data.archivo_path);
+    if (!archivoNorm || !isSafeCalibrationStoragePath(archivoNorm)) {
+      return NextResponse.json(
+        { error: 'La ruta del archivo no es válida. Use únicamente «Subir PDF» en la aplicación.' },
+        { status: 400 },
+      );
+    }
+    if (!isAppGeneratedCalibrationCertificatePath(id, archivoNorm)) {
+      return NextResponse.json(
+        {
+          error:
+            'Solo se aceptan PDF subidos desde esta pantalla (botón Subir PDF). No se permiten rutas escritas a mano ni desde el panel de Storage.',
+        },
+        { status: 400 },
+      );
+    }
+    const exists = await calibrationCertificateObjectExists(supabase, archivoNorm);
+    if (!exists) {
+      return NextResponse.json(
+        {
+          error:
+            'No se encontró el PDF en Storage. Suba de nuevo el archivo con «Subir PDF» y vuelva a intentar.',
+        },
+        { status: 400 },
+      );
+    }
+
     const cert = await createCertificado(
-      { ...parsed.data, instrumento_id: id } as any,
+      { ...parsed.data, archivo_path: archivoNorm, instrumento_id: id } as any,
       user.id,
     );
     return NextResponse.json({ data: cert }, { status: 201 });

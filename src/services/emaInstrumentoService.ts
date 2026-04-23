@@ -36,6 +36,7 @@ import type {
   MantenimientoInstrumento,
   CreateMantenimientoInput,
   CompletedVerificacionCard,
+  EmaDeleteBlocker,
 } from '@/types/ema';
 
 // ─────────────────────────────────────────
@@ -245,6 +246,124 @@ export async function inactivarInstrumento(
     .from('instrumentos')
     .update({ estado: 'inactivo', motivo_inactivo: motivo })
     .eq('id', id);
+  if (error) throw error;
+}
+
+export class EmaDeleteConflictError extends Error {
+  readonly blockers: EmaDeleteBlocker[];
+  constructor(blockers: EmaDeleteBlocker[]) {
+    super('EMA_DELETE_CONFLICT');
+    this.name = 'EmaDeleteConflictError';
+    this.blockers = blockers;
+  }
+}
+
+function blocker(code: string, count: number, message: string): EmaDeleteBlocker {
+  return { code, count, message };
+}
+
+/** Count rows blocking hard-delete of an instrument (FK / trazabilidad). */
+export async function getInstrumentoDeleteBlockers(instrumentoId: string): Promise<EmaDeleteBlocker[]> {
+  const supabase = await createServerSupabaseClient();
+
+  const [
+    verifPrincipal,
+    verifMaestro,
+    hijosMaestro,
+    muestreos,
+    ensayos,
+    certificados,
+    programa,
+    incidentes,
+    paquetes,
+  ] = await Promise.all([
+    supabase.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_maestro_id', instrumentoId),
+    supabase.from('instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_maestro_id', instrumentoId),
+    supabase.from('muestreo_instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('ensayo_instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('certificados_calibracion').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('programa_calibraciones').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('incidentes_instrumento').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    supabase.from('paquete_instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+  ]);
+
+  const errors = [verifPrincipal, verifMaestro, hijosMaestro, muestreos, ensayos, certificados, programa, incidentes, paquetes]
+    .map((r) => r.error)
+    .filter(Boolean);
+  if (errors.length > 0) throw errors[0];
+
+  const out: EmaDeleteBlocker[] = [];
+  const n = (c: { count: number | null } | null) => c?.count ?? 0;
+
+  if (n(verifPrincipal) > 0) {
+    out.push(blocker('completed_verificaciones', n(verifPrincipal), 'Tiene verificaciones internas registradas (EMA). Use inactivar o elimine esos registros primero.'));
+  }
+  if (n(verifMaestro) > 0) {
+    out.push(blocker('completed_verificaciones_maestro', n(verifMaestro), 'Aparece como instrumento maestro en verificaciones registradas.'));
+  }
+  if (n(hijosMaestro) > 0) {
+    out.push(blocker('instrumentos_maestro', n(hijosMaestro), 'Hay instrumentos Tipo C que lo usan como maestro; reasigne o elimine esos instrumentos primero.'));
+  }
+  if (n(muestreos) > 0) {
+    out.push(blocker('muestreo_instrumentos', n(muestreos), 'Tiene uso en muestreos; no se puede eliminar del catálogo.'));
+  }
+  if (n(ensayos) > 0) {
+    out.push(blocker('ensayo_instrumentos', n(ensayos), 'Tiene uso en ensayos; no se puede eliminar del catálogo.'));
+  }
+  if (n(certificados) > 0) {
+    out.push(blocker('certificados_calibracion', n(certificados), 'Tiene certificados de calibración registrados.'));
+  }
+  if (n(programa) > 0) {
+    out.push(blocker('programa_calibraciones', n(programa), 'Tiene eventos en el programa de calibraciones/verificaciones.'));
+  }
+  if (n(incidentes) > 0) {
+    out.push(blocker('incidentes_instrumento', n(incidentes), 'Tiene incidentes registrados.'));
+  }
+  if (n(paquetes) > 0) {
+    out.push(blocker('paquete_instrumentos', n(paquetes), 'Está asignado a uno o más paquetes de equipo.'));
+  }
+
+  return out;
+}
+
+/** Hard-delete instrument when no blockers. Mantenimientos CASCADE at DB. */
+export async function deleteInstrumento(id: string): Promise<void> {
+  const blockers = (await getInstrumentoDeleteBlockers(id)).filter((b) => b.count > 0);
+  if (blockers.length > 0) throw new EmaDeleteConflictError(blockers);
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.from('instrumentos').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getConjuntoDeleteBlockers(conjuntoId: string): Promise<EmaDeleteBlocker[]> {
+  const supabase = await createServerSupabaseClient();
+  const [instrumentos, plantillas] = await Promise.all([
+    supabase.from('instrumentos').select('id', { count: 'exact', head: true }).eq('conjunto_id', conjuntoId),
+    supabase.from('verificacion_templates').select('id', { count: 'exact', head: true }).eq('conjunto_id', conjuntoId),
+  ]);
+  if (instrumentos.error) throw instrumentos.error;
+  if (plantillas.error) throw plantillas.error;
+
+  const out: EmaDeleteBlocker[] = [];
+  const ni = instrumentos.count ?? 0;
+  const np = plantillas.count ?? 0;
+  if (ni > 0) {
+    out.push(blocker('instrumentos', ni, `Hay ${ni} instrumento(s) en este conjunto; elimínelos o reasígnelos primero.`));
+  }
+  if (np > 0) {
+    out.push(blocker('verificacion_templates', np, `Hay ${np} plantilla(s) de verificación; elimínelas desde la pestaña Plantilla o archíbelas según proceda.`));
+  }
+  return out;
+}
+
+export async function deleteConjunto(id: string): Promise<void> {
+  const blockers = (await getConjuntoDeleteBlockers(id)).filter((b) => b.count > 0);
+  if (blockers.length > 0) throw new EmaDeleteConflictError(blockers);
+
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.from('conjuntos_herramientas').delete().eq('id', id);
   if (error) throw error;
 }
 

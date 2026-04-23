@@ -26,11 +26,12 @@ export function checkPermission(userRole: UserRole | null | undefined, allowedRo
 /**
  * Maps RBAC permission levels to human-readable descriptions
  */
-export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+export const ROLE_DESCRIPTIONS: Partial<Record<UserRole, string>> = {
   'SALES_AGENT': 'Agente de Ventas',
   'QUALITY_TEAM': 'Equipo de Calidad',
+  'LABORATORY': 'Laboratorio',
   'PLANT_MANAGER': 'Gerente de Planta',
-  'EXECUTIVE': 'Ejecutivo'
+  'EXECUTIVE': 'Ejecutivo',
 };
 
 /**

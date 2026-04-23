@@ -21,14 +21,29 @@ import {
   ChevronRight,
   Pencil,
   FileSignature,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard } from '@/types/ema'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
+import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard, EmaDeleteBlocker } from '@/types/ema'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +71,7 @@ function formatDate(dateStr: string | null): string {
 export default function InstrumentoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { hasRole } = useAuthSelectors()
 
   const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
   const [certificadoVigente, setCertificadoVigente] = useState<{
@@ -65,6 +81,12 @@ export default function InstrumentoDetailPage() {
   } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteErr, setDeleteErr] = useState<string | null>(null)
+  const [deleteBlockers, setDeleteBlockers] = useState<EmaDeleteBlocker[]>([])
+  const [deleteConfirmCodigo, setDeleteConfirmCodigo] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -273,6 +295,110 @@ export default function InstrumentoDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {hasRole(EMA_CATALOG_DELETE_ROLES) && (
+        <div className="rounded-lg border border-red-200 bg-red-50/40 p-4 md:p-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-red-900">Zona de peligro</h2>
+              <p className="text-xs text-red-800/90 mt-1 max-w-xl">
+                Eliminar quita el instrumento del catálogo. Si ya hay trazabilidad (verificaciones, muestreos, certificados, etc.),
+                el sistema no permitirá el borrado; en ese caso use <span className="font-medium">Inactivar</span> desde editar.
+              </p>
+            </div>
+            <AlertDialog
+              open={deleteOpen}
+              onOpenChange={(open) => {
+                setDeleteOpen(open)
+                if (!open) {
+                  setDeleteErr(null)
+                  setDeleteBlockers([])
+                  setDeleteConfirmCodigo('')
+                }
+              }}
+            >
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-800 hover:bg-red-100 shrink-0 gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Eliminar del catálogo
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="border-stone-200">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Eliminar instrumento</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-3 text-sm text-stone-600">
+                      <p>
+                        ¿Confirma eliminar <span className="font-mono font-medium text-stone-900">{instrumento.codigo}</span>
+                        {' — '}
+                        <span className="font-medium text-stone-900">{instrumento.nombre}</span>?
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        Escriba el código exacto para confirmar.
+                      </p>
+                      <Input
+                        value={deleteConfirmCodigo}
+                        onChange={(e) => setDeleteConfirmCodigo(e.target.value)}
+                        placeholder={instrumento.codigo}
+                        className="font-mono text-sm"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {deleteErr && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                    {deleteErr}
+                    {deleteBlockers.length > 0 && (
+                      <ul className="mt-2 list-disc pl-4 space-y-1">
+                        {deleteBlockers.map((b) => (
+                          <li key={b.code}>{b.message}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleteBusy}>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deleteBusy || deleteConfirmCodigo.trim() !== instrumento.codigo}
+                    className="bg-red-700 hover:bg-red-800 focus:ring-red-700"
+                    onClick={async (e) => {
+                      e.preventDefault()
+                      setDeleteBusy(true)
+                      setDeleteErr(null)
+                      setDeleteBlockers([])
+                      try {
+                        const res = await fetch(`/api/ema/instrumentos/${id}`, { method: 'DELETE' })
+                        const j = await res.json().catch(() => ({}))
+                        if (res.status === 409 && Array.isArray(j.blockers)) {
+                          setDeleteBlockers(j.blockers)
+                          setDeleteErr(j.error ?? 'No se puede eliminar.')
+                          return
+                        }
+                        if (!res.ok) throw new Error(j.error ?? 'Error al eliminar')
+                        setDeleteOpen(false)
+                        router.push('/quality/instrumentos/catalogo')
+                      } catch (err: any) {
+                        setDeleteErr(err.message ?? 'Error al eliminar')
+                      } finally {
+                        setDeleteBusy(false)
+                      }
+                    }}
+                  >
+                    {deleteBusy ? 'Eliminando…' : 'Eliminar definitivamente'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -520,7 +646,16 @@ function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
                 </div>
                 {c.observaciones && <p className="text-xs text-stone-500 mt-0.5">{c.observaciones}</p>}
               </div>
-              <span className="shrink-0 font-mono text-xs text-stone-400">{timeAgo(c.created_at)}</span>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                {c.pdf_url ? (
+                  <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-800 gap-1 px-2 text-xs" asChild>
+                    <a href={c.pdf_url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" /> Ver PDF
+                    </a>
+                  </Button>
+                ) : null}
+                <span className="font-mono text-xs text-stone-400">{timeAgo(c.created_at)}</span>
+              </div>
             </div>
           ))}
         </div>
