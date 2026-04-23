@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -18,6 +18,7 @@ import type {
   VerificacionTemplateSnapshot,
   VerificacionTemplateItem,
 } from '@/types/ema'
+import { evaluateFormula, parseFormula } from '@/lib/ema/formula'
 import { effectiveSectionRepetitions, effectiveLayout, referencePointForRow } from '@/lib/ema/sectionLayout'
 import { normalizeTemplateItem } from '@/lib/ema/templateItem'
 import { evaluatePassFailRule } from '@/lib/ema/passFail'
@@ -235,6 +236,15 @@ export default function VerificarPage() {
   const [error, setError] = useState<string | null>(null)
   const [instanceCodes, setInstanceCodes] = useState<Record<string, string>>({})
 
+  // Plantilla picker (when conjunto has ≥2 publicadas)
+  const [plantillaCandidates, setPlantillaCandidates] = useState<Array<{
+    id: string; codigo: string; nombre: string; norma_referencia: string | null; active_version_id: string
+  }>>([])
+  const [selectedPlantillaId, setSelectedPlantillaId] = useState<string>('')
+
+  /** Captured at Inicio for templates with `header_fields` (e.g. prensa compresión). */
+  const [headerValues, setHeaderValues] = useState<Record<string, string>>({})
+
   // Master instrument picker (for Tipo C)
   const [maestros, setMaestros] = useState<Array<{ id: string; codigo: string; nombre: string; estado: string }>>([])
   const [instrumento_maestro_id, setInstrumentoMaestroId] = useState<string>('')
@@ -274,28 +284,40 @@ export default function VerificarPage() {
           .catch(() => {})
       }
 
-      // Load template for this conjunto
+      // Load templates for this conjunto (now returns an array)
       if (inst.conjunto_id) {
         fetch(`/api/ema/conjuntos/${inst.conjunto_id}/templates`)
           .then(r => r.json())
           .then(tj => {
-            const tmpl = tj.data
-            if (!tmpl?.active_version_id) {
+            const list: any[] = Array.isArray(tj.data) ? tj.data : (tj.data ? [tj.data] : [])
+            const publicadas = list.filter((t: any) => t.estado === 'publicado' && t.active_version_id)
+            if (publicadas.length === 0) {
               setNoTemplate(true)
               setLoading(false)
               return
             }
+            if (publicadas.length > 1) {
+              // Multiple publicadas — show picker; user will choose
+              setPlantillaCandidates(publicadas.map((t: any) => ({
+                id: t.id,
+                codigo: t.codigo,
+                nombre: t.nombre,
+                norma_referencia: t.norma_referencia ?? null,
+                active_version_id: t.active_version_id,
+              })))
+              setLoading(false)
+              return
+            }
+            // Single publicada — auto-select and load snapshot
+            const tmpl = publicadas[0]
+            setSelectedPlantillaId(tmpl.id)
             setTemplateVersionId(tmpl.active_version_id)
-
-            // Load the snapshot
             fetch(`/api/ema/template-versions/${tmpl.active_version_id}`)
               .then(r => r.json())
               .then(vj => {
                 const snap: VerificacionTemplateSnapshot = vj.data?.snapshot
                 if (!snap) { setNoTemplate(true); setLoading(false); return }
                 setSnapshot(snap)
-
-                // Build steps
                 const built: Step[] = [{ kind: 'inicio' }]
                 for (let si = 0; si < snap.sections.length; si++) {
                   const sec = snap.sections[si]
@@ -306,13 +328,10 @@ export default function VerificarPage() {
                 }
                 built.push({ kind: 'cierre' })
                 setSteps(built)
-
-                // Compute suggested next date
                 const meses = inst.conjunto?.cadencia_meses ?? 12
                 const next = new Date()
                 next.setMonth(next.getMonth() + meses)
                 setCierreForm(f => ({ ...f, fecha_proxima_verificacion: next.toISOString().split('T')[0] }))
-
                 setLoading(false)
               })
           })
@@ -323,6 +342,42 @@ export default function VerificarPage() {
     }).catch(() => setLoading(false))
   }, [id])
 
+  useEffect(() => {
+    if (!snapshot?.header_fields?.length) {
+      setHeaderValues({})
+      return
+    }
+    const next: Record<string, string> = {}
+    for (const h of snapshot.header_fields) {
+      if (h.source === 'manual' && h.variable_name) next[h.variable_name] = ''
+    }
+    setHeaderValues(next)
+  }, [snapshot])
+
+  const headerNumericPayload = useMemo(() => {
+    if (!snapshot?.header_fields?.length) return undefined as Record<string, number> | undefined
+    const out: Record<string, number> = {}
+    for (const h of snapshot.header_fields) {
+      if (h.source !== 'manual' || !h.variable_name) continue
+      const raw = headerValues[h.variable_name]?.trim()
+      if (raw === '') continue
+      const n = Number(raw)
+      if (!Number.isNaN(n)) out[h.variable_name] = n
+    }
+    const sorted = [...snapshot.header_fields].sort((a, b) => a.orden - b.orden)
+    const scope: Record<string, number> = { ...out }
+    for (const h of sorted) {
+      const key = h.variable_name
+      if (!key) continue
+      if (h.source === 'computed' && h.formula) {
+        try {
+          scope[key] = evaluateFormula(parseFormula(h.formula), scope)
+        } catch { /* skip */ }
+      }
+    }
+    return Object.keys(out).length ? out : undefined
+  }, [snapshot?.header_fields, headerValues])
+
   const mKey = useCallback((sectionId: string, rep: number, itemId: string): MeasurementKey =>
     `${sectionId}:${rep}:${itemId}`, [])
 
@@ -330,8 +385,45 @@ export default function VerificarPage() {
     setMeasurements(prev => ({ ...prev, [key]: val }))
   }, [])
 
-  // Step 0 → create the verif record + advance
+  // Plantilla picker → load selected plantilla snapshot
+  const handlePickPlantilla = useCallback(async (candidate: typeof plantillaCandidates[number]) => {
+    setLoading(true)
+    setError(null)
+    try {
+      setSelectedPlantillaId(candidate.id)
+      setTemplateVersionId(candidate.active_version_id)
+      const vj = await fetch(`/api/ema/template-versions/${candidate.active_version_id}`).then(r => r.json())
+      const snap: VerificacionTemplateSnapshot = vj.data?.snapshot
+      if (!snap) { setNoTemplate(true); return }
+      setSnapshot(snap)
+      const built: Step[] = [{ kind: 'inicio' }]
+      for (let si = 0; si < snap.sections.length; si++) {
+        const sec = snap.sections[si]
+        const reps = effectiveSectionRepetitions(sec as any)
+        for (let rep = 1; rep <= reps; rep++) {
+          built.push({ kind: 'section', sectionIndex: si, repeticion: rep })
+        }
+      }
+      built.push({ kind: 'cierre' })
+      setSteps(built)
+      const meses = instrumento?.conjunto?.cadencia_meses ?? 12
+      const next = new Date()
+      next.setMonth(next.getMonth() + meses)
+      setCierreForm(f => ({ ...f, fecha_proxima_verificacion: next.toISOString().split('T')[0] }))
+      setPlantillaCandidates([]) // clear picker
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [instrumento])
+
+  // Inicio → create the verif record + advance
   const handleInicioNext = async () => {
+    if (snapshot?.header_fields?.some(h => h.source === 'manual' && h.variable_name && !String(headerValues[h.variable_name] ?? '').trim())) {
+      setError('Complete los campos de cabecera de la plantilla antes de continuar.')
+      return
+    }
     if (instrumento?.tipo === 'C' && !instrumento_maestro_id) {
       setError('Debe seleccionar el instrumento maestro (Tipo A) para instrumentos de trabajo.')
       return
@@ -345,6 +437,7 @@ export default function VerificarPage() {
         body: JSON.stringify({
           fecha_verificacion: inicioForm.fecha_verificacion,
           instrumento_maestro_id: instrumento_maestro_id || null,
+          template_id: selectedPlantillaId || undefined,
           condiciones_ambientales: {
             temperatura: inicioForm.temperatura || undefined,
             humedad: inicioForm.humedad || undefined,
@@ -406,7 +499,10 @@ export default function VerificarPage() {
         const res = await fetch(`/api/ema/verificaciones/${verifId}/measurements`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ measurements: toSave }),
+          body: JSON.stringify({
+            measurements: toSave,
+            ...(headerNumericPayload ? { header_values: headerNumericPayload } : {}),
+          }),
         })
         if (!res.ok) {
           const j = await res.json()
@@ -472,6 +568,55 @@ export default function VerificarPage() {
       <div className="flex flex-col gap-4 max-w-2xl">
         <div className="h-4 w-48 bg-stone-200 rounded animate-pulse" />
         <div className="h-64 rounded-lg bg-stone-100 animate-pulse" />
+      </div>
+    )
+  }
+
+  // ── Plantilla picker (≥2 publicadas) ──────────────────────────────────────
+  if (plantillaCandidates.length > 1 && !snapshot) {
+    return (
+      <div className="flex flex-col gap-5 max-w-2xl">
+        <EmaBreadcrumb items={[
+          { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
+          { label: 'Nueva verificación' },
+        ]} />
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/quality/instrumentos/${id}`}
+            className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div>
+            <h1 className="text-base font-semibold text-stone-900">Seleccione la plantilla de verificación</h1>
+            <p className="text-xs text-stone-500 mt-0.5">
+              {instrumento?.nombre} · {instrumento?.codigo}
+            </p>
+          </div>
+        </div>
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+        <div className="flex flex-col gap-3">
+          {plantillaCandidates.map(c => (
+            <button
+              key={c.id}
+              onClick={() => handlePickPlantilla(c)}
+              className="text-left w-full rounded-lg border border-stone-200 bg-white p-4 hover:border-emerald-400 hover:bg-emerald-50 transition-colors group"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-stone-800 group-hover:text-emerald-700">{c.codigo}</p>
+                  <p className="text-sm text-stone-600 mt-0.5">{c.nombre}</p>
+                  {c.norma_referencia && (
+                    <p className="text-xs text-stone-400 mt-1">{c.norma_referencia}</p>
+                  )}
+                </div>
+                <ChevronRight className="h-4 w-4 text-stone-400 group-hover:text-emerald-500 shrink-0 mt-0.5" />
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     )
   }
@@ -559,6 +704,51 @@ export default function VerificarPage() {
             <p className="text-xs text-stone-500 mt-0.5">Confirme los datos iniciales antes de comenzar las mediciones.</p>
           </div>
           <div className="px-5 py-4 space-y-4">
+            {(snapshot.header_fields ?? []).length > 0 && (
+              <div className="rounded-md border border-stone-100 bg-stone-50/80 p-3 space-y-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">Datos de cabecera</p>
+                {[...(snapshot.header_fields ?? [])].sort((a, b) => a.orden - b.orden).map(h => {
+                  if (h.source === 'manual' && h.variable_name) {
+                    return (
+                      <div key={h.id} className="space-y-1.5">
+                        <Label className="text-xs text-stone-600">{h.label} <span className="text-red-500">*</span></Label>
+                        <Input
+                          type="number"
+                          step="any"
+                          value={headerValues[h.variable_name] ?? ''}
+                          onChange={e => setHeaderValues(v => ({ ...v, [h.variable_name!]: e.target.value }))}
+                          className="border-stone-200 font-mono text-sm"
+                        />
+                      </div>
+                    )
+                  }
+                  if (h.source === 'computed' && h.variable_name && h.formula) {
+                    let preview = '—'
+                    try {
+                      const scope: Record<string, number> = {}
+                      for (const x of (snapshot.header_fields ?? []).sort((a, b) => a.orden - b.orden)) {
+                        if (x.source === 'manual' && x.variable_name) {
+                          const n = Number(headerValues[x.variable_name]?.trim())
+                          if (!Number.isNaN(n)) scope[x.variable_name] = n
+                        } else if (x.source === 'computed' && x.variable_name && x.formula) {
+                          scope[x.variable_name] = evaluateFormula(parseFormula(x.formula), scope)
+                        }
+                      }
+                      const v = scope[h.variable_name]
+                      preview = v != null && !Number.isNaN(v) ? String(v) : '—'
+                    } catch { /* keep — */ }
+                    return (
+                      <div key={h.id} className="flex justify-between gap-2 text-xs">
+                        <span className="text-stone-600">{h.label}</span>
+                        <span className="font-mono text-stone-800">{preview}</span>
+                      </div>
+                    )
+                  }
+                  return null
+                })}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label className="text-xs text-stone-600">Fecha de verificación <span className="text-red-500">*</span></Label>

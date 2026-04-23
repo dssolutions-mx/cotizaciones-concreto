@@ -8,6 +8,7 @@ const READ_ROLES = [...WRITE_ROLES, 'ADMIN_OPERATIONS'];
 const CreateVerifSchema = z.object({
   fecha_verificacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   instrumento_maestro_id: z.string().uuid().nullable().optional(),
+  template_id: z.string().uuid().optional(),
   condiciones_ambientales: z.object({
     temperatura: z.string().optional(),
     humedad: z.string().optional(),
@@ -93,14 +94,50 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!instrumento.conjunto_id)
       return NextResponse.json({ error: 'El instrumento no tiene conjunto asignado' }, { status: 400 });
 
-    // Get the active template version for this conjunto
-    const { data: template, error: tErr } = await supabase
-      .from('verificacion_templates')
-      .select('id, active_version_id, estado')
-      .eq('conjunto_id', instrumento.conjunto_id)
-      .single();
-    if (tErr || !template) return NextResponse.json({ error: 'No hay plantilla para este conjunto' }, { status: 400 });
-    if (!template.active_version_id || template.estado !== 'publicado')
+    // Resolve plantilla: if template_id provided, validate it belongs to the conjunto.
+    // Otherwise: if there's exactly one publicada plantilla on the conjunto, auto-select.
+    // If there are multiple, return PLANTILLA_REQUIRED with candidates.
+    let template: { id: string; active_version_id: string | null; estado: string } | null = null;
+
+    if (parsed.data.template_id) {
+      const { data: t, error: tErr } = await supabase
+        .from('verificacion_templates')
+        .select('id, active_version_id, estado, conjunto_id')
+        .eq('id', parsed.data.template_id)
+        .single();
+      if (tErr || !t) return NextResponse.json({ error: 'Plantilla no encontrada' }, { status: 404 });
+      if (t.conjunto_id !== instrumento.conjunto_id)
+        return NextResponse.json({ error: 'La plantilla no pertenece al conjunto del instrumento' }, { status: 400 });
+      if (t.estado !== 'publicado' || !t.active_version_id)
+        return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
+      template = t;
+    } else {
+      const { data: candidates, error: cErr } = await supabase
+        .from('verificacion_templates')
+        .select('id, codigo, nombre, norma_referencia, active_version_id, estado')
+        .eq('conjunto_id', instrumento.conjunto_id)
+        .eq('estado', 'publicado')
+        .order('codigo');
+      if (cErr) throw cErr;
+      const publicadas = (candidates ?? []).filter((t: any) => t.active_version_id);
+      if (publicadas.length === 0)
+        return NextResponse.json({ error: 'No hay plantilla publicada para este conjunto' }, { status: 400 });
+      if (publicadas.length > 1) {
+        return NextResponse.json({
+          error: 'Debe seleccionar una plantilla',
+          code: 'PLANTILLA_REQUIRED',
+          candidates: publicadas.map((t: any) => ({
+            id: t.id,
+            codigo: t.codigo,
+            nombre: t.nombre,
+            norma_referencia: t.norma_referencia,
+          })),
+        }, { status: 400 });
+      }
+      template = publicadas[0];
+    }
+
+    if (!template.active_version_id)
       return NextResponse.json({ error: 'La plantilla no tiene versión publicada' }, { status: 400 });
 
     const { data: verif, error: vErr } = await supabase

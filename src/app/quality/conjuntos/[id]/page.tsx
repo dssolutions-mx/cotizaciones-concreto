@@ -52,28 +52,25 @@ function MissingBadge() {
 
 // ─── Plantilla Tab ────────────────────────────────────────────────────────────
 
+type PlantillaSummary = {
+  id: string
+  codigo: string
+  nombre: string
+  norma_referencia: string | null
+  estado: 'borrador' | 'publicado' | 'archivado'
+  active_version?: { id: string; version_number: number; published_at: string } | null
+  items_count?: number
+}
+
 function PlantillaTab({ conjuntoId }: { conjuntoId: string }) {
-  const [tmpl, setTmpl] = useState<{
-    id: string; codigo: string; nombre: string; estado: string;
-    active_version?: { version_number: number; published_at: string } | null;
-    items_count?: number;
-  } | null>(null)
-  const [versions, setVersions] = useState<{ id: string; version_number: number; published_at: string }[]>([])
+  const [plantillas, setPlantillas] = useState<PlantillaSummary[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
       .then(r => r.json())
-      .then(async j => {
-        const t = j.data ?? null
-        setTmpl(t)
-        if (t?.id) {
-          const vRes = await fetch(`/api/ema/templates/${t.id}`)
-          if (vRes.ok) {
-            const vj = await vRes.json()
-            setVersions(vj.data?.versions ?? [])
-          }
-        }
+      .then(j => {
+        setPlantillas(Array.isArray(j.data) ? j.data : (j.data ? [j.data] : []))
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -83,80 +80,73 @@ function PlantillaTab({ conjuntoId }: { conjuntoId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Plantilla header card */}
       <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 bg-stone-50/60">
           <div className="flex items-center gap-2">
             <ClipboardList className="h-3.5 w-3.5 text-stone-500" />
-            <span className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Plantilla de verificación</span>
+            <span className="text-xs font-semibold text-stone-600 uppercase tracking-wide">
+              Plantillas de verificación
+            </span>
+            <span className="text-xs text-stone-400">· {plantillas.length}</span>
           </div>
           <Link
             href={`/quality/conjuntos/${conjuntoId}/plantilla`}
             className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 font-medium"
           >
             <ExternalLink className="h-3 w-3" />
-            {tmpl ? 'Editar plantilla' : 'Crear plantilla'}
+            Nueva plantilla
           </Link>
         </div>
-        {!tmpl ? (
+
+        {plantillas.length === 0 ? (
           <div className="px-4 py-5 text-sm text-stone-500 flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <p>Sin plantilla de verificación configurada.</p>
-              <p className="text-xs text-stone-400 mt-0.5">Cree una para habilitar la ejecución de verificaciones bajo NMX-EC-17025.</p>
+              <p>Sin plantillas de verificación configuradas.</p>
+              <p className="text-xs text-stone-400 mt-0.5">
+                Cree una o más para habilitar la ejecución de verificaciones bajo NMX-EC-17025. Un conjunto puede tener varias plantillas y el operador elige cuál ejecutar.
+              </p>
             </div>
           </div>
         ) : (
-          <div className="px-4 py-3 flex items-center gap-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-stone-800">{tmpl.nombre}</p>
-              <p className="text-xs text-stone-400 font-mono">{tmpl.codigo}</p>
-            </div>
-            <div className="flex items-center gap-3 text-xs shrink-0">
-              {tmpl.active_version ? (
-                <span className="rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 font-medium">
-                  v{tmpl.active_version.version_number} publicada
+          <div className="divide-y divide-stone-100">
+            {plantillas.map(p => (
+              <Link
+                key={p.id}
+                href={`/quality/conjuntos/${conjuntoId}/plantilla?template=${p.id}`}
+                className="group flex items-center gap-3 px-4 py-3 hover:bg-stone-50 transition-colors"
+              >
+                <span className="font-mono text-[11px] font-semibold text-stone-600 bg-stone-100 border border-stone-200 px-2 py-0.5 rounded shrink-0">
+                  {p.codigo}
                 </span>
-              ) : (
-                <span className="rounded-full bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 font-medium">Borrador</span>
-              )}
-              {tmpl.items_count != null && (
-                <span className="text-stone-500">{tmpl.items_count} puntos</span>
-              )}
-            </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-stone-800 truncate">{p.nombre}</span>
+                    {p.estado === 'publicado' ? (
+                      <span className="rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 text-[10px] font-medium">
+                        v{p.active_version?.version_number ?? 1} publicada
+                      </span>
+                    ) : p.estado === 'borrador' ? (
+                      <span className="rounded-full bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 text-[10px] font-medium">
+                        Borrador
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-stone-100 border border-stone-200 text-stone-500 px-2 py-0.5 text-[10px] font-medium">
+                        Archivada
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-stone-500">
+                    {p.norma_referencia && <span>{p.norma_referencia}</span>}
+                    {p.items_count != null && <span>· {p.items_count} ítems</span>}
+                  </div>
+                </div>
+                <ExternalLink className="h-3.5 w-3.5 text-stone-300 group-hover:text-emerald-600 shrink-0" />
+              </Link>
+            ))}
           </div>
         )}
       </div>
-
-      {/* Version history */}
-      {versions.length > 0 && (
-        <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-stone-100 bg-stone-50/60">
-            <History className="h-3.5 w-3.5 text-stone-500" />
-            <span className="text-xs font-semibold text-stone-600 uppercase tracking-wide">Historial de versiones</span>
-          </div>
-          <div className="divide-y divide-stone-100">
-            {versions.map((v: any) => (
-              <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className={cn(
-                  'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold border font-mono',
-                  v.id === tmpl?.active_version?.id || v.version_number === tmpl?.active_version?.version_number
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-stone-100 text-stone-500 border-stone-200',
-                )}>
-                  v{v.version_number}
-                </span>
-                <span className="text-xs text-stone-600 flex-1">
-                  {new Date(v.published_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {(v.id === tmpl?.active_version?.id || v.version_number === tmpl?.active_version?.version_number) && (
-                  <span className="text-[10px] text-emerald-600 font-medium">Activa</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Plus, Trash2, Save, BookOpen, CheckCircle2,
@@ -542,13 +542,25 @@ function SectionCard({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ─── Type for the chooser ──────────────────────────────────────────────────────
+interface PlantillaSummary {
+  id: string; codigo: string; nombre: string; norma_referencia: string | null
+  estado: string; active_version: { version_number: number } | null; items_count: number
+}
+
 export default function PlantillaPage() {
   const { id: conjuntoId } = useParams<{ id: string }>()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const templateParamId = searchParams.get('template')
 
   const [template, setTemplate] = useState<VerificacionTemplateDetalle | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conjuntoNombre, setConjuntoNombre] = useState('Conjunto')
+
+  // Multi-template chooser (when ?template= absent and >1 exist)
+  const [chooserList, setChooserList] = useState<PlantillaSummary[]>([])
 
   // Create template form (when none exists)
   const [creating, setCreating] = useState(false)
@@ -586,31 +598,47 @@ export default function PlantillaPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setChooserList([])
     try {
       // Load conjunto name
       const cRes = await fetch(`/api/ema/conjuntos/${conjuntoId}`)
-      if (cRes.ok) {
-        const cj = (await cRes.json()).data
-        setConjuntoNombre(cj?.nombre_conjunto ?? 'Conjunto')
-        // Count existing templates to auto-generate next sequential code
-        const countRes = await fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
-        const countJ = await countRes.json()
-        if (!countJ.data) {
-          // No template yet — query total templates for next number
-          const allRes = await fetch('/api/ema/templates/count')
-          const total = (await allRes.json().catch(() => ({ count: 6 }))).count ?? 6
-          const nextNum = String(total + 1).padStart(2, '0')
-          setCreateForm(f => ({ ...f, codigo: `DC-LC-6.4-${nextNum}`, nombre: cj?.nombre_conjunto ?? '' }))
+      const cj = cRes.ok ? (await cRes.json()).data : null
+      setConjuntoNombre(cj?.nombre_conjunto ?? 'Conjunto')
+
+      // Fetch all templates for this conjunto (array)
+      const tRes = await fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
+      const tj = await tRes.json()
+      const list: PlantillaSummary[] = Array.isArray(tj.data) ? tj.data : (tj.data ? [tj.data] : [])
+
+      if (list.length === 0) {
+        // No templates yet → show create form with auto-generated code
+        const allRes = await fetch('/api/ema/templates/count')
+        const total = (await allRes.json().catch(() => ({ count: 6 }))).count ?? 6
+        const nextNum = String(total + 1).padStart(2, '0')
+        setCreateForm(f => ({ ...f, codigo: `DC-LC-6.4-${nextNum}`, nombre: cj?.nombre_conjunto ?? '' }))
+        setTemplate(null)
+        setLoading(false)
+        return
+      }
+
+      // Determine which template to open
+      let targetId: string | null = templateParamId
+
+      if (!targetId) {
+        if (list.length === 1) {
+          targetId = list[0].id
+        } else {
+          // Multiple templates, no ?template= param → show chooser
+          setChooserList(list)
+          setTemplate(null)
+          setLoading(false)
+          return
         }
       }
 
-      // Load template
-      const tRes = await fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
-      const tj = await tRes.json()
-      if (!tj.data) { setTemplate(null); setLoading(false); return }
-
-      // Load full detail
-      const dRes = await fetch(`/api/ema/templates/${tj.data.id}`)
+      // Load full detail for the target template
+      const dRes = await fetch(`/api/ema/templates/${targetId}`)
+      if (!dRes.ok) { setError('Plantilla no encontrada'); setLoading(false); return }
       const dj = await dRes.json()
       setTemplate(dj.data)
     } catch (e: any) {
@@ -618,7 +646,7 @@ export default function PlantillaPage() {
     } finally {
       setLoading(false)
     }
-  }, [conjuntoId])
+  }, [conjuntoId, templateParamId])
 
   useEffect(() => { load() }, [load])
 
@@ -754,6 +782,101 @@ export default function PlantillaPage() {
   if (error) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">{error}</div>
+    )
+  }
+
+  // ── Multi-template chooser (>1 exist, no ?template= param)
+  if (chooserList.length > 1 && !template) {
+    return (
+      <div className="flex flex-col gap-5 max-w-3xl">
+        <EmaBreadcrumb items={[
+          { label: 'Conjuntos', href: '/quality/conjuntos' },
+          { label: conjuntoNombre, href: `/quality/conjuntos/${conjuntoId}` },
+          { label: 'Plantillas' },
+        ]} />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Link href={`/quality/conjuntos/${conjuntoId}`}
+              className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 transition-colors">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+            <h1 className="text-lg font-semibold text-stone-900">Plantillas de verificación</h1>
+          </div>
+          <Button
+            size="sm"
+            className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="h-4 w-4" /> Nueva plantilla
+          </Button>
+        </div>
+
+        {creating && (
+          <div className="rounded-lg border border-stone-200 bg-white p-5">
+            <form onSubmit={handleCreate} className="flex flex-col gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">Código</Label>
+                <Input value={createForm.codigo}
+                  onChange={e => setCreateForm(f => ({ ...f, codigo: e.target.value }))}
+                  placeholder="DC-LC-6.4-NN" className="border-stone-200 text-sm font-mono" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">Nombre *</Label>
+                <Input value={createForm.nombre}
+                  onChange={e => setCreateForm(f => ({ ...f, nombre: e.target.value }))}
+                  className="border-stone-200 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-stone-600">Norma de referencia</Label>
+                <Input value={createForm.norma_referencia}
+                  onChange={e => setCreateForm(f => ({ ...f, norma_referencia: e.target.value }))}
+                  className="border-stone-200 text-sm" />
+              </div>
+              {createErr && <p className="text-xs text-red-600">{createErr}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setCreating(false)}>Cancelar</Button>
+                <Button type="submit" size="sm" disabled={createSaving}
+                  className="bg-emerald-700 hover:bg-emerald-800 text-white">
+                  {createSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Crear'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3">
+          {chooserList.map(p => (
+            <div key={p.id} className="rounded-lg border border-stone-200 bg-white p-4 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold text-stone-800">{p.codigo}</span>
+                  <span className={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase border',
+                    p.estado === 'publicado' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                    p.estado === 'borrador' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    'bg-stone-50 text-stone-500 border-stone-200'
+                  )}>
+                    {p.estado === 'publicado' ? 'Publicada' : p.estado === 'borrador' ? 'Borrador' : 'Archivada'}
+                  </span>
+                  {p.active_version && (
+                    <span className="text-[10px] text-stone-400">v{p.active_version.version_number}</span>
+                  )}
+                </div>
+                <p className="text-sm text-stone-600 mt-0.5 truncate">{p.nombre}</p>
+                <p className="text-xs text-stone-400 mt-0.5">{p.items_count} ítems</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-stone-300 shrink-0"
+                onClick={() => router.push(`/quality/conjuntos/${conjuntoId}/plantilla?template=${p.id}`)}
+              >
+                Editar
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
     )
   }
 

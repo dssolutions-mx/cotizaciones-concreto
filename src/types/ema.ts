@@ -257,7 +257,10 @@ export type PassFailRule =
   | { kind: 'tolerance_pct'; expected: number; tolerance_pct: number; unit?: string | null }
   | { kind: 'range'; min: number | null; max: number | null; unit?: string | null }
   | { kind: 'expected_bool'; value: boolean }
-  | { kind: 'expression'; expr: string };
+  | { kind: 'expression'; expr: string }
+  /** Generalized bound — any combination of fixed min/max and formula-resolved min_formula/max_formula.
+   *  min_formula / max_formula are evaluated against the header + measurement scope. */
+  | { kind: 'formula_bound'; min?: number | null; max?: number | null; min_formula?: string | null; max_formula?: string | null; unit?: string | null };
 
 export interface InstancesConfig {
   min_count: number;
@@ -358,6 +361,8 @@ export interface VerificacionTemplateSnapshot {
   sections: Array<
     VerificacionTemplateSection & { items: VerificacionTemplateItem[] }
   >;
+  /** When absent in stored JSON, API may merge from `verificacion_template_header_fields`. */
+  header_fields?: VerificacionTemplateHeaderField[];
 }
 
 export interface VerificacionTemplateVersion {

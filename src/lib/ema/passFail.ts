@@ -48,6 +48,26 @@ export function evaluatePassFailRule(
         return null;
       }
     }
+    case 'formula_bound': {
+      if (ctx.valor_observado == null) return null;
+      const v = ctx.valor_observado;
+
+      // Resolve min — fixed value takes priority; fall back to formula
+      let min: number | null = rule.min ?? null;
+      if (min == null && rule.min_formula) {
+        try { min = evaluateFormula(parseFormula(rule.min_formula), scope); } catch { /* skip */ }
+      }
+
+      // Resolve max — same pattern
+      let max: number | null = rule.max ?? null;
+      if (max == null && rule.max_formula) {
+        try { max = evaluateFormula(parseFormula(rule.max_formula), scope); } catch { /* skip */ }
+      }
+
+      const okMin = min == null || v >= min;
+      const okMax = max == null || v <= max;
+      return okMin && okMax;
+    }
     default:
       return null;
   }

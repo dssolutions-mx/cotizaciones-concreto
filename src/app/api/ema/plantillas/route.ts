@@ -1,29 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { z } from 'zod';
 
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
-async function getAuthAndRole(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>) {
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { user: null, profile: null };
-  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single();
-  return { user, profile };
-}
-
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+/** GET /api/ema/plantillas — all plantillas across all conjuntos, enriched for the index UI */
+export async function GET(_req: NextRequest) {
   try {
-    const { id } = await params;
     const supabase = await createServerSupabaseClient();
-    const { profile } = await getAuthAndRole(supabase);
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+
+    const { data: profile } = await supabase
+      .from('user_profiles').select('role').eq('id', user.id).single();
     if (!profile || !READ_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const { data: templates, error: tErr } = await supabase
       .from('verificacion_templates')
-      .select('id, codigo, nombre, norma_referencia, descripcion, estado, active_version_id, created_at, updated_at')
-      .eq('conjunto_id', id)
+      .select(`
+        id, codigo, nombre, norma_referencia, descripcion, estado, active_version_id,
+        conjunto_id, created_at, updated_at,
+        conjunto:conjuntos_herramientas!verificacion_templates_conjunto_id_fkey (
+          codigo_conjunto, nombre_conjunto
+        )
+      `)
       .order('codigo');
 
     if (tErr) throw tErr;
@@ -68,54 +68,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       const sids = sectionsByTpl.get(t.id) ?? [];
       const items_count = sids.reduce((sum, sid) => sum + (itemsBySection.get(sid) ?? 0), 0);
       return {
-        ...t,
+        id: t.id,
+        codigo: t.codigo,
+        nombre: t.nombre,
+        norma_referencia: t.norma_referencia,
+        descripcion: t.descripcion,
+        estado: t.estado,
+        conjunto_id: t.conjunto_id,
+        conjunto_codigo: t.conjunto?.codigo_conjunto ?? null,
+        conjunto_nombre: t.conjunto?.nombre_conjunto ?? null,
         active_version: t.active_version_id ? versionMap.get(t.active_version_id) ?? null : null,
         items_count,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
       };
     });
 
     return NextResponse.json({ data });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
-}
-
-const CreateTemplateSchema = z.object({
-  codigo: z.string().min(1).max(40),
-  nombre: z.string().min(1),
-  norma_referencia: z.string().nullable().optional(),
-  descripcion: z.string().nullable().optional(),
-});
-
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  try {
-    const { id: conjunto_id } = await params;
-    const supabase = await createServerSupabaseClient();
-    const { user, profile } = await getAuthAndRole(supabase);
-    if (!user || !profile || !WRITE_ROLES.includes(profile.role))
-      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-
-    const json = await req.json();
-    const parsed = CreateTemplateSchema.safeParse(json);
-    if (!parsed.success)
-      return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
-
-    const { data, error } = await supabase
-      .from('verificacion_templates')
-      .insert({
-        conjunto_id,
-        codigo: parsed.data.codigo,
-        nombre: parsed.data.nombre,
-        norma_referencia: parsed.data.norma_referencia ?? null,
-        descripcion: parsed.data.descripcion ?? null,
-        estado: 'borrador',
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-    return NextResponse.json({ data }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
