@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 import { getInstrumentos } from '@/services/emaInstrumentoService';
 import { getProgramaCalendar } from '@/services/emaProgramaService';
 import type { EstadoInstrumento } from '@/types/ema';
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const plant_id = searchParams.get('plant_id') ?? undefined;
 
-    const supabase = await createServerSupabaseClient();
+    const admin = createServiceClient();
 
     // ── All instruments for stats ──────────────────────────────────────────
     const allInstrumentos = await getInstrumentos({ plant_id, limit: 500 });
@@ -40,17 +40,17 @@ export async function GET(req: NextRequest) {
 
     // ── Recent activity (last 10 events across all tables) ─────────────────
     const [certsRes, verifsRes, incidentesRes] = await Promise.all([
-      supabase
+      admin
         .from('certificados_calibracion')
         .select('id, instrumento_id, laboratorio_externo, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })
         .limit(5),
-      supabase
+      admin
         .from('completed_verificaciones')
         .select('id, instrumento_id, resultado, estado, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })
         .limit(5),
-      supabase
+      admin
         .from('incidentes_instrumento')
         .select('id, instrumento_id, tipo, severidad, estado, created_at, instrumentos(codigo, nombre)')
         .order('created_at', { ascending: false })

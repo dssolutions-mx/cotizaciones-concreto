@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -25,11 +25,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !READ_ROLES.includes(profile.role))
+    const readRole = (profile as { role: string } | null)?.role;
+    if (!readRole || !READ_ROLES.includes(readRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    // Service role: list must include verificaciones from all operadores; RLS + user client
+    // would only return rows the current user created.
+    const admin = createServiceClient();
     // Query completed_verificaciones with template version + creator info
-    const { data: rows, error: qErr } = await supabase
+    const { data: rows, error: qErr } = await admin
       .from('completed_verificaciones')
       .select(`
         id, fecha_verificacion, fecha_proxima_verificacion, resultado, estado, created_at,
@@ -76,7 +80,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !WRITE_ROLES.includes(profile.role))
+    const writeRole = (profile as { role: string } | null)?.role;
+    if (!writeRole || !WRITE_ROLES.includes(writeRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();

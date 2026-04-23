@@ -681,17 +681,73 @@ function VerificacionesSection({
   } | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     fetch(`/api/ema/instrumentos/${instrumentoId}/verificaciones`)
-      .then(r => r.json())
-      .then(j => { setVerifs(j.data ?? []); setLoading(false) })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error((j as { error?: string }).error ?? 'Error cargando verificaciones')
+        if (!cancelled) setVerifs((j as { data?: CompletedVerificacionCard[] }).data ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setVerifs([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [instrumentoId])
 
   useEffect(() => {
-    if (!conjuntoId) return
+    if (!conjuntoId) {
+      setTemplate(null)
+      return
+    }
+    let cancelled = false
     fetch(`/api/ema/conjuntos/${conjuntoId}/templates`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(j => setTemplate(j?.data ?? null))
-      .catch(() => {})
+      .then(async (r) => {
+        if (!r.ok) return null
+        return r.json() as Promise<{ data?: unknown }>
+      })
+      .then((j) => {
+        if (cancelled || !j) {
+          if (!cancelled && !j) setTemplate(null)
+          return
+        }
+        // API returns an array of templates; pick published + active version (same logic as /verificar page).
+        const raw = j.data
+        const list: unknown[] = Array.isArray(raw) ? raw : raw != null ? [raw] : []
+        const publicadas = (list as Record<string, unknown>[]).filter(
+          (t) => t.estado === 'publicado' && typeof t.active_version_id === 'string' && t.active_version_id,
+        )
+        if (publicadas.length === 0) {
+          if (!cancelled) setTemplate(null)
+          return
+        }
+        const t = publicadas[0] as {
+          id: string
+          codigo: string
+          nombre: string
+          active_version_id: string
+          active_version?: { version_number?: number }
+        }
+        if (!cancelled) {
+          setTemplate({
+            id: t.id,
+            codigo: t.codigo,
+            nombre: t.nombre,
+            active_version_id: t.active_version_id,
+            active_version_number: t.active_version?.version_number ?? null,
+          })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setTemplate(null)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [conjuntoId])
 
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>

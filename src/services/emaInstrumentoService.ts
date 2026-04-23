@@ -6,7 +6,7 @@
  * `emaVerificacionService.ts`.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import type {
   ConjuntoHerramientas,
   CreateConjuntoInput,
@@ -265,6 +265,7 @@ function blocker(code: string, count: number, message: string): EmaDeleteBlocker
 /** Count rows blocking hard-delete of an instrument (FK / trazabilidad). */
 export async function getInstrumentoDeleteBlockers(instrumentoId: string): Promise<EmaDeleteBlocker[]> {
   const supabase = await createServerSupabaseClient();
+  const admin = createServiceClient();
 
   const [
     verifPrincipal,
@@ -277,8 +278,8 @@ export async function getInstrumentoDeleteBlockers(instrumentoId: string): Promi
     incidentes,
     paquetes,
   ] = await Promise.all([
-    supabase.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
-    supabase.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_maestro_id', instrumentoId),
+    admin.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
+    admin.from('completed_verificaciones').select('id', { count: 'exact', head: true }).eq('instrumento_maestro_id', instrumentoId),
     supabase.from('instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_maestro_id', instrumentoId),
     supabase.from('muestreo_instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
     supabase.from('ensayo_instrumentos').select('id', { count: 'exact', head: true }).eq('instrumento_id', instrumentoId),
@@ -407,7 +408,7 @@ export async function createCertificado(
 export async function getCompletedVerificacionesByInstrumento(
   instrumento_id: string,
 ): Promise<CompletedVerificacionCard[]> {
-  const supabase = await createServerSupabaseClient();
+  const supabase = createServiceClient();
   const { data, error } = await supabase
     .from('completed_verificaciones')
     .select(`

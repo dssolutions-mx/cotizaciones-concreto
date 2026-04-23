@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 import type { VerificacionTemplateHeaderField, VerificacionTemplateSnapshot } from '@/types/ema';
 import { buildRowsForMeasurementPut } from '@/lib/ema/measurementCompute';
@@ -57,11 +57,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !WRITE_ROLES.includes(profile.role))
+    const writeRole = (profile as { role: string } | null)?.role;
+    if (!writeRole || !WRITE_ROLES.includes(writeRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    const admin = createServiceClient();
     // Verify the completed_verificacion exists and is editable
-    const { data: verif, error: vErr } = await supabase
+    const { data: verif, error: vErr } = await admin
       .from('completed_verificaciones')
       .select('id, estado, template_version_id')
       .eq('id', completed_id)
@@ -76,7 +78,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
     // Load snapshot to compute pass/fail
-    const { data: version } = await supabase
+    const { data: version } = await admin
       .from('verificacion_template_versions')
       .select('snapshot, template_id')
       .eq('id', verif.template_version_id)
@@ -89,7 +91,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     let snapWithHeaders = snapshot;
     if (!snapshot.header_fields && version?.template_id) {
-      const { data: hf } = await supabase
+      const { data: hf } = await admin
         .from('verificacion_template_header_fields')
         .select('*')
         .eq('template_id', version.template_id)
@@ -100,7 +102,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const headerScope = buildHeaderScope(snapWithHeaders.header_fields, parsed.data.header_values);
     const rows = buildRowsForMeasurementPut(snapWithHeaders, parsed.data.measurements as any, completed_id, headerScope);
 
-    const { data: saved, error: sErr } = await supabase
+    const { data: saved, error: sErr } = await admin
       .from('completed_verificacion_measurements')
       .upsert(rows, {
         onConflict: 'completed_id,section_id,section_repeticion,item_id',

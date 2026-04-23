@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
@@ -11,11 +11,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (error || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !READ_ROLES.includes(profile.role))
+    const readRole = (profile as { role: string } | null)?.role;
+    if (!readRole || !READ_ROLES.includes(readRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    const admin = createServiceClient();
     // Get all instruments in this conjunto
-    const { data: instrs } = await supabase
+    const { data: instrs } = await admin
       .from('instrumentos')
       .select('id, codigo, nombre, tipo')
       .eq('conjunto_id', conjunto_id);
@@ -24,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const instrIds = instrs.map((i: any) => i.id);
 
-    const { data: rows, error: qErr } = await supabase
+    const { data: rows, error: qErr } = await admin
       .from('completed_verificaciones')
       .select(`
         id, instrumento_id, fecha_verificacion, fecha_proxima_verificacion,

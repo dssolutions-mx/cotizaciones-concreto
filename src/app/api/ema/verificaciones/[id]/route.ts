@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -26,10 +26,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !READ_ROLES.includes(profile.role))
+    const readRole = (profile as { role: string } | null)?.role;
+    if (!readRole || !READ_ROLES.includes(readRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const { data: verif, error: vErr } = await supabase
+    const admin = createServiceClient();
+    const { data: verif, error: vErr } = await admin
       .from('completed_verificaciones')
       .select('*')
       .eq('id', id)
@@ -37,21 +39,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (vErr || !verif) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
     // Load snapshot from template version
-    const { data: version } = await supabase
+    const { data: version } = await admin
       .from('verificacion_template_versions')
       .select('version_number, snapshot, published_at')
       .eq('id', verif.template_version_id)
       .single();
 
     // Load measurements
-    const { data: measurements } = await supabase
+    const { data: measurements } = await admin
       .from('completed_verificacion_measurements')
       .select('*')
       .eq('completed_id', id)
       .order('section_repeticion');
 
     // Load instrument info
-    const { data: instrumento } = await supabase
+    const { data: instrumento } = await admin
       .from('instrumentos')
       .select('id, codigo, nombre, tipo, estado, conjunto_id')
       .eq('id', verif.instrumento_id)
@@ -60,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     // Load creator profile
     let created_by_profile = null;
     if (verif.created_by) {
-      const { data: cp } = await supabase
+      const { data: cp } = await admin
         .from('user_profiles')
         .select('id, full_name')
         .eq('id', verif.created_by)
@@ -95,7 +97,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !WRITE_ROLES.includes(profile.role))
+    const writeRole = (profile as { role: string } | null)?.role;
+    if (!writeRole || !WRITE_ROLES.includes(writeRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();
@@ -103,7 +106,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
-    const { data: updated, error: uErr } = await supabase
+    const admin = createServiceClient();
+    const { data: updated, error: uErr } = await admin
       .from('completed_verificaciones')
       .update({ ...parsed.data, updated_at: new Date().toISOString() })
       .eq('id', id)
