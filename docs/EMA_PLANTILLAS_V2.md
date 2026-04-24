@@ -28,3 +28,7 @@ Aplicar `supabase/migrations/20260425100000_ema_plantillas_v2.sql` (columnas `la
 
 - Constructor: `/quality/conjuntos/[id]/plantilla` — layout de sección, variables, reglas, vista previa (`TemplateFicha`).
 - Ejecución: `/quality/instrumentos/[id]/verificar` — layouts `linear` / `instrument_grid` / `reference_series`, booleanos como registro Sí/No con **Cumple** calculado.
+
+## Auditoría y rediseño (2026)
+
+Índice de documentos (lifecycle, diccionario, datos, UX, fórmulas, runtime, snapshot, IA, prioridades): [docs/ema/README.md](ema/README.md).

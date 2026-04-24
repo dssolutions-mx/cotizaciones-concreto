@@ -82,10 +82,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const validation = await validateInstrumentos(seleccionados);
     if (!validation.valid) {
-      return NextResponse.json({
-        error: `Instrumentos vencidos bloqueados por configuración EMA: ${validation.vencidos.map((v) => v.codigo).join(', ')}`,
-        vencidos: validation.vencidos,
-      }, { status: 422 });
+      const parts: string[] = [];
+      if (validation.sin_programacion.length > 0) {
+        parts.push(
+          `Sin programación de verificación/calibración: ${validation.sin_programacion.map((v) => v.codigo).join(', ')}`,
+        );
+      }
+      if (validation.bloquear_vencidos && validation.vencidos.length > 0) {
+        parts.push(`Vencidos: ${validation.vencidos.map((v) => v.codigo).join(', ')}`);
+      }
+      return NextResponse.json(
+        {
+          error: parts.join(' · ') || 'Validación EMA de instrumentos no superada',
+          vencidos: validation.vencidos,
+          sin_programacion: validation.sin_programacion,
+          bloquear_vencidos: validation.bloquear_vencidos,
+        },
+        { status: 422 },
+      );
     }
 
     const savedRows = await saveMuestreoInstrumentos(muestreoId, seleccionados);

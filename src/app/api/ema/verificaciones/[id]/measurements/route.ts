@@ -27,12 +27,13 @@ const PutSchema = z.object({
 function buildHeaderScope(
   headerFields: VerificacionTemplateHeaderField[] | undefined,
   headerValues: Record<string, number> | undefined,
-): Record<string, number> {
+): { scope: Record<string, number>; warnings: string[] } {
   const scope: Record<string, number> = {};
-  if (!headerFields?.length || !headerValues) return scope;
+  const warnings: string[] = [];
+  if (!headerFields?.length || !headerValues) return { scope, warnings };
   const sorted = [...headerFields].sort((a, b) => a.orden - b.orden);
   for (const h of sorted) {
-    const key = h.variable_name;
+    const key = h.variable_name?.trim() || h.field_key.trim();
     if (!key) continue;
     if (h.source === 'manual') {
       const n = headerValues[key];
@@ -40,12 +41,13 @@ function buildHeaderScope(
     } else if (h.source === 'computed' && h.formula) {
       try {
         scope[key] = evaluateFormula(parseFormula(h.formula), scope);
-      } catch {
-        /* skip */
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        warnings.push(`Cabecera «${h.label}» (${key}): fórmula no evaluable — ${msg}`);
       }
     }
   }
-  return scope;
+  return { scope, warnings };
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -99,8 +101,17 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       if (hf?.length) snapWithHeaders = { ...snapshot, header_fields: hf as VerificacionTemplateHeaderField[] };
     }
 
-    const headerScope = buildHeaderScope(snapWithHeaders.header_fields, parsed.data.header_values);
-    const rows = buildRowsForMeasurementPut(snapWithHeaders, parsed.data.measurements as any, completed_id, headerScope);
+    const { scope: headerScope, warnings: headerWarnings } = buildHeaderScope(
+      snapWithHeaders.header_fields,
+      parsed.data.header_values,
+    );
+    const { rows, warnings: rowWarnings } = buildRowsForMeasurementPut(
+      snapWithHeaders,
+      parsed.data.measurements as any,
+      completed_id,
+      headerScope,
+    );
+    const warnings = [...headerWarnings, ...rowWarnings];
 
     const { data: saved, error: sErr } = await admin
       .from('completed_verificacion_measurements')
@@ -111,7 +122,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       .select('id, item_id, cumple, error_calculado');
 
     if (sErr) throw sErr;
-    return NextResponse.json({ data: saved });
+    return NextResponse.json({ data: saved, ...(warnings.length ? { warnings } : {}) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

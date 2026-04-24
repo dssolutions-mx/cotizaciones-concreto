@@ -5,7 +5,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'https://pkjqznogflgbnwzkzm
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY');
 const FRONTEND_URL = Deno.env.get('FRONTEND_URL') || 'https://dcconcretos-hub.com';
-const FROM_EMAIL = 'juan.aguirre@dssolutions-mx.com';
+const FROM_EMAIL = Deno.env.get('EMA_FROM_EMAIL') || 'juan.aguirre@dssolutions-mx.com';
 
 /** Returns YYYY-MM-DD for a date offset by `days` from today */
 function dateOffset(days: number): string {
@@ -281,11 +281,7 @@ serve(async (_req) => {
     await processEntries(entries1 ?? [], 1, 'notif_1dia_enviada');
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        emailsSent: totalSent,
-        complianceRefreshError: refreshErr?.message ?? null,
-      }),
+      JSON.stringify({ success: true, emailsSent: totalSent, complianceRefreshError: refreshErr?.message ?? null }),
       { headers: { 'Content-Type': 'application/json' } }
     );
   } catch (err: any) {

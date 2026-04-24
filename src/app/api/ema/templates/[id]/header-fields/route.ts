@@ -14,9 +14,8 @@ async function auth(supabase: Awaited<ReturnType<typeof createServerSupabaseClie
 const HeaderFieldSchema = z.object({
   field_key: z.string().min(1),
   label: z.string().min(1),
-  source: z.enum(['instrumento', 'manual', 'computed']),
+  source: z.enum(['instrumento', 'manual']),
   variable_name: z.string().nullable().optional(),
-  formula: z.string().nullable().optional(),
   orden: z.number().int().optional(),
 });
 
@@ -51,8 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         field_key: parsed.data.field_key,
         label: parsed.data.label,
         source: parsed.data.source,
-        variable_name: parsed.data.variable_name ?? null,
-        formula: parsed.data.formula ?? null,
+        variable_name: parsed.data.variable_name ?? parsed.data.field_key,
+        formula: null,
       })
       .select()
       .single();

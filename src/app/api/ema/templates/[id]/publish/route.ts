@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { VerificacionTemplateSnapshot } from '@/types/ema';
 import { validateTemplateForPublish } from '@/lib/ema/templateValidate';
+import type { Json } from '@/types/database.types.generated';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
@@ -48,6 +49,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       })
     );
 
+    const { data: headerFields } = await supabase
+      .from('verificacion_template_header_fields')
+      .select('*')
+      .eq('template_id', template_id)
+      .order('orden');
+
     // Determine next version number
     const { count } = await supabase
       .from('verificacion_template_versions')
@@ -65,6 +72,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
         descripcion: template.descripcion,
       },
       sections: sectionsWithItems,
+      ...(headerFields?.length ? { header_fields: headerFields as VerificacionTemplateSnapshot['header_fields'] } : {}),
     };
 
     const validation = validateTemplateForPublish(snapshot);
@@ -81,7 +89,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       .insert({
         template_id,
         version_number,
-        snapshot,
+        snapshot: snapshot as unknown as Json,
         published_by: user.id,
       })
       .select()

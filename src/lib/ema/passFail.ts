@@ -5,6 +5,8 @@
 import { evaluateFormula, parseFormula } from './formula';
 import type { PassFailRule } from '@/types/ema';
 
+export type PassFailDiagnostics = { warnings?: string[]; itemLabel?: string };
+
 export function evaluatePassFailRule(
   rule: PassFailRule | null | undefined,
   ctx: {
@@ -12,10 +14,15 @@ export function evaluatePassFailRule(
     valor_booleano: boolean | null;
     scope?: Record<string, number>;
   },
+  diag?: PassFailDiagnostics,
 ): boolean | null {
   if (!rule || rule.kind === 'none') return null;
 
   const scope = ctx.scope ?? {};
+  const warn = (msg: string) => {
+    const prefix = diag?.itemLabel ? `«${diag.itemLabel}»` : 'Cumplimiento';
+    diag?.warnings?.push(`${prefix}: ${msg}`);
+  };
 
   switch (rule.kind) {
     case 'tolerance_abs': {
@@ -44,7 +51,8 @@ export function evaluatePassFailRule(
         const ast = parseFormula(rule.expr);
         const n = evaluateFormula(ast, scope);
         return n !== 0 && !Number.isNaN(n);
-      } catch {
+      } catch (e: unknown) {
+        warn(`expresión no evaluable — ${e instanceof Error ? e.message : String(e)}`);
         return null;
       }
     }
@@ -55,13 +63,21 @@ export function evaluatePassFailRule(
       // Resolve min — fixed value takes priority; fall back to formula
       let min: number | null = rule.min ?? null;
       if (min == null && rule.min_formula) {
-        try { min = evaluateFormula(parseFormula(rule.min_formula), scope); } catch { /* skip */ }
+        try {
+          min = evaluateFormula(parseFormula(rule.min_formula), scope);
+        } catch (e: unknown) {
+          warn(`límite inferior (fórmula) no evaluable — ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       // Resolve max — same pattern
       let max: number | null = rule.max ?? null;
       if (max == null && rule.max_formula) {
-        try { max = evaluateFormula(parseFormula(rule.max_formula), scope); } catch { /* skip */ }
+        try {
+          max = evaluateFormula(parseFormula(rule.max_formula), scope);
+        } catch (e: unknown) {
+          warn(`límite superior (fórmula) no evaluable — ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
 
       const okMin = min == null || v >= min;

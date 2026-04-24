@@ -35,6 +35,11 @@ function medicionError(n: NormalizedTemplateItem, val: number | null): number | 
   return Math.abs(val - n.valor_esperado);
 }
 
+export type SectionComputeResult = {
+  rows: ComputedMeasurementRow[];
+  warnings: string[];
+};
+
 /**
  * Compute all measurement rows for one section instance (section_repeticion = rep),
  * including derivado items not sent by the client.
@@ -42,16 +47,20 @@ function medicionError(n: NormalizedTemplateItem, val: number | null): number | 
 export function computeSectionMeasurementRows(
   section: {
     id: string;
+    titulo?: string;
     layout?: string;
     repetible?: boolean;
     repeticiones_default?: number;
-    series_config?: { points?: number[] };
+    series_config?: { points?: number[]; reference_variable?: string };
     items: VerificacionTemplateItem[];
   },
   rep: number,
   incomingByItemId: Map<string, IncomingMeasurement>,
   headerScope: Record<string, number> = {},
-): ComputedMeasurementRow[] {
+): SectionComputeResult {
+  const warnings: string[] = [];
+  const secLabel = section.titulo?.trim() || section.id.slice(0, 8);
+
   const layout = effectiveLayout(section as any);
   const refPoint =
     layout === 'reference_series' ? referencePointForRow(section as any, rep) : null;
@@ -108,8 +117,11 @@ export function computeSectionMeasurementRows(
       const v = evaluateFormula(parseFormula(it.formula), { ...scope, ...Object.fromEntries(derivedValues) });
       derivedValues.set(it.variable_name, v);
       scope[it.variable_name] = v;
-    } catch {
-      /* skip */
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warnings.push(
+        `Sección «${secLabel}» (rep. ${rep}): fórmula del punto «${it.punto}» (${it.variable_name}) — ${msg}`,
+      );
     }
   }
 
@@ -143,11 +155,15 @@ export function computeSectionMeasurementRows(
 
     let cumple: boolean | null = null;
     if (it.contributes_to_cumple && it.pass_fail_rule && it.pass_fail_rule.kind !== 'none') {
-      cumple = evaluatePassFailRule(it.pass_fail_rule, {
-        valor_observado,
-        valor_booleano,
-        scope,
-      });
+      cumple = evaluatePassFailRule(
+        it.pass_fail_rule,
+        {
+          valor_observado,
+          valor_booleano,
+          scope,
+        },
+        { warnings, itemLabel: it.punto },
+      );
     } else if (it.item_role === 'input_medicion' && it.pass_fail_rule?.kind === 'none') {
       cumple = null;
     }
@@ -167,13 +183,14 @@ export function computeSectionMeasurementRows(
     });
   }
 
-  return rows;
+  return { rows, warnings };
 }
 
 /** Build rows for all incoming keys grouped by section+rep (caller resolves section from snapshot). */
 export function computeAllMeasurementRowsFromSnapshot(
   sections: Array<{
     id: string;
+    titulo?: string;
     layout?: string;
     repetible?: boolean;
     repeticiones_default?: number;
@@ -182,7 +199,7 @@ export function computeAllMeasurementRowsFromSnapshot(
   }>,
   incoming: IncomingMeasurement[],
   headerScope: Record<string, number> = {},
-): ComputedMeasurementRow[] {
+): { rows: ComputedMeasurementRow[]; warnings: string[] } {
   const sectionById = new Map(sections.map(s => [s.id, s]));
   const groups = new Map<string, IncomingMeasurement[]>();
   for (const m of incoming) {
@@ -192,18 +209,21 @@ export function computeAllMeasurementRowsFromSnapshot(
   }
 
   const out: ComputedMeasurementRow[] = [];
+  const warnings: string[] = [];
   for (const [k, list] of groups) {
     const [sid, repStr] = k.split(':');
     const rep = parseInt(repStr, 10) || 1;
     const sec = sectionById.get(sid);
     if (!sec) continue;
     const byId = new Map(list.map(x => [x.item_id, x]));
-    out.push(...computeSectionMeasurementRows(sec, rep, byId, headerScope));
+    const { rows: chunk, warnings: w } = computeSectionMeasurementRows(sec, rep, byId, headerScope);
+    out.push(...chunk);
+    warnings.push(...w);
   }
 
   // Include derivado-only groups when client sent no row but section has derivados — skip (no save)
 
-  return out;
+  return { rows: out, warnings };
 }
 
 /** Build DB upsert rows with `completed_id` for PUT /measurements. */
@@ -212,9 +232,17 @@ export function buildRowsForMeasurementPut(
   incoming: IncomingMeasurement[],
   completedId: string,
   headerScope: Record<string, number> = {},
-): Array<ComputedMeasurementRow & { completed_id: string }> {
-  return computeAllMeasurementRowsFromSnapshot(snapshot.sections, incoming, headerScope).map(r => ({
-    ...r,
-    completed_id: completedId,
-  }));
+): { rows: Array<ComputedMeasurementRow & { completed_id: string }>; warnings: string[] } {
+  const { rows, warnings } = computeAllMeasurementRowsFromSnapshot(
+    snapshot.sections,
+    incoming,
+    headerScope,
+  );
+  return {
+    rows: rows.map(r => ({
+      ...r,
+      completed_id: completedId,
+    })),
+    warnings,
+  };
 }

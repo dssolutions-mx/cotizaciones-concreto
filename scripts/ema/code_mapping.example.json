@@ -1,0 +1,6 @@
+{
+  "mappings": {
+    "DC-P01-02-01": "00000000-0000-0000-0000-000000000000"
+  },
+  "_comment": "Replace values with real instrument UUIDs from Supabase. Keys are CSV codes (any row that needs an explicit link)."
+}

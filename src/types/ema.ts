@@ -164,6 +164,8 @@ export interface InstrumentoCard {
   conjunto_id: string;
   conjunto_codigo: string;
   conjunto_nombre: string;
+  /** Present when loaded with conjunto join — used for EMA compliance checks */
+  tipo_servicio?: TipoServicio | null;
 }
 
 /** Conjunto row with aggregate counts for workspace tables */
@@ -713,12 +715,22 @@ export interface ProgramaCalendarParams {
   estado?: EstadoPrograma;
 }
 
+/** Instruments that need attention outside the programa rows (from /api/ema/programa?include_gaps=1) */
+export interface ProgramaComplianceGaps {
+  /** Service-required instruments with fecha_proximo_evento in the past */
+  fecha_vencidas: InstrumentoCard[];
+  /** calibracion/verificacion conjunto but no next-event date scheduled */
+  sin_programacion: InstrumentoCard[];
+}
+
 /** Result returned when checking instruments before muestreo/ensayo save */
 export interface InstrumentosValidationResult {
   valid: boolean;
   bloquear_vencidos: boolean;
   vencidos: InstrumentoCard[];
   proximo_vencer: InstrumentoCard[];
+  /** Requiere calibración/verificación según conjunto pero sin fecha próxima */
+  sin_programacion: InstrumentoCard[];
 }
 
 /** Latest usage rows for tab Trazabilidad (instrument detail) */

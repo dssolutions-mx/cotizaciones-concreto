@@ -3,11 +3,14 @@
  * Handles the scheduling calendar, status updates, and daily refresh logic.
  */
 
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import type {
+  InstrumentoCard,
   ProgramaCalibracion,
   ProgramaCalibacionConInstrumento,
   ProgramaCalendarParams,
+  ProgramaComplianceGaps,
+  TipoServicio,
 } from '@/types/ema';
 
 // ─────────────────────────────────────────
@@ -90,6 +93,64 @@ export async function getProgramaByInstrumento(
   return data ?? [];
 }
 
+/** Instruments with compliance gaps (overdue next date, or service-required but no date). */
+export async function getProgramaComplianceGaps(
+  params: ProgramaCalendarParams = {},
+): Promise<ProgramaComplianceGaps> {
+  const supabase = await createServerSupabaseClient();
+  const { plant_id, business_unit_id } = params;
+  const today = new Date().toISOString().split('T')[0];
+
+  const plantsSel = business_unit_id ? 'plants!inner(id, business_unit_id)' : 'plants(id, business_unit_id)';
+
+  const mapRow = (row: Record<string, unknown>): InstrumentoCard => {
+    const ch = (row.conjuntos_herramientas ?? {}) as Record<string, string>;
+    return {
+      id: String(row.id),
+      codigo: String(row.codigo ?? ''),
+      nombre: String(row.nombre ?? ''),
+      tipo: row.tipo as InstrumentoCard['tipo'],
+      categoria: ch.categoria ?? '',
+      estado: row.estado as InstrumentoCard['estado'],
+      fecha_proximo_evento: (row.fecha_proximo_evento as string | null) ?? null,
+      plant_id: String(row.plant_id ?? ''),
+      marca: (row.marca as string | null) ?? null,
+      modelo_comercial: (row.modelo_comercial as string | null) ?? null,
+      conjunto_id: String(row.conjunto_id ?? ch.id ?? ''),
+      conjunto_codigo: ch.codigo_conjunto ?? '',
+      conjunto_nombre: ch.nombre_conjunto ?? '',
+      tipo_servicio: (ch.tipo_servicio as TipoServicio | null) ?? undefined,
+    };
+  };
+
+  async function fetchGaps(isSinFecha: boolean): Promise<InstrumentoCard[]> {
+    let q = supabase
+      .from('instrumentos')
+      .select(
+        `
+      id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+      conjuntos_herramientas!inner(categoria, codigo_conjunto, nombre_conjunto, tipo_servicio),
+      ${plantsSel}
+    `,
+      )
+      .neq('estado', 'inactivo')
+      .in('conjuntos_herramientas.tipo_servicio', ['calibracion', 'verificacion']);
+
+    if (plant_id) q = q.eq('plant_id', plant_id);
+    if (business_unit_id) q = q.eq('plants.business_unit_id', business_unit_id);
+    if (isSinFecha) q = q.is('fecha_proximo_evento', null);
+    else q = q.not('fecha_proximo_evento', 'is', null).lt('fecha_proximo_evento', today);
+
+    const { data, error } = await q.order('codigo');
+    if (error) throw error;
+    return (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
+  }
+
+  const [fecha_vencidas, sin_programacion] = await Promise.all([fetchGaps(false), fetchGaps(true)]);
+
+  return { fecha_vencidas, sin_programacion };
+}
+
 /** Pending events in the next N days for a plant — used for dashboard widgets */
 export async function getPendingUpcoming(
   plant_id: string,
@@ -165,62 +226,51 @@ export async function cancelarEventoPrograma(
 // Daily refresh (called by pg_cron via Edge Function or direct RPC)
 // ─────────────────────────────────────────
 
+export type EmaComplianceRefreshResult = {
+  programa_marcados_vencidos: number;
+  instrumentos_estado_actualizados: number;
+  programa_filas_actualizadas: number;
+  programa_filas_insertadas: number;
+};
+
+/**
+ * DB source of truth: overdue programa, recomputed instrument estado, synced pending programa rows.
+ * Pass an instrument id after manual edits; pass null for full refresh (cron / admin).
+ */
+export async function refreshEmaComplianceAndPrograma(
+  instrumentoId?: string | null,
+): Promise<EmaComplianceRefreshResult> {
+  const supabase = createServiceClient();
+  const { data, error } = await supabase.rpc('ema_refresh_compliance_and_programa', {
+    p_instrumento_id: instrumentoId ?? null,
+  });
+  if (error) throw error;
+  const row = (data ?? {}) as Record<string, unknown>;
+  return {
+    programa_marcados_vencidos: Number(row.programa_marcados_vencidos ?? 0),
+    instrumentos_estado_actualizados: Number(row.instrumentos_estado_actualizados ?? 0),
+    programa_filas_actualizadas: Number(row.programa_filas_actualizadas ?? 0),
+    programa_filas_insertadas: Number(row.programa_filas_insertadas ?? 0),
+  };
+}
+
 /**
  * Mark overdue programa entries as 'vencido' and refresh instrument estados.
  * This is normally called by pg_cron daily, but exposed here for manual triggers
  * (e.g. admin panel or testing).
  */
-export async function runDailyRefresh(): Promise<{ updated_instrumentos: number; vencidos_marcados: number }> {
-  const supabase = await createServerSupabaseClient();
-
-  // 1. Mark overdue programa entries
-  const { count: vencidos_marcados } = await supabase
-    .from('programa_calibraciones')
-    .update({ estado: 'vencido' })
-    .eq('estado', 'pendiente')
-    .lt('fecha_programada', new Date().toISOString().split('T')[0])
-    .select('id', { count: 'exact', head: true });
-
-  // 2. Refresh instrument estados via RPC (defined in migration)
-  // The pg_cron job runs this SQL directly; here we call it for manual triggers
-  const { data: config } = await supabase
-    .from('ema_configuracion')
-    .select('dias_alerta_proximo_vencer')
-    .single();
-
-  const dias = config?.dias_alerta_proximo_vencer ?? 7;
-  const today = new Date().toISOString().split('T')[0];
-  const alertDate = new Date(Date.now() + dias * 86_400_000).toISOString().split('T')[0];
-
-  // Update to 'vencido'
-  await supabase
-    .from('instrumentos')
-    .update({ estado: 'vencido' })
-    .not('estado', 'in', '(inactivo,en_revision)')
-    .not('fecha_proximo_evento', 'is', null)
-    .lt('fecha_proximo_evento', today);
-
-  // Update to 'proximo_vencer'
-  await supabase
-    .from('instrumentos')
-    .update({ estado: 'proximo_vencer' })
-    .not('estado', 'in', '(inactivo,en_revision,vencido)')
-    .not('fecha_proximo_evento', 'is', null)
-    .lte('fecha_proximo_evento', alertDate)
-    .gte('fecha_proximo_evento', today);
-
-  // Update back to 'vigente' (those that were proximo_vencer but now have future dates)
-  const { count: updated_instrumentos } = await supabase
-    .from('instrumentos')
-    .update({ estado: 'vigente' })
-    .not('estado', 'in', '(inactivo,en_revision,vencido)')
-    .not('fecha_proximo_evento', 'is', null)
-    .gt('fecha_proximo_evento', alertDate)
-    .select('id', { count: 'exact', head: true });
-
+export async function runDailyRefresh(): Promise<{
+  updated_instrumentos: number;
+  vencidos_marcados: number;
+  programa_filas_actualizadas: number;
+  programa_filas_insertadas: number;
+}> {
+  const r = await refreshEmaComplianceAndPrograma(null);
   return {
-    updated_instrumentos: updated_instrumentos ?? 0,
-    vencidos_marcados: vencidos_marcados ?? 0,
+    updated_instrumentos: r.instrumentos_estado_actualizados,
+    vencidos_marcados: r.programa_marcados_vencidos,
+    programa_filas_actualizadas: r.programa_filas_actualizadas,
+    programa_filas_insertadas: r.programa_filas_insertadas,
   };
 }
 

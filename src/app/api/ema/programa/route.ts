@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getProgramaCalendar, runDailyRefresh } from '@/services/emaProgramaService';
+import { getProgramaCalendar, getProgramaComplianceGaps, runDailyRefresh } from '@/services/emaProgramaService';
 
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 const ADMIN_ROLES = ['EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
@@ -17,15 +17,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
-    const programa = await getProgramaCalendar({
+    const baseParams = {
       plant_id: searchParams.get('plant_id') ?? undefined,
       business_unit_id: searchParams.get('business_unit_id') ?? undefined,
       fecha_desde: searchParams.get('fecha_desde') ?? undefined,
       fecha_hasta: searchParams.get('fecha_hasta') ?? undefined,
       tipo_evento: searchParams.get('tipo_evento') as any ?? undefined,
       estado: searchParams.get('estado') as any ?? 'pendiente',
-    });
+    };
 
+    if (searchParams.get('include_gaps') === '1') {
+      const [entries, gaps] = await Promise.all([
+        getProgramaCalendar(baseParams),
+        getProgramaComplianceGaps({
+          plant_id: baseParams.plant_id,
+          business_unit_id: baseParams.business_unit_id,
+        }),
+      ]);
+      return NextResponse.json({ data: { entries, gaps } });
+    }
+
+    const programa = await getProgramaCalendar(baseParams);
     return NextResponse.json({ data: programa });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

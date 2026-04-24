@@ -7,6 +7,7 @@
  */
 
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { refreshEmaComplianceAndPrograma } from '@/services/emaProgramaService';
 import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
 import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
 import type {
@@ -42,6 +43,8 @@ import type {
   CreateMantenimientoInput,
   CompletedVerificacionCard,
   EmaDeleteBlocker,
+  EstadoInstrumento,
+  TipoServicio,
 } from '@/types/ema';
 
 // ─────────────────────────────────────────
@@ -409,6 +412,7 @@ export async function createInstrumento(
   if (maestroIds.length > 0) {
     await replaceInstrumentoMaestroVinculos(data.id, maestroIds);
   }
+  await refreshEmaComplianceAndPrograma(data.id);
   return data;
 }
 
@@ -501,6 +505,7 @@ export async function applyInstrumentoUpdate(
   if (v.replaceMaestroIds !== undefined) {
     await replaceInstrumentoMaestroVinculos(id, v.replaceMaestroIds);
   }
+  await refreshEmaComplianceAndPrograma(id);
   return updated;
 }
 
@@ -517,6 +522,7 @@ export async function batchUpdateInstrumentos(
   }
 
   const results: EmaBatchInstrumentResult[] = [];
+  let anySuccess = false;
   for (const id of ids) {
     try {
       const detail = await getInstrumentoById(id);
@@ -533,11 +539,15 @@ export async function batchUpdateInstrumentos(
       if (v.replaceMaestroIds !== undefined) {
         await replaceInstrumentoMaestroVinculos(id, v.replaceMaestroIds);
       }
+      anySuccess = true;
       results.push({ id, success: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Error desconocido';
       results.push({ id, success: false, error: msg });
     }
+  }
+  if (anySuccess) {
+    await refreshEmaComplianceAndPrograma(null);
   }
   return results;
 }
@@ -1020,6 +1030,25 @@ export async function createPaquete(
 // Snapshot helpers for muestreo / ensayo
 // ─────────────────────────────────────────
 
+/** Mirrors DB `compute_instrumento_estado` / EMA docs (date-driven, not stored estado alone). */
+export function computeInstrumentoEstadoFromSchedule(
+  fechaProx: string | null,
+  estadoActual: string,
+  diasAlerta: number,
+): EstadoInstrumento {
+  if (estadoActual === 'inactivo' || estadoActual === 'en_revision') {
+    return estadoActual as EstadoInstrumento;
+  }
+  if (!fechaProx) return 'vigente';
+  const today = new Date().toISOString().split('T')[0];
+  if (fechaProx < today) return 'vencido';
+  const limit = new Date();
+  limit.setDate(limit.getDate() + diasAlerta);
+  const limitStr = limit.toISOString().split('T')[0];
+  if (fechaProx <= limitStr) return 'proximo_vencer';
+  return 'vigente';
+}
+
 export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<string, InstrumentoCard>> {
   const map = new Map<string, InstrumentoCard>();
   if (ids.length === 0) return map;
@@ -1030,7 +1059,7 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento, conjunto_id,
       plant_id, marca, modelo_comercial,
-      conjuntos_herramientas!inner(id, categoria, codigo_conjunto, nombre_conjunto)
+      conjuntos_herramientas!inner(id, categoria, codigo_conjunto, nombre_conjunto, tipo_servicio)
     `)
     .in('id', ids);
 
@@ -1053,6 +1082,7 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
       conjunto_id: r.conjunto_id ?? c.id ?? '',
       conjunto_codigo: c.codigo_conjunto ?? '',
       conjunto_nombre: c.nombre_conjunto ?? '',
+      tipo_servicio: (c.tipo_servicio as TipoServicio | null) ?? undefined,
     });
   }
 
@@ -1063,24 +1093,61 @@ export async function validateInstrumentos(
   seleccionados: InstrumentoSeleccionado[],
 ): Promise<InstrumentosValidationResult> {
   const supabase = await createServerSupabaseClient();
+  const uniqueIds = [...new Set(seleccionados.map((s) => s.instrumento.id))];
+  const byId = await getInstrumentosCardsByIds(uniqueIds);
+
   const { data: config } = await supabase
     .from('ema_configuracion')
-    .select('bloquear_vencidos')
+    .select('bloquear_vencidos, dias_alerta_proximo_vencer')
     .single();
 
   const bloquear = config?.bloquear_vencidos ?? false;
-  const vencidos = seleccionados
-    .filter((s) => s.instrumento.estado === 'vencido')
-    .map((s) => s.instrumento);
-  const proximo = seleccionados
-    .filter((s) => s.instrumento.estado === 'proximo_vencer')
-    .map((s) => s.instrumento);
+  const dias = config?.dias_alerta_proximo_vencer ?? 7;
+
+  const vencidos: InstrumentoCard[] = [];
+  const proximo: InstrumentoCard[] = [];
+  const sinProgramacion: InstrumentoCard[] = [];
+  const seenV = new Set<string>();
+  const seenP = new Set<string>();
+  const seenS = new Set<string>();
+
+  for (const s of seleccionados) {
+    const card = byId.get(s.instrumento.id) ?? s.instrumento;
+    const ts: TipoServicio = card.tipo_servicio ?? 'ninguno';
+
+    if ((ts === 'calibracion' || ts === 'verificacion') && !card.fecha_proximo_evento) {
+      if (!seenS.has(card.id)) {
+        seenS.add(card.id);
+        sinProgramacion.push(card);
+      }
+      continue;
+    }
+
+    const computed = computeInstrumentoEstadoFromSchedule(card.fecha_proximo_evento, card.estado, dias);
+    const merged: InstrumentoCard = { ...card, estado: computed };
+
+    if (computed === 'vencido') {
+      if (!seenV.has(card.id)) {
+        seenV.add(card.id);
+        vencidos.push(merged);
+      }
+    } else if (computed === 'proximo_vencer') {
+      if (!seenP.has(card.id)) {
+        seenP.add(card.id);
+        proximo.push(merged);
+      }
+    }
+  }
+
+  const blockedByExpiry = bloquear && vencidos.length > 0;
+  const blockedBySchedule = sinProgramacion.length > 0;
 
   return {
-    valid: !bloquear || vencidos.length === 0,
+    valid: !blockedByExpiry && !blockedBySchedule,
     bloquear_vencidos: bloquear,
     vencidos,
     proximo_vencer: proximo,
+    sin_programacion: sinProgramacion,
   };
 }
 

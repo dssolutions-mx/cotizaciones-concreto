@@ -40,9 +40,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       }),
     );
 
+    const { data: headerFields } = await supabase
+      .from('verificacion_template_header_fields')
+      .select('*')
+      .eq('template_id', template_id)
+      .order('orden');
+
     const snapshot: VerificacionTemplateSnapshot = {
       template,
       sections: sectionsWithItems,
+      ...(headerFields?.length ? { header_fields: headerFields as VerificacionTemplateSnapshot['header_fields'] } : {}),
     };
 
     const validation = validateTemplateForPublish(snapshot);

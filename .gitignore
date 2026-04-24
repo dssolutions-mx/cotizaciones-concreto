@@ -28,6 +28,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+scripts/ema/tmp/
 
 # debug
 npm-debug.log*

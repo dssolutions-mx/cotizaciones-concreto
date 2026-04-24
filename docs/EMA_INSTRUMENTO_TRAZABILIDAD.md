@@ -587,7 +587,7 @@ Muestreo 2026-03-01 SIGUE mostrando "vencido" para ese instrumento → correcto 
 | `getProgramaByInstrumento(id)` | `ProgramaCalibracion[]` | Historial de un instrumento |
 | `getPendingUpcoming(plant_id, days=30)` | `ProgramaCalibracionConInstrumento[]` | Widget de próximos eventos |
 | `cancelarEventoPrograma(id, notas, userId)` | `ProgramaCalibracion` | Cancela un evento pendiente |
-| `runDailyRefresh()` | `{updated, vencidos}` | Fuerza re-evaluación de estados (admin) |
+| `runDailyRefresh()` | `{ updated_instrumentos, vencidos_marcados, programa_filas_actualizadas, programa_filas_insertadas }` | Fuerza RPC `ema_refresh_compliance_and_programa` (admin) |
 | `getPendingNotif7Dias()` | `ProgramaCalibracionConInstrumento[]` | Para Edge Function |
 | `getPendingNotif1Dia()` | `ProgramaCalibracionConInstrumento[]` | Para Edge Function |
 | `markNotif7DiasEnviada(ids[])` | `void` | Marca enviado |
@@ -641,8 +641,9 @@ Todas las rutas están bajo `/api/ema/`. Autenticación requerida en todas.
 
 | Ruta | Método | Roles | Descripción |
 |------|--------|-------|-------------|
-| `/api/ema/programa` | GET | Todos quality roles | Calendario con filtros |
+| `/api/ema/programa` | GET | Todos quality roles | Calendario con filtros; `include_gaps=1` devuelve `{ entries, gaps }` (brechas de cumplimiento) |
 | `/api/ema/programa` | POST | EXECUTIVE, ADMIN, ADMIN_OPERATIONS | Forzar actualización diaria |
+| `/api/ema/admin/schedule-backfill` | POST | EXECUTIVE, ADMIN, ADMIN_OPERATIONS | Carga masiva revisada de `fecha_proximo_evento` + refresh de programa (`{ updates: [{ instrumento_id, fecha_proximo_evento }] }`, máx. 500) |
 | `/api/ema/configuracion` | GET | Todos quality roles | Leer configuración singleton |
 | `/api/ema/configuracion` | PUT | **EXECUTIVE, ADMIN únicamente** | Actualizar (incluye `bloquear_vencidos`) |
 

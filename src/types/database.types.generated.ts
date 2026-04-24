@@ -12060,6 +12060,10 @@ export type Database = {
         }
         Returns: string
       }
+      ema_refresh_compliance_and_programa: {
+        Args: { p_instrumento_id?: string | null }
+        Returns: Json
+      }
       crear_muestras_por_edad: {
         Args: {
           p_cantidad: number
