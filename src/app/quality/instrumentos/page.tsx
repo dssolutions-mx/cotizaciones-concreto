@@ -465,18 +465,27 @@ function ActionSection({
                 {daysLabel(days)}
               </span>
 
-              {/* Action link */}
-              <Link
-                href={`/quality/instrumentos/${inst.id}/${actionPath}`}
-                className={cn(
-                  'shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-                  actionPath === 'certificar'
-                    ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
-                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <Link
+                  href={`/quality/instrumentos/${inst.id}/${actionPath}`}
+                  className={cn(
+                    'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors text-center',
+                    actionPath === 'certificar'
+                      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+                  )}
+                >
+                  {actionLabel} →
+                </Link>
+                {actionPath === 'certificar' && (
+                  <Link
+                    href={`/quality/instrumentos/${inst.id}?tab=certificados`}
+                    className="text-[10px] text-stone-500 hover:text-sky-700 underline-offset-2 hover:underline"
+                  >
+                    Ver certificados en ficha
+                  </Link>
                 )}
-              >
-                {actionLabel} →
-              </Link>
+              </div>
             </div>
           )
         })}

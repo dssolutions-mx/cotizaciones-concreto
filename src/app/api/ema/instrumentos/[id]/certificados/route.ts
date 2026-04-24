@@ -37,7 +37,7 @@ const CreateCertSchema = z.object({
   observaciones: z.string().optional().nullable(),
 });
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const supabase = await createServerSupabaseClient();
@@ -50,7 +50,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (!readRole || !READ_ROLES.includes(readRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    const certs = await getCertificadosByInstrumento(id);
+    const { searchParams } = new URL(req.url);
+    const vigenteParam = searchParams.get('vigente');
+    const vigente = vigenteParam === 'true' || vigenteParam === '1';
+    const limitRaw = searchParams.get('limit');
+    const limitParsed = limitRaw != null ? parseInt(limitRaw, 10) : NaN;
+    const limit = Number.isFinite(limitParsed) && limitParsed > 0 ? limitParsed : undefined;
+
+    const certs = await getCertificadosByInstrumento(id, { vigente, limit });
     const withPdf = await Promise.all(
       certs.map(async (c) => {
         const pdf_url = await createCalibrationCertificateSignedUrl(supabase, c.archivo_path, 3600);
