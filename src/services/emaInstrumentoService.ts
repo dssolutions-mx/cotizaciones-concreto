@@ -734,13 +734,21 @@ export async function deleteConjunto(id: string): Promise<void> {
 
 export async function getCertificadosByInstrumento(
   instrumento_id: string,
+  opts?: { vigente?: boolean; limit?: number },
 ): Promise<CertificadoCalibracion[]> {
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from('certificados_calibracion')
     .select('*')
     .eq('instrumento_id', instrumento_id)
     .order('fecha_emision', { ascending: false });
+  if (opts?.vigente === true) {
+    query = query.eq('is_vigente', true);
+  }
+  if (opts?.limit != null && opts.limit > 0) {
+    query = query.limit(opts.limit);
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft,
@@ -22,6 +22,8 @@ import {
   Pencil,
   FileSignature,
   Trash2,
+  FileWarning,
+  RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,7 +49,16 @@ import {
   publishedPlantillaSummaryFromTemplatesPayload,
   type PublishedPlantillaSummary,
 } from '@/lib/ema/publishedPlantillaFromTemplatesResponse'
-import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard, EmaDeleteBlocker } from '@/types/ema'
+import type {
+  CertificadoCalibracion,
+  InstrumentoDetalle,
+  InstrumentoTrazabilidad,
+  CompletedVerificacionCard,
+  EmaDeleteBlocker,
+} from '@/types/ema'
+
+/** API augments DB row with a time-limited signed URL for the PDF. */
+type CertificadoCalibracionConPdf = CertificadoCalibracion & { pdf_url: string | null }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -72,17 +83,17 @@ function formatDate(dateStr: string | null): string {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+const EMA_DETAIL_TABS = ['certificados', 'verificaciones', 'incidentes', 'trazabilidad'] as const
+type EmaDetailTab = (typeof EMA_DETAIL_TABS)[number]
+
 export default function InstrumentoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { hasRole } = useAuthSelectors()
 
   const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
-  const [certificadoVigente, setCertificadoVigente] = useState<{
-    laboratorio_externo: string
-    fecha_vencimiento: string
-    fecha_emision: string
-  } | null>(null)
+  const [certificadoVigente, setCertificadoVigente] = useState<CertificadoCalibracionConPdf | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,16 +134,8 @@ export default function InstrumentoDetailPage() {
 
       if (certRes.ok) {
         const certJ = await certRes.json()
-        const certs = certJ.data ?? []
-        if (certs.length > 0) {
-          setCertificadoVigente({
-            laboratorio_externo: certs[0].laboratorio_externo,
-            fecha_vencimiento: certs[0].fecha_vencimiento,
-            fecha_emision: certs[0].fecha_emision,
-          })
-        } else {
-          setCertificadoVigente(null)
-        }
+        const certs: CertificadoCalibracionConPdf[] = certJ.data ?? []
+        setCertificadoVigente(certs[0] ?? null)
       } else {
         setCertificadoVigente(null)
       }
@@ -152,6 +155,17 @@ export default function InstrumentoDetailPage() {
 
   useEffect(() => { load() }, [load])
 
+  const defaultTab: EmaDetailTab = instrumento?.tipo === 'C' ? 'verificaciones' : 'certificados'
+  const [activeTab, setActiveTab] = useState<EmaDetailTab>('certificados')
+
+  useEffect(() => {
+    if (!instrumento) return
+    const t = searchParams.get('tab')
+    const fromUrl =
+      t && (EMA_DETAIL_TABS as readonly string[]).includes(t) ? (t as EmaDetailTab) : null
+    setActiveTab(fromUrl ?? defaultTab)
+  }, [instrumento?.id, instrumento?.tipo, searchParams, defaultTab])
+
   if (loading) return <LoadingSkeleton />
 
   if (error || !instrumento) {
@@ -170,7 +184,6 @@ export default function InstrumentoDetailPage() {
 
   const days = daysUntil(instrumento.fecha_proximo_evento)
   const isUrgent = instrumento.estado === 'vencido' || instrumento.estado === 'proximo_vencer'
-  const defaultTab = instrumento.tipo === 'C' ? 'verificaciones' : 'certificados'
 
   return (
     <div className="flex flex-col gap-4">
@@ -203,7 +216,15 @@ export default function InstrumentoDetailPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2 pl-9 sm:pl-0">
+          <div className="flex items-center gap-2 pl-9 sm:pl-0 flex-wrap">
+            {instrumento.tipo !== 'C' && certificadoVigente?.pdf_url && (
+              <Button size="sm" variant="outline" className="border-sky-200 bg-sky-50/80 text-sky-900 gap-1.5" asChild>
+                <a href={certificadoVigente.pdf_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Ver certificado vigente
+                </a>
+              </Button>
+            )}
             {isUrgent && instrumento.tipo !== 'C' && (
               <Button size="sm" className="bg-sky-700 hover:bg-sky-800 text-white gap-1.5" asChild>
                 <Link href={`/quality/instrumentos/${id}/certificar`}>
@@ -304,7 +325,20 @@ export default function InstrumentoDetailPage() {
 
       {/* ── Tabbed Sections ───────────────────────────────────── */}
       <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-        <Tabs defaultValue={defaultTab}>
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            const next = v as EmaDetailTab
+            setActiveTab(next)
+            const nextParams = new URLSearchParams(searchParams.toString())
+            if (next === defaultTab) nextParams.delete('tab')
+            else nextParams.set('tab', next)
+            const qs = nextParams.toString()
+            router.replace(qs ? `/quality/instrumentos/${id}?${qs}` : `/quality/instrumentos/${id}`, {
+              scroll: false,
+            })
+          }}
+        >
           <div className="border-b border-stone-200 bg-stone-50/80 px-1 pt-1">
             <TabsList className="h-auto bg-transparent gap-0 p-0">
               <TabButton value="certificados" icon={<Award className="h-3.5 w-3.5" />} label="Certificados" />
@@ -315,7 +349,7 @@ export default function InstrumentoDetailPage() {
           </div>
 
           <TabsContent value="certificados" className="m-0">
-            <CertificadosSection instrumentoId={id} />
+            <CertificadosSection instrumentoId={id} instrumentoTipo={instrumento.tipo} onRefresh={load} />
           </TabsContent>
           <TabsContent value="verificaciones" className="m-0">
             <VerificacionesSection
@@ -502,9 +536,14 @@ function TraceabilityCard({
   certificadoVigente,
 }: {
   instrumento: InstrumentoDetalle
-  certificadoVigente: { laboratorio_externo: string; fecha_vencimiento: string; fecha_emision: string } | null
+  certificadoVigente: CertificadoCalibracionConPdf | null
 }) {
   const tipo = instrumento.tipo
+  const certDocHref = certificadoVigente?.pdf_url ?? undefined
+  const certFichaHref =
+    certificadoVigente && !certificadoVigente.pdf_url
+      ? `/quality/instrumentos/${instrumento.id}?tab=certificados`
+      : undefined
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-4 md:p-5">
@@ -523,11 +562,24 @@ function TraceabilityCard({
               title="Laboratorio EMA externo"
               subtitle={certificadoVigente?.laboratorio_externo ?? 'Sin certificado vigente'}
               detail={certificadoVigente
-                ? `Vence: ${certificadoVigente.fecha_vencimiento}`
+                ? [
+                    certificadoVigente.numero_certificado && `#${certificadoVigente.numero_certificado}`,
+                    `Emisión: ${certificadoVigente.fecha_emision}`,
+                    `Vence: ${certificadoVigente.fecha_vencimiento}`,
+                  ].filter(Boolean).join(' · ')
                 : undefined
               }
               status={certificadoVigente ? 'vigente' : 'vencido'}
               accent="sky"
+              href={certDocHref ?? certFichaHref}
+              hrefExternal={Boolean(certDocHref)}
+              hrefLabel={
+                certDocHref
+                  ? 'Abrir PDF del certificado'
+                  : certFichaHref
+                    ? 'Ver documentación en pestaña Certificados'
+                    : undefined
+              }
             />
             <TraceConnector />
           </>
@@ -586,7 +638,7 @@ function TraceabilityCard({
 }
 
 function TraceNode({
-  title, subtitle, detail, status, accent, isHighlighted, href,
+  title, subtitle, detail, status, accent, isHighlighted, href, hrefExternal, hrefLabel,
 }: {
   title: string
   subtitle: string
@@ -595,6 +647,9 @@ function TraceNode({
   accent: 'sky' | 'emerald' | 'stone' | 'violet'
   isHighlighted?: boolean
   href?: string
+  /** When true, `href` opens in a new tab (e.g. signed PDF URL). */
+  hrefExternal?: boolean
+  hrefLabel?: string
 }) {
   const statusDot = status === 'vigente'
     ? 'bg-emerald-400'
@@ -616,10 +671,20 @@ function TraceNode({
         {href && <ExternalLink className="h-3 w-3 text-stone-400 ml-auto" />}
       </div>
       <p className="text-sm font-medium text-stone-900 truncate">{subtitle}</p>
-      {detail && <p className="text-xs text-stone-500 font-mono mt-0.5">{detail}</p>}
+      {detail && <p className="text-xs text-stone-500 font-mono mt-0.5 break-words">{detail}</p>}
+      {href && hrefLabel && (
+        <p className="text-[11px] text-sky-700 font-medium mt-1.5">{hrefLabel}</p>
+      )}
     </div>
   )
 
+  if (href && hrefExternal) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 no-underline text-inherit">
+        {content}
+      </a>
+    )
+  }
   if (href) return <Link href={href} className="flex-1 min-w-0">{content}</Link>
   return content
 }
@@ -636,15 +701,52 @@ function TraceConnector() {
 
 // ─── Certificados Section ────────────────────────────────────────────────────
 
-function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
-  const [certs, setCerts] = useState<any[]>([])
+function CertificadosSection({
+  instrumentoId,
+  instrumentoTipo,
+  onRefresh,
+}: {
+  instrumentoId: string
+  instrumentoTipo: string
+  onRefresh: () => void | Promise<void>
+}) {
+  const [certs, setCerts] = useState<CertificadoCalibracionConPdf[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+
+  const loadCerts = useCallback(async () => {
+    setListError(null)
+    const res = await fetch(`/api/ema/instrumentos/${instrumentoId}/certificados`)
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setListError((j as { error?: string }).error ?? 'No se pudieron cargar los certificados')
+      setCerts([])
+      return
+    }
+    setCerts((j as { data?: CertificadoCalibracionConPdf[] }).data ?? [])
+  }, [instrumentoId])
 
   useEffect(() => {
-    fetch(`/api/ema/instrumentos/${instrumentoId}/certificados`)
-      .then(r => r.json())
-      .then(j => { setCerts(j.data ?? []); setLoading(false) })
-  }, [instrumentoId])
+    let cancelled = false
+    setLoading(true)
+    loadCerts().finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [loadCerts])
+
+  const handleRefreshList = async () => {
+    setRefreshing(true)
+    try {
+      await loadCerts()
+      await onRefresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const usesExternalCert = instrumentoTipo === 'A' || instrumentoTipo === 'B'
 
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
 
@@ -653,55 +755,139 @@ function CertificadosSection({ instrumentoId }: { instrumentoId: string }) {
       <SectionHeader
         title="Certificados de calibración"
         action={
-          <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
-            <Link href={`/quality/instrumentos/${instrumentoId}/certificar`}>
-              <Plus className="h-3 w-3" /> Registrar
-            </Link>
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-stone-500 gap-1 text-xs"
+              onClick={handleRefreshList}
+              disabled={refreshing}
+              title="Actualizar lista y resumen superior"
+            >
+              <RefreshCw className={cn('h-3 w-3', refreshing && 'animate-spin')} />
+              Actualizar
+            </Button>
+            {usesExternalCert && (
+              <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
+                <Link href={`/quality/instrumentos/${instrumentoId}/certificar`}>
+                  <Plus className="h-3 w-3" /> Añadir documentación
+                </Link>
+              </Button>
+            )}
+          </div>
         }
       />
+      {!usesExternalCert && (
+        <div className="mx-4 my-3 rounded-lg border border-stone-200 bg-stone-50/90 px-3 py-2 text-xs text-stone-600">
+          Los instrumentos <strong>Tipo C</strong> se sustentan con <strong>verificaciones internas</strong> frente a un patrón Tipo A. Esta pestaña solo aplica si hubo registros históricos de certificado externo.
+        </div>
+      )}
+      {listError && (
+        <div className="mx-4 my-3 rounded-lg border border-red-200 bg-red-50/80 px-3 py-2 text-xs text-red-800 flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>{listError}</span>
+        </div>
+      )}
       {certs.length === 0 ? (
-        <EmptyTabState message="Sin certificados registrados" />
+        <div className="px-4 pb-6">
+          <EmptyTabState message="Sin certificados registrados" />
+          {usesExternalCert && (
+            <div className="mt-4 flex flex-col items-center gap-2">
+              <p className="text-xs text-stone-500 text-center max-w-md">
+                Suba el PDF emitido por el laboratorio acreditado y complete los datos metrológicos para cerrar la trazabilidad EMA.
+              </p>
+              <Button size="sm" className="bg-sky-700 text-white hover:bg-sky-800 gap-1.5" asChild>
+                <Link href={`/quality/instrumentos/${instrumentoId}/certificar`}>
+                  <Award className="h-3.5 w-3.5" />
+                  Registrar certificado y PDF
+                </Link>
+              </Button>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="divide-y divide-stone-100">
-          {certs.map((c: any) => (
-            <div key={c.id} className={cn('flex items-start gap-3 px-4 py-3', c.is_vigente && 'bg-emerald-50/40')}>
-              <div className={cn(
-                'mt-0.5 h-2 w-2 rounded-full shrink-0',
-                c.is_vigente ? 'bg-emerald-500' : 'bg-stone-300'
-              )} />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-stone-900">{c.laboratorio_externo}</span>
-                  {c.is_vigente && (
-                    <span className="rounded-full bg-emerald-100 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                      Vigente
-                    </span>
-                  )}
-                </div>
-                <div className="font-mono text-xs text-stone-500 mt-0.5">
-                  {c.numero_certificado && `#${c.numero_certificado} · `}
-                  Emitido: {c.fecha_emision} · Vence: {c.fecha_vencimiento}
-                </div>
-                {c.archivo_nombre_original && (
-                  <p className="text-xs text-stone-600 mt-0.5 truncate" title={c.archivo_nombre_original}>
-                    Archivo: {c.archivo_nombre_original}
-                  </p>
+          {certs.map((c) => {
+            const hasStorageKey = Boolean(c.archivo_path?.trim())
+            const canOpenPdf = Boolean(c.pdf_url)
+            return (
+              <div
+                key={c.id}
+                className={cn(
+                  'flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:gap-3',
+                  c.is_vigente && 'bg-emerald-50/40',
                 )}
-                {c.observaciones && <p className="text-xs text-stone-500 mt-0.5">{c.observaciones}</p>}
+              >
+                <div className="flex flex-1 gap-3 min-w-0">
+                  <div className={cn(
+                    'mt-1.5 h-2 w-2 rounded-full shrink-0',
+                    c.is_vigente ? 'bg-emerald-500' : 'bg-stone-300',
+                  )} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-stone-900">{c.laboratorio_externo}</span>
+                      {c.is_vigente && (
+                        <span className="rounded-full bg-emerald-100 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                          Vigente
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-mono text-xs text-stone-500 mt-0.5">
+                      {c.numero_certificado && `#${c.numero_certificado} · `}
+                      Emitido: {c.fecha_emision} · Vence: {c.fecha_vencimiento}
+                    </div>
+                    {c.acreditacion_laboratorio && (
+                      <p className="text-[11px] text-stone-600 mt-0.5">
+                        Acreditación: <span className="font-mono">{c.acreditacion_laboratorio}</span>
+                      </p>
+                    )}
+                    {c.archivo_nombre_original && (
+                      <p className="text-xs text-stone-600 mt-0.5 truncate" title={c.archivo_nombre_original}>
+                        Archivo: {c.archivo_nombre_original}
+                      </p>
+                    )}
+                    {c.observaciones && (
+                      <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{c.observaciones}</p>
+                    )}
+                    {!hasStorageKey && (
+                      <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-2.5 py-2 text-xs text-amber-900">
+                        <FileWarning className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          Este registro no tiene PDF en almacén. Use <strong>Añadir documentación</strong> para cargar un certificado nuevo (el historial se conserva).
+                        </span>
+                      </div>
+                    )}
+                    {hasStorageKey && !canOpenPdf && (
+                      <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-2.5 py-2 text-xs text-amber-900">
+                        <FileWarning className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                        <span>
+                          No se pudo generar el enlace de descarga (permisos de almacén o archivo faltante). Pulse <strong>Actualizar</strong> o contacte a administración.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-row flex-wrap sm:flex-col items-stretch sm:items-end justify-end gap-1.5 shrink-0 pl-5 sm:pl-0">
+                  {canOpenPdf && (
+                    <Button size="sm" variant="outline" className="h-7 border-sky-200 bg-sky-50/80 text-sky-900 gap-1 px-2 text-xs" asChild>
+                      <a href={c.pdf_url!} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3 w-3" /> Ver certificado (PDF)
+                      </a>
+                    </Button>
+                  )}
+                  {usesExternalCert && (
+                    <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 px-2 text-xs" asChild>
+                      <Link href={`/quality/instrumentos/${instrumentoId}/certificar`}>
+                        <Plus className="h-3 w-3" /> Nuevo PDF
+                      </Link>
+                    </Button>
+                  )}
+                  <span className="font-mono text-xs text-stone-400 self-center sm:self-end">{timeAgo(c.created_at)}</span>
+                </div>
               </div>
-              <div className="flex flex-col items-end gap-1.5 shrink-0">
-                {c.pdf_url ? (
-                  <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-800 gap-1 px-2 text-xs" asChild>
-                    <a href={c.pdf_url} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" /> Ver PDF
-                    </a>
-                  </Button>
-                ) : null}
-                <span className="font-mono text-xs text-stone-400">{timeAgo(c.created_at)}</span>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
