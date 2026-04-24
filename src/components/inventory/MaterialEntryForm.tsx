@@ -1304,6 +1304,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             placeholder="0.00"
                             value={receivedQtyEntered || ''}
                             onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                            onWheel={(e) => e.currentTarget.blur()}
                             required
                             className={receivedQtyEntered > 0 ? 'bg-stone-50' : ''}
                           />
@@ -1318,6 +1319,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                             placeholder="0.00"
                             value={receivedQtyEntered || ''}
                             onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                            onWheel={(e) => e.currentTarget.blur()}
                             required
                             className={receivedQtyEntered > 0 ? 'bg-stone-50' : ''}
                           />
@@ -1371,6 +1373,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       ...prev, 
                       quantity_received: parseFloat(e.target.value) || 0 
                     }))}
+                    onWheel={(e) => e.currentTarget.blur()}
                     className="h-12"
                     required
                   />
@@ -1860,6 +1863,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       quantity_received: parseFloat(e.target.value) || 0,
                     }))
                   }
+                  onWheel={(e) => e.currentTarget.blur()}
                   className="h-16 text-2xl font-semibold text-center"
                   placeholder="0.00"
                   required
@@ -2466,6 +2470,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                               fleetPoItems.find((it) => it.id === selectedFleetPoItemId)?.uom === 'tons'
                             }
                             onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
+                            onWheel={(e) => e.currentTarget.blur()}
                             className="max-w-xs"
                           />
                           <span className="text-sm text-stone-600">
