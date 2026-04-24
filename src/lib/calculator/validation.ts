@@ -72,6 +72,43 @@ function mrAdjustmentIssues(designParams: DesignParams): CalculatorValidationIss
   return [];
 }
 
+/** Non-blocking: invalid or extreme SD multiplier still defaults to 1 in F'cr math */
+function stdDevFactorWarnings(designParams: DesignParams): CalculatorValidationIssue[] {
+  const f = designParams.stdDevFactor;
+  if (f === undefined) return [];
+  if (!Number.isFinite(f)) {
+    return [
+      {
+        id: 'stddev-factor-finite',
+        field: 'stdDevFactor',
+        severity: 'warning',
+        message: 'Factor SD: el valor no es un número válido; en el cálculo se usará 1.'
+      }
+    ];
+  }
+  if (f <= 0) {
+    return [
+      {
+        id: 'stddev-factor-positive',
+        field: 'stdDevFactor',
+        severity: 'warning',
+        message: 'Factor SD: debe ser mayor que cero; en el cálculo se usará 1.'
+      }
+    ];
+  }
+  if (f < 0.1 || f > 3) {
+    return [
+      {
+        id: 'stddev-factor-range',
+        field: 'stdDevFactor',
+        severity: 'warning',
+        message: `Factor SD: valor inusual (${f}). Revise que sea el multiplicador correcto (típico entre 0.1 y 3).`
+      }
+    ];
+  }
+  return [];
+}
+
 /**
  * Aggregates water/additive validation plus combination sums and MR guards.
  * Does not replace material completeness checks (density, etc.).
@@ -104,6 +141,8 @@ export function runCalculatorValidation(
   );
 
   blocking.push(...mrAdjustmentIssues(designParams));
+
+  warnings.push(...stdDevFactorWarnings(designParams));
 
   return { blocking, warnings };
 }

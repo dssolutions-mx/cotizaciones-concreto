@@ -118,6 +118,8 @@ export interface DesignParams {
   airContentTD: number;
   airContentBomb: number;
   standardDeviation: number | Record<number, number>; // Can be a single value or per-strength values
+  /** Multiplier applied to typed SD when computing F'cr (session-level); default 1 */
+  stdDevFactor?: number;
   resistanceFactors: ResistanceFactors;
   mortarVolumes: MortarVolumes;
   absoluteVolume: number;

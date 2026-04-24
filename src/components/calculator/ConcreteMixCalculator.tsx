@@ -190,6 +190,7 @@ const ConcreteMixCalculator = () => {
     airContentTD: 1.5,
     airContentBomb: 1.5,
     standardDeviation: 23,
+    stdDevFactor: 1,
     resistanceFactors: {
       factor1: 120, // Factor 1 para ecuación A/C
       factor2: 1.626 // Factor 2 para ecuación A/C
@@ -579,7 +580,11 @@ const ConcreteMixCalculator = () => {
     water: number
   ): Recipe => {
     // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
-    const originalFcr = calculateFcr(strength, designParams.standardDeviation);
+    const originalFcr = calculateFcr(
+      strength,
+      designParams.standardDeviation,
+      designParams.stdDevFactor ?? 1
+    );
     
     // Step 2: Get water-cement ratio using resistance factors (with MR FCR adjustment if applicable)
     // For MR recipes, the originalFcr already includes standard deviation, and MR adjustment is applied to it
@@ -872,6 +877,7 @@ const ConcreteMixCalculator = () => {
       ? designParams.standardDeviation 
       : JSON.stringify(designParams.standardDeviation),
     designParams.mrFcrAdjustment, // Explicitly include MR FCR adjustment to trigger recalculation when it changes
+    designParams.stdDevFactor ?? 1,
     recipeParams,
     designType,
     enabledCombinations,
@@ -2309,6 +2315,7 @@ const ConcreteMixCalculator = () => {
               onAddAdditiveRule={handleAddAdditiveRule}
               onRemoveAdditiveRule={handleRemoveAdditiveRule}
               blockingValidationIssues={calculatorValidation.blocking}
+              warningValidationIssues={calculatorValidation.warnings}
             />
           </TabsContent>
 
@@ -2343,6 +2350,7 @@ const ConcreteMixCalculator = () => {
                 roundingMode={recipeParams.roundingModeKg5}
                 designType={designType}
                 acDriftEpsilon={AC_RATIO_DRIFT_EPSILON}
+                stdDevFactor={designParams.stdDevFactor ?? 1}
                 rowFilter={recipeRowFilter}
                 onRowFilterChange={setRecipeRowFilter}
                 tableDensity={recipeTableDensity}
@@ -2413,6 +2421,7 @@ const ConcreteMixCalculator = () => {
                 recipes={recipesForTable}
                 materials={materials}
                 designType={designType}
+                stdDevFactor={designParams.stdDevFactor ?? 1}
                 fcrOverrides={fcrOverrides}
                 selectedRecipesForExport={selectedRecipesForExport}
                 showDetails={showDetails}

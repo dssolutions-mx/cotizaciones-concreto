@@ -5,13 +5,15 @@ import {
   normalizeCalibrationArchivoPath,
   sanitizeCalibrationPdfBasename,
 } from '@/lib/ema/calibrationCertificateStorage';
+import { EMA_CERTIFICADO_WRITE_ROLES } from '@/lib/ema/emaCertificadoWriteRoles';
+import type { UserRole } from '@/store/auth/types';
 
 function isStorageObjectConflict(err: { message?: string }): boolean {
   const m = (err.message || '').toLowerCase();
   return m.includes('already exists') || m.includes('resource already exists') || m.includes('duplicate');
 }
 
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
+const WRITE_ROLES = EMA_CERTIFICADO_WRITE_ROLES;
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .eq('id', user.id)
       .single();
     const role = (profile as { role: string } | null)?.role;
-    if (!role || !WRITE_ROLES.includes(role)) {
+    if (!role || !WRITE_ROLES.includes(role as UserRole)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 

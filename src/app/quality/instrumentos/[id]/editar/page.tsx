@@ -12,7 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
+import { InstrumentoCatalogDeleteSection } from '@/components/ema/InstrumentoCatalogDeleteSection'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
 import type { InstrumentoDetalle } from '@/types/ema'
 
 const MESES = [
@@ -37,6 +40,7 @@ export default function EditarInstrumentoPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const { availablePlants } = usePlantContext()
+  const { hasRole } = useAuthSelectors()
 
   const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -500,6 +504,14 @@ export default function EditarInstrumentoPage() {
           </Button>
         </div>
       </form>
+
+      {hasRole(EMA_CATALOG_DELETE_ROLES) && (
+        <InstrumentoCatalogDeleteSection
+          instrumentoId={id}
+          codigo={instrumento.codigo}
+          nombre={instrumento.nombre}
+        />
+      )}
     </div>
   )
 }

@@ -21,7 +21,11 @@ import {
   WaterDefinitionField
 } from '@/types/calculator';
 import { AGGREGATE_SIZES, AIR_CONTENTS, FC_STRENGTHS, MR_STRENGTHS } from '@/lib/calculator/constants';
-import { getCementRangeCompletionStatus, getStandardDeviationForStrength } from '@/lib/calculator/calculations';
+import {
+  equivalentStdDevPercentForDisplay,
+  getCementRangeCompletionStatus,
+  getStandardDeviationForStrength
+} from '@/lib/calculator/calculations';
 import { CONCRETE_TYPES, ConcreteTypeCode } from '@/config/concreteTypes';
 import type { CalculatorValidationIssue } from '@/lib/calculator/validation';
 import { calculatorFilterControlClass } from '@/components/calculator/calculatorHubUi';
@@ -53,6 +57,8 @@ interface DesignParametersProps {
   onRemoveAdditiveRule: (ruleIndex: number) => void;
   /** Errores bloqueantes del validador central (combinaciones, agua, MR, aditivos) */
   blockingValidationIssues?: CalculatorValidationIssue[];
+  /** Avisos no bloqueantes (ej. factor SD inusual) */
+  warningValidationIssues?: CalculatorValidationIssue[];
 }
 
 export const DesignParameters: React.FC<DesignParametersProps> = ({
@@ -79,7 +85,8 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   onAdditiveRuleChange,
   onAddAdditiveRule,
   onRemoveAdditiveRule,
-  blockingValidationIssues = []
+  blockingValidationIssues = [],
+  warningValidationIssues = []
 }) => {
   const [combinationsOpen, setCombinationsOpen] = useState(false);
   const [additiveRulesOpen, setAdditiveRulesOpen] = useState(true);
@@ -94,6 +101,25 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
     };
   }, [designParams]);
 
+  const resolvedStdDevFactor = designParams.stdDevFactor ?? 1;
+  const formatEffectiveSdPct = (typedPercent: number, factor: number, strength: number) =>
+    (
+      Math.round(equivalentStdDevPercentForDisplay(strength, typedPercent, factor) * 100000) / 100000
+    ).toString();
+
+  const effectiveSdSingleModeRange = useMemo(() => {
+    if (typeof designParams.standardDeviation !== 'number') return null;
+    if (Math.abs(resolvedStdDevFactor - 1) <= 1e-9) return null;
+    const typed = designParams.standardDeviation;
+    const strengths = designType === 'FC' ? FC_STRENGTHS : MR_STRENGTHS;
+    const values = strengths.map((s) => equivalentStdDevPercentForDisplay(s, typed, resolvedStdDevFactor));
+    return { min: Math.min(...values), max: Math.max(...values) };
+  }, [designParams.standardDeviation, designType, resolvedStdDevFactor]);
+
+  /** Resistencia de ejemplo para copiar el mismo caso que hoja Excel (FC150) */
+  const exampleStrengthForSdHint =
+    designType === 'FC' ? (FC_STRENGTHS.includes(150) ? 150 : FC_STRENGTHS[0]) : MR_STRENGTHS[MR_STRENGTHS.length - 1];
+
   // Debounced validation state to avoid constant error messages while typing
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null);
@@ -101,6 +127,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   // Local state for standard deviation inputs to allow empty values while editing
   const [stdDevInputValues, setStdDevInputValues] = useState<Record<number, string>>({});
   const [singleStdDevInput, setSingleStdDevInput] = useState<string>('');
+  const [stdDevFactorInput, setStdDevFactorInput] = useState<string>('');
   
   // Local state for MR FCR adjustment inputs to allow empty values while editing
   const [mrFcrSubtractInput, setMrFcrSubtractInput] = useState<string>('');
@@ -302,6 +329,18 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <p className="font-semibold text-red-900 mb-1">Revise parámetros antes de generar recetas</p>
             <ul className="text-sm text-red-800 list-disc list-inside space-y-0.5">
               {blockingValidationIssues.map((issue) => (
+                <li key={issue.id}>{issue.message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+      {warningValidationIssues.length > 0 && (
+        <Alert className="border-amber-200 bg-amber-50 text-amber-950">
+          <AlertDescription>
+            <p className="font-semibold text-amber-900 mb-1">Avisos</p>
+            <ul className="text-sm text-amber-900/90 list-disc list-inside space-y-0.5">
+              {warningValidationIssues.map((issue) => (
                 <li key={issue.id}>{issue.message}</li>
               ))}
             </ul>
@@ -615,6 +654,72 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="col-span-3 space-y-2 rounded-lg border border-stone-200 bg-stone-50/50 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label htmlFor="std-dev-factor" className="mb-0">
+                  Factor de amplificación SD (F&apos;cr)
+                </Label>
+                {resolvedStdDevFactor !== 1 && (
+                  <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+                    Factor activo: ×{resolvedStdDevFactor.toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[8rem] flex-1">
+                  <Input
+                    id="std-dev-factor"
+                    type="text"
+                    inputMode="decimal"
+                    value={
+                      stdDevFactorInput !== ''
+                        ? stdDevFactorInput
+                        : String(resolvedStdDevFactor)
+                    }
+                    onChange={(e) => {
+                      handleUserInteraction();
+                      setStdDevFactorInput(e.target.value);
+                    }}
+                    onBlur={(e) => {
+                      const inputValue = e.target.value.trim();
+                      setStdDevFactorInput('');
+                      if (inputValue === '') {
+                        return;
+                      }
+                      const numValue = parseDecimalValue(inputValue);
+                      if (numValue === null) {
+                        return;
+                      }
+                      onDesignParamsChange({ stdDevFactor: numValue });
+                    }}
+                    onFocus={() => {
+                      setStdDevFactorInput(String(resolvedStdDevFactor));
+                    }}
+                    className="h-10"
+                    placeholder="1.00"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => {
+                    handleUserInteraction();
+                    setStdDevFactorInput('');
+                    onDesignParamsChange({ stdDevFactor: 1 });
+                  }}
+                >
+                  Restablecer a 1.00
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Con factor distinto de 1, el cálculo sigue la convención de hoja típica: F&apos;cr = F&apos;c + factor × SD
+                ingresada (puntos %). El % equivalente sobre F&apos;c es (factor × SD) / F&apos;c × 100 (p. ej. F&apos;c 150,
+                SD −12, factor 1.34 → −10,72 %).
+              </p>
+            </div>
           </div>
 
           {/* Standard Deviation Input - Single or Per-Strength */}
@@ -657,6 +762,40 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                 <p className="text-xs text-gray-500 mt-1">
                   Este valor se aplicará a todas las resistencias (puede ser positivo, negativo o 0)
                 </p>
+                {typeof designParams.standardDeviation === 'number' && (
+                  <p className="text-xs text-stone-700 mt-1 tabular-nums">
+                    {Math.abs(resolvedStdDevFactor - 1) <= 1e-9 ? (
+                      <>
+                        SD efectiva (para F&apos;cr):{' '}
+                        <strong>
+                          {formatEffectiveSdPct(
+                            designParams.standardDeviation,
+                            resolvedStdDevFactor,
+                            designType === 'FC' ? FC_STRENGTHS[0] : MR_STRENGTHS[0]
+                          )}
+                          %
+                        </strong>{' '}
+                        (igual a la ingresada con factor 1)
+                      </>
+                    ) : effectiveSdSingleModeRange ? (
+                      <>
+                        % equivalente sobre F&apos;cr (por resistencia):{' '}
+                        <strong>
+                          {effectiveSdSingleModeRange.min.toFixed(3)}% … {effectiveSdSingleModeRange.max.toFixed(3)}%
+                        </strong>
+                        . Ej. F&apos;c {exampleStrengthForSdHint} →{' '}
+                        <strong>
+                          {formatEffectiveSdPct(
+                            designParams.standardDeviation,
+                            resolvedStdDevFactor,
+                            exampleStrengthForSdHint
+                          )}
+                          %
+                        </strong>
+                      </>
+                    ) : null}
+                  </p>
+                )}
               </div>
             ) : (
               <div>
@@ -753,6 +892,15 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
                             className={`h-8 text-sm ${isCustom ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}
                             placeholder={defaultStdDev.toString()}
                           />
+                          <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+                            Efectiva (equiv. sobre F&apos;cr):{' '}
+                            {formatEffectiveSdPct(
+                              isCustom ? currentStdDev : defaultStdDev,
+                              resolvedStdDevFactor,
+                              strength
+                            )}
+                            %
+                          </p>
                           <div className="flex items-center justify-between mt-1">
                             {!isCustom ? (
                               <p className="text-xs text-gray-500">Por defecto: {defaultStdDev}%</p>
@@ -975,7 +1123,9 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
           
           <div className="p-3 bg-blue-50 rounded-lg">
             <p className="text-xs text-blue-800">
-              💡 <strong>Fórmula A/C:</strong> A/C = (Factor1 / FCR)^(1/Factor2) | FCR = F'c + (F'c * Desviación%)
+              💡 <strong>Fórmula A/C:</strong> A/C = (Factor1 / FCR)^(1/Factor2). Con factor SD = 1: FCR = F&apos;c +
+              (F&apos;c × SD% / 100). Con factor ≠ 1 (convención hoja): FCR = F&apos;c + factor × SD ingresada; % equiv.
+              sobre F&apos;c = (factor × SD) / F&apos;c × 100.
             </p>
           </div>
 

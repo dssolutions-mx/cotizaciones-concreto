@@ -98,17 +98,40 @@ export const getStandardDeviationForStrength = (
   return Math.round(stdDevValue * 1000000) / 1000000;
 };
 
+const SD_FACTOR_IS_ONE_EPS = 1e-9;
+
 // Calculate critical strength (fcr) using standard deviation percentage
 export const calculateFcr = (
-  strength: number, 
-  standardDeviation?: number | Record<number, number>
+  strength: number,
+  standardDeviation?: number | Record<number, number>,
+  stdDevFactor: number = 1
 ): number => {
-  const stdDev = getStandardDeviationForStrength(strength, standardDeviation, 23);
-  
-  // FCR = Resistencia + (Resistencia * Desviación Estándar %)
-  // Ejemplo: resistencia 150 + (150 * 20%) = 150 + 30 = FCR 180
-  const fcr = strength + (strength * stdDev / 100);
+  const typed = getStandardDeviationForStrength(strength, standardDeviation, 23);
+  const factor = Number.isFinite(stdDevFactor) && stdDevFactor > 0 ? stdDevFactor : 1;
+
+  // factor === 1: comportamiento histórico — F'cr = F'c + (F'c × SD% / 100)
+  if (Math.abs(factor - 1) <= SD_FACTOR_IS_ONE_EPS) {
+    const fcr = strength + (strength * typed / 100);
+    return Math.round(fcr * 100) / 100;
+  }
+
+  // Con factor personalizado (hoja Excel típica planta): F'cr = F'c + factor × SD ingresada
+  // (SD ingresada en puntos de porcentaje; el término no se vuelve a escalar por F'c)
+  const fcr = strength + factor * typed;
   return Math.round(fcr * 100) / 100;
+};
+
+/** Equivalente % sobre F'c cuando se usa F'cr = F'c + factor×SD (factor ≠ 1): (factor×SD)/F'c×100 */
+export const equivalentStdDevPercentForDisplay = (
+  strength: number,
+  typedPercent: number,
+  stdDevFactor: number = 1
+): number => {
+  const factor = Number.isFinite(stdDevFactor) && stdDevFactor > 0 ? stdDevFactor : 1;
+  if (Math.abs(factor - 1) <= SD_FACTOR_IS_ONE_EPS || strength <= 0) {
+    return typedPercent;
+  }
+  return (100 * factor * typedPercent) / strength;
 };
 
 // Calculate water-cement ratio using resistance factors

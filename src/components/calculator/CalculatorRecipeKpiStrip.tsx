@@ -20,6 +20,8 @@ type Props = {
   roundingMode: RoundingModeKg5;
   designType: DesignType;
   acDriftEpsilon: number;
+  /** SD multiplier for F'cr; omit or 1 = inactive */
+  stdDevFactor?: number;
   rowFilter: RowFilter;
   onRowFilterChange: (f: RowFilter) => void;
   tableDensity: 'comfortable' | 'compact';
@@ -37,6 +39,7 @@ export function CalculatorRecipeKpiStrip({
   roundingMode,
   designType,
   acDriftEpsilon,
+  stdDevFactor,
   rowFilter,
   onRowFilterChange,
   tableDensity,
@@ -65,9 +68,16 @@ export function CalculatorRecipeKpiStrip({
     return { min, max, mean };
   }, [recipes]);
 
+  const resolvedSdFactor = stdDevFactor ?? 1;
+
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-3 sm:grid-cols-3',
+          resolvedSdFactor !== 1 ? 'lg:grid-cols-7' : 'lg:grid-cols-6'
+        )}
+      >
         <div className={cn(cell, 'border-stone-200 bg-white')}>
           <div className={label}>Recetas</div>
           <div className={value}>{recipes.length}</div>
@@ -85,6 +95,12 @@ export function CalculatorRecipeKpiStrip({
           <div className={label}>F&apos;cr manual</div>
           <div className={value}>{manualFcrCount}</div>
         </div>
+        {resolvedSdFactor !== 1 && (
+          <div className={cn(cell, 'border-amber-200 bg-amber-50/80')}>
+            <div className={label}>Factor SD</div>
+            <div className={value}>×{resolvedSdFactor.toFixed(2)}</div>
+          </div>
+        )}
         <div
           className={cn(
             cell,

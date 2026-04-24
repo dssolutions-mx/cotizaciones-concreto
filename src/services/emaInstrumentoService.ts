@@ -768,6 +768,28 @@ export async function createCertificado(
   return data;
 }
 
+/** Attach or replace the PDF for an existing cert (does not re-run INSERT-only DB triggers). */
+export async function updateCertificadoDocumento(
+  instrumentoId: string,
+  certificadoId: string,
+  input: { archivo_path: string; archivo_nombre_original: string | null },
+): Promise<CertificadoCalibracion | null> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('certificados_calibracion')
+    .update({
+      archivo_path: input.archivo_path,
+      archivo_nombre_original: input.archivo_nombre_original,
+    })
+    .eq('id', certificadoId)
+    .eq('instrumento_id', instrumentoId)
+    .select()
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return data;
+}
+
 // ─────────────────────────────────────────
 // Completed verifications — lightweight card list for trazabilidad
 // (Full CRUD lives in emaVerificacionService.ts)

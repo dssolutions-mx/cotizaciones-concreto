@@ -42,6 +42,8 @@ interface RecipeTableProps {
   acDriftEpsilon?: number;
   /** When false, hides the gray summary strip (use when parent shows a KPI strip). */
   showAggregatedSummary?: boolean;
+  /** SD multiplier used in automatic F'cr (1 = none) */
+  stdDevFactor?: number;
 }
 
 export const RecipeTable: React.FC<RecipeTableProps> = memo(({
@@ -66,7 +68,8 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
   onArkikCodeChange,
   tableDensity = 'comfortable',
   acDriftEpsilon = AC_RATIO_DRIFT_EPSILON,
-  showAggregatedSummary = true
+  showAggregatedSummary = true,
+  stdDevFactor
 }) => {
   const allSelected = recipes.length > 0 && recipes.every(r => selectedRecipesForExport.has(r.code));
   const [showSSS, setShowSSS] = useState(true);
@@ -340,8 +343,15 @@ export const RecipeTable: React.FC<RecipeTableProps> = memo(({
                   <TooltipTrigger asChild>
                     <span className="cursor-help border-b border-dotted border-stone-400">F&apos;cr</span>
                   </TooltipTrigger>
-                  <TooltipContent>
+                  <TooltipContent className="max-w-xs">
                     Resistencia requerida a compresión. Puede editarse por fila; con MR puede estar ya ajustada por factor.
+                    {(stdDevFactor ?? 1) !== 1 && (
+                      <>
+                        {' '}
+                        Con factor activo, F&apos;cr = F&apos;c + factor × SD ingresada (convención hoja); el % equivalente
+                        sobre F&apos;c depende de la resistencia (×{(stdDevFactor ?? 1).toFixed(2)}).
+                      </>
+                    )}
                   </TooltipContent>
                 </Tooltip>
               </TableHead>

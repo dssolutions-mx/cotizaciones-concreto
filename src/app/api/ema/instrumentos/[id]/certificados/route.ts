@@ -9,8 +9,10 @@ import {
   normalizeCalibrationArchivoPath,
 } from '@/lib/ema/calibrationCertificateStorage';
 import { z } from 'zod';
+import { EMA_CERTIFICADO_WRITE_ROLES } from '@/lib/ema/emaCertificadoWriteRoles';
+import type { UserRole } from '@/store/auth/types';
 
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
+const WRITE_ROLES = EMA_CERTIFICADO_WRITE_ROLES;
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
 const CondicionesAmbientalesSchema = z.object({
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
     const writeRole = (profile as { role: string } | null)?.role;
-    if (!writeRole || !WRITE_ROLES.includes(writeRole))
+    if (!writeRole || !WRITE_ROLES.includes(writeRole as UserRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();

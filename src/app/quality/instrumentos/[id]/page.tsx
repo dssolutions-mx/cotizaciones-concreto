@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -21,44 +21,28 @@ import {
   ChevronRight,
   Pencil,
   FileSignature,
-  Trash2,
   FileWarning,
   RefreshCw,
+  ScrollText,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog'
+  EmaCalibracionCertificadoSheet,
+  type CertificadoCalibracionConPdf,
+} from '@/components/ema/EmaCalibracionCertificadoSheet'
+import { EmaCalibracionCertificadoAttachBlock } from '@/components/ema/EmaCalibracionCertificadoAttachBlock'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
-import { useAuthSelectors } from '@/hooks/use-auth-zustand'
-import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
 import {
   publishedPlantillaSummaryFromTemplatesPayload,
   type PublishedPlantillaSummary,
 } from '@/lib/ema/publishedPlantillaFromTemplatesResponse'
-import type {
-  CertificadoCalibracion,
-  InstrumentoDetalle,
-  InstrumentoTrazabilidad,
-  CompletedVerificacionCard,
-  EmaDeleteBlocker,
-} from '@/types/ema'
-
-/** API augments DB row with a time-limited signed URL for the PDF. */
-type CertificadoCalibracionConPdf = CertificadoCalibracion & { pdf_url: string | null }
+import type { InstrumentoDetalle, InstrumentoTrazabilidad, CompletedVerificacionCard } from '@/types/ema'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { EMA_CERTIFICADO_WRITE_ROLES } from '@/lib/ema/emaCertificadoWriteRoles'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -91,17 +75,17 @@ export default function InstrumentoDetailPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { hasRole } = useAuthSelectors()
+  const canAttachCertDocs = hasRole(EMA_CERTIFICADO_WRITE_ROLES)
+  const [certListKey, setCertListKey] = useState(0)
 
   const [instrumento, setInstrumento] = useState<InstrumentoDetalle | null>(null)
   const [certificadoVigente, setCertificadoVigente] = useState<CertificadoCalibracionConPdf | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const [deleteBusy, setDeleteBusy] = useState(false)
-  const [deleteErr, setDeleteErr] = useState<string | null>(null)
-  const [deleteBlockers, setDeleteBlockers] = useState<EmaDeleteBlocker[]>([])
-  const [deleteConfirmCodigo, setDeleteConfirmCodigo] = useState('')
+  const [fichaOpen, setFichaOpen] = useState(false)
+  const [fichaCert, setFichaCert] = useState<CertificadoCalibracionConPdf | null>(null)
+  const fichaClearRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   /** Preloaded with instrument so the Verificaciones tab avoids a client waterfall (Next.js: parallelize, avoid child-only fetch after parent). */
   const [verificacionesTabData, setVerificacionesTabData] = useState<{
@@ -154,6 +138,38 @@ export default function InstrumentoDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (fichaOpen) {
+      if (fichaClearRef.current) {
+        clearTimeout(fichaClearRef.current)
+        fichaClearRef.current = null
+      }
+      return
+    }
+    if (!fichaCert) return
+    fichaClearRef.current = setTimeout(() => {
+      setFichaCert(null)
+      fichaClearRef.current = null
+    }, 320)
+    return () => {
+      if (fichaClearRef.current) clearTimeout(fichaClearRef.current)
+    }
+  }, [fichaOpen, fichaCert])
+
+  const openCertFicha = useCallback((c: CertificadoCalibracionConPdf) => {
+    setFichaCert(c)
+    setFichaOpen(true)
+  }, [])
+
+  const handleCertDocumentUpdated = useCallback(
+    (c: CertificadoCalibracionConPdf) => {
+      setFichaCert(c)
+      setCertListKey((k) => k + 1)
+      void load()
+    },
+    [load],
+  )
 
   const defaultTab: EmaDetailTab = instrumento?.tipo === 'C' ? 'verificaciones' : 'certificados'
   const [activeTab, setActiveTab] = useState<EmaDetailTab>('certificados')
@@ -217,12 +233,16 @@ export default function InstrumentoDetailPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2 pl-9 sm:pl-0 flex-wrap">
-            {instrumento.tipo !== 'C' && certificadoVigente?.pdf_url && (
-              <Button size="sm" variant="outline" className="border-sky-200 bg-sky-50/80 text-sky-900 gap-1.5" asChild>
-                <a href={certificadoVigente.pdf_url} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Ver certificado vigente
-                </a>
+            {instrumento.tipo !== 'C' && certificadoVigente && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-sky-200 bg-sky-50/80 text-sky-900 gap-1.5"
+                onClick={() => openCertFicha(certificadoVigente)}
+              >
+                <ScrollText className="h-3.5 w-3.5" />
+                Ver ficha del certificado vigente
               </Button>
             )}
             {isUrgent && instrumento.tipo !== 'C' && (
@@ -321,7 +341,11 @@ export default function InstrumentoDetailPage() {
       </div>
 
       {/* ── Traceability Chain ─── PROMINENT ──────────────────── */}
-      <TraceabilityCard instrumento={instrumento} certificadoVigente={certificadoVigente} />
+      <TraceabilityCard
+        instrumento={instrumento}
+        certificadoVigente={certificadoVigente}
+        onOpenVigenteFicha={certificadoVigente ? () => openCertFicha(certificadoVigente) : undefined}
+      />
 
       {/* ── Tabbed Sections ───────────────────────────────────── */}
       <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
@@ -349,7 +373,14 @@ export default function InstrumentoDetailPage() {
           </div>
 
           <TabsContent value="certificados" className="m-0">
-            <CertificadosSection instrumentoId={id} instrumentoTipo={instrumento.tipo} onRefresh={load} />
+            <CertificadosSection
+              key={certListKey}
+              instrumentoId={id}
+              instrumentoTipo={instrumento.tipo}
+              onRefresh={load}
+              onOpenCertFicha={openCertFicha}
+              canAttachDocument={canAttachCertDocs}
+            />
           </TabsContent>
           <TabsContent value="verificaciones" className="m-0">
             <VerificacionesSection
@@ -368,108 +399,15 @@ export default function InstrumentoDetailPage() {
         </Tabs>
       </div>
 
-      {hasRole(EMA_CATALOG_DELETE_ROLES) && (
-        <div className="rounded-lg border border-red-200 bg-red-50/40 p-4 md:p-5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-red-900">Zona de peligro</h2>
-              <p className="text-xs text-red-800/90 mt-1 max-w-xl">
-                Eliminar quita el instrumento del catálogo. Si ya hay trazabilidad (verificaciones, muestreos, certificados, etc.),
-                el sistema no permitirá el borrado; en ese caso use <span className="font-medium">Inactivar</span> desde editar.
-              </p>
-            </div>
-            <AlertDialog
-              open={deleteOpen}
-              onOpenChange={(open) => {
-                setDeleteOpen(open)
-                if (!open) {
-                  setDeleteErr(null)
-                  setDeleteBlockers([])
-                  setDeleteConfirmCodigo('')
-                }
-              }}
-            >
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="border-red-300 text-red-800 hover:bg-red-100 shrink-0 gap-1.5"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Eliminar del catálogo
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="border-stone-200">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Eliminar instrumento</AlertDialogTitle>
-                  <AlertDialogDescription asChild>
-                    <div className="space-y-3 text-sm text-stone-600">
-                      <p>
-                        ¿Confirma eliminar <span className="font-mono font-medium text-stone-900">{instrumento.codigo}</span>
-                        {' — '}
-                        <span className="font-medium text-stone-900">{instrumento.nombre}</span>?
-                      </p>
-                      <p className="text-xs text-stone-500">
-                        Escriba el código exacto para confirmar.
-                      </p>
-                      <Input
-                        value={deleteConfirmCodigo}
-                        onChange={(e) => setDeleteConfirmCodigo(e.target.value)}
-                        placeholder={instrumento.codigo}
-                        className="font-mono text-sm"
-                        autoComplete="off"
-                      />
-                    </div>
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                {deleteErr && (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-                    {deleteErr}
-                    {deleteBlockers.length > 0 && (
-                      <ul className="mt-2 list-disc pl-4 space-y-1">
-                        {deleteBlockers.map((b) => (
-                          <li key={b.code}>{b.message}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deleteBusy}>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={deleteBusy || deleteConfirmCodigo.trim() !== instrumento.codigo}
-                    className="bg-red-700 hover:bg-red-800 focus:ring-red-700"
-                    onClick={async (e) => {
-                      e.preventDefault()
-                      setDeleteBusy(true)
-                      setDeleteErr(null)
-                      setDeleteBlockers([])
-                      try {
-                        const res = await fetch(`/api/ema/instrumentos/${id}`, { method: 'DELETE' })
-                        const j = await res.json().catch(() => ({}))
-                        if (res.status === 409 && Array.isArray(j.blockers)) {
-                          setDeleteBlockers(j.blockers)
-                          setDeleteErr(j.error ?? 'No se puede eliminar.')
-                          return
-                        }
-                        if (!res.ok) throw new Error(j.error ?? 'Error al eliminar')
-                        setDeleteOpen(false)
-                        router.push('/quality/instrumentos/catalogo')
-                      } catch (err: any) {
-                        setDeleteErr(err.message ?? 'Error al eliminar')
-                      } finally {
-                        setDeleteBusy(false)
-                      }
-                    }}
-                  >
-                    {deleteBusy ? 'Eliminando…' : 'Eliminar definitivamente'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        </div>
+      {fichaCert && (
+        <EmaCalibracionCertificadoSheet
+          open={fichaOpen}
+          onOpenChange={setFichaOpen}
+          cert={fichaCert}
+          instrumentoId={id}
+          canAttachDocument={canAttachCertDocs}
+          onDocumentUpdated={handleCertDocumentUpdated}
+        />
       )}
     </div>
   )
@@ -534,16 +472,13 @@ function EmptyTabState({ message }: { message: string }) {
 function TraceabilityCard({
   instrumento,
   certificadoVigente,
+  onOpenVigenteFicha,
 }: {
   instrumento: InstrumentoDetalle
   certificadoVigente: CertificadoCalibracionConPdf | null
+  onOpenVigenteFicha?: () => void
 }) {
   const tipo = instrumento.tipo
-  const certDocHref = certificadoVigente?.pdf_url ?? undefined
-  const certFichaHref =
-    certificadoVigente && !certificadoVigente.pdf_url
-      ? `/quality/instrumentos/${instrumento.id}?tab=certificados`
-      : undefined
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-4 md:p-5">
@@ -571,15 +506,8 @@ function TraceabilityCard({
               }
               status={certificadoVigente ? 'vigente' : 'vencido'}
               accent="sky"
-              href={certDocHref ?? certFichaHref}
-              hrefExternal={Boolean(certDocHref)}
-              hrefLabel={
-                certDocHref
-                  ? 'Abrir PDF del certificado'
-                  : certFichaHref
-                    ? 'Ver documentación en pestaña Certificados'
-                    : undefined
-              }
+              onActivate={onOpenVigenteFicha}
+              hrefLabel={certificadoVigente && onOpenVigenteFicha ? 'Ver ficha del certificado' : undefined}
             />
             <TraceConnector />
           </>
@@ -638,7 +566,7 @@ function TraceabilityCard({
 }
 
 function TraceNode({
-  title, subtitle, detail, status, accent, isHighlighted, href, hrefExternal, hrefLabel,
+  title, subtitle, detail, status, accent: _accent, isHighlighted, href, hrefExternal, hrefLabel, onActivate,
 }: {
   title: string
   subtitle: string
@@ -650,6 +578,7 @@ function TraceNode({
   /** When true, `href` opens in a new tab (e.g. signed PDF URL). */
   hrefExternal?: boolean
   hrefLabel?: string
+  onActivate?: () => void
 }) {
   const statusDot = status === 'vigente'
     ? 'bg-emerald-400'
@@ -657,27 +586,40 @@ function TraceNode({
     ? 'bg-amber-400'
     : 'bg-red-400'
 
+  const interactive = Boolean(href || onActivate)
   const content = (
     <div className={cn(
       'flex-1 rounded-lg border p-3 min-w-0',
       isHighlighted
         ? 'border-stone-400 bg-stone-50 ring-1 ring-stone-300'
         : 'border-stone-200 bg-white',
-      href && 'hover:bg-stone-50 transition-colors cursor-pointer',
+      interactive && 'hover:bg-stone-50 transition-colors cursor-pointer',
     )}>
       <div className="flex items-center gap-2 mb-1">
         <div className={cn('h-2 w-2 rounded-full shrink-0', statusDot)} />
         <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">{title}</span>
-        {href && <ExternalLink className="h-3 w-3 text-stone-400 ml-auto" />}
+        {onActivate && <ScrollText className="h-3 w-3 text-stone-400 ml-auto" />}
+        {href && !onActivate && <ExternalLink className="h-3 w-3 text-stone-400 ml-auto" />}
       </div>
       <p className="text-sm font-medium text-stone-900 truncate">{subtitle}</p>
       {detail && <p className="text-xs text-stone-500 font-mono mt-0.5 break-words">{detail}</p>}
-      {href && hrefLabel && (
+      {interactive && hrefLabel && (
         <p className="text-[11px] text-sky-700 font-medium mt-1.5">{hrefLabel}</p>
       )}
     </div>
   )
 
+  if (onActivate) {
+    return (
+      <button
+        type="button"
+        onClick={onActivate}
+        className="flex-1 min-w-0 no-underline text-inherit text-left"
+      >
+        {content}
+      </button>
+    )
+  }
   if (href && hrefExternal) {
     return (
       <a href={href} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 no-underline text-inherit">
@@ -705,10 +647,14 @@ function CertificadosSection({
   instrumentoId,
   instrumentoTipo,
   onRefresh,
+  onOpenCertFicha,
+  canAttachDocument = false,
 }: {
   instrumentoId: string
   instrumentoTipo: string
   onRefresh: () => void | Promise<void>
+  onOpenCertFicha: (c: CertificadoCalibracionConPdf) => void
+  canAttachDocument?: boolean
 }) {
   const [certs, setCerts] = useState<CertificadoCalibracionConPdf[]>([])
   const [loading, setLoading] = useState(true)
@@ -854,7 +800,9 @@ function CertificadosSection({
                       <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50/90 px-2.5 py-2 text-xs text-amber-900">
                         <FileWarning className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                         <span>
-                          Este registro no tiene PDF en almacén. Use <strong>Añadir documentación</strong> para cargar un certificado nuevo (el historial se conserva).
+                          {canAttachDocument
+                            ? 'Sin ruta de PDF en el registro. Use «Subir / reemplazar PDF» a la derecha o en la ficha, o «Añadir documentación» para un certificado totalmente nuevo.'
+                            : 'Este registro no tiene PDF en almacén. Use Añadir documentación para registrar un certificado nuevo (el historial se conserva).'}
                         </span>
                       </div>
                     )}
@@ -869,10 +817,31 @@ function CertificadosSection({
                   </div>
                 </div>
                 <div className="flex flex-row flex-wrap sm:flex-col items-stretch sm:items-end justify-end gap-1.5 shrink-0 pl-5 sm:pl-0">
+                  {canAttachDocument && (
+                    <EmaCalibracionCertificadoAttachBlock
+                      compact
+                      instrumentoId={instrumentoId}
+                      certId={c.id}
+                      onSuccess={async () => {
+                        await loadCerts()
+                        await onRefresh()
+                      }}
+                      className="w-full sm:w-auto sm:max-w-[200px]"
+                    />
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 border-sky-200/80 text-sky-900 gap-1 px-2 text-xs"
+                    onClick={() => onOpenCertFicha(c)}
+                  >
+                    <ScrollText className="h-3 w-3" /> Ver ficha
+                  </Button>
                   {canOpenPdf && (
                     <Button size="sm" variant="outline" className="h-7 border-sky-200 bg-sky-50/80 text-sky-900 gap-1 px-2 text-xs" asChild>
                       <a href={c.pdf_url!} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="h-3 w-3" /> Ver certificado (PDF)
+                        <ExternalLink className="h-3 w-3" /> PDF
                       </a>
                     </Button>
                   )}
