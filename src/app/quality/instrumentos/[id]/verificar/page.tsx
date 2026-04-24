@@ -275,16 +275,18 @@ export default function VerificarPage() {
       const configured = inst.instrumento_maestro_ids ?? []
       setSelectedMaestroIds([...configured])
 
-      // Fetch Tipo A instruments; limit to patrones configurados en el instrumento
+      // Fetch Tipo A instruments (same plant); limit to patrones configurados cuando existan
       if (inst.tipo === 'C') {
-        fetch(`/api/ema/instrumentos?tipo=A&limit=200`)
+        const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
+        if (inst.plant_id) qs.set('plant_id', inst.plant_id)
+        fetch(`/api/ema/instrumentos?${qs}`)
           .then((r) => r.json())
           .then((j) => {
-            const all = j.data ?? []
+            const all = Array.isArray(j.data) ? j.data : []
             const allow = new Set(configured)
             setMaestros(allow.size ? all.filter((m: { id: string }) => allow.has(m.id)) : all)
           })
-          .catch(() => {})
+          .catch(() => setMaestros([]))
       }
 
       // Load templates for this conjunto (now returns an array)

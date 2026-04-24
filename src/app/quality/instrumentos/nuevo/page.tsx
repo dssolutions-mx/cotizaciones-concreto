@@ -122,12 +122,18 @@ export default function NuevoInstrumentoPage() {
   }, [])
 
   useEffect(() => {
-    if (form.tipo === 'C') {
-      fetch('/api/ema/instrumentos?tipo=A&limit=200')
-        .then(r => r.json())
-        .then(j => setInstrumentosTypeA(j.data ?? []))
+    if (form.tipo !== 'C') {
+      setInstrumentosTypeA([])
+      return
     }
-  }, [form.tipo])
+    const pid = form.plant_id || currentPlant?.id
+    const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
+    if (pid) qs.set('plant_id', pid)
+    fetch(`/api/ema/instrumentos?${qs}`)
+      .then((r) => r.json())
+      .then((j) => setInstrumentosTypeA(Array.isArray(j.data) ? j.data : []))
+      .catch(() => setInstrumentosTypeA([]))
+  }, [form.tipo, form.plant_id, currentPlant?.id])
 
   const selectedConjunto = conjuntos.find(c => c.id === selectedConjuntoId)
 

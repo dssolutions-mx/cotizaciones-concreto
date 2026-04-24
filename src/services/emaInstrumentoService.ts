@@ -154,6 +154,35 @@ export async function updateConjunto(
 // Instrumentos
 // ─────────────────────────────────────────
 
+/** Normalize DB `tipo` (handles stray whitespace / legacy casing). */
+function normalizeInstrumentoTipo(tipo: string | null | undefined): string {
+  return String(tipo ?? '')
+    .trim()
+    .toUpperCase()
+    .slice(0, 1);
+}
+
+/** Ensure every linked maestro row exists and is Tipo A (clear error before DB trigger). */
+async function assertMaestroInstrumentsAreTipoA(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  maestroIds: string[],
+): Promise<void> {
+  if (maestroIds.length === 0) return;
+  const { data, error } = await supabase.from('instrumentos').select('id, tipo').in('id', maestroIds);
+  if (error) throw error;
+  const rows = (data ?? []) as { id: string; tipo: string | null }[];
+  if (rows.length !== maestroIds.length) {
+    throw new Error(
+      'Uno o más patrones no existen o no tiene permiso para verlos. Use instrumentos Tipo A de su planta.',
+    );
+  }
+  for (const r of rows) {
+    if (normalizeInstrumentoTipo(r.tipo) !== 'A') {
+      throw new Error('Solo instrumentos Tipo A (patrón) pueden vincularse como maestro a un instrumento Tipo C.');
+    }
+  }
+}
+
 /** Replace all `instrumento_maestro_vinculos` rows for an instrument (tipo C). */
 export async function replaceInstrumentoMaestroVinculos(
   instrumentoId: string,
@@ -164,6 +193,7 @@ export async function replaceInstrumentoMaestroVinculos(
   if (unique.length > EMA_INSTRUMENTO_MAESTRO_IDS_MAX) {
     throw new Error(`Máximo ${EMA_INSTRUMENTO_MAESTRO_IDS_MAX} instrumentos patrón.`);
   }
+  await assertMaestroInstrumentsAreTipoA(supabase, unique);
   const { error: delErr } = await supabase
     .from('instrumento_maestro_vinculos')
     .delete()
@@ -215,12 +245,21 @@ export async function getInstrumentos(
   const supabase = await createServerSupabaseClient();
   const { plant_id, tipo, estado, categoria, conjunto_id, search, page = 1, limit = 50 } = params;
 
+  const tipoNorm =
+    tipo != null && String(tipo).trim() !== ''
+      ? String(tipo).trim().toUpperCase().slice(0, 1)
+      : undefined;
+  const tipoFilter =
+    tipoNorm === 'A' || tipoNorm === 'B' || tipoNorm === 'C' ? tipoNorm : undefined;
+
+  // Left-embed conjunto so instruments still list if the conjunto row is missing or not visible under RLS
+  // (inner join previously hid entire rows, emptying Tipo A pickers for some users).
   let query = supabase
     .from('instrumentos')
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento, conjunto_id,
       plant_id, marca, modelo_comercial,
-      conjuntos_herramientas!inner(
+      conjuntos_herramientas(
         id,
         categoria,
         codigo_conjunto,
@@ -230,7 +269,7 @@ export async function getInstrumentos(
     .order('codigo');
 
   if (plant_id)    query = query.eq('plant_id', plant_id);
-  if (tipo)        query = query.eq('tipo', tipo);
+  if (tipoFilter)  query = query.eq('tipo', tipoFilter);
   if (estado)      query = query.eq('estado', estado);
   if (categoria)   query = query.eq('conjuntos_herramientas.categoria', categoria);
   if (conjunto_id) query = query.eq('conjunto_id', conjunto_id);

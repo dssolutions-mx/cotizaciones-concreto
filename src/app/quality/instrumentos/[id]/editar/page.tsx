@@ -106,14 +106,19 @@ export default function EditarInstrumentoPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load Tipo A instruments as maestro candidates when tipo = C
+  // Load Tipo A instruments as maestro candidates when tipo = C (same plant as this instrument)
   useEffect(() => {
     if (form.tipo !== 'C') return
-    fetch('/api/ema/instrumentos?tipo=A&estado=vigente')
-      .then(r => r.json())
-      .then(j => setMaestros((j.data ?? j).map((m: any) => ({ id: m.id, codigo: m.codigo, nombre: m.nombre }))))
-      .catch(() => {})
-  }, [form.tipo])
+    const qs = new URLSearchParams({ tipo: 'A', estado: 'vigente', limit: '200' })
+    if (form.plant_id) qs.set('plant_id', form.plant_id)
+    fetch(`/api/ema/instrumentos?${qs}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const list = Array.isArray(j.data) ? j.data : []
+        setMaestros(list.map((m: { id: string; codigo: string; nombre: string }) => ({ id: m.id, codigo: m.codigo, nombre: m.nombre })))
+      })
+      .catch(() => setMaestros([]))
+  }, [form.tipo, form.plant_id])
 
   function update<K extends keyof typeof form>(key: K, val: (typeof form)[K]) {
     setForm(prev => ({ ...prev, [key]: val }))
