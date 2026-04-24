@@ -83,10 +83,13 @@ function ItemRow({
   item,
   value,
   onChange,
+  /** Solo tipo C: `undefined` = usar captura texto legacy (A/B). Array (vacío o no) = solo lectura desde FK de verificación. */
+  referenciaEquipoPatronesReadonly,
 }: {
   item: VerificacionTemplateItem
   value: MeasurementValue
   onChange: (v: MeasurementValue) => void
+  referenciaEquipoPatronesReadonly?: Array<{ id: string; codigo: string; nombre: string }> | undefined
 }) {
   const cumple = computeCumpleForItem(item, value)
 
@@ -160,6 +163,26 @@ function ItemRow({
           onChange={e => onChange({ ...value, valor_texto: e.target.value })}
           className="border-stone-200 text-sm resize-none"
         />
+      ) : item.tipo === 'referencia_equipo' && referenciaEquipoPatronesReadonly !== undefined ? (
+        <div className="rounded-md border border-cyan-200 bg-cyan-50/60 px-3 py-2 text-xs text-cyan-950 space-y-1.5">
+          <p className="font-medium text-cyan-900">Patrones registrados (trazabilidad)</p>
+          <p className="text-cyan-800/90 leading-relaxed">
+            Seleccionados al inicio de la verificación y guardados por vínculo a instrumentos tipo A.
+          </p>
+          {referenciaEquipoPatronesReadonly.length === 0 ? (
+            <p className="text-amber-800">No hay patrones asociados a esta ejecución.</p>
+          ) : (
+            <ul className="list-disc pl-4 space-y-0.5 font-mono text-[11px]">
+              {referenciaEquipoPatronesReadonly.map(p => (
+                <li key={p.id}>
+                  <span className="font-semibold">{p.codigo}</span>
+                  {' — '}
+                  {p.nombre}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : item.tipo === 'referencia_equipo' ? (
         <Input
           placeholder="Código / N° serie / fecha calibración"
@@ -204,7 +227,8 @@ function ItemRow({
       )}
 
       {/* Observación */}
-      {normalizeTemplateItem(item).item_role !== 'derivado' && item.tipo !== 'texto' && (
+      {normalizeTemplateItem(item).item_role !== 'derivado' && item.tipo !== 'texto'
+        && !(item.tipo === 'referencia_equipo' && referenciaEquipoPatronesReadonly !== undefined) && (
         <Input
           placeholder="Observación (opcional)"
           value={value.observacion ?? ''}
@@ -390,6 +414,19 @@ export default function VerificarPage() {
     setMeasurements(prev => ({ ...prev, [key]: val }))
   }, [])
 
+  const referenciaEquipoPatronesReadonly = useMemo(() => {
+    if (instrumento?.tipo !== 'C') return undefined as
+      | Array<{ id: string; codigo: string; nombre: string }>
+      | undefined
+    const byId = new Map(maestros.map(m => [m.id, m]))
+    return selectedMaestroIds.map(mid => {
+      const m = byId.get(mid)
+      return m
+        ? { id: m.id, codigo: m.codigo, nombre: m.nombre }
+        : { id: mid, codigo: '—', nombre: 'Instrumento patrón' }
+    })
+  }, [instrumento?.tipo, maestros, selectedMaestroIds])
+
   // Plantilla picker → load selected plantilla snapshot
   const handlePickPlantilla = useCallback(async (candidate: typeof plantillaCandidates[number]) => {
     setLoading(true)
@@ -479,6 +516,7 @@ export default function VerificarPage() {
 
     const toSave = section.items
       .filter(item => normalizeTemplateItem(item).item_role !== 'derivado')
+      .filter(item => !(instrumento?.tipo === 'C' && item.tipo === 'referencia_equipo'))
       .map(item => {
         const key = mKey(section.id, rep, item.id)
         const mv = measurements[key] ?? {}
@@ -910,6 +948,9 @@ export default function VerificarPage() {
                       item={item}
                       value={measurements[key] ?? {}}
                       onChange={val => updateMeasurement(key, val)}
+                      referenciaEquipoPatronesReadonly={
+                        instrumento?.tipo === 'C' ? referenciaEquipoPatronesReadonly : undefined
+                      }
                     />
                   )
                 })}

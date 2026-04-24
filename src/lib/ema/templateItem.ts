@@ -40,6 +40,7 @@ function inferRolePrimitive(tipo: VerificacionTemplateItem['tipo']): { role: Ite
     case 'calculado':
       return { role: 'derivado', prim: 'numero' };
     case 'referencia_equipo':
+      // Legacy template tipo; runtime tipo C usa FK de verificación, no mediciones texto.
       return { role: 'input_referencia', prim: 'texto' };
     default:
       return { role: 'input_texto', prim: 'texto' };

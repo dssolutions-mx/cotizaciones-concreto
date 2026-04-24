@@ -56,6 +56,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
+    if (parsed.data.tipo === 'referencia_equipo') {
+      return NextResponse.json(
+        {
+          error:
+            'El tipo «referencia_equipo» ya no se admite en ítems nuevos: la trazabilidad de patrones es por instrumentos tipo A vinculados al tipo C y por el inicio de la verificación. Use «texto» si necesita un campo documental libre.',
+        },
+        { status: 400 },
+      );
+    }
+
     let orden = parsed.data.orden;
     if (orden == null) {
       const { count } = await supabase

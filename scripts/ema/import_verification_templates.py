@@ -54,17 +54,17 @@ def calculado(punto, formula, unidad=None, observacion_prompt=None, requerido=Tr
                 unidad=unidad, formula=formula, observacion_prompt=observacion_prompt,
                 requerido=requerido)
 
-def referencia_equipo(punto="Equipo patrón utilizado", requerido=True):
-    return dict(tipo="referencia_equipo", punto=punto, valor_esperado=None,
-                tolerancia=None, tolerancia_tipo="absoluta", tolerancia_min=None,
-                tolerancia_max=None, unidad=None, formula=None,
-                observacion_prompt="Indicar código, número de serie y fecha de calibración vigente",
-                requerido=requerido)
+# Plantillas ya no usan tipo `referencia_equipo` (legacy en DB). Trazabilidad patrón = FK en verificación tipo C.
+TRACE_PATRON_DOC_HINT = (
+    "Opcional: notas de contexto. La trazabilidad del patrón se registra con instrumentos "
+    "tipo A vinculados al equipo tipo C y en el inicio de la verificación."
+)
 
-def texto(punto="Observaciones generales", requerido=False):
+
+def texto(punto="Observaciones generales", requerido=False, observacion_prompt=None):
     return dict(tipo="texto", punto=punto, valor_esperado=None, tolerancia=None,
                 tolerancia_tipo="absoluta", tolerancia_min=None, tolerancia_max=None,
-                unidad=None, formula=None, observacion_prompt=None, requerido=requerido)
+                unidad=None, formula=None, observacion_prompt=observacion_prompt, requerido=requerido)
 
 def section(titulo, items, orden=1, repetible=False, repeticiones_default=1,
             descripcion=None, evidencia_config=None):
@@ -104,7 +104,7 @@ TEMPLATES = [
             section(
                 titulo="Equipos utilizados para la verificación",
                 orden=2,
-                items=[referencia_equipo("Patrón de longitud calibrado (escuadra/regla patrón)")],
+                items=[texto("Patrón de longitud calibrado (escuadra/regla patrón)", True, TRACE_PATRON_DOC_HINT)],
             ),
             section(
                 titulo="Observaciones",
@@ -138,7 +138,7 @@ TEMPLATES = [
                 ],
             ),
             section(titulo="Equipos utilizados para la verificación", orden=2,
-                    items=[referencia_equipo("Juego de pesas patrón certificadas")]),
+                    items=[texto("Juego de pesas patrón certificadas", True, TRACE_PATRON_DOC_HINT)]),
             section(titulo="Observaciones", orden=3, items=[texto()]),
         ],
     ),
@@ -179,8 +179,8 @@ TEMPLATES = [
                 ],
             ),
             section(titulo="Equipos utilizados para la verificación", orden=3,
-                    items=[referencia_equipo("Vernier / calibrador patrón"),
-                           referencia_equipo("Juego de lainas patrón")]),
+                    items=[texto("Vernier / calibrador patrón", True, TRACE_PATRON_DOC_HINT),
+                           texto("Juego de lainas patrón", True, TRACE_PATRON_DOC_HINT)]),
             section(titulo="Observaciones", orden=4, items=[texto()]),
         ],
     ),
@@ -209,7 +209,7 @@ TEMPLATES = [
                 ],
             ),
             section(titulo="Equipos utilizados para la verificación", orden=2,
-                    items=[referencia_equipo("Juego de pesas patrón certificadas (clase kg)")]),
+                    items=[texto("Juego de pesas patrón certificadas (clase kg)", True, TRACE_PATRON_DOC_HINT)]),
             section(titulo="Observaciones", orden=3, items=[texto()]),
         ],
     ),
@@ -307,8 +307,8 @@ TEMPLATES = [
                 ],
             ),
             section(titulo="Equipos utilizados para la verificación", orden=6,
-                    items=[referencia_equipo("Flexómetro / vernier patrón"),
-                           referencia_equipo("Balanza patrón (para mazo)")]),
+                    items=[texto("Flexómetro / vernier patrón", True, TRACE_PATRON_DOC_HINT),
+                           texto("Balanza patrón (para mazo)", True, TRACE_PATRON_DOC_HINT)]),
             section(titulo="Observaciones", orden=7, items=[texto()]),
         ],
     ),
@@ -392,8 +392,8 @@ TEMPLATES = [
                 ],
             ),
             section(titulo="Equipos utilizados para la verificación", orden=4,
-                    items=[referencia_equipo("Balanza patrón / báscula patrón"),
-                           referencia_equipo("Vernier / calibrador patrón")]),
+                    items=[texto("Balanza patrón / báscula patrón", True, TRACE_PATRON_DOC_HINT),
+                           texto("Vernier / calibrador patrón", True, TRACE_PATRON_DOC_HINT)]),
             section(titulo="Observaciones", orden=5, items=[texto()]),
         ],
     ),

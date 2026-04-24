@@ -49,6 +49,18 @@ const TIPO_COLOR: Record<TipoItemVerificacion, string> = {
   referencia_equipo: 'bg-cyan-50 text-cyan-700 border-cyan-200',
 }
 
+/** Plantillas nuevas: no ofrecer `referencia_equipo` (legacy en snapshots; trazabilidad patrón = FK en verificación tipo C). */
+const TIPO_ITEM_OPTIONS_EN_PLANTILLA = (Object.keys(TIPO_LABEL) as TipoItemVerificacion[]).filter(
+  t => t !== 'referencia_equipo',
+)
+
+function tiposItemEnSelector(tipoActual: TipoItemVerificacion): TipoItemVerificacion[] {
+  if (tipoActual === 'referencia_equipo') {
+    return [...TIPO_ITEM_OPTIONS_EN_PLANTILLA, 'referencia_equipo']
+  }
+  return TIPO_ITEM_OPTIONS_EN_PLANTILLA
+}
+
 function TipoBadge({ tipo }: { tipo: TipoItemVerificacion }) {
   return (
     <span className={cn(
@@ -232,7 +244,7 @@ function ItemForm({
           }}
           className="w-full rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
         >
-          {(Object.keys(TIPO_LABEL) as TipoItemVerificacion[]).map(t => (
+          {tiposItemEnSelector(form.tipo).map(t => (
             <option key={t} value={t}>{TIPO_LABEL[t]}</option>
           ))}
         </select>

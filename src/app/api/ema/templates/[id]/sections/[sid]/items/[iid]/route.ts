@@ -56,6 +56,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
+    if (parsed.data.tipo === 'referencia_equipo') {
+      return NextResponse.json(
+        {
+          error:
+            'No se puede cambiar un ítem a «referencia_equipo»: use «texto» para campos libres; la trazabilidad de patrones es por FK en verificaciones tipo C.',
+        },
+        { status: 400 },
+      );
+    }
+
     const { data, error } = await supabase
       .from('verificacion_template_items')
       .update({ ...parsed.data })

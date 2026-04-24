@@ -275,7 +275,8 @@ export type TipoItemVerificacion =
   | 'numero'            // free numeric (no tolerance)
   | 'texto'             // free text
   | 'calculado'         // derived from other items via `formula`
-  | 'referencia_equipo'; // free-text pointer to calibration standard used
+  /** @deprecated En plantillas nuevas no usar: la trazabilidad de patrón en verificación tipo C es solo por `completed_verificacion_maestros` → `instrumentos`. Sigue existiendo en snapshots/publicaciones ya emitidas. */
+  | 'referencia_equipo';
 
 export type ToleranciaTipo = 'absoluta' | 'porcentual' | 'rango';
 
