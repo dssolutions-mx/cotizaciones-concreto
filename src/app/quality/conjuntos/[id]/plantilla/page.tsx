@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useId } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -32,6 +32,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -427,8 +432,11 @@ function FormulaAuthoringPlayground({
   }, [evaluated.err, evaluated.n, rule, scope])
 
   return (
-    <div className="mt-2 rounded-lg border border-stone-200 bg-white px-3 py-2 space-y-2 text-xs">
-      <p className="font-semibold text-stone-700">Probar fórmula (valores ficticios)</p>
+    <div className="rounded-lg border border-stone-200 bg-stone-50/50 px-3 py-2.5 space-y-2 text-xs">
+      <p className="font-medium text-stone-600">Valores de prueba</p>
+      <p className="text-[11px] text-stone-500 leading-snug">
+        Opcional: compruebe el resultado y el cumplimiento antes de guardar.
+      </p>
       <div className="grid grid-cols-2 gap-2">
         {varsInFormula.map(v => (
           <div key={v} className="space-y-0.5">
@@ -464,6 +472,7 @@ function ItemForm({
   onChange: (f: ItemFormState) => void
   availableVariables?: string[]
 }) {
+  const formulaInputId = useId()
   const set = (k: keyof ItemFormState, v: any) => onChange({ ...form, [k]: v })
   const isMedicion = form.tipo === 'medicion'
   const isRango = form.tolerancia_tipo === 'rango'
@@ -609,112 +618,150 @@ function ItemForm({
       )}
 
       {isCalculado && (
-        <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
-          <div>
-            <Label className="text-[10px] text-amber-700 uppercase tracking-wide">Fórmula del punto calculado</Label>
-            <p className="mt-1 text-xs leading-5 text-amber-800">
-              El cálculo vive en este punto (no en la cabecera ni en el título de la sección). Solo puede usar
-              variables numéricas de otros puntos de <strong>esta misma sección</strong>. Ejemplos:{' '}
-              <span className="font-mono">avg(d1, d2)</span>,{' '}
-              <span className="font-mono">(d1 + d2) / 2</span>.
-            </p>
+        <div className="col-span-2 rounded-xl border border-stone-200 bg-white p-4 space-y-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Expresión del punto calculado</Label>
+              <p className="text-xs text-stone-500 leading-relaxed max-w-prose">
+                Use los mismos nombres de variable que en los demás puntos de <span className="font-medium text-stone-700">esta sección</span>.
+                Ej.: <span className="font-mono text-stone-700">avg(d1, d2)</span>,{' '}
+                <span className="font-mono text-stone-700">(d1 + d2) / 2</span>.
+              </p>
+            </div>
+            {availableVariables.length > 0 && (
+              <span className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-600 tabular-nums">
+                {availableVariables.length} variable{availableVariables.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
-          {availableVariables.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {availableVariables.map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => set('formula', `${form.formula}${form.formula ? ' ' : ''}${v}`)}
-                  className="rounded-md border border-amber-200 bg-white px-2 py-1 font-mono text-[11px] text-amber-800 transition-colors hover:border-amber-300 hover:bg-amber-100/60"
-                  title="Agregar variable a la fórmula"
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
-          {availableVariables.length >= 2 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] font-medium text-amber-900">Recetas:</span>
-              <button
-                type="button"
-                className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
-                onClick={() => {
-                  const v0 = availableVariables[0]
-                  const v1 = availableVariables[1]
-                  set('formula', `avg(${v0}, ${v1})`)
-                  if (!form.variable_name.trim()) set('variable_name', `avg_${v0}_${v1}`)
-                }}
-              >
-                Promedio ({availableVariables[0]}, {availableVariables[1]})
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
-                onClick={() => {
-                  const v0 = availableVariables[0]
-                  const v1 = availableVariables[1]
-                  set('formula', `abs(${v0} - ${v1})`)
-                  if (!form.variable_name.trim()) set('variable_name', `diff_${v0}_${v1}`)
-                }}
-              >
-                |{availableVariables[0]} − {availableVariables[1]}|
-              </button>
-              {availableVariables.length >= 3 && (
-                <button
-                  type="button"
-                  className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
-                  onClick={() => {
-                    const [a, b, c] = availableVariables
-                    set('formula', `avg(${a}, ${b}, ${c})`)
-                    if (!form.variable_name.trim()) set('variable_name', `avg_${a}_${b}_${c}`)
-                  }}
-                >
-                  Promedio 3
-                </button>
-              )}
-            </div>
-          )}
-          <Input value={form.formula}
-            onChange={e => set('formula', e.target.value)}
-            placeholder="avg(d1, d2)"
-            className="border-amber-200 bg-white text-sm font-mono" />
-          <FormulaAuthoringPlayground
-            formula={form.formula}
-            rule={buildPassFailRuleFromForm(form) as PassFailRule}
-            variableNames={availableVariables}
-          />
-          {availableVariables.length === 0 && (
-            <p className="text-xs text-amber-700">
-              Agrega primero puntos numéricos o de medición con nombre de variable para usarlos aquí.
+
+          {availableVariables.length === 0 ? (
+            <p className="text-xs text-stone-500 rounded-md border border-dashed border-stone-200 bg-stone-50/80 px-3 py-2.5">
+              Añada primero puntos de medición o numéricos con nombre de variable; luego podrá referenciarlos aquí.
             </p>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Insertar en la fórmula</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {availableVariables.map(v => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => set('formula', `${form.formula}${form.formula ? ' ' : ''}${v}`)}
+                      className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 font-mono text-[11px] text-stone-800 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 hover:text-emerald-900"
+                      title={`Insertar ${v}`}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {availableVariables.length >= 2 && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-medium text-stone-500 uppercase tracking-wide">Plantillas rápidas</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 hover:bg-stone-50"
+                      onClick={() => {
+                        const v0 = availableVariables[0]
+                        const v1 = availableVariables[1]
+                        set('formula', `avg(${v0}, ${v1})`)
+                        if (!form.variable_name.trim()) set('variable_name', `avg_${v0}_${v1}`)
+                      }}
+                    >
+                      Promedio de <span className="font-mono">{availableVariables[0]}</span> y{' '}
+                      <span className="font-mono">{availableVariables[1]}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 hover:bg-stone-50"
+                      onClick={() => {
+                        const v0 = availableVariables[0]
+                        const v1 = availableVariables[1]
+                        set('formula', `abs(${v0} - ${v1})`)
+                        if (!form.variable_name.trim()) set('variable_name', `diff_${v0}_${v1}`)
+                      }}
+                    >
+                      Diferencia |<span className="font-mono">{availableVariables[0]}</span> −{' '}
+                      <span className="font-mono">{availableVariables[1]}</span>|
+                    </button>
+                    {availableVariables.length >= 3 && (
+                      <button
+                        type="button"
+                        className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[11px] text-stone-700 hover:bg-stone-50"
+                        onClick={() => {
+                          const [a, b, c] = availableVariables
+                          set('formula', `avg(${a}, ${b}, ${c})`)
+                          if (!form.variable_name.trim()) set('variable_name', `avg_${a}_${b}_${c}`)
+                        }}
+                      >
+                        Promedio de tres
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
-          <details className="rounded-lg border border-amber-200/80 bg-white/80 px-3 py-2 text-xs text-amber-950">
-            <summary className="cursor-pointer font-medium text-amber-900 outline-none">
-              Ayuda: operadores y funciones
+
+          <div className="space-y-1">
+            <Label htmlFor={formulaInputId} className="text-[10px] text-stone-500 uppercase tracking-wide">
+              Fórmula
+            </Label>
+            <Input
+              id={formulaInputId}
+              value={form.formula}
+              onChange={e => set('formula', e.target.value)}
+              placeholder="avg(d1, d2)"
+              className="border-stone-200 bg-white text-sm font-mono focus-visible:ring-emerald-500/30"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger className="group flex w-full items-center justify-between gap-2 rounded-lg border border-dashed border-stone-200 bg-stone-50/80 px-3 py-2.5 text-left text-xs font-medium text-stone-700 outline-none transition-colors hover:bg-stone-100/80 hover:border-stone-300">
+              <span>Vista previa y prueba con valores</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-stone-500 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="overflow-hidden">
+              <div className="pt-2">
+                <FormulaAuthoringPlayground
+                  formula={form.formula}
+                  rule={buildPassFailRuleFromForm(form) as PassFailRule}
+                  variableNames={availableVariables}
+                />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+
+          <details className="rounded-lg border border-stone-200 bg-stone-50/50 px-3 py-2 text-xs text-stone-700">
+            <summary className="cursor-pointer font-medium text-stone-800 outline-none select-none">
+              Referencia: operadores y funciones
             </summary>
-            <div className="mt-2 space-y-2 leading-relaxed text-amber-900/90">
+            <div className="mt-2 space-y-2 leading-relaxed text-stone-600">
               <p>
-                <span className="font-semibold">Operadores:</span>{' '}
-                <span className="font-mono">+ - * / ^</span> (potencia), comparaciones{' '}
-                <span className="font-mono">&lt; &gt; &lt;= &gt;= == !=</span>.
+                <span className="font-semibold text-stone-700">Operadores:</span>{' '}
+                <span className="font-mono text-stone-800">+ - * / ^</span> (potencia), comparaciones{' '}
+                <span className="font-mono text-stone-800">&lt; &gt; &lt;= &gt;= == !=</span>.
               </p>
               <p>
-                <span className="font-semibold">Funciones:</span>{' '}
-                <span className="font-mono">abs</span>,{' '}
-                <span className="font-mono">min(a,b,...)</span>,{' '}
-                <span className="font-mono">max(...)</span>,{' '}
-                <span className="font-mono">avg(...)</span>,{' '}
-                <span className="font-mono">sum(...)</span>,{' '}
-                <span className="font-mono">round(x)</span>,{' '}
-                <span className="font-mono">sqrt(x)</span>, constante{' '}
-                <span className="font-mono">pi</span>.
+                <span className="font-semibold text-stone-700">Funciones:</span>{' '}
+                <span className="font-mono text-stone-800">abs</span>,{' '}
+                <span className="font-mono text-stone-800">min(a,b,...)</span>,{' '}
+                <span className="font-mono text-stone-800">max(...)</span>,{' '}
+                <span className="font-mono text-stone-800">avg(...)</span>,{' '}
+                <span className="font-mono text-stone-800">sum(...)</span>,{' '}
+                <span className="font-mono text-stone-800">round(x)</span>,{' '}
+                <span className="font-mono text-stone-800">sqrt(x)</span>, constante{' '}
+                <span className="font-mono text-stone-800">pi</span>.
               </p>
               <p>
-                Usa exactamente los <span className="font-semibold">nombres de variable</span> definidos en los otros
-                puntos (misma sección). Los argumentos de <span className="font-mono">avg</span> /{' '}
-                <span className="font-mono">min</span> van entre paréntesis y separados por coma.
+                Los nombres deben coincidir con los puntos de la sección. En <span className="font-mono">avg</span> /{' '}
+                <span className="font-mono">min</span>, argumentos entre paréntesis y separados por coma.
               </p>
             </div>
           </details>
@@ -725,9 +772,8 @@ function ItemForm({
         <div className="col-span-2 space-y-2 rounded-xl border border-stone-200 bg-stone-50/80 p-3">
           <div>
             <Label className="text-[10px] text-stone-600 uppercase tracking-wide">Cumplimiento del resultado calculado</Label>
-            <p className="mt-1 text-xs text-stone-600 leading-relaxed">
-              Tras evaluar la fórmula, el valor obtenido se compara con el objetivo y la tolerancia (como en una medición).
-              Marque «Cuenta para resultado global» si debe influir en el conformado de la sección.
+            <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+              Mismo criterio que una medición: objetivo y tolerancia sobre el valor que arroja la fórmula.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
