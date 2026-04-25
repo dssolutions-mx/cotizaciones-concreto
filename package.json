@@ -9,7 +9,7 @@
     "build": "node build.js",
     "start": "next start",
     "lint": "next lint",
-    "test:ema-formula": "npx tsx src/lib/ema/formula.test.ts",
+    "test:ema-formula": "npx tsx src/lib/ema/formula.test.ts && npx tsx src/lib/ema/measurementCompute.preview.test.ts",
     "test:sales-report": "npx tsx src/lib/finanzas/resolveSalesPlantScope.test.ts && npx tsx src/utils/salesDataProcessor.summary.test.ts && npx tsx src/lib/finanzas/ventas/buildVentasMonthlyTrendFromRemisiones.test.ts",
     "geocode:backfill": "node --env-file=.env.local -r ts-node/register scripts/geocode-backfill.ts",
     "backfill:product-prices": "node --env-file=.env.local -r ts-node/register scripts/backfill-product-prices.ts",

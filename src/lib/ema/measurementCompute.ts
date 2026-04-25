@@ -1,8 +1,8 @@
 import type { VerificacionTemplateItem, VerificacionTemplateSnapshot } from '@/types/ema';
-import { evaluateFormula, parseFormula, topoSortDerivados } from './formula';
+import { evaluateFormula, extractVariables, parseFormula, topoSortDerivados } from './formula';
 import { evaluatePassFailRule } from './passFail';
 import { normalizeTemplateItem, type NormalizedTemplateItem } from './templateItem';
-import { effectiveLayout, referencePointForRow } from './sectionLayout';
+import { effectiveLayout, effectiveSectionRepetitions, referencePointForRow } from './sectionLayout';
 
 export type IncomingMeasurement = {
   section_id: string;
@@ -30,9 +30,18 @@ export type ComputedMeasurementRow = {
   reference_point_value: number | null;
 };
 
+function expectedValueForError(n: NormalizedTemplateItem): number | null {
+  if (n.valor_esperado != null) return n.valor_esperado;
+  const r = n.pass_fail_rule;
+  if (r?.kind === 'tolerance_abs' || r?.kind === 'tolerance_pct') return r.expected ?? null;
+  return null;
+}
+
 function medicionError(n: NormalizedTemplateItem, val: number | null): number | null {
-  if (val == null || n.valor_esperado == null) return null;
-  return Math.abs(val - n.valor_esperado);
+  if (val == null) return null;
+  const exp = expectedValueForError(n);
+  if (exp == null) return null;
+  return Math.abs(val - exp);
 }
 
 export type SectionComputeResult = {
@@ -191,6 +200,153 @@ export function computeSectionMeasurementRows(
   return { rows, warnings };
 }
 
+/** Partial row payload from the UI (one section + repetition); excludes derivados. */
+export type SectionMeasurementInput = Pick<
+  IncomingMeasurement,
+  'item_id' | 'valor_observado' | 'valor_booleano' | 'valor_texto' | 'observacion' | 'instance_code'
+>;
+
+/**
+ * Live preview for worksheet UI — same evaluation path as PUT /measurements for one section instance.
+ * Pass every non-derivado row you would send on save (nulls allowed) so derivados and cumple stay aligned with the server.
+ */
+export function previewSectionMeasurements(
+  section: Parameters<typeof computeSectionMeasurementRows>[0],
+  rep: number,
+  inputs: SectionMeasurementInput[],
+  headerScope: Record<string, number> = {},
+): SectionComputeResult {
+  const incomingByItemId = new Map<string, IncomingMeasurement>();
+  for (const m of inputs) {
+    incomingByItemId.set(m.item_id, {
+      section_id: section.id,
+      section_repeticion: rep,
+      item_id: m.item_id,
+      valor_observado: m.valor_observado ?? null,
+      valor_booleano: m.valor_booleano ?? null,
+      valor_texto: m.valor_texto ?? null,
+      observacion: m.observacion ?? null,
+      instance_code: m.instance_code ?? null,
+    });
+  }
+  return computeSectionMeasurementRows(section, rep, incomingByItemId, headerScope);
+}
+
+/**
+ * Variable names referenced by derivado formulas that are not yet in the numeric scope
+ * (header + reference point + captured readings). Used to block "Siguiente" until inputs exist.
+ */
+export function missingSectionFormulaVariableNames(
+  section: {
+    id: string;
+    titulo?: string;
+    layout?: string;
+    repetible?: boolean;
+    repeticiones_default?: number;
+    series_config?: { points?: number[]; reference_variable?: string };
+    items: VerificacionTemplateItem[];
+  },
+  rep: number,
+  inputs: SectionMeasurementInput[],
+  headerScope: Record<string, number> = {},
+): string[] {
+  const layout = effectiveLayout(section as any);
+  const refPoint =
+    layout === 'reference_series' ? referencePointForRow(section as any, rep) : null;
+
+  const items = [...(section.items ?? [])].sort((a, b) => a.orden - b.orden);
+  const normalized = items.map(normalizeTemplateItem);
+
+  const scope: Record<string, number> = { ...headerScope };
+  if (refPoint != null && section.series_config?.reference_variable) {
+    scope[section.series_config.reference_variable] = refPoint;
+  } else if (refPoint != null) {
+    scope.carga = refPoint;
+    scope.longitud = refPoint;
+  }
+
+  const byItem = new Map(inputs.map(x => [x.item_id, x]));
+  for (const it of normalized) {
+    if (it.item_role === 'derivado') continue;
+    const row = byItem.get(it.id);
+    if (it.primitive === 'numero' && row?.valor_observado != null && it.variable_name) {
+      scope[it.variable_name] = row.valor_observado;
+    }
+    if (layout === 'reference_series' && refPoint != null && it.item_role === 'input_medicion' && row?.valor_observado != null && it.variable_name) {
+      scope[it.variable_name] = row.valor_observado;
+    }
+  }
+
+  const derivados = normalized
+    .filter(i => i.item_role === 'derivado' && i.formula)
+    .map(i => ({ id: i.id, variable_name: i.variable_name, formula: i.formula }));
+
+  const known = new Set(Object.keys(scope));
+  const order = topoSortDerivados(derivados, known);
+
+  const missing = new Set<string>();
+
+  for (const did of order) {
+    const it = normalized.find(x => x.id === did);
+    if (!it?.formula || !it.variable_name) continue;
+    for (const v of extractVariables(parseFormula(it.formula))) {
+      if (!(v in scope)) missing.add(v);
+    }
+    try {
+      const v = evaluateFormula(parseFormula(it.formula), scope);
+      scope[it.variable_name] = v;
+    } catch {
+      /* ignore — preview will surface formula errors */
+    }
+  }
+
+  return [...missing].sort();
+}
+
+export type ClientMeasurementSlice = Pick<
+  IncomingMeasurement,
+  'valor_observado' | 'valor_booleano' | 'valor_texto' | 'observacion' | 'instance_code'
+>;
+
+/**
+ * Flat list of incoming rows for every capturable template cell (non-derivado), for full-snapshot preview / auto-suggest.
+ */
+export function buildIncomingListForSnapshot(
+  sections: Array<{
+    id: string;
+    items: VerificacionTemplateItem[];
+    repetible?: boolean;
+    repeticiones_default?: number;
+  }>,
+  getSlice: (sectionId: string, rep: number, itemId: string) => ClientMeasurementSlice | undefined,
+  opts?: { instrumentTipo?: string },
+): IncomingMeasurement[] {
+  const incoming: IncomingMeasurement[] = [];
+  const tipo = opts?.instrumentTipo;
+  for (const section of sections) {
+    const reps = effectiveSectionRepetitions(section as any);
+    for (let rep = 1; rep <= reps; rep++) {
+      for (const item of section.items ?? []) {
+        const n = normalizeTemplateItem(item);
+        if (n.item_role === 'derivado') continue;
+        if (tipo === 'C' && item.tipo === 'referencia_equipo') continue;
+        const sl = getSlice(section.id, rep, item.id) ?? {};
+        incoming.push({
+          section_id: section.id,
+          section_repeticion: rep,
+          item_id: item.id,
+          valor_observado: sl.valor_observado ?? null,
+          valor_booleano: sl.valor_booleano ?? null,
+          valor_texto: sl.valor_texto ?? null,
+          observacion: sl.observacion ?? null,
+          instance_code: sl.instance_code ?? null,
+        });
+      }
+    }
+  }
+  return incoming;
+}
+
 /** Build rows for all incoming keys grouped by section+rep (caller resolves section from snapshot). */
 export function computeAllMeasurementRowsFromSnapshot(
   sections: Array<{
@@ -250,4 +406,19 @@ export function buildRowsForMeasurementPut(
     })),
     warnings,
   };
+}
+
+/** Primera banda de tolerancia absoluta (o equivalente desde %) en la plantilla — heurística para TUR en verificación. */
+export function firstToleranceBandFromSnapshot(snapshot: VerificacionTemplateSnapshot): number | null {
+  for (const sec of snapshot.sections ?? []) {
+    for (const it of sec.items ?? []) {
+      const n = normalizeTemplateItem(it);
+      const r = n.pass_fail_rule;
+      if (r?.kind === 'tolerance_abs') return r.tolerance;
+      if (r?.kind === 'tolerance_pct' && r.expected != null) {
+        return Math.abs(Number(r.expected) * (Number(r.tolerance_pct) / 100));
+      }
+    }
+  }
+  return null;
 }

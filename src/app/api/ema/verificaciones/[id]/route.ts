@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import { replaceCompletedVerificacionMaestros } from '@/services/emaInstrumentoService';
+import {
+  fetchLatestVigenteCertUncertaintyByInstrumentIds,
+  replaceCompletedVerificacionMaestros,
+} from '@/services/emaInstrumentoService';
 import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
 import type { InstrumentoCard } from '@/types/ema';
 import { z } from 'zod';
@@ -96,6 +99,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         .from('instrumentos')
         .select(`
           id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+          incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
           conjuntos_herramientas!inner(
             categoria,
             codigo_conjunto,
@@ -103,12 +107,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           )
         `)
         .in('id', instrumento_maestro_ids);
+      const certOv = await fetchLatestVigenteCertUncertaintyByInstrumentIds(instrumento_maestro_ids, admin);
       const ch = (row: { conjuntos_herramientas?: Record<string, string> | null }) =>
         row.conjuntos_herramientas ?? {};
       instrumentos_maestro = (mrows ?? []).map((row: Record<string, unknown>) => {
         const c = ch(row as { conjuntos_herramientas?: Record<string, string> });
+        const cid = row.id as string;
+        const cert = certOv.get(cid);
         return {
-          id: row.id as string,
+          id: cid,
           codigo: row.codigo as string,
           nombre: row.nombre as string,
           tipo: row.tipo as InstrumentoCard['tipo'],
@@ -121,6 +128,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
           conjunto_id: row.conjunto_id as string,
           conjunto_codigo: (c.codigo_conjunto as string) ?? '',
           conjunto_nombre: (c.nombre_conjunto as string) ?? '',
+          incertidumbre_expandida:
+            (row.incertidumbre_expandida as number | null | undefined) ?? cert?.incertidumbre_expandida ?? null,
+          incertidumbre_k: (row.incertidumbre_k as number | null | undefined) ?? cert?.factor_cobertura ?? null,
+          incertidumbre_unidad:
+            (row.incertidumbre_unidad as string | null | undefined) ?? cert?.incertidumbre_unidad ?? null,
         };
       });
     }

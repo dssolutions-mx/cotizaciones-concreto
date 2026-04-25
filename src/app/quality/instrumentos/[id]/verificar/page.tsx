@@ -23,6 +23,14 @@ import { evaluateFormula, parseFormula } from '@/lib/ema/formula'
 import { effectiveSectionRepetitions, effectiveLayout, referencePointForRow } from '@/lib/ema/sectionLayout'
 import { normalizeTemplateItem } from '@/lib/ema/templateItem'
 import { evaluatePassFailRule } from '@/lib/ema/passFail'
+import type { ComputedMeasurementRow } from '@/lib/ema/measurementCompute'
+import {
+  buildIncomingListForSnapshot,
+  computeAllMeasurementRowsFromSnapshot,
+  firstToleranceBandFromSnapshot,
+  missingSectionFormulaVariableNames,
+  previewSectionMeasurements,
+} from '@/lib/ema/measurementCompute'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +49,22 @@ interface MeasurementValue {
   instance_code?: string | null
 }
 
+type EmaApiErrorPayload = {
+  error?: string
+  issues?: Array<{ codigo: string; nombre: string; detalle: string }>
+}
+
+function formatEmaApiError(j: EmaApiErrorPayload): string {
+  const base = j.error ?? 'Error'
+  const list = j.issues
+  if (!list?.length) return base
+  const lines = list.map((i) => {
+    const who = i.nombre && i.nombre !== '—' ? ` (${i.nombre})` : ''
+    return `• ${i.codigo}${who}: ${i.detalle}`
+  })
+  return [base, ...lines].join('\n')
+}
+
 // ─── Pass/fail logic ──────────────────────────────────────────────────────────
 
 function computeCumpleForItem(item: VerificacionTemplateItem, mv: MeasurementValue): boolean | null {
@@ -56,25 +80,25 @@ function computeCumpleForItem(item: VerificacionTemplateItem, mv: MeasurementVal
 function autoSuggestResultado(
   snapshot: VerificacionTemplateSnapshot,
   measurements: Record<MeasurementKey, MeasurementValue>,
+  mKeyFn: (sectionId: string, rep: number, itemId: string) => MeasurementKey,
+  headerScope: Record<string, number> | undefined,
+  instrumentTipo: string | undefined,
 ): 'conforme' | 'no_conforme' | 'condicional' {
+  const incoming = buildIncomingListForSnapshot(
+    snapshot.sections,
+    (sectionId, rep, itemId) => measurements[mKeyFn(sectionId, rep, itemId)],
+    { instrumentTipo },
+  )
+  const { rows } = computeAllMeasurementRowsFromSnapshot(
+    snapshot.sections,
+    incoming,
+    headerScope ?? {},
+  )
   let hasNoConforme = false
-  let hasCondicional = false
-
-  for (const section of snapshot.sections) {
-    const reps = effectiveSectionRepetitions(section as any)
-    for (let rep = 1; rep <= reps; rep++) {
-      for (const item of section.items) {
-        const key: MeasurementKey = `${section.id}:${rep}:${item.id}`
-        const mv = measurements[key]
-        if (!mv) continue
-        const cumple = computeCumpleForItem(item, mv)
-        if (cumple === false) hasNoConforme = true
-      }
-    }
+  for (const row of rows) {
+    if (row.cumple === false) hasNoConforme = true
   }
-
-  if (hasNoConforme) return hasCondicional ? 'no_conforme' : 'no_conforme'
-  return 'conforme'
+  return hasNoConforme ? 'no_conforme' : 'conforme'
 }
 
 // ─── Item Row Component ───────────────────────────────────────────────────────
@@ -83,20 +107,26 @@ function ItemRow({
   item,
   value,
   onChange,
+  /** When set (same engine as PUT), drives cumple + derivado valor for worksheet parity. */
+  previewRow,
   /** Solo tipo C: `undefined` = usar captura texto legacy (A/B). Array (vacío o no) = solo lectura desde FK de verificación. */
   referenciaEquipoPatronesReadonly,
 }: {
   item: VerificacionTemplateItem
   value: MeasurementValue
   onChange: (v: MeasurementValue) => void
+  previewRow?: ComputedMeasurementRow | null
   referenciaEquipoPatronesReadonly?: Array<{ id: string; codigo: string; nombre: string }> | undefined
 }) {
-  const cumple = computeCumpleForItem(item, value)
+  const n = normalizeTemplateItem(item)
+  const cumple = previewRow != null ? previewRow.cumple : computeCumpleForItem(item, value)
 
-  const hasValue = normalizeTemplateItem(item).primitive === 'booleano'
+  const hasValue = n.primitive === 'booleano'
     ? value.valor_booleano !== undefined && value.valor_booleano !== null
-    : (value.valor_observado !== undefined && value.valor_observado !== null) ||
-      (value.valor_texto !== undefined && value.valor_texto !== '')
+    : n.item_role === 'derivado'
+      ? previewRow != null && previewRow.valor_observado !== null && previewRow.valor_observado !== undefined
+      : (value.valor_observado !== undefined && value.valor_observado !== null) ||
+        (value.valor_texto !== undefined && value.valor_texto !== '')
 
   return (
     <div className="border border-stone-200 rounded-lg p-4 space-y-3">
@@ -106,26 +136,31 @@ function ItemRow({
           {item.observacion_prompt && (
             <p className="text-xs text-stone-500 mt-0.5">{item.observacion_prompt}</p>
           )}
-          {normalizeTemplateItem(item).item_role === 'input_medicion' && (
+          {(n.item_role === 'input_medicion' || n.item_role === 'derivado') && n.pass_fail_rule && (
             <p className="text-xs text-stone-400 mt-0.5 font-mono">
               {(() => {
-                const r = normalizeTemplateItem(item).pass_fail_rule
+                const r = n.pass_fail_rule
                 if (!r || r.kind === 'none') return '—'
                 if (r.kind === 'range') return `${r.min ?? '?'} – ${r.max ?? '?'}${r.unit ? ` ${r.unit}` : ''}`
                 if (r.kind === 'tolerance_pct') return `${r.expected}${r.unit ? ` ${r.unit}` : ''} ± ${r.tolerance_pct}%`
                 if (r.kind === 'tolerance_abs') return `${r.expected}${r.unit ? ` ${r.unit}` : ''} ± ${r.tolerance}`
+                if (r.kind === 'formula_bound') return 'Límites por fórmula (ver plantilla)'
+                if (r.kind === 'expression') return 'Regla por expresión'
                 return '—'
               })()}
             </p>
           )}
         </div>
-        {hasValue && cumple !== null && (
-          <span className={cn(
-            'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold border',
-            cumple
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              : 'bg-red-50 text-red-700 border-red-200',
-          )}>
+        {hasValue && cumple !== null && cumple !== undefined && (
+          <span
+            className={cn(
+              'shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold border',
+              cumple
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-red-50 text-red-700 border-red-200',
+            )}
+            aria-label={cumple ? 'Resultado: cumple la regla' : 'Resultado: no cumple la regla'}
+          >
             {cumple ? 'CUMPLE' : 'NO CUMPLE'}
           </span>
         )}
@@ -134,12 +169,20 @@ function ItemRow({
       {/* Input area by tipo */}
       {normalizeTemplateItem(item).primitive === 'booleano' ? (
         <div className="space-y-1">
-          <p className="text-[10px] text-stone-500">Registro (el sistema calcula si cumple según la norma)</p>
-          <div className="flex gap-2">
+          <p id={`bool-hint-${item.id}`} className="text-xs text-stone-500">
+            Registro (el sistema calcula si cumple según la norma)
+          </p>
+          <div
+            className="flex gap-2"
+            role="group"
+            aria-labelledby={`bool-hint-${item.id}`}
+            aria-label={`Respuesta: ${item.punto}`}
+          >
             {[{ label: 'Sí', val: true }, { label: 'No', val: false }].map(opt => (
               <button
                 key={String(opt.val)}
                 type="button"
+                aria-pressed={value.valor_booleano === opt.val}
                 onClick={() => onChange({ ...value, valor_booleano: opt.val })}
                 className={cn(
                   'flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-all',
@@ -190,9 +233,20 @@ function ItemRow({
           onChange={e => onChange({ ...value, valor_texto: e.target.value })}
           className="border-stone-200 text-sm font-mono"
         />
-      ) : normalizeTemplateItem(item).item_role === 'derivado' ? (
-        <div className="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-500 font-mono">
-          Calculado: <code>{item.formula}</code>
+      ) : n.item_role === 'derivado' ? (
+        <div className="rounded-md bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-600 space-y-1">
+          <p className="font-mono text-stone-500">
+            Calculado: <code>{item.formula}</code>
+          </p>
+          {previewRow && previewRow.valor_observado != null && (
+            <p className="text-sm font-semibold text-stone-800">
+              = {previewRow.valor_observado}
+              {item.unidad ? ` ${item.unidad}` : ''}
+            </p>
+          )}
+          {previewRow && previewRow.valor_observado == null && (
+            <p className="text-amber-700 text-[11px]">Complete las mediciones referenciadas para ver el resultado.</p>
+          )}
         </div>
       ) : (
         /* medicion or numero */
@@ -215,12 +269,12 @@ function ItemRow({
           {item.unidad && (
             <span className="text-xs text-stone-400 font-mono w-10 shrink-0">{item.unidad}</span>
           )}
-          {hasValue && normalizeTemplateItem(item).pass_fail_rule?.kind === 'tolerance_abs' && value.valor_observado != null && (
+          {hasValue && n.pass_fail_rule?.kind === 'tolerance_abs' && (previewRow?.valor_observado ?? value.valor_observado) != null && (
             <span className={cn(
               'text-xs font-mono w-20 shrink-0 text-right',
               cumple ? 'text-emerald-600' : 'text-red-600',
             )}>
-              err: {(Math.abs(value.valor_observado - (normalizeTemplateItem(item).pass_fail_rule as any).expected)).toFixed(3)}
+              err: {(Math.abs((previewRow?.valor_observado ?? value.valor_observado)! - (n.pass_fail_rule as { expected: number }).expected)).toFixed(3)}
             </span>
           )}
         </div>
@@ -271,7 +325,15 @@ export default function VerificarPage() {
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({})
 
   // Master instrument picker (for Tipo C)
-  const [maestros, setMaestros] = useState<Array<{ id: string; codigo: string; nombre: string; estado: string }>>([])
+  const [maestros, setMaestros] = useState<Array<{
+    id: string
+    codigo: string
+    nombre: string
+    estado: string
+    incertidumbre_expandida?: number | null
+    incertidumbre_k?: number | null
+    incertidumbre_unidad?: string | null
+  }>>([])
   const [selectedMaestroIds, setSelectedMaestroIds] = useState<string[]>([])
 
   // Inicio form
@@ -488,8 +550,8 @@ export default function VerificarPage() {
         }),
       })
       if (!res.ok) {
-        const j = await res.json()
-        throw new Error(j.error ?? 'Error creando verificación')
+        const j = (await res.json()) as EmaApiErrorPayload
+        throw new Error(formatEmaApiError(j) || 'Error creando verificación')
       }
       const j = await res.json()
       setVerifId(j.data.id)
@@ -510,10 +572,38 @@ export default function VerificarPage() {
     const section = snapshot.sections[step.sectionIndex!]
     const rep = step.repeticion!
 
-    // Collect measurements for this section/rep
     const instKey = `${section.id}:${rep}`
     const codeRow = instanceCodes[instKey]?.trim() || null
 
+    const previewInputs = [...(section.items ?? [])]
+      .sort((a, b) => a.orden - b.orden)
+      .filter(it => normalizeTemplateItem(it).item_role !== 'derivado')
+      .filter(it => !(instrumento?.tipo === 'C' && it.tipo === 'referencia_equipo'))
+      .map(item => {
+        const key = mKey(section.id, rep, item.id)
+        const mv = measurements[key] ?? {}
+        return {
+          item_id: item.id,
+          valor_observado: mv.valor_observado ?? null,
+          valor_booleano: mv.valor_booleano ?? null,
+          valor_texto: mv.valor_texto ?? null,
+          observacion: mv.observacion ?? null,
+          instance_code: codeRow ?? mv.instance_code ?? null,
+        }
+      })
+
+    const missingVars = missingSectionFormulaVariableNames(
+      section,
+      rep,
+      previewInputs,
+      headerNumericPayload ?? {},
+    )
+    if (missingVars.length > 0) {
+      setError(`Faltan valores para las variables: ${missingVars.join(', ')}. Complételas antes de continuar.`)
+      return
+    }
+
+    // Collect measurements for this section/rep
     const toSave = section.items
       .filter(item => normalizeTemplateItem(item).item_role !== 'derivado')
       .filter(item => !(instrumento?.tipo === 'C' && item.tipo === 'referencia_equipo'))
@@ -562,7 +652,13 @@ export default function VerificarPage() {
 
     // Auto-suggest resultado when reaching cierre
     if (currentStep + 1 === steps.length - 1 && snapshot) {
-      const suggested = autoSuggestResultado(snapshot, measurements)
+      const suggested = autoSuggestResultado(
+        snapshot,
+        measurements,
+        mKey,
+        headerNumericPayload,
+        instrumento?.tipo,
+      )
       setCierreForm(f => ({ ...f, resultado: f.resultado || suggested }))
     }
 
@@ -595,8 +691,8 @@ export default function VerificarPage() {
         }),
       })
       if (!res.ok) {
-        const j = await res.json()
-        throw new Error(j.error ?? 'Error cerrando verificación')
+        const j = (await res.json()) as EmaApiErrorPayload
+        throw new Error(formatEmaApiError(j) || 'Error cerrando verificación')
       }
       router.push(`/quality/instrumentos/${id}/verificaciones/${verifId}`)
     } catch (e: any) {
@@ -638,7 +734,7 @@ export default function VerificarPage() {
           </div>
         </div>
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">{error}</div>
         )}
         <div className="flex flex-col gap-3">
           {plantillaCandidates.map(c => (
@@ -734,7 +830,7 @@ export default function VerificarPage() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 whitespace-pre-wrap">
           {error}
         </div>
       )}
@@ -794,12 +890,16 @@ export default function VerificarPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label className="text-xs text-stone-600">Fecha de verificación <span className="text-red-500">*</span></Label>
+                <Label htmlFor="ema-verif-fecha" className="text-xs text-stone-600">
+                  Fecha de verificación <span className="text-red-500">*</span>
+                </Label>
                 <Input
+                  id="ema-verif-fecha"
                   type="date"
                   value={inicioForm.fecha_verificacion}
                   onChange={e => setInicioForm(f => ({ ...f, fecha_verificacion: e.target.value }))}
                   className="border-stone-200"
+                  required
                 />
               </div>
             </div>
@@ -839,10 +939,62 @@ export default function VerificarPage() {
                     ))
                   )}
                 </div>
-                <p className="text-[10px] text-stone-400">
-                  Patrones Tipo A definidos para este instrumento (trazabilidad NMX-EC-17025). Puede usar uno o varios en
-                  esta corrida.
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Patrones Tipo A definidos para este instrumento (trazabilidad NMX-EC-17025-IMNC). Puede usar uno o
+                  varios en esta corrida. La incertidumbre U del patrón proviene de la ficha (sincronizada con el
+                  certificado vigente) o del certificado si la ficha aún no la tiene.
                 </p>
+                {snapshot && (() => {
+                  const band = firstToleranceBandFromSnapshot(snapshot)
+                  const selected = maestros.filter(m => selectedMaestroIds.includes(m.id))
+                  const lowTur = selected.filter(m => {
+                    const u = m.incertidumbre_expandida
+                    if (u == null || u <= 0 || band == null || band <= 0) return false
+                    return band / u < 4
+                  })
+                  if (!selected.length) return null
+                  return (
+                    <div
+                      className="rounded-md border border-stone-100 bg-stone-50/80 px-3 py-2 text-xs text-stone-700 space-y-1.5"
+                      role="region"
+                      aria-label="Indicadores metrológicos orientativos"
+                    >
+                      <p className="font-medium text-stone-800">Metrología: cociente TUR (indicativo, no sustituye dictamen de laboratorio)</p>
+                      <p className="text-stone-600 leading-relaxed">
+                        TUR (test uncertainty ratio) aquí es{' '}
+                        <strong>referencia interna</strong>: tolerancia detectada en la plantilla ÷ U del patrón. No
+                        constituye evaluación de aptitud ISO; depende de que la plantilla exprese tolerancia absoluta o
+                        porcentual comparable.
+                      </p>
+                      {band != null && band > 0 ? (
+                        <p>
+                          Banda de tolerancia de referencia (desde plantilla): <span className="font-mono">{band}</span>
+                        </p>
+                      ) : (
+                        <p className="text-amber-800">
+                          No se detectó tolerancia absoluta ni porcentual en la plantilla; el cociente TUR no se calcula hasta definirla.
+                        </p>
+                      )}
+                      <ul className="space-y-0.5 font-mono text-xs">
+                        {selected.map(m => {
+                          const u = m.incertidumbre_expandida
+                          const tur = band != null && band > 0 && u != null && u > 0 ? band / u : null
+                          return (
+                            <li key={m.id}>
+                              {m.codigo}: U={u ?? '—'} {m.incertidumbre_unidad ? m.incertidumbre_unidad : ''}
+                              {tur != null ? ` → TUR≈${tur.toFixed(2)} (objetivo frecuente ≥ 4)` : ''}
+                            </li>
+                          )
+                        })}
+                      </ul>
+                      {lowTur.length > 0 && (
+                        <p className="text-amber-800 font-medium" role="status">
+                          Aviso: patrón(es) con TUR bajo frente a la tolerancia de referencia — revise incertidumbre del certificado o la tolerancia operativa.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
@@ -897,6 +1049,38 @@ export default function VerificarPage() {
         const layout = effectiveLayout(section as any)
         const refPt = layout === 'reference_series' ? referencePointForRow(section as any, rep) : null
 
+        const instKeyLocal = `${section.id}:${rep}`
+        const codeRowLocal = instanceCodes[instKeyLocal]?.trim() || null
+        const previewInputsLocal = [...(section.items ?? [])]
+          .sort((a, b) => a.orden - b.orden)
+          .filter(it => normalizeTemplateItem(it).item_role !== 'derivado')
+          .filter(it => !(instrumento?.tipo === 'C' && it.tipo === 'referencia_equipo'))
+          .map(item => {
+            const key = mKey(section.id, rep, item.id)
+            const mv = measurements[key] ?? {}
+            return {
+              item_id: item.id,
+              valor_observado: mv.valor_observado ?? null,
+              valor_booleano: mv.valor_booleano ?? null,
+              valor_texto: mv.valor_texto ?? null,
+              observacion: mv.observacion ?? null,
+              instance_code: codeRowLocal ?? mv.instance_code ?? null,
+            }
+          })
+        const { rows: previewRows, warnings: previewWarnings } = previewSectionMeasurements(
+          section,
+          rep,
+          previewInputsLocal,
+          headerNumericPayload ?? {},
+        )
+        const previewByItemId = new Map(previewRows.map(r => [r.item_id, r]))
+        const sectionBlocked = missingSectionFormulaVariableNames(
+          section,
+          rep,
+          previewInputsLocal,
+          headerNumericPayload ?? {},
+        ).length > 0
+
         return (
           <div className="rounded-lg border border-stone-200 bg-white divide-y divide-stone-100 max-w-4xl">
             <div className="px-5 py-4">
@@ -937,9 +1121,17 @@ export default function VerificarPage() {
               </div>
             )}
 
+            {previewWarnings.length > 0 && (
+              <div className="px-5 py-2 bg-amber-50 border-b border-amber-100 text-[11px] text-amber-900 space-y-0.5">
+                {previewWarnings.map((w, i) => (
+                  <p key={i}>{w}</p>
+                ))}
+              </div>
+            )}
+
             <div className="px-5 py-4 space-y-3">
-              {section.items
-                .filter(item => normalizeTemplateItem(item).item_role !== 'derivado')
+              {[...(section.items ?? [])]
+                .sort((a, b) => a.orden - b.orden)
                 .map(item => {
                   const key = mKey(section.id, rep, item.id)
                   return (
@@ -947,6 +1139,7 @@ export default function VerificarPage() {
                       key={item.id}
                       item={item}
                       value={measurements[key] ?? {}}
+                      previewRow={previewByItemId.get(item.id) ?? null}
                       onChange={val => updateMeasurement(key, val)}
                       referenciaEquipoPatronesReadonly={
                         instrumento?.tipo === 'C' ? referenciaEquipoPatronesReadonly : undefined
@@ -967,7 +1160,8 @@ export default function VerificarPage() {
               </Button>
               <Button
                 onClick={handleSectionNext}
-                disabled={saving}
+                disabled={saving || sectionBlocked}
+                title={sectionBlocked ? 'Complete las variables requeridas por las fórmulas de esta sección' : undefined}
                 className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
               >
                 {saving

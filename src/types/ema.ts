@@ -123,6 +123,10 @@ export interface Instrumento {
   fecha_proximo_evento: string | null;     // ISO date
   motivo_inactivo: string | null;
   notas: string | null;
+  /** Última incertidumbre expandida del patrón (ISO 17025 / TUR); opcional hasta registrar calibración. */
+  incertidumbre_expandida?: number | null;
+  incertidumbre_k?: number | null;
+  incertidumbre_unidad?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -166,6 +170,9 @@ export interface InstrumentoCard {
   conjunto_nombre: string;
   /** Present when loaded with conjunto join — used for EMA compliance checks */
   tipo_servicio?: TipoServicio | null;
+  incertidumbre_expandida?: number | null;
+  incertidumbre_k?: number | null;
+  incertidumbre_unidad?: string | null;
 }
 
 /** Conjunto row with aggregate counts for workspace tables */
@@ -200,7 +207,8 @@ export type UpdateInstrumentoInput = Partial<Pick<Instrumento,
   'plant_id' |
   'mes_inicio_servicio_override' | 'mes_fin_servicio_override' |
   'ubicacion_dentro_planta' | 'fecha_alta' | 'fecha_baja' | 'baja_observaciones' |
-  'estado' | 'fecha_proximo_evento' | 'motivo_inactivo' | 'notas'>> & {
+  'estado' | 'fecha_proximo_evento' | 'motivo_inactivo' | 'notas' |
+  'incertidumbre_expandida' | 'incertidumbre_k' | 'incertidumbre_unidad'>> & {
   instrumento_maestro_ids?: string[] | null;
 };
 
@@ -299,14 +307,22 @@ export type ItemRole =
 /** JSONB pass/fail rule attached to items that contribute to cumple */
 export type PassFailRule =
   | { kind: 'none' }
-  | { kind: 'tolerance_abs'; expected: number; tolerance: number; unit?: string | null }
-  | { kind: 'tolerance_pct'; expected: number; tolerance_pct: number; unit?: string | null }
-  | { kind: 'range'; min: number | null; max: number | null; unit?: string | null }
-  | { kind: 'expected_bool'; value: boolean }
-  | { kind: 'expression'; expr: string }
+  | { kind: 'tolerance_abs'; expected: number; tolerance: number; unit?: string | null; decision_note?: string | null }
+  | { kind: 'tolerance_pct'; expected: number; tolerance_pct: number; unit?: string | null; decision_note?: string | null }
+  | { kind: 'range'; min: number | null; max: number | null; unit?: string | null; decision_note?: string | null }
+  | { kind: 'expected_bool'; value: boolean; decision_note?: string | null }
+  | { kind: 'expression'; expr: string; decision_note?: string | null }
   /** Generalized bound — any combination of fixed min/max and formula-resolved min_formula/max_formula.
    *  min_formula / max_formula are evaluated against the header + measurement scope. */
-  | { kind: 'formula_bound'; min?: number | null; max?: number | null; min_formula?: string | null; max_formula?: string | null; unit?: string | null };
+  | {
+      kind: 'formula_bound';
+      min?: number | null;
+      max?: number | null;
+      min_formula?: string | null;
+      max_formula?: string | null;
+      unit?: string | null;
+      decision_note?: string | null;
+    };
 
 export interface InstancesConfig {
   min_count: number;
@@ -623,6 +639,8 @@ export interface MuestreoInstrumento {
   estado_al_momento: EstadoSnapshot;
   fecha_vencimiento_al_momento: string;   // ISO date — immutable
   instrumento_maestro_snap_id: string | null;
+  /** Última verificación interna cerrada del instrumento tipo C al momento del uso (ISO 17025 / trazabilidad). */
+  completed_verificacion_id: string | null;
   observaciones: string | null;
   created_at: string;
 }
@@ -634,6 +652,8 @@ export interface EnsayoInstrumento {
   estado_al_momento: EstadoSnapshot;
   fecha_vencimiento_al_momento: string;   // ISO date — immutable
   instrumento_maestro_snap_id: string | null;
+  /** Última verificación interna cerrada del instrumento tipo C al momento del uso (ISO 17025 / trazabilidad). */
+  completed_verificacion_id: string | null;
   observaciones: string | null;
   created_at: string;
 }

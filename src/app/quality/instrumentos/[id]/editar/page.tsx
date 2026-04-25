@@ -67,6 +67,9 @@ export default function EditarInstrumentoPage() {
     mes_fin_servicio_override: '' as string | number,
     notas: '',
     estado: '' as string,
+    incertidumbre_expandida: '',
+    incertidumbre_k: '',
+    incertidumbre_unidad: '',
   })
 
   // Window override toggle
@@ -100,6 +103,10 @@ export default function EditarInstrumentoPage() {
         mes_fin_servicio_override: inst.mes_fin_servicio_override ?? '',
         notas: inst.notas ?? '',
         estado: inst.estado ?? 'vigente',
+        incertidumbre_expandida:
+          inst.incertidumbre_expandida != null ? String(inst.incertidumbre_expandida) : '',
+        incertidumbre_k: inst.incertidumbre_k != null ? String(inst.incertidumbre_k) : '',
+        incertidumbre_unidad: inst.incertidumbre_unidad ?? '',
       })
     } catch (e: any) {
       setError(e.message)
@@ -153,6 +160,19 @@ export default function EditarInstrumentoPage() {
           ? Number(form.mes_fin_servicio_override) : null,
         notas: form.notas.trim() || null,
         estado: form.estado || 'vigente',
+        ...(form.tipo === 'A' || form.tipo === 'B'
+          ? {
+              incertidumbre_expandida: form.incertidumbre_expandida.trim()
+                ? parseFloat(form.incertidumbre_expandida)
+                : null,
+              incertidumbre_k: form.incertidumbre_k.trim() ? parseFloat(form.incertidumbre_k) : null,
+              incertidumbre_unidad: form.incertidumbre_unidad.trim() || null,
+            }
+          : {
+              incertidumbre_expandida: null,
+              incertidumbre_k: null,
+              incertidumbre_unidad: null,
+            }),
       }
 
       const res = await fetch(`/api/ema/instrumentos/${id}`, {
@@ -323,6 +343,53 @@ export default function EditarInstrumentoPage() {
             </Field>
           )}
         </div>
+
+        {/* ── Incertidumbre en ficha (A/B, patrón) ───────────────── */}
+        {(form.tipo === 'A' || form.tipo === 'B') && (
+          <div className="rounded-lg border border-stone-200 bg-white p-4 md:p-5 flex flex-col gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-stone-700">Incertidumbre en ficha (patrón)</h2>
+              <p className="text-xs text-stone-500 mt-1 leading-relaxed">
+                Opcional: se rellena automáticamente al registrar el certificado vigente. Edítelo aquí si necesita
+                corregir valores respecto al PDF sin volver a cargar el archivo. Los instrumentos tipo C usan la
+                incertidumbre de sus patrones enlazados.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Field label="U (expandida)">
+                <Input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  value={form.incertidumbre_expandida}
+                  onChange={e => update('incertidumbre_expandida', e.target.value)}
+                  placeholder="ej. 0.02"
+                  aria-describedby="ema-incert-help"
+                />
+              </Field>
+              <Field label="k (cobertura)">
+                <Input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  value={form.incertidumbre_k}
+                  onChange={e => update('incertidumbre_k', e.target.value)}
+                  placeholder="ej. 2"
+                />
+              </Field>
+              <Field label="Unidad de U">
+                <Input
+                  value={form.incertidumbre_unidad}
+                  onChange={e => update('incertidumbre_unidad', e.target.value)}
+                  placeholder="mm, °C…"
+                />
+              </Field>
+            </div>
+            <p id="ema-incert-help" className="text-xs text-stone-500">
+              Referencia: NMX-EC-17025-IMNC (resultados e incertidumbre en certificados de calibración).
+            </p>
+          </div>
+        )}
 
         {/* ── Sección: Datos físicos ─────────────────────────────── */}
         <div className="rounded-lg border border-stone-200 bg-white p-4 md:p-5 flex flex-col gap-4">

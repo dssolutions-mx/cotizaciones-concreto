@@ -520,7 +520,12 @@ function TraceabilityCard({
               <TraceNode
                 title="Instrumento patrón (Tipo A)"
                 subtitle={m.nombre}
-                detail={m.codigo}
+                detail={[
+                  m.codigo,
+                  m.incertidumbre_expandida != null
+                    ? `U = ±${m.incertidumbre_expandida}${m.incertidumbre_unidad ? ` ${m.incertidumbre_unidad}` : ''}${m.incertidumbre_k != null ? ` (k=${m.incertidumbre_k})` : ''}`
+                    : null,
+                ].filter(Boolean).join(' · ')}
                 status={m.estado === 'vigente' ? 'vigente' : 'warning'}
                 accent="sky"
                 href={`/quality/instrumentos/${m.id}`}
@@ -556,10 +561,39 @@ function TraceabilityCard({
         <TraceNode
           title="Muestreos y ensayos"
           subtitle="Uso en operación"
-          detail={instrumento.estado === 'vigente' ? 'Habilitado' : 'Bloqueado si vencido'}
+          detail={
+            instrumento.estado === 'vigente'
+              ? tipo === 'C'
+                ? 'Habilitado · al guardar equipo se registra la última verificación interna cerrada (trazabilidad)'
+                : 'Habilitado'
+              : 'Bloqueado si vencido'
+          }
           status={instrumento.estado === 'vigente' ? 'vigente' : 'warning'}
           accent="emerald"
         />
+      </div>
+
+      <div
+        className="mt-4 rounded-md border border-stone-100 bg-stone-50/90 px-3 py-2.5 text-xs text-stone-700 space-y-2"
+        role="region"
+        aria-label="Guía de incertidumbre y verificación"
+      >
+        <p className="font-medium text-stone-800">Incertidumbre y cumplimiento (referencia NMX-EC-17025-IMNC)</p>
+        <ul className="list-disc pl-4 space-y-1 text-stone-600 leading-relaxed">
+          <li>
+            <strong>U</strong> (incertidumbre expandida) y <strong>k</strong> (factor de cobertura) provienen del{' '}
+            <strong>certificado del laboratorio acreditado</strong>; al registrar el certificado, la ficha del
+            instrumento patrón se actualiza con esos valores para cálculos internos (p. ej. cociente TUR orientativo).
+          </li>
+          <li>
+            Puede ajustar manualmente U, k y unidad en <strong>Editar</strong> (tipos A y B) si el laboratorio emite
+            correcciones sin reemplazar aún el PDF en el sistema.
+          </li>
+          <li>
+            Los cocientes <strong>TUR</strong> mostrados en verificación son <strong>indicativos</strong>: dependen de
+            la tolerancia detectada en la plantilla y no sustituyen el dictamen metrológico del laboratorio.
+          </li>
+        </ul>
       </div>
     </section>
   )

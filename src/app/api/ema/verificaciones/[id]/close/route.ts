@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { assertPatronesCumplenParaVerificacionInterna } from '@/lib/ema/verificacionPatronCompliance';
+import { persistMetrologiaTurOnVerificationClose } from '@/services/emaMetrologyService';
 import { z } from 'zod';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
@@ -26,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const admin = createServiceClient();
     const { data: verif, error: vErr } = await admin
       .from('completed_verificaciones')
-      .select('id, estado, instrumento_id')
+      .select('id, estado, instrumento_id, fecha_verificacion')
       .eq('id', completed_id)
       .single();
     if (vErr || !verif) return NextResponse.json({ error: 'Verificación no encontrada' }, { status: 404 });
@@ -44,18 +46,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .eq('id', (verif as { instrumento_id: string }).instrumento_id)
       .single();
     if ((instTipo as { tipo?: string } | null)?.tipo === 'C') {
-      const { count, error: cErr } = await admin
+      const { data: mrows, error: mErr } = await admin
         .from('completed_verificacion_maestros')
-        .select('id', { count: 'exact', head: true })
+        .select('maestro_id')
         .eq('completed_id', completed_id);
-      if (cErr) throw cErr;
-      if (!count || count < 1) {
+      if (mErr) throw mErr;
+      const maestroIds = (mrows ?? []).map((r: { maestro_id: string }) => r.maestro_id);
+      if (maestroIds.length < 1) {
         return NextResponse.json(
           {
             error:
               'No se puede cerrar: la verificación no tiene instrumentos patrón (tipo A) vinculados. Vuelva a abrir o reasigne patrones desde la ficha del instrumento.',
           },
           { status: 400 },
+        );
+      }
+      const fechaVerif = (verif as { fecha_verificacion?: string }).fecha_verificacion
+        ?? new Date().toISOString().split('T')[0];
+      const patronGate = await assertPatronesCumplenParaVerificacionInterna(admin, maestroIds, fechaVerif);
+      if (!patronGate.ok) {
+        return NextResponse.json(
+          {
+            error: patronGate.issues.map((i) => `${i.codigo}: ${i.detalle}`).join(' '),
+            issues: patronGate.issues,
+          },
+          { status: 422 },
         );
       }
     }
@@ -75,6 +90,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .single();
 
     if (cErr) throw cErr;
+
+    try {
+      await persistMetrologiaTurOnVerificationClose(admin, completed_id);
+    } catch {
+      /* no bloquear cierre si la fila metrológica no pudo persistirse */
+    }
+
     return NextResponse.json({ data: closed });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

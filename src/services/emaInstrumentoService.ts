@@ -6,6 +6,7 @@
  * `emaVerificacionService.ts`.
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { refreshEmaComplianceAndPrograma } from '@/services/emaProgramaService';
 import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
@@ -262,6 +263,7 @@ export async function getInstrumentos(
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento, conjunto_id,
       plant_id, marca, modelo_comercial,
+      incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
       conjuntos_herramientas(
         id,
         categoria,
@@ -302,6 +304,9 @@ export async function getInstrumentos(
       conjunto_id: (row.conjunto_id as string) ?? (c.id as string) ?? '',
       conjunto_codigo: (c.codigo_conjunto as string) ?? '',
       conjunto_nombre: (c.nombre_conjunto as string) ?? '',
+      incertidumbre_expandida: row.incertidumbre_expandida ?? null,
+      incertidumbre_k: row.incertidumbre_k ?? null,
+      incertidumbre_unidad: row.incertidumbre_unidad ?? null,
     };
   });
 }
@@ -333,13 +338,25 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
   if (instrumento_maestro_ids.length > 0) {
     const { data: maestros, error: mErr } = await supabase
       .from('instrumentos')
-      .select('id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id')
+      .select(
+        'id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id, incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad',
+      )
       .in('id', instrumento_maestro_ids);
     if (mErr) throw mErr;
     const order = new Map(instrumento_maestro_ids.map((mid, i) => [mid, i]));
-    instrumentos_maestro = ([...(maestros ?? [])] as Instrumento[]).sort(
+    const sorted = ([...(maestros ?? [])] as Instrumento[]).sort(
       (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
     );
+    const certMap = await fetchLatestVigenteCertUncertaintyByInstrumentIds(sorted.map((m) => m.id));
+    instrumentos_maestro = sorted.map((m) => {
+      const c = certMap.get(m.id);
+      return {
+        ...m,
+        incertidumbre_expandida: m.incertidumbre_expandida ?? c?.incertidumbre_expandida ?? null,
+        incertidumbre_k: m.incertidumbre_k ?? c?.factor_cobertura ?? null,
+        incertidumbre_unidad: m.incertidumbre_unidad ?? c?.incertidumbre_unidad ?? null,
+      };
+    });
   }
 
   const ventana_efectiva = computeEffectiveWindow(
@@ -742,6 +759,87 @@ export async function deleteConjunto(id: string): Promise<void> {
 // Certificados de calibración (Type A/B)
 // ─────────────────────────────────────────
 
+/** Uncertainty fields from the latest vigente certificate row (per instrument). */
+export type CertUncertaintySnapshot = {
+  incertidumbre_expandida: number | null;
+  factor_cobertura: number | null;
+  incertidumbre_unidad: string | null;
+};
+
+/**
+ * Latest vigente certificate uncertainty per instrument.
+ * Used to overlay TUR when `instrumentos.incertidumbre_*` is still null (sync runs on certificado POST).
+ */
+export async function fetchLatestVigenteCertUncertaintyByInstrumentIds(
+  ids: string[],
+  client?: SupabaseClient,
+): Promise<Map<string, CertUncertaintySnapshot>> {
+  const out = new Map<string, CertUncertaintySnapshot>();
+  if (ids.length === 0) return out;
+  const supabase = client ?? (await createServerSupabaseClient());
+  const { data, error } = await supabase
+    .from('certificados_calibracion')
+    .select('instrumento_id, fecha_emision, incertidumbre_expandida, factor_cobertura, incertidumbre_unidad')
+    .in('instrumento_id', ids)
+    .eq('is_vigente', true);
+  if (error) throw error;
+  const byInst = new Map<string, { fecha_emision: string; row: CertUncertaintySnapshot }[]>();
+  for (const row of data ?? []) {
+    const r: CertUncertaintySnapshot = {
+      incertidumbre_expandida: row.incertidumbre_expandida ?? null,
+      factor_cobertura: row.factor_cobertura ?? null,
+      incertidumbre_unidad: row.incertidumbre_unidad ?? null,
+    };
+    const arr = byInst.get(row.instrumento_id) ?? [];
+    arr.push({ fecha_emision: row.fecha_emision ?? '', row: r });
+    byInst.set(row.instrumento_id, arr);
+  }
+  for (const [instId, rows] of byInst) {
+    rows.sort((a, b) => b.fecha_emision.localeCompare(a.fecha_emision));
+    out.set(instId, rows[0]!.row);
+  }
+  return out;
+}
+
+/** Copy latest vigente certificado U, k, unidad onto `instrumentos` (canonical for TUR / pantallas). */
+export async function syncInstrumentUncertaintyFromVigenteCertificado(instrumentoId: string): Promise<void> {
+  const snap = (await fetchLatestVigenteCertUncertaintyByInstrumentIds([instrumentoId])).get(instrumentoId);
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from('instrumentos')
+    .update({
+      incertidumbre_expandida: snap?.incertidumbre_expandida ?? null,
+      incertidumbre_k: snap?.factor_cobertura ?? null,
+      incertidumbre_unidad: snap?.incertidumbre_unidad ?? null,
+    })
+    .eq('id', instrumentoId);
+  if (error) throw error;
+}
+
+/** Latest closed internal verification for a tipo C instrument (operational traceability link). */
+export async function resolveLatestCerradaVerificacionIdForTipoCInstrument(
+  instrumentoId: string,
+): Promise<string | null> {
+  const supabase = await createServerSupabaseClient();
+  const { data: inst, error: iErr } = await supabase
+    .from('instrumentos')
+    .select('tipo')
+    .eq('id', instrumentoId)
+    .maybeSingle();
+  if (iErr) throw iErr;
+  if (!inst || inst.tipo !== 'C') return null;
+  const { data: row, error: vErr } = await supabase
+    .from('completed_verificaciones')
+    .select('id')
+    .eq('instrumento_id', instrumentoId)
+    .eq('estado', 'cerrado')
+    .order('fecha_verificacion', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (vErr) throw vErr;
+  return row?.id ?? null;
+}
+
 export async function getCertificadosByInstrumento(
   instrumento_id: string,
   opts?: { vigente?: boolean; limit?: number },
@@ -775,6 +873,11 @@ export async function createCertificado(
     .select()
     .single();
   if (error) throw error;
+  try {
+    await syncInstrumentUncertaintyFromVigenteCertificado(input.instrumento_id);
+  } catch {
+    /* no bloquear alta de certificado si la copia a ficha falla por RLS u otro motivo */
+  }
   return data;
 }
 
@@ -1059,15 +1162,20 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento, conjunto_id,
       plant_id, marca, modelo_comercial,
+      incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
       conjuntos_herramientas!inner(id, categoria, codigo_conjunto, nombre_conjunto, tipo_servicio)
     `)
     .in('id', ids);
 
   if (error) throw error;
 
+  const idsList = (data ?? []).map((row: { id: string }) => row.id);
+  const certOverlay = await fetchLatestVigenteCertUncertaintyByInstrumentIds(idsList);
+
   for (const row of data ?? []) {
     const r = row as any;
     const c = r.conjuntos_herramientas ?? {};
+    const cert = certOverlay.get(r.id);
     map.set(r.id, {
       id: r.id,
       codigo: r.codigo,
@@ -1083,6 +1191,9 @@ export async function getInstrumentosCardsByIds(ids: string[]): Promise<Map<stri
       conjunto_codigo: c.codigo_conjunto ?? '',
       conjunto_nombre: c.nombre_conjunto ?? '',
       tipo_servicio: (c.tipo_servicio as TipoServicio | null) ?? undefined,
+      incertidumbre_expandida: r.incertidumbre_expandida ?? cert?.incertidumbre_expandida ?? null,
+      incertidumbre_k: r.incertidumbre_k ?? cert?.factor_cobertura ?? null,
+      incertidumbre_unidad: r.incertidumbre_unidad ?? cert?.incertidumbre_unidad ?? null,
     });
   }
 
@@ -1158,6 +1269,14 @@ export async function saveMuestreoInstrumentos(
   if (seleccionados.length === 0) return [];
   const supabase = await createServerSupabaseClient();
 
+  const uniqueIds = [...new Set(seleccionados.map((s) => s.instrumento.id))];
+  const verifByInstrument = new Map<string, string | null>();
+  await Promise.all(
+    uniqueIds.map(async (iid) => {
+      verifByInstrument.set(iid, await resolveLatestCerradaVerificacionIdForTipoCInstrument(iid));
+    }),
+  );
+
   const rows = seleccionados.map((s) => ({
     muestreo_id,
     instrumento_id: s.instrumento.id,
@@ -1165,6 +1284,7 @@ export async function saveMuestreoInstrumentos(
     estado_al_momento: mapEstadoToSnapshot(s.instrumento.estado),
     fecha_vencimiento_al_momento: s.instrumento.fecha_proximo_evento ?? new Date().toISOString().split('T')[0],
     observaciones: s.observaciones ?? null,
+    completed_verificacion_id: verifByInstrument.get(s.instrumento.id) ?? null,
   }));
 
   const { data, error } = await supabase
@@ -1182,12 +1302,21 @@ export async function saveEnsayoInstrumentos(
   if (seleccionados.length === 0) return [];
   const supabase = await createServerSupabaseClient();
 
+  const uniqueIds = [...new Set(seleccionados.map((s) => s.instrumento.id))];
+  const verifByInstrument = new Map<string, string | null>();
+  await Promise.all(
+    uniqueIds.map(async (iid) => {
+      verifByInstrument.set(iid, await resolveLatestCerradaVerificacionIdForTipoCInstrument(iid));
+    }),
+  );
+
   const rows = seleccionados.map((s) => ({
     ensayo_id,
     instrumento_id: s.instrumento.id,
     estado_al_momento: mapEstadoToSnapshot(s.instrumento.estado),
     fecha_vencimiento_al_momento: s.instrumento.fecha_proximo_evento ?? new Date().toISOString().split('T')[0],
     observaciones: s.observaciones ?? null,
+    completed_verificacion_id: verifByInstrument.get(s.instrumento.id) ?? null,
   }));
 
   const { data, error } = await supabase

@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -18,8 +18,12 @@ import type {
   VerificacionTemplateSection,
   VerificacionTemplateItem,
   VerificacionTemplateHeaderField,
+  VerificacionTemplateSnapshot,
   TipoItemVerificacion,
+  PassFailRule,
 } from '@/types/ema'
+import { evaluateFormula, parseFormula, extractVariables } from '@/lib/ema/formula'
+import { evaluatePassFailRule } from '@/lib/ema/passFail'
 import { TemplateFicha } from '@/components/ema/TemplateFicha'
 import {
   Dialog,
@@ -72,6 +76,45 @@ function TipoBadge({ tipo }: { tipo: TipoItemVerificacion }) {
   )
 }
 
+/** Dry-run diff: borrador vs snapshot publicado (clave sección|orden|punto). */
+function diffDraftVsPublishedSnapshot(
+  draftSections: VerificacionTemplateSection[],
+  publishedSections: VerificacionTemplateSnapshot['sections'] | undefined,
+): string[] {
+  if (!publishedSections?.length) return ['No hay secciones en la versión publicada.']
+
+  const lines: string[] = []
+  const pubByKey = new Map<string, { formula: string; rule: string }>()
+  for (const sec of publishedSections) {
+    for (const it of sec.items ?? []) {
+      const key = `${(sec.titulo || '').trim()}|${it.orden}|${(it.punto || '').trim()}`
+      pubByKey.set(key, {
+        formula: (it.formula ?? '').trim(),
+        rule: JSON.stringify(it.pass_fail_rule ?? null),
+      })
+    }
+  }
+  for (const sec of draftSections) {
+    for (const it of sec.items ?? []) {
+      const key = `${(sec.titulo || '').trim()}|${it.orden}|${(it.punto || '').trim()}`
+      const p = pubByKey.get(key)
+      const f = (it.formula ?? '').trim()
+      const r = JSON.stringify(it.pass_fail_rule ?? null)
+      if (!p) {
+        lines.push(`+ «${it.punto}» (${sec.titulo || sec.id}): no existe igual en la versión publicada (o cambió título/orden/punto).`)
+        continue
+      }
+      if (p.formula !== f) {
+        lines.push(`~ «${it.punto}»: fórmula distinta entre borrador y publicada.`)
+      }
+      if (p.rule !== r) {
+        lines.push(`~ «${it.punto}»: regla de cumplimiento distinta.`)
+      }
+    }
+  }
+  return lines.length ? lines : ['Sin diferencias detectadas en fórmula ni pass_fail_rule por punto (misma clave).']
+}
+
 // ─── Item Form ─────────────────────────────────────────────────────────────────
 
 interface ItemFormState {
@@ -79,12 +122,17 @@ interface ItemFormState {
   punto: string
   valor_esperado: string
   tolerancia: string
-  tolerancia_tipo: 'absoluta' | 'porcentual' | 'rango'
+  tolerancia_tipo: 'absoluta' | 'porcentual' | 'rango' | 'formula_bound'
   tolerancia_min: string
   tolerancia_max: string
+  /** Límites por fórmula (min/max) — evaluados con scope cabecera + mediciones */
+  formula_bound_min: string
+  formula_bound_max: string
   unidad: string
   formula: string
   observacion_prompt: string
+  /** Texto de regla de decisión / auditoría (se guarda en pass_fail_rule.decision_note) */
+  decision_rule_text: string
   requerido: boolean
   variable_name: string
   contributes_to_cumple: boolean
@@ -119,15 +167,32 @@ function defaultContributesForTipo(tipo: TipoItemVerificacion): boolean {
   return !['numero', 'texto', 'referencia_equipo'].includes(tipo)
 }
 
+function decisionNotePayload(f: ItemFormState): { decision_note?: string | null } {
+  const t = f.decision_rule_text.trim()
+  return t ? { decision_note: t } : {}
+}
+
 function buildPassFailRuleFromForm(f: ItemFormState): Record<string, unknown> {
-  if (f.tipo === 'booleano') return { kind: 'expected_bool', value: f.expected_bool_value }
+  if (f.tipo === 'booleano') {
+    return { kind: 'expected_bool', value: f.expected_bool_value, ...decisionNotePayload(f) }
+  }
   if (f.tipo === 'medicion' || f.tipo === 'calculado') {
+    if (f.tolerancia_tipo === 'formula_bound') {
+      return {
+        kind: 'formula_bound',
+        min_formula: f.formula_bound_min.trim() || null,
+        max_formula: f.formula_bound_max.trim() || null,
+        unit: f.unidad.trim() || null,
+        ...decisionNotePayload(f),
+      }
+    }
     if (f.tolerancia_tipo === 'rango') {
       return {
         kind: 'range',
         min: f.tolerancia_min !== '' ? parseFloat(f.tolerancia_min) : null,
         max: f.tolerancia_max !== '' ? parseFloat(f.tolerancia_max) : null,
         unit: f.unidad.trim() || null,
+        ...decisionNotePayload(f),
       }
     }
     if (f.tolerancia_tipo === 'porcentual' && f.valor_esperado !== '') {
@@ -136,6 +201,7 @@ function buildPassFailRuleFromForm(f: ItemFormState): Record<string, unknown> {
         expected: parseFloat(f.valor_esperado),
         tolerance_pct: f.tolerancia !== '' ? parseFloat(f.tolerancia) : 0,
         unit: f.unidad.trim() || null,
+        ...decisionNotePayload(f),
       }
     }
     if (f.valor_esperado !== '' && f.tolerancia !== '') {
@@ -144,6 +210,7 @@ function buildPassFailRuleFromForm(f: ItemFormState): Record<string, unknown> {
         expected: parseFloat(f.valor_esperado),
         tolerance: parseFloat(f.tolerancia),
         unit: f.unidad.trim() || null,
+        ...decisionNotePayload(f),
       }
     }
   }
@@ -158,9 +225,12 @@ const emptyItemForm = (): ItemFormState => ({
   tolerancia_tipo: 'absoluta',
   tolerancia_min: '',
   tolerancia_max: '',
+  formula_bound_min: '',
+  formula_bound_max: '',
   unidad: '',
   formula: '',
   observacion_prompt: '',
+  decision_rule_text: '',
   requerido: true,
   variable_name: '',
   contributes_to_cumple: true,
@@ -189,24 +259,48 @@ function itemFormToPayload(f: ItemFormState) {
 }
 
 function itemToForm(item: VerificacionTemplateItem): ItemFormState {
-  const pr = item.pass_fail_rule as { kind?: string; value?: boolean } | undefined
+  const pr = item.pass_fail_rule as { kind?: string; value?: boolean; decision_note?: string | null } | undefined
+  const decision_rule_text =
+    pr && 'decision_note' in pr && pr.decision_note ? String(pr.decision_note) : ''
   const base: ItemFormState = {
     tipo: item.tipo,
     punto: item.punto,
     valor_esperado: item.valor_esperado != null ? String(item.valor_esperado) : '',
     tolerancia: item.tolerancia != null ? String(item.tolerancia) : '',
-    tolerancia_tipo: item.tolerancia_tipo,
+    tolerancia_tipo: item.tolerancia_tipo as ItemFormState['tolerancia_tipo'],
     tolerancia_min: item.tolerancia_min != null ? String(item.tolerancia_min) : '',
     tolerancia_max: item.tolerancia_max != null ? String(item.tolerancia_max) : '',
+    formula_bound_min: '',
+    formula_bound_max: '',
     unidad: item.unidad ?? '',
     formula: item.formula ?? '',
     observacion_prompt: item.observacion_prompt ?? '',
+    decision_rule_text,
     requerido: item.requerido,
     variable_name: item.variable_name ?? '',
     contributes_to_cumple: item.contributes_to_cumple ?? defaultContributesForTipo(item.tipo),
     expected_bool_value: pr?.kind === 'expected_bool' ? !!pr.value : true,
   }
-  if (item.tipo !== 'calculado' || !item.pass_fail_rule) return base
+  if (item.tipo !== 'calculado' || !item.pass_fail_rule) {
+    if (item.tipo === 'medicion' && item.pass_fail_rule) {
+      const rm = item.pass_fail_rule as {
+        kind: string
+        min_formula?: string | null
+        max_formula?: string | null
+        decision_note?: string | null
+      }
+      if (rm.kind === 'formula_bound') {
+        return {
+          ...base,
+          tolerancia_tipo: 'formula_bound',
+          formula_bound_min: rm.min_formula ?? '',
+          formula_bound_max: rm.max_formula ?? '',
+          decision_rule_text: rm.decision_note ? String(rm.decision_note) : base.decision_rule_text,
+        }
+      }
+    }
+    return base
+  }
   const r = item.pass_fail_rule as {
     kind: string
     expected?: number
@@ -215,6 +309,9 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
     min?: number | null
     max?: number | null
     unit?: string | null
+    min_formula?: string | null
+    max_formula?: string | null
+    decision_note?: string | null
   }
   if (r.kind === 'tolerance_abs' && r.expected != null && r.tolerance != null) {
     return {
@@ -225,6 +322,7 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
       tolerancia_min: '',
       tolerancia_max: '',
       unidad: r.unit ?? base.unidad,
+      decision_rule_text: r.decision_note ? String(r.decision_note) : base.decision_rule_text,
     }
   }
   if (r.kind === 'tolerance_pct' && r.expected != null && r.tolerance_pct != null) {
@@ -236,6 +334,7 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
       tolerancia_min: '',
       tolerancia_max: '',
       unidad: r.unit ?? base.unidad,
+      decision_rule_text: r.decision_note ? String(r.decision_note) : base.decision_rule_text,
     }
   }
   if (r.kind === 'range') {
@@ -245,6 +344,17 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
       tolerancia_min: r.min != null ? String(r.min) : '',
       tolerancia_max: r.max != null ? String(r.max) : '',
       unidad: r.unit ?? base.unidad,
+      decision_rule_text: r.decision_note ? String(r.decision_note) : base.decision_rule_text,
+    }
+  }
+  if (r.kind === 'formula_bound') {
+    return {
+      ...base,
+      tolerancia_tipo: 'formula_bound',
+      formula_bound_min: r.min_formula ?? '',
+      formula_bound_max: r.max_formula ?? '',
+      unidad: r.unit ?? base.unidad,
+      decision_rule_text: r.decision_note ? String(r.decision_note) : base.decision_rule_text,
     }
   }
   return base
@@ -258,6 +368,95 @@ function headerFieldToForm(field: VerificacionTemplateHeaderField): HeaderFieldF
   }
 }
 
+function FormulaAuthoringPlayground({
+  formula,
+  rule,
+  variableNames,
+}: {
+  formula: string
+  rule: PassFailRule | Record<string, unknown> | null
+  variableNames: string[]
+}) {
+  const varsInFormula = useMemo(() => {
+    if (!formula.trim()) return variableNames
+    try {
+      const used = extractVariables(parseFormula(formula))
+      const ordered = variableNames.filter(v => used.has(v))
+      return ordered.length ? ordered : Array.from(used).sort()
+    } catch {
+      return variableNames
+    }
+  }, [formula, variableNames])
+
+  const [vals, setVals] = useState<Record<string, string>>({})
+  useEffect(() => {
+    setVals(prev => {
+      const next = { ...prev }
+      for (const v of varsInFormula) {
+        if (next[v] === undefined) next[v] = ''
+      }
+      return next
+    })
+  }, [varsInFormula.join(',')])
+
+  const scope = useMemo(() => {
+    const s: Record<string, number> = {}
+    for (const v of varsInFormula) {
+      const n = parseFloat(vals[v] ?? '')
+      if (!Number.isNaN(n)) s[v] = n
+    }
+    return s
+  }, [varsInFormula, vals])
+
+  const evaluated = useMemo(() => {
+    if (!formula.trim()) return { n: null as number | null, err: null as string | null }
+    try {
+      return { n: evaluateFormula(parseFormula(formula), scope), err: null }
+    } catch (e: unknown) {
+      return { n: null, err: e instanceof Error ? e.message : String(e) }
+    }
+  }, [formula, scope])
+
+  const cumple = useMemo(() => {
+    if (evaluated.err || !rule || (rule as { kind?: string }).kind === 'none') return null
+    return evaluatePassFailRule(rule as PassFailRule, {
+      valor_observado: evaluated.n,
+      valor_booleano: null,
+      scope,
+    })
+  }, [evaluated.err, evaluated.n, rule, scope])
+
+  return (
+    <div className="mt-2 rounded-lg border border-stone-200 bg-white px-3 py-2 space-y-2 text-xs">
+      <p className="font-semibold text-stone-700">Probar fórmula (valores ficticios)</p>
+      <div className="grid grid-cols-2 gap-2">
+        {varsInFormula.map(v => (
+          <div key={v} className="space-y-0.5">
+            <Label className="text-[10px] text-stone-500 font-mono">{v}</Label>
+            <Input
+              className="h-8 text-xs font-mono border-stone-200"
+              value={vals[v] ?? ''}
+              onChange={e => setVals(p => ({ ...p, [v]: e.target.value }))}
+              placeholder="0"
+            />
+          </div>
+        ))}
+      </div>
+      {evaluated.err && <p className="text-red-600">{evaluated.err}</p>}
+      {!evaluated.err && evaluated.n != null && (
+        <p className="font-mono text-stone-800">
+          Resultado: <strong>{evaluated.n}</strong>
+        </p>
+      )}
+      {cumple !== null && evaluated.n != null && (
+        <p className={cn('font-semibold', cumple ? 'text-emerald-700' : 'text-red-700')}>
+          {cumple ? 'Cumpliría (simulación)' : 'No cumpliría (simulación)'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function ItemForm({
   form, onChange, availableVariables = [],
 }: {
@@ -268,32 +467,56 @@ function ItemForm({
   const set = (k: keyof ItemFormState, v: any) => onChange({ ...form, [k]: v })
   const isMedicion = form.tipo === 'medicion'
   const isRango = form.tolerancia_tipo === 'rango'
+  const isFormulaBound = form.tolerancia_tipo === 'formula_bound'
   const isCalculado = form.tipo === 'calculado'
 
   const renderToleranceGrid = (valorEsperadoLabel: string) => (
     <>
-      <div className="space-y-1">
-        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">{valorEsperadoLabel}</Label>
-        <Input type="number" step="any" value={form.valor_esperado}
-          onChange={e => set('valor_esperado', e.target.value)}
-          placeholder="0" className="border-stone-200 text-sm font-mono" />
-      </div>
+      {!isFormulaBound && (
+        <div className="space-y-1">
+          <Label className="text-[10px] text-stone-500 uppercase tracking-wide">{valorEsperadoLabel}</Label>
+          <Input type="number" step="any" value={form.valor_esperado}
+            onChange={e => set('valor_esperado', e.target.value)}
+            placeholder="0" className="border-stone-200 text-sm font-mono" />
+        </div>
+      )}
       <div className="space-y-1">
         <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Unidad</Label>
         <Input value={form.unidad} onChange={e => set('unidad', e.target.value)}
           placeholder="mm, gr, kg…" className="border-stone-200 text-sm font-mono" />
       </div>
       <div className="space-y-1">
-        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Tipo tolerancia</Label>
+        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Tipo tolerancia / límite</Label>
         <select value={form.tolerancia_tipo}
-          onChange={e => set('tolerancia_tipo', e.target.value)}
+          onChange={e => set('tolerancia_tipo', e.target.value as ItemFormState['tolerancia_tipo'])}
           className="w-full rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm focus:outline-none">
           <option value="absoluta">Absoluta (±)</option>
           <option value="porcentual">Porcentual (%)</option>
           <option value="rango">Rango (mín–máx)</option>
+          <option value="formula_bound">Límites por fórmula (avanzado)</option>
         </select>
       </div>
-      {!isRango ? (
+      {isFormulaBound ? (
+        <>
+          <div className="space-y-1 col-span-2">
+            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Límite inferior (fórmula, opcional)</Label>
+            <Input value={form.formula_bound_min}
+              onChange={e => set('formula_bound_min', e.target.value)}
+              placeholder="ej. carga * 0.95"
+              className="border-stone-200 text-sm font-mono" />
+          </div>
+          <div className="space-y-1 col-span-2">
+            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Límite superior (fórmula, opcional)</Label>
+            <Input value={form.formula_bound_max}
+              onChange={e => set('formula_bound_max', e.target.value)}
+              placeholder="ej. carga * 1.05"
+              className="border-stone-200 text-sm font-mono" />
+          </div>
+          <p className="col-span-2 text-[11px] text-stone-500 leading-relaxed">
+            Al menos uno de los dos límites debe existir. Las fórmulas usan variables de cabecera y de la misma sección.
+          </p>
+        </>
+      ) : !isRango ? (
         <div className="space-y-1">
           <Label className="text-[10px] text-stone-500 uppercase tracking-wide">
             Tolerancia {form.tolerancia_tipo === 'porcentual' ? '(%)' : `(${form.unidad || 'unidad'})`}
@@ -411,10 +634,57 @@ function ItemForm({
               ))}
             </div>
           )}
+          {availableVariables.length >= 2 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-medium text-amber-900">Recetas:</span>
+              <button
+                type="button"
+                className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
+                onClick={() => {
+                  const v0 = availableVariables[0]
+                  const v1 = availableVariables[1]
+                  set('formula', `avg(${v0}, ${v1})`)
+                  if (!form.variable_name.trim()) set('variable_name', `avg_${v0}_${v1}`)
+                }}
+              >
+                Promedio ({availableVariables[0]}, {availableVariables[1]})
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
+                onClick={() => {
+                  const v0 = availableVariables[0]
+                  const v1 = availableVariables[1]
+                  set('formula', `abs(${v0} - ${v1})`)
+                  if (!form.variable_name.trim()) set('variable_name', `diff_${v0}_${v1}`)
+                }}
+              >
+                |{availableVariables[0]} − {availableVariables[1]}|
+              </button>
+              {availableVariables.length >= 3 && (
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-300/80 bg-white px-2 py-0.5 text-[10px] font-mono text-amber-900 hover:bg-amber-100/80"
+                  onClick={() => {
+                    const [a, b, c] = availableVariables
+                    set('formula', `avg(${a}, ${b}, ${c})`)
+                    if (!form.variable_name.trim()) set('variable_name', `avg_${a}_${b}_${c}`)
+                  }}
+                >
+                  Promedio 3
+                </button>
+              )}
+            </div>
+          )}
           <Input value={form.formula}
             onChange={e => set('formula', e.target.value)}
             placeholder="avg(d1, d2)"
             className="border-amber-200 bg-white text-sm font-mono" />
+          <FormulaAuthoringPlayground
+            formula={form.formula}
+            rule={buildPassFailRuleFromForm(form) as PassFailRule}
+            variableNames={availableVariables}
+          />
           {availableVariables.length === 0 && (
             <p className="text-xs text-amber-700">
               Agrega primero puntos numéricos o de medición con nombre de variable para usarlos aquí.
@@ -463,6 +733,21 @@ function ItemForm({
           <div className="grid grid-cols-2 gap-3">
             {renderToleranceGrid('Objetivo del resultado')}
           </div>
+        </div>
+      )}
+
+      {(isMedicion || isCalculado) && form.contributes_to_cumple && (
+        <div className="space-y-1 col-span-2">
+          <Label className="text-[10px] text-stone-500 uppercase tracking-wide">
+            Regla de decisión / nota ISO (opcional)
+          </Label>
+          <Textarea
+            value={form.decision_rule_text}
+            onChange={e => set('decision_rule_text', e.target.value)}
+            placeholder="Texto para auditoría: cómo se interpreta el cumplimiento, zona de guarda, etc."
+            rows={2}
+            className="border-stone-200 text-xs resize-none"
+          />
         </div>
       )}
 
@@ -749,6 +1034,9 @@ export default function PlantillaPage() {
   // Publish
   const [publishing, setPublishing] = useState(false)
   const [publishMsg, setPublishMsg] = useState<string | null>(null)
+  const [diffVsPublishedOpen, setDiffVsPublishedOpen] = useState(false)
+  const [diffVsPublishedLines, setDiffVsPublishedLines] = useState<string[]>([])
+  const [diffVsPublishedLoading, setDiffVsPublishedLoading] = useState(false)
 
   // Header fields (ficha metadata)
   const [headerFieldForm, setHeaderFieldForm] = useState<HeaderFieldFormState>({
@@ -1257,6 +1545,50 @@ export default function PlantillaPage() {
               />
             </DialogContent>
           </Dialog>
+          {template.active_version?.id && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 border-stone-300 bg-white/90"
+                onClick={async () => {
+                  setDiffVsPublishedOpen(true)
+                  setDiffVsPublishedLoading(true)
+                  setDiffVsPublishedLines([])
+                  try {
+                    const r = await fetch(`/api/ema/template-versions/${template.active_version!.id}`).then(x => x.json())
+                    const snap = r.data?.snapshot as VerificacionTemplateSnapshot | undefined
+                    setDiffVsPublishedLines(diffDraftVsPublishedSnapshot(template.sections, snap?.sections))
+                  } catch {
+                    setDiffVsPublishedLines(['Error al cargar la versión publicada.'])
+                  } finally {
+                    setDiffVsPublishedLoading(false)
+                  }
+                }}
+              >
+                Diff vs publicada
+              </Button>
+              <Dialog open={diffVsPublishedOpen} onOpenChange={setDiffVsPublishedOpen}>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Cambios vs versión publicada (fórmula / cumplimiento)</DialogTitle>
+                  </DialogHeader>
+                  {diffVsPublishedLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-stone-600 py-6">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+                    </div>
+                  ) : (
+                    <ul className="list-disc pl-5 space-y-1.5 text-xs text-stone-700 font-mono">
+                      {diffVsPublishedLines.map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                  )}
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
           <Button
             onClick={handlePublish}
             disabled={

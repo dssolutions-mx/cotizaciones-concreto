@@ -99,8 +99,13 @@ Un registro por cada instrumento físico en planta.
 | `fecha_proximo_evento` | DATE | Próxima calibración/verificación programada |
 | `motivo_inactivo` | TEXT | Razón de inactivación |
 | `notas` | TEXT | Notas libres |
+| `incertidumbre_expandida` | DOUBLE PRECISION NULL | U del patrón en ficha (sincronizada con certificado vigente o manual) |
+| `incertidumbre_k` | DOUBLE PRECISION NULL | Factor de cobertura k asociado a U |
+| `incertidumbre_unidad` | TEXT NULL | Unidad de U (mm, °C, …) |
 | `created_by` | UUID → `auth.users` | |
 | `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+**Incertidumbre (NMX-EC-17025-IMNC):** el certificado de calibración conserva U y k en `certificados_calibracion`. Al registrar un certificado vigente, la aplicación copia esos valores a `instrumentos` para cálculos internos (p. ej. cociente TUR orientativo en verificación). El laboratorio sigue siendo la fuente normativa; la ficha permite ajuste manual si hace falta sin reemplazar el PDF.
 
 **Constraints:**
 - `chk_tipo_c_necesita_maestro`: Tipo C requiere `instrumento_maestro_id NOT NULL`
@@ -135,6 +140,8 @@ idx_instrumentos_proximo       ON instrumentos(fecha_proximo_evento)
 
 **Índice:** `idx_certs_instrumento ON (instrumento_id, is_vigente)`
 
+**Campos de incertidumbre (resultados):** `incertidumbre_expandida`, `incertidumbre_unidad`, `factor_cobertura` (k), `rango_medicion`, etc., según el certificado emitido por laboratorio acreditado.
+
 **Trigger al INSERT:**
 1. Marca certificados anteriores `is_vigente = false`
 2. Actualiza `instrumentos.fecha_proximo_evento = fecha_vencimiento`
@@ -162,6 +169,20 @@ idx_instrumentos_proximo       ON instrumentos(fecha_proximo_evento)
 2. Recalcula `instrumentos.estado`
 3. Crea siguiente entrada en `programa_calibraciones`
 4. Marca entrada anterior como `completado`
+
+---
+
+### 2.4 bis — Metrología ISO / tablas `ema_*` (auditoría y TUR indicativo)
+
+| Tabla | Rol |
+|-------|-----|
+| `ema_instrumento_calibraciones` | Historial de eventos de calibración (API en `emaMetrologyService`). |
+| `ema_verificacion_metrologia` | Una fila por `completed_verificaciones.id` de instrumento **tipo C** (PK = `completed_verificacion_id`): al cerrar la verificación se persiste `tur_min_observado` (indicativo) y metadatos en `presupuesto_json`. |
+| `ema_incertidumbre_componentes` | Presupuesto de incertidumbre por verificación o por evento de calibración; reservado para captura detallada futura. |
+
+**Vínculo operativo:** `ensayo_instrumentos.completed_verificacion_id` y `muestreo_instrumentos.completed_verificacion_id` apuntan a la **última verificación interna cerrada** del instrumento tipo C al guardar el snapshot de uso (tipos A/B: `NULL`).
+
+**RLS:** políticas en migración `20260424200000_ema_metrology_rls.sql` (mismo criterio de roles de calidad que el resto del módulo EMA).
 
 ---
 

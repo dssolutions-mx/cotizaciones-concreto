@@ -125,6 +125,18 @@ export function validateTemplateForPublish(snapshot: VerificacionTemplateSnapsho
           );
         }
       }
+
+      const fb = it.pass_fail_rule;
+      if (fb && fb.kind === 'formula_bound') {
+        const hasLim =
+          fb.min != null ||
+          fb.max != null ||
+          !!(fb.min_formula && String(fb.min_formula).trim()) ||
+          !!(fb.max_formula && String(fb.max_formula).trim());
+        if (!hasLim) {
+          errors.push(`«${it.punto}»: límites por fórmula requieren al menos un límite (fórmula o valor fijo).`);
+        }
+      }
     }
   }
 

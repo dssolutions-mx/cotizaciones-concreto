@@ -85,6 +85,27 @@ export default function CertificarPage() {
       setError('Debe subir el PDF del certificado con el botón «Subir PDF» antes de registrar.')
       return
     }
+    if (form.fecha_vencimiento && form.fecha_emision && form.fecha_vencimiento < form.fecha_emision) {
+      setError('La fecha de vencimiento debe ser igual o posterior a la fecha de emisión.')
+      return
+    }
+    const tipo = instrumento?.tipo
+    if (tipo === 'A' || tipo === 'B') {
+      const u = form.incertidumbre_expandida.trim() ? parseFloat(form.incertidumbre_expandida) : NaN
+      if (!Number.isFinite(u) || !(u > 0)) {
+        setError('Debe registrar la incertidumbre expandida U (> 0) tal como aparece en el certificado del laboratorio.')
+        return
+      }
+      if (!form.incertidumbre_unidad.trim()) {
+        setError('Indique la unidad de U (p. ej. mm, °C, kN).')
+        return
+      }
+      const k = form.factor_cobertura.trim() ? parseFloat(form.factor_cobertura) : NaN
+      if (!Number.isFinite(k) || k < 1 || k > 10) {
+        setError('Indique el factor de cobertura k (típico 2; entre 1 y 10).')
+        return
+      }
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -226,6 +247,8 @@ export default function CertificarPage() {
             El certificado debe provenir de un laboratorio acreditado por EMA o un instituto
             nacional de metrología (CENAM). Registre el número de acreditación del laboratorio
             y los valores de incertidumbre para completar la cadena de trazabilidad metrológica.
+            Al guardar, la ficha del instrumento se actualiza con U, k y unidad para indicadores
+            internos (p. ej. TUR orientativo en verificaciones de equipos tipo C).
           </p>
         </div>
       </div>

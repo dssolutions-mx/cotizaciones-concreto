@@ -2841,6 +2841,7 @@ export type Database = {
       }
       ensayo_instrumentos: {
         Row: {
+          completed_verificacion_id: string | null
           created_at: string
           ensayo_id: string
           estado_al_momento: string
@@ -2851,6 +2852,7 @@ export type Database = {
           observaciones: string | null
         }
         Insert: {
+          completed_verificacion_id?: string | null
           created_at?: string
           ensayo_id: string
           estado_al_momento: string
@@ -2861,6 +2863,7 @@ export type Database = {
           observaciones?: string | null
         }
         Update: {
+          completed_verificacion_id?: string | null
           created_at?: string
           ensayo_id?: string
           estado_al_momento?: string
@@ -3547,6 +3550,9 @@ export type Database = {
           fecha_baja: string | null
           fecha_proximo_evento: string | null
           id: string
+          incertidumbre_expandida: number | null
+          incertidumbre_k: number | null
+          incertidumbre_unidad: string | null
           marca: string | null
           mes_fin_servicio_override: number | null
           mes_inicio_servicio_override: number | null
@@ -3571,6 +3577,9 @@ export type Database = {
           fecha_baja?: string | null
           fecha_proximo_evento?: string | null
           id?: string
+          incertidumbre_expandida?: number | null
+          incertidumbre_k?: number | null
+          incertidumbre_unidad?: string | null
           marca?: string | null
           mes_fin_servicio_override?: number | null
           mes_inicio_servicio_override?: number | null
@@ -3595,6 +3604,9 @@ export type Database = {
           fecha_baja?: string | null
           fecha_proximo_evento?: string | null
           id?: string
+          incertidumbre_expandida?: number | null
+          incertidumbre_k?: number | null
+          incertidumbre_unidad?: string | null
           marca?: string | null
           mes_fin_servicio_override?: number | null
           mes_inicio_servicio_override?: number | null
@@ -5731,6 +5743,7 @@ export type Database = {
       }
       muestreo_instrumentos: {
         Row: {
+          completed_verificacion_id: string | null
           created_at: string
           estado_al_momento: string
           fecha_vencimiento_al_momento: string
@@ -5742,6 +5755,7 @@ export type Database = {
           paquete_id: string | null
         }
         Insert: {
+          completed_verificacion_id?: string | null
           created_at?: string
           estado_al_momento: string
           fecha_vencimiento_al_momento: string
@@ -5753,6 +5767,7 @@ export type Database = {
           paquete_id?: string | null
         }
         Update: {
+          completed_verificacion_id?: string | null
           created_at?: string
           estado_al_momento?: string
           fecha_vencimiento_al_momento?: string
