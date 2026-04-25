@@ -121,7 +121,7 @@ function defaultContributesForTipo(tipo: TipoItemVerificacion): boolean {
 
 function buildPassFailRuleFromForm(f: ItemFormState): Record<string, unknown> {
   if (f.tipo === 'booleano') return { kind: 'expected_bool', value: f.expected_bool_value }
-  if (f.tipo === 'medicion') {
+  if (f.tipo === 'medicion' || f.tipo === 'calculado') {
     if (f.tolerancia_tipo === 'rango') {
       return {
         kind: 'range',
@@ -190,7 +190,7 @@ function itemFormToPayload(f: ItemFormState) {
 
 function itemToForm(item: VerificacionTemplateItem): ItemFormState {
   const pr = item.pass_fail_rule as { kind?: string; value?: boolean } | undefined
-  return {
+  const base: ItemFormState = {
     tipo: item.tipo,
     punto: item.punto,
     valor_esperado: item.valor_esperado != null ? String(item.valor_esperado) : '',
@@ -206,6 +206,48 @@ function itemToForm(item: VerificacionTemplateItem): ItemFormState {
     contributes_to_cumple: item.contributes_to_cumple ?? defaultContributesForTipo(item.tipo),
     expected_bool_value: pr?.kind === 'expected_bool' ? !!pr.value : true,
   }
+  if (item.tipo !== 'calculado' || !item.pass_fail_rule) return base
+  const r = item.pass_fail_rule as {
+    kind: string
+    expected?: number
+    tolerance?: number
+    tolerance_pct?: number
+    min?: number | null
+    max?: number | null
+    unit?: string | null
+  }
+  if (r.kind === 'tolerance_abs' && r.expected != null && r.tolerance != null) {
+    return {
+      ...base,
+      valor_esperado: String(r.expected),
+      tolerancia: String(r.tolerance),
+      tolerancia_tipo: 'absoluta',
+      tolerancia_min: '',
+      tolerancia_max: '',
+      unidad: r.unit ?? base.unidad,
+    }
+  }
+  if (r.kind === 'tolerance_pct' && r.expected != null && r.tolerance_pct != null) {
+    return {
+      ...base,
+      valor_esperado: String(r.expected),
+      tolerancia: String(r.tolerance_pct),
+      tolerancia_tipo: 'porcentual',
+      tolerancia_min: '',
+      tolerancia_max: '',
+      unidad: r.unit ?? base.unidad,
+    }
+  }
+  if (r.kind === 'range') {
+    return {
+      ...base,
+      tolerancia_tipo: 'rango',
+      tolerancia_min: r.min != null ? String(r.min) : '',
+      tolerancia_max: r.max != null ? String(r.max) : '',
+      unidad: r.unit ?? base.unidad,
+    }
+  }
+  return base
 }
 
 function headerFieldToForm(field: VerificacionTemplateHeaderField): HeaderFieldFormState {
@@ -227,6 +269,57 @@ function ItemForm({
   const isMedicion = form.tipo === 'medicion'
   const isRango = form.tolerancia_tipo === 'rango'
   const isCalculado = form.tipo === 'calculado'
+
+  const renderToleranceGrid = (valorEsperadoLabel: string) => (
+    <>
+      <div className="space-y-1">
+        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">{valorEsperadoLabel}</Label>
+        <Input type="number" step="any" value={form.valor_esperado}
+          onChange={e => set('valor_esperado', e.target.value)}
+          placeholder="0" className="border-stone-200 text-sm font-mono" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Unidad</Label>
+        <Input value={form.unidad} onChange={e => set('unidad', e.target.value)}
+          placeholder="mm, gr, kg…" className="border-stone-200 text-sm font-mono" />
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Tipo tolerancia</Label>
+        <select value={form.tolerancia_tipo}
+          onChange={e => set('tolerancia_tipo', e.target.value)}
+          className="w-full rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm focus:outline-none">
+          <option value="absoluta">Absoluta (±)</option>
+          <option value="porcentual">Porcentual (%)</option>
+          <option value="rango">Rango (mín–máx)</option>
+        </select>
+      </div>
+      {!isRango ? (
+        <div className="space-y-1">
+          <Label className="text-[10px] text-stone-500 uppercase tracking-wide">
+            Tolerancia {form.tolerancia_tipo === 'porcentual' ? '(%)' : `(${form.unidad || 'unidad'})`}
+          </Label>
+          <Input type="number" step="any" value={form.tolerancia}
+            onChange={e => set('tolerancia', e.target.value)}
+            placeholder="0" className="border-stone-200 text-sm font-mono" />
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Mínimo</Label>
+            <Input type="number" step="any" value={form.tolerancia_min}
+              onChange={e => set('tolerancia_min', e.target.value)}
+              placeholder="0" className="border-stone-200 text-sm font-mono" />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Máximo</Label>
+            <Input type="number" step="any" value={form.tolerancia_max}
+              onChange={e => set('tolerancia_max', e.target.value)}
+              placeholder="0" className="border-stone-200 text-sm font-mono" />
+          </div>
+        </>
+      )}
+    </>
+  )
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -287,54 +380,9 @@ function ItemForm({
       )}
 
       {isMedicion && (
-        <>
-          <div className="space-y-1">
-            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Valor esperado</Label>
-            <Input type="number" step="any" value={form.valor_esperado}
-              onChange={e => set('valor_esperado', e.target.value)}
-              placeholder="0" className="border-stone-200 text-sm font-mono" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Unidad</Label>
-            <Input value={form.unidad} onChange={e => set('unidad', e.target.value)}
-              placeholder="mm, gr, kg…" className="border-stone-200 text-sm font-mono" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Tipo tolerancia</Label>
-            <select value={form.tolerancia_tipo}
-              onChange={e => set('tolerancia_tipo', e.target.value)}
-              className="w-full rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm focus:outline-none">
-              <option value="absoluta">Absoluta (±)</option>
-              <option value="porcentual">Porcentual (%)</option>
-              <option value="rango">Rango (mín–máx)</option>
-            </select>
-          </div>
-          {!isRango ? (
-            <div className="space-y-1">
-              <Label className="text-[10px] text-stone-500 uppercase tracking-wide">
-                Tolerancia {form.tolerancia_tipo === 'porcentual' ? '(%)' : `(${form.unidad || 'unidad'})`}
-              </Label>
-              <Input type="number" step="any" value={form.tolerancia}
-                onChange={e => set('tolerancia', e.target.value)}
-                placeholder="0" className="border-stone-200 text-sm font-mono" />
-            </div>
-          ) : (
-            <>
-              <div className="space-y-1">
-                <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Mínimo</Label>
-                <Input type="number" step="any" value={form.tolerancia_min}
-                  onChange={e => set('tolerancia_min', e.target.value)}
-                  placeholder="0" className="border-stone-200 text-sm font-mono" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Máximo</Label>
-                <Input type="number" step="any" value={form.tolerancia_max}
-                  onChange={e => set('tolerancia_max', e.target.value)}
-                  placeholder="0" className="border-stone-200 text-sm font-mono" />
-              </div>
-            </>
-          )}
-        </>
+        <div className="col-span-2 grid grid-cols-2 gap-3">
+          {renderToleranceGrid('Valor esperado')}
+        </div>
       )}
 
       {isCalculado && (
@@ -343,8 +391,9 @@ function ItemForm({
             <Label className="text-[10px] text-amber-700 uppercase tracking-wide">Fórmula del punto calculado</Label>
             <p className="mt-1 text-xs leading-5 text-amber-800">
               El cálculo vive en este punto (no en la cabecera ni en el título de la sección). Solo puede usar
-              variables numéricas de otros puntos de <strong>esta misma sección</strong>. Ejemplo:{' '}
-              <span className="font-mono">d1 * 10</span>.
+              variables numéricas de otros puntos de <strong>esta misma sección</strong>. Ejemplos:{' '}
+              <span className="font-mono">avg(d1, d2)</span>,{' '}
+              <span className="font-mono">(d1 + d2) / 2</span>.
             </p>
           </div>
           {availableVariables.length > 0 && (
@@ -364,13 +413,56 @@ function ItemForm({
           )}
           <Input value={form.formula}
             onChange={e => set('formula', e.target.value)}
-            placeholder="d1 * 10"
+            placeholder="avg(d1, d2)"
             className="border-amber-200 bg-white text-sm font-mono" />
           {availableVariables.length === 0 && (
             <p className="text-xs text-amber-700">
               Agrega primero puntos numéricos o de medición con nombre de variable para usarlos aquí.
             </p>
           )}
+          <details className="rounded-lg border border-amber-200/80 bg-white/80 px-3 py-2 text-xs text-amber-950">
+            <summary className="cursor-pointer font-medium text-amber-900 outline-none">
+              Ayuda: operadores y funciones
+            </summary>
+            <div className="mt-2 space-y-2 leading-relaxed text-amber-900/90">
+              <p>
+                <span className="font-semibold">Operadores:</span>{' '}
+                <span className="font-mono">+ - * / ^</span> (potencia), comparaciones{' '}
+                <span className="font-mono">&lt; &gt; &lt;= &gt;= == !=</span>.
+              </p>
+              <p>
+                <span className="font-semibold">Funciones:</span>{' '}
+                <span className="font-mono">abs</span>,{' '}
+                <span className="font-mono">min(a,b,...)</span>,{' '}
+                <span className="font-mono">max(...)</span>,{' '}
+                <span className="font-mono">avg(...)</span>,{' '}
+                <span className="font-mono">sum(...)</span>,{' '}
+                <span className="font-mono">round(x)</span>,{' '}
+                <span className="font-mono">sqrt(x)</span>, constante{' '}
+                <span className="font-mono">pi</span>.
+              </p>
+              <p>
+                Usa exactamente los <span className="font-semibold">nombres de variable</span> definidos en los otros
+                puntos (misma sección). Los argumentos de <span className="font-mono">avg</span> /{' '}
+                <span className="font-mono">min</span> van entre paréntesis y separados por coma.
+              </p>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {isCalculado && (
+        <div className="col-span-2 space-y-2 rounded-xl border border-stone-200 bg-stone-50/80 p-3">
+          <div>
+            <Label className="text-[10px] text-stone-600 uppercase tracking-wide">Cumplimiento del resultado calculado</Label>
+            <p className="mt-1 text-xs text-stone-600 leading-relaxed">
+              Tras evaluar la fórmula, el valor obtenido se compara con el objetivo y la tolerancia (como en una medición).
+              Marque «Cuenta para resultado global» si debe influir en el conformado de la sección.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {renderToleranceGrid('Objetivo del resultado')}
+          </div>
         </div>
       )}
 

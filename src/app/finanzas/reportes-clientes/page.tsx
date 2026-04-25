@@ -699,6 +699,12 @@ export default function ReportesClientesPage() {
     const q = search.toLowerCase();
     const clients = hierarchical.clients
       .map((c) => {
+        const clientMatchesSearch =
+          c.business_name.toLowerCase().includes(q) ||
+          (c.client_code?.toLowerCase().includes(q) ?? false) ||
+          (c.rfc?.toLowerCase().includes(q) ?? false);
+        if (clientMatchesSearch) return { ...c, orders: c.orders };
+
         const orders = c.orders
           .map((o) => {
             const remisiones = o.remisiones.filter(
@@ -715,8 +721,7 @@ export default function ReportesClientesPage() {
             return null;
           })
           .filter(Boolean) as typeof c.orders;
-        if (c.business_name.toLowerCase().includes(q) || orders.length > 0)
-          return { ...c, orders };
+        if (orders.length > 0) return { ...c, orders };
         return null;
       })
       .filter(Boolean) as typeof hierarchical.clients;

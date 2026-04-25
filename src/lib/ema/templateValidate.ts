@@ -103,9 +103,9 @@ export function validateTemplateForPublish(snapshot: VerificacionTemplateSnapsho
       if (
         it.contributes_to_cumple &&
         it.pass_fail_rule?.kind === 'none' &&
-        (it.item_role === 'input_medicion' || it.item_role === 'input_booleano')
+        (it.item_role === 'input_medicion' || it.item_role === 'input_booleano' || it.item_role === 'derivado')
       ) {
-        errors.push(`«${it.punto}» requiere regla de cumplimiento (tolerancia o respuesta esperada)`);
+        errors.push(`«${it.punto}» requiere regla de cumplimiento (tolerancia, rango o respuesta esperada)`);
       }
 
       const allowedInRules = new Set<string>([...sectionVarNames, ...headerVarNames]);

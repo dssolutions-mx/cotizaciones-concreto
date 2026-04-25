@@ -151,6 +151,11 @@ export function computeSectionMeasurementRows(
       error_calculado = medicionError(it, valor_observado);
     } else if (it.item_role === 'input_medicion' && it.pass_fail_rule?.kind === 'tolerance_pct') {
       error_calculado = medicionError(it, valor_observado);
+    } else if (
+      it.item_role === 'derivado' &&
+      (it.pass_fail_rule?.kind === 'tolerance_abs' || it.pass_fail_rule?.kind === 'tolerance_pct')
+    ) {
+      error_calculado = medicionError(it, valor_observado);
     }
 
     let cumple: boolean | null = null;
