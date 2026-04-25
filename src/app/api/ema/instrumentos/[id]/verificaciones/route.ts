@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
+import { assertPatronesCumplenParaVerificacionInterna } from '@/lib/ema/verificacionPatronCompliance';
 import { replaceCompletedVerificacionMaestros } from '@/services/emaInstrumentoService';
 import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
 import { z } from 'zod';
@@ -200,6 +201,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             { status: 400 },
           );
         }
+      }
+
+      const fechaVerif =
+        parsed.data.fecha_verificacion ?? new Date().toISOString().split('T')[0];
+      const patronGate = await assertPatronesCumplenParaVerificacionInterna(admin, maestroIds, fechaVerif);
+      if (!patronGate.ok) {
+        return NextResponse.json(
+          {
+            error: patronGate.issues.map((i) => `${i.codigo}: ${i.detalle}`).join(' '),
+            issues: patronGate.issues,
+          },
+          { status: 422 },
+        );
       }
     }
 
