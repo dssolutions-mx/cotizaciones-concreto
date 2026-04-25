@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { 
+import {
   GetInventoryQuerySchema,
   MaterialEntryInputSchema,
-  MaterialAdjustmentInputSchema 
 } from '@/lib/validations/inventory';
 import { hasInventoryStandardAccess, isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 
@@ -153,130 +152,79 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { type, ...data } = body;
 
-    if (!type || !['entry', 'adjustment'].includes(type)) {
+    if (type === 'adjustment') {
       return NextResponse.json(
-        { success: false, error: 'Tipo de operación requerido: "entry" o "adjustment"' },
+        {
+          success: false,
+          error:
+            'Los ajustes se crean únicamente en POST /api/inventory/adjustments. Este endpoint solo admite entradas (type: "entry").',
+        },
+        { status: 410 }
+      );
+    }
+
+    if (!type || type !== 'entry') {
+      return NextResponse.json(
+        { success: false, error: 'Tipo de operación requerido: "entry"' },
         { status: 400 }
       );
     }
 
-    let result;
+    const validatedData = MaterialEntryInputSchema.parse(data);
 
-    if (type === 'entry') {
-      // Validate material entry data
-      const validatedData = MaterialEntryInputSchema.parse(data);
-      
-      // Generate entry number
-      const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
-      const dateStr = entryDate.replace(/-/g, '');
-      
-      // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
-      const { data: lastEntry } = await supabase
-        .from('material_entries')
-        .select('entry_number')
-        .eq('plant_id', profile.plant_id)
-        .ilike('entry_number', `ENT-${dateStr}-%`)
-        .order('entry_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // Generate entry number
+    const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
+    const dateStr = entryDate.replace(/-/g, '');
 
-      const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
-      const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;
+    // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
+    const { data: lastEntry } = await supabase
+      .from('material_entries')
+      .select('entry_number')
+      .eq('plant_id', profile.plant_id)
+      .ilike('entry_number', `ENT-${dateStr}-%`)
+      .order('entry_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      // Get current inventory to calculate before/after values
-      const { data: currentInventory } = await supabase
-        .from('material_inventory')
-        .select('current_stock')
-        .eq('plant_id', profile.plant_id)
-        .eq('material_id', validatedData.material_id)
-        .single();
+    const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
+    const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;
 
-      const inventoryBefore = currentInventory?.current_stock || 0;
-      const inventoryAfter = inventoryBefore + validatedData.quantity_received;
+    // Get current inventory to calculate before/after values
+    const { data: currentInventory } = await supabase
+      .from('material_inventory')
+      .select('current_stock')
+      .eq('plant_id', profile.plant_id)
+      .eq('material_id', validatedData.material_id)
+      .single();
 
-      // Create entry
-      const { data: entry, error: entryError } = await supabase
-        .from('material_entries')
-        .insert({
-          entry_number: entryNumber,
-          plant_id: profile.plant_id,
-          material_id: validatedData.material_id,
-          supplier_id: validatedData.supplier_id,
-          entry_date: entryDate,
-          entry_time: new Date().toTimeString().split(' ')[0],
-          quantity_received: validatedData.quantity_received,
-          supplier_invoice: validatedData.supplier_invoice,
-          inventory_before: inventoryBefore,
-          inventory_after: inventoryAfter,
-          notes: validatedData.notes,
-          entered_by: user.id,
-        })
-        .select()
-        .single();
+    const inventoryBefore = currentInventory?.current_stock || 0;
+    const inventoryAfter = inventoryBefore + validatedData.quantity_received;
 
-      if (entryError) {
-        throw new Error(`Error al crear entrada: ${entryError.message}`);
-      }
+    // Create entry
+    const { data: entry, error: entryError } = await supabase
+      .from('material_entries')
+      .insert({
+        entry_number: entryNumber,
+        plant_id: profile.plant_id,
+        material_id: validatedData.material_id,
+        supplier_id: validatedData.supplier_id,
+        entry_date: entryDate,
+        entry_time: new Date().toTimeString().split(' ')[0],
+        quantity_received: validatedData.quantity_received,
+        supplier_invoice: validatedData.supplier_invoice,
+        inventory_before: inventoryBefore,
+        inventory_after: inventoryAfter,
+        notes: validatedData.notes,
+        entered_by: user.id,
+      })
+      .select()
+      .single();
 
-      result = entry;
-    } else if (type === 'adjustment') {
-      // Validate material adjustment data
-      const validatedData = MaterialAdjustmentInputSchema.parse(data);
-      
-      // Generate adjustment number
-      const adjustmentDate = validatedData.adjustment_date || new Date().toISOString().split('T')[0];
-      const dateStr = adjustmentDate.replace(/-/g, '');
-      
-      // Get current sequence number (per plant; DB unique is on plant_id + adjustment_number)
-      const { data: lastAdjustment } = await supabase
-        .from('material_adjustments')
-        .select('adjustment_number')
-        .eq('plant_id', profile.plant_id)
-        .ilike('adjustment_number', `ADJ-${dateStr}-%`)
-        .order('adjustment_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const sequence = lastAdjustment ? parseInt(lastAdjustment.adjustment_number.split('-').pop() || '0') + 1 : 1;
-      const adjustmentNumber = `ADJ-${dateStr}-${sequence.toString().padStart(3, '0')}`;
-
-      // Get current inventory to calculate before/after values
-      const { data: currentInventory } = await supabase
-        .from('material_inventory')
-        .select('current_stock')
-        .eq('plant_id', profile.plant_id)
-        .eq('material_id', validatedData.material_id)
-        .single();
-
-      const inventoryBefore = currentInventory?.current_stock || 0;
-      const inventoryAfter = inventoryBefore - validatedData.quantity_adjusted;
-
-      // Create adjustment
-      const { data: adjustment, error: adjustmentError } = await supabase
-        .from('material_adjustments')
-        .insert({
-          adjustment_number: adjustmentNumber,
-          plant_id: profile.plant_id,
-          material_id: validatedData.material_id,
-          adjustment_date: adjustmentDate,
-          adjustment_time: new Date().toTimeString().split(' ')[0],
-          adjustment_type: validatedData.adjustment_type,
-          quantity_adjusted: validatedData.quantity_adjusted,
-          inventory_before: inventoryBefore,
-          inventory_after: inventoryAfter,
-          reference_type: validatedData.reference_type,
-          reference_notes: validatedData.referenceNotes,
-          adjusted_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (adjustmentError) {
-        throw new Error(`Error al crear ajuste: ${adjustmentError.message}`);
-      }
-
-      result = adjustment;
+    if (entryError) {
+      throw new Error(`Error al crear entrada: ${entryError.message}`);
     }
+
+    const result = entry;
 
     return NextResponse.json({
       success: true,

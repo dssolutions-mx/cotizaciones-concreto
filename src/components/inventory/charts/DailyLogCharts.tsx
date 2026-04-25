@@ -14,6 +14,7 @@ import {
   Cell
 } from 'recharts'
 import { MaterialEntry, MaterialAdjustment } from '@/types/inventory'
+import { adjustmentTypeLabelEs } from '@/lib/inventory/adjustmentModel'
 import { Package, TrendingUp, TrendingDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -107,17 +108,11 @@ export function DailyAdjustmentsChart({ adjustments, date }: { adjustments: Mate
   const chartData = useMemo(() => {
     const byType = adjustments.reduce((acc, adj) => {
       const type = adj.adjustment_type || 'unknown'
-      const typeLabels: Record<string, string> = {
-        consumption: 'Consumo',
-        waste: 'Desperdicio',
-        correction: 'Corrección',
-        transfer: 'Transferencia',
-        loss: 'Pérdida'
-      }
-      
+      const name = adjustmentTypeLabelEs(type)
+
       if (!acc[type]) {
         acc[type] = {
-          name: typeLabels[type] || type,
+          name,
           quantity: 0,
           count: 0
         }

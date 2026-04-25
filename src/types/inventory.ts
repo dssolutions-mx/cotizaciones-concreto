@@ -107,6 +107,17 @@ export interface MaterialEntry {
   document_count?: number;
 }
 
+/** Aligned with DB `material_adjustments_adjustment_type_check` and `MaterialAdjustmentInputSchema`. */
+export type MaterialAdjustmentType =
+  | 'consumption'
+  | 'waste'
+  | 'correction'
+  | 'transfer'
+  | 'loss'
+  | 'initial_count'
+  | 'physical_count'
+  | 'positive_correction';
+
 export interface MaterialAdjustment {
   id: string;
   adjustment_number: string;
@@ -114,7 +125,7 @@ export interface MaterialAdjustment {
   material_id: string;
   adjustment_date: string;
   adjustment_time: string;
-  adjustment_type: 'consumption' | 'waste' | 'correction' | 'transfer' | 'loss';
+  adjustment_type: MaterialAdjustmentType;
   quantity_adjusted: number;
   inventory_before: number;
   inventory_after: number;
@@ -125,6 +136,8 @@ export interface MaterialAdjustment {
   adjusted_by: string;
   created_at: string;
   updated_at: string;
+  /** Populated by GET /api/inventory/adjustments */
+  materials?: { material_name: string; category: string; unit: string } | null;
 }
 
 export interface MaterialInventory {
@@ -191,7 +204,11 @@ export interface MaterialEntryInput {
   fleet_uom?: 'trips' | 'tons' | 'hours' | 'loads' | 'units';
 }
 
-export interface MaterialAdjustmentInput {
+/**
+ * @deprecated Use `MaterialAdjustmentInput` from `@/lib/validations/inventory` (Zod) for API payloads.
+ * Kept for grep of legacy code only; do not use in new features.
+ */
+export interface LegacyMaterialAdjustmentInputOld {
   material_id: string;
   adjustment_type: 'manual_out' | 'manual_in' | 'correction' | 'waste' | 'transfer' | 'return';
   quantity: number;
@@ -199,7 +216,7 @@ export interface MaterialAdjustmentInput {
   reference_number?: string;
   transfer_destination?: string;
   notes?: string;
-  adjustment_date?: string; // defaults to today
+  adjustment_date?: string;
   document_urls?: string[];
 }
 
@@ -278,7 +295,10 @@ export interface MaterialEntryFormData {
   documents: string[];
 }
 
-export interface MaterialAdjustmentFormData {
+/**
+ * @deprecated Local `MaterialAdjustmentForm` defines its own form shape; this interface is unused.
+ */
+export interface LegacyMaterialAdjustmentFormDataPlaceholder {
   materialId: string;
   adjustmentType: 'manual_out' | 'manual_in' | 'correction' | 'waste' | 'transfer' | 'return';
   quantity: number;

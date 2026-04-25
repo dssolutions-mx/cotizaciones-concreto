@@ -4231,6 +4231,91 @@ export type Database = {
           },
         ]
       }
+      inter_plant_material_transfers: {
+        Row: {
+          id: string
+          material_id: string
+          from_plant_id: string
+          to_plant_id: string
+          quantity_kg: number
+          transfer_date: string
+          notes: string | null
+          created_by: string
+          source_adjustment_id: string
+          dest_adjustment_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          material_id: string
+          from_plant_id: string
+          to_plant_id: string
+          quantity_kg: number
+          transfer_date: string
+          notes?: string | null
+          created_by: string
+          source_adjustment_id: string
+          dest_adjustment_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          material_id?: string
+          from_plant_id?: string
+          to_plant_id?: string
+          quantity_kg?: number
+          transfer_date?: string
+          notes?: string | null
+          created_by?: string
+          source_adjustment_id?: string
+          dest_adjustment_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inter_plant_material_transfers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_dest_adjustment_id_fkey"
+            columns: ["dest_adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "material_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_from_plant_id_fkey"
+            columns: ["from_plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_source_adjustment_id_fkey"
+            columns: ["source_adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "material_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_to_plant_id_fkey"
+            columns: ["to_plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       material_alert_events: {
         Row: {
           alert_id: string

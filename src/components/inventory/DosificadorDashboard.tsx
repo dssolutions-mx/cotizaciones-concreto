@@ -575,6 +575,7 @@ export default function DosificadorDashboard() {
               { href: '/production-control/alerts', label: 'Alertas de material', Icon: AlertTriangle },
               { href: '/production-control/lots', label: 'Lotes', Icon: Package },
               { href: '/production-control/adjustments', label: 'Ajustes', Icon: Settings },
+              { href: '/production-control/transfer-between-plants', label: 'Transferir entre plantas', Icon: Truck },
               { href: '/production-control/reorder-config', label: 'Puntos de reorden', Icon: TrendingDown },
               { href: '/production-control/advanced-dashboard', label: 'Reportes', Icon: BarChart3 },
               { href: '/production-control/daily-log', label: 'Bitácora diaria', Icon: Calendar },

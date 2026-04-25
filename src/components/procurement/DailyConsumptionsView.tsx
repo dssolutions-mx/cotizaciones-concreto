@@ -21,6 +21,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Activity, Factory, Package, Scale } from 'lucide-react'
+import {
+  adjustmentTypeLabelEs,
+  formatSignedKg,
+  signedQuantityForStockEffect,
+  stockDirectionForType,
+} from '@/lib/inventory/adjustmentModel'
+import { cn } from '@/lib/utils'
 
 type ConsumptionLine = {
   remision_id: string
@@ -93,17 +100,6 @@ type ApiResponse = { success: boolean; data?: SinglePayload | AllPayload; error?
 
 const fmtKg = (n: number) =>
   new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n)
-
-function adjustmentTypeLabel(t: string): string {
-  const map: Record<string, string> = {
-    consumption: 'Consumo',
-    waste: 'Merma',
-    correction: 'Corrección',
-    transfer: 'Transferencia',
-    loss: 'Pérdida',
-  }
-  return map[t] || t
-}
 
 function PlantSection({
   plantName,
@@ -302,7 +298,8 @@ function PlantSection({
                         <TableHeader>
                           <TableRow className="bg-stone-50">
                             <TableHead>Tipo</TableHead>
-                            <TableHead className="text-right">Cantidad (kg)</TableHead>
+                            <TableHead className="text-right">Magnitud (kg)</TableHead>
+                            <TableHead className="text-right">Efecto en stock (kg)</TableHead>
                             <TableHead>Notas</TableHead>
                             <TableHead>Hora</TableHead>
                           </TableRow>
@@ -310,9 +307,21 @@ function PlantSection({
                         <TableBody>
                           {m.adjustments.map((a) => (
                             <TableRow key={a.id}>
-                              <TableCell className="text-sm">{adjustmentTypeLabel(a.adjustment_type)}</TableCell>
-                              <TableCell className="text-right font-mono tabular-nums">
+                              <TableCell className="text-sm">{adjustmentTypeLabelEs(a.adjustment_type)}</TableCell>
+                              <TableCell className="text-right font-mono tabular-nums text-stone-600">
                                 {fmtKg(a.quantity_adjusted)}
+                              </TableCell>
+                              <TableCell
+                                className={cn(
+                                  'text-right font-mono tabular-nums text-sm',
+                                  stockDirectionForType(a.adjustment_type) === 'increase'
+                                    ? 'text-emerald-800'
+                                    : 'text-red-800'
+                                )}
+                              >
+                                {formatSignedKg(
+                                  signedQuantityForStockEffect(a.adjustment_type, a.quantity_adjusted)
+                                )}
                               </TableCell>
                               <TableCell className="text-sm max-w-[240px] truncate" title={a.reference_notes || ''}>
                                 {a.reference_notes || '—'}

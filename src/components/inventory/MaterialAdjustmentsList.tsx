@@ -11,15 +11,24 @@ import {
   AlertTriangle,
   RotateCcw,
   ArrowUpDown,
-  FileText,
   User,
   Clock
 } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  adjustmentTypeLabelEs,
+  adjustmentBadgeClass,
+  formatSignedKg,
+  signedQuantityForStockEffect,
+  stockDirectionForType,
+} from '@/lib/inventory/adjustmentModel'
+import type { LucideIcon } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { MaterialAdjustment } from '@/types/inventory'
 import Link from 'next/link'
 import { toast } from 'sonner'
+import { usePlantContext } from '@/contexts/PlantContext'
 
 interface MaterialAdjustmentsListProps {
   date: Date
@@ -28,55 +37,38 @@ interface MaterialAdjustmentsListProps {
   onAdjustmentsLoaded?: (adjustments: MaterialAdjustment[]) => void
 }
 
-const adjustmentTypeLabels = {
-  consumption: 'Consumo Manual',
-  waste: 'Pérdida/Desecho',
-  correction: 'Corrección',
-  transfer: 'Transferencia',
-  loss: 'Pérdida por Evento'
-}
-
-const adjustmentTypeColors = {
-  consumption: 'bg-blue-50 text-blue-700 border-blue-200',
-  waste: 'bg-red-50 text-red-700 border-red-200',
-  correction: 'bg-yellow-50 text-yellow-700 border-yellow-200',
-  transfer: 'bg-green-50 text-green-700 border-green-200',
-  loss: 'bg-orange-50 text-orange-700 border-orange-200'
-}
-
-const adjustmentTypeIcons = {
+const ADJUSTMENT_TYPE_ICONS: Record<string, LucideIcon> = {
+  initial_count: Plus,
+  physical_count: Plus,
+  positive_correction: Plus,
   consumption: TrendingDown,
   waste: AlertTriangle,
   correction: RotateCcw,
   transfer: ArrowUpDown,
-  loss: AlertTriangle
+  loss: AlertTriangle,
 }
 
 export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, onAdjustmentsLoaded }: MaterialAdjustmentsListProps) {
+  const { currentPlant } = usePlantContext()
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchAdjustments()
-  }, [date, refreshKey])
+  }, [date, refreshKey, currentPlant?.id])
 
   const fetchAdjustments = async () => {
     setLoading(true)
     try {
       const dateStr = format(date, 'yyyy-MM-dd')
-      console.log('=== FRONTEND: Fetching adjustments ===')
-      console.log('Date object:', date)
-      console.log('Formatted date string:', dateStr)
-      console.log('Fetch URL:', `/api/inventory/adjustments?date=${dateStr}`)
-      const response = await fetch(`/api/inventory/adjustments?date=${dateStr}`)
+      let url = `/api/inventory/adjustments?date=${dateStr}`
+      if (currentPlant?.id) {
+        url += `&plant_id=${currentPlant.id}`
+      }
+      const response = await fetch(url)
       
       if (response.ok) {
         const data = await response.json()
-        console.log('=== FRONTEND: Adjustments API response ===')
-        console.log('Response status:', response.status)
-        console.log('Response data:', data)
-        console.log('Adjustments array:', data.adjustments)
-        console.log('Adjustments count:', data.adjustments?.length || 0)
         const adjustmentsData = data.adjustments || []
         setAdjustments(adjustmentsData)
         onAdjustmentsLoaded?.(adjustmentsData)
@@ -147,15 +139,16 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
 
       {/* Adjustments List */}
       {adjustments.map((adjustment) => {
-        const Icon = adjustmentTypeIcons[adjustment.adjustment_type]
-        const colorClass = adjustmentTypeColors[adjustment.adjustment_type]
-        
+        const Icon = ADJUSTMENT_TYPE_ICONS[adjustment.adjustment_type] ?? TrendingDown
+        const colorClass = adjustmentBadgeClass(adjustment.adjustment_type)
+        const signed = signedQuantityForStockEffect(adjustment.adjustment_type, adjustment.quantity_adjusted)
+        const matName = adjustment.materials?.material_name
         return (
           <Card key={adjustment.id} className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-3 p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className={`p-2 rounded-lg flex-shrink-0 ${colorClass}`}>
+                  <div className={cn('p-2 rounded-lg flex-shrink-0', colorClass)}>
                     <Icon className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -167,7 +160,7 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <Badge variant="outline" className={cn(colorClass, "text-xs")}>
-                    {adjustmentTypeLabels[adjustment.adjustment_type]}
+                    {adjustmentTypeLabelEs(adjustment.adjustment_type)}
                   </Badge>
                   {isEditing && (
                     <Button variant="ghost" size="sm" className="h-10 w-10 p-0">
@@ -183,24 +176,44 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-2">Material</h4>
-                  <p className="text-sm text-gray-600">ID: {adjustment.material_id}</p>
+                  <p className="text-sm text-gray-600">
+                    {matName ? matName : <span className="font-mono text-xs">ID: {adjustment.material_id}</span>}
+                  </p>
                 </div>
                 
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 mb-2">Cantidad Ajustada</h4>
-                  <p className="text-lg font-semibold text-orange-600">
-                    -{adjustment.quantity_adjusted.toLocaleString('es-ES', { 
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2 
-                    })} kg
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Efecto (kg)</h4>
+                  <p className={cn('text-lg font-semibold font-mono tabular-nums', stockDirectionForType(adjustment.adjustment_type) === 'increase' ? 'text-emerald-700' : 'text-red-600')}>
+                    {formatSignedKg(signed)} kg
                   </p>
                 </div>
               </div>
 
               {/* Inventory Changes */}
-              <div className="flex items-center gap-2 p-3 bg-orange-50 rounded-lg">
-                <ArrowUpDown className="h-4 w-4 text-orange-600" />
-                <span className="text-sm text-orange-900">
+              <div
+                className={cn(
+                  'flex items-center gap-2 p-3 rounded-lg',
+                  stockDirectionForType(adjustment.adjustment_type) === 'increase'
+                    ? 'bg-emerald-50'
+                    : 'bg-orange-50'
+                )}
+              >
+                <ArrowUpDown
+                  className={cn(
+                    'h-4 w-4',
+                    stockDirectionForType(adjustment.adjustment_type) === 'increase'
+                      ? 'text-emerald-600'
+                      : 'text-orange-600'
+                  )}
+                />
+                <span
+                  className={cn(
+                    'text-sm',
+                    stockDirectionForType(adjustment.adjustment_type) === 'increase'
+                      ? 'text-emerald-900'
+                      : 'text-orange-900'
+                  )}
+                >
                   Inventario: {adjustment.inventory_before.toLocaleString('es-ES')} → {adjustment.inventory_after.toLocaleString('es-ES')} kg
                 </span>
               </div>

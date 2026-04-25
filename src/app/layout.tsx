@@ -1364,9 +1364,12 @@ const protectedRoutes = [
   // Credit and payment routes
   { path: '/api/credit-actions', method: 'POST' },
   { path: '/api/credit-terms', method: 'POST' },
-  // Inventory routes
+  // Inventory routes (POST /api/inventory: material entries only; adjustments → /api/inventory/adjustments)
   { path: '/api/inventory', method: 'POST' },
   { path: '/api/inventory/entries', method: 'POST' },
+  { path: '/api/inventory/adjustments', method: 'POST' },
+  { path: '/api/inventory/adjustments', method: 'PUT' },
+  { path: '/api/inventory/inter-plant-transfers', method: 'POST' },
   // Quality routes
   { path: '/api/quality', method: 'POST' },
   // Arkik integration routes

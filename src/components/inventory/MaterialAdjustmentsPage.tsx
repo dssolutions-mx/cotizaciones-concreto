@@ -10,7 +10,16 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import MaterialAdjustmentForm from './MaterialAdjustmentForm'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Plus, History, TrendingDown, Minus, AlertTriangle, RotateCcw, ArrowUpDown, Clock, RefreshCw, Calendar as CalendarIcon } from 'lucide-react'
+import { usePlantContext } from '@/contexts/PlantContext'
 import { MaterialAdjustment } from '@/types/inventory'
+import {
+  adjustmentBadgeClass,
+  adjustmentTypeLabelEs,
+  formatSignedKg,
+  MATERIAL_ADJUSTMENT_TYPES_ORDERED,
+  signedQuantityForStockEffect,
+  stockDirectionForType,
+} from '@/lib/inventory/adjustmentModel'
 import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
@@ -25,6 +34,7 @@ interface MaterialAdjustmentsPageProps {
 }
 
 export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps) {
+  const { currentPlant } = usePlantContext()
   const [showForm, setShowForm] = useState(false)
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,25 +53,25 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   useEffect(() => {
     fetchAdjustments()
-  }, [dateRange])
+  }, [dateRange, currentPlant?.id])
 
   const fetchAdjustments = async () => {
     setLoading(true)
     try {
-      console.log('=== FETCHING ADJUSTMENTS FROM MAIN PAGE ===')
-      
       let url = '/api/inventory/adjustments?limit=50'
       if (dateRange?.from && dateRange?.to) {
         const fromStr = format(dateRange.from, 'yyyy-MM-dd')
         const toStr = format(dateRange.to, 'yyyy-MM-dd')
         url += `&date_from=${fromStr}&date_to=${toStr}`
       }
-      
+      if (currentPlant?.id) {
+        url += `&plant_id=${currentPlant.id}`
+      }
+
       const response = await fetch(url)
 
       if (response.ok) {
         const data = await response.json()
-        console.log('Main page adjustments response:', data)
         setAdjustments(data.adjustments || [])
 
         // Calculate stats
@@ -278,54 +288,56 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                     {adjustments.slice(0, 10).map((adjustment) => {
                       const getAdjustmentIcon = (type: string) => {
                         switch (type) {
-                          case 'consumption': return TrendingDown
-                          case 'waste': return AlertTriangle
-                          case 'correction': return RotateCcw
-                          case 'transfer': return ArrowUpDown
-                          case 'loss': return Minus
-                          default: return TrendingDown
-                        }
-                      }
-
-                      const getAdjustmentColor = (type: string) => {
-                        switch (type) {
-                          case 'consumption': return 'bg-red-50 text-red-700 border-red-200'
-                          case 'waste': return 'bg-orange-50 text-orange-700 border-orange-200'
-                          case 'correction': return 'bg-blue-50 text-blue-700 border-blue-200'
-                          case 'transfer': return 'bg-purple-50 text-purple-700 border-purple-200'
-                          case 'loss': return 'bg-gray-50 text-gray-700 border-gray-200'
-                          default: return 'bg-gray-50 text-gray-700 border-gray-200'
-                        }
-                      }
-
-                      const getAdjustmentTypeLabel = (type: string) => {
-                        switch (type) {
-                          case 'consumption': return 'Consumo'
-                          case 'waste': return 'Mal Estado'
-                          case 'correction': return 'Corrección'
-                          case 'transfer': return 'Transferencia'
-                          case 'loss': return 'Pérdida'
-                          default: return type
+                          case 'initial_count':
+                          case 'physical_count':
+                          case 'positive_correction':
+                            return Plus
+                          case 'consumption':
+                            return TrendingDown
+                          case 'waste':
+                            return AlertTriangle
+                          case 'correction':
+                            return RotateCcw
+                          case 'transfer':
+                            return ArrowUpDown
+                          case 'loss':
+                            return Minus
+                          default:
+                            return TrendingDown
                         }
                       }
 
                       const Icon = getAdjustmentIcon(adjustment.adjustment_type)
+                      const inc = stockDirectionForType(adjustment.adjustment_type) === 'increase'
+                      const signed = signedQuantityForStockEffect(
+                        adjustment.adjustment_type,
+                        adjustment.quantity_adjusted
+                      )
 
                       return (
-                        <Card key={adjustment.id} className="border-l-4 border-l-red-500 hover:shadow-md transition-shadow">
+                        <Card
+                          key={adjustment.id}
+                          className={cn(
+                            'border-l-4 hover:shadow-md transition-shadow',
+                            inc ? 'border-l-emerald-500' : 'border-l-red-500'
+                          )}
+                        >
                           <CardContent className="p-4 sm:p-6">
                             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                               <div className="flex items-start space-x-3 flex-1 min-w-0">
                                 <div className="flex-shrink-0">
-                                  <Icon className="h-8 w-8 text-red-500" />
+                                  <Icon className={cn('h-8 w-8', inc ? 'text-emerald-600' : 'text-red-500')} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex flex-wrap items-center gap-2 mb-1">
                                     <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
                                       {adjustment.adjustment_number}
                                     </p>
-                                    <Badge variant="outline" className={cn("text-xs", getAdjustmentColor(adjustment.adjustment_type))}>
-                                      {getAdjustmentTypeLabel(adjustment.adjustment_type)}
+                                    <Badge
+                                      variant="outline"
+                                      className={cn('text-xs', adjustmentBadgeClass(adjustment.adjustment_type))}
+                                    >
+                                      {adjustmentTypeLabelEs(adjustment.adjustment_type)}
                                     </Badge>
                                   </div>
                                   <p className="text-sm text-gray-500 line-clamp-2 mb-1">
@@ -337,14 +349,17 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                 </div>
                               </div>
                               <div className="text-left sm:text-right flex-shrink-0">
-                                <p className="text-lg sm:text-xl font-semibold text-red-600">
-                                  -{adjustment.quantity_adjusted.toLocaleString('es-MX', { 
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2 
-                                  })} kg
+                                <p
+                                  className={cn(
+                                    'text-lg sm:text-xl font-semibold font-mono tabular-nums',
+                                    inc ? 'text-emerald-700' : 'text-red-600'
+                                  )}
+                                >
+                                  {formatSignedKg(signed)} kg
                                 </p>
                                 <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                                  Inventario: {adjustment.inventory_before.toLocaleString('es-MX')} → {adjustment.inventory_after.toLocaleString('es-MX')}
+                                  Inventario: {adjustment.inventory_before.toLocaleString('es-MX')} →{' '}
+                                  {adjustment.inventory_after.toLocaleString('es-MX')}
                                 </p>
                               </div>
                             </div>
@@ -368,36 +383,56 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                 <div className="space-y-4">
                   {/* Adjustment Type Categories */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {[
-                      { type: 'consumption', label: 'Consumo', icon: TrendingDown, color: 'border-red-200' },
-                      { type: 'waste', label: 'Material en Mal Estado', icon: AlertTriangle, color: 'border-orange-200' },
-                      { type: 'correction', label: 'Correcciones', icon: RotateCcw, color: 'border-blue-200' },
-                      { type: 'transfer', label: 'Transferencias', icon: ArrowUpDown, color: 'border-purple-200' },
-                      { type: 'loss', label: 'Pérdidas', icon: Minus, color: 'border-gray-200' }
-                    ].map(({ type, label, icon: IconComponent, color }) => {
-                      const count = adjustments.filter(adj => adj.adjustment_type === type).length
-                      const totalQuantity = adjustments
-                        .filter(adj => adj.adjustment_type === type)
-                        .reduce((sum, adj) => sum + adj.quantity_adjusted, 0)
+                    {MATERIAL_ADJUSTMENT_TYPES_ORDERED.map((type) => {
+                      const label = adjustmentTypeLabelEs(type)
+                      const IconComponent =
+                        type === 'initial_count' || type === 'physical_count' || type === 'positive_correction'
+                          ? Plus
+                          : type === 'consumption'
+                            ? TrendingDown
+                            : type === 'waste'
+                              ? AlertTriangle
+                              : type === 'correction'
+                                ? RotateCcw
+                                : type === 'transfer'
+                                  ? ArrowUpDown
+                                  : Minus
+                      const color =
+                        type === 'initial_count' || type === 'physical_count' || type === 'positive_correction'
+                          ? 'border-emerald-200'
+                          : type === 'consumption'
+                            ? 'border-red-200'
+                            : type === 'waste'
+                              ? 'border-orange-200'
+                              : type === 'correction'
+                                ? 'border-blue-200'
+                                : type === 'transfer'
+                                  ? 'border-violet-200'
+                                  : 'border-stone-200'
+                      const count = adjustments.filter((adj) => adj.adjustment_type === type).length
+                      const totalSigned = adjustments
+                        .filter((adj) => adj.adjustment_type === type)
+                        .reduce(
+                          (sum, adj) => sum + signedQuantityForStockEffect(adj.adjustment_type, adj.quantity_adjusted),
+                          0
+                        )
 
                       return (
                         <Card key={type} className={color}>
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-3">
-                                <IconComponent className="h-8 w-8 text-gray-600" />
-                                <div>
-                                  <p className="font-medium text-gray-900">{label}</p>
+                              <div className="flex items-center space-x-3 min-w-0">
+                                <IconComponent className="h-8 w-8 text-gray-600 shrink-0" />
+                                <div className="min-w-0">
+                                  <p className="font-medium text-gray-900 truncate">{label}</p>
                                   <p className="text-sm text-gray-500">{count} ajustes</p>
-                                  <p className="text-xs text-gray-400">{totalQuantity} kg total</p>
+                                  <p className="text-xs text-gray-400 font-mono tabular-nums">
+                                    {formatSignedKg(totalSigned)} kg neto
+                                  </p>
                                 </div>
                               </div>
-                              <Badge variant="outline" className={`${color} text-gray-700`}>
-                                {type === 'consumption' ? 'Salida' :
-                                 type === 'waste' ? 'Desecho' :
-                                 type === 'correction' ? 'Corrección' :
-                                 type === 'transfer' ? 'Transfer' :
-                                 'Pérdida'}
+                              <Badge variant="outline" className={cn(adjustmentBadgeClass(type), 'shrink-0 text-[10px]')}>
+                                {stockDirectionForType(type) === 'increase' ? 'Entrada' : 'Salida'}
                               </Badge>
                             </div>
                           </CardContent>
@@ -446,11 +481,15 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                         return acc
                       }, {} as Record<string, typeof adjustments>)
                     ).map(([materialName, materialAdjustments]) => {
-                      const totalQuantity = materialAdjustments.reduce((sum, adj) => sum + adj.quantity_adjusted, 0)
+                      const totalSigned = materialAdjustments.reduce(
+                        (sum, adj) => sum + signedQuantityForStockEffect(adj.adjustment_type, adj.quantity_adjusted),
+                        0
+                      )
                       const adjustmentCount = materialAdjustments.length
                       const latestAdjustment = materialAdjustments.sort((a, b) =>
                         new Date(b.adjustment_date).getTime() - new Date(a.adjustment_date).getTime()
                       )[0]
+                      const absAvg = adjustmentCount ? materialAdjustments.reduce((s, a) => s + a.quantity_adjusted, 0) / adjustmentCount : 0
 
                       return (
                         <Card key={materialName} className="border-l-4 border-l-blue-500">
@@ -463,7 +502,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                 <div>
                                   <p className="text-lg font-medium text-gray-900">{materialName}</p>
                                   <p className="text-sm text-gray-500">
-                                    {adjustmentCount} ajuste{adjustmentCount !== 1 ? 's' : ''} • {totalQuantity} kg total
+                                    {adjustmentCount} ajuste{adjustmentCount !== 1 ? 's' : ''} • {formatSignedKg(totalSigned)} kg neto
                                   </p>
                                   <p className="text-xs text-gray-400">
                                     Último ajuste: {format(new Date(latestAdjustment.adjustment_date), 'dd/MM/yyyy', { locale: es })}
@@ -471,11 +510,16 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                 </div>
                               </div>
                               <div className="text-right">
-                                <p className="text-lg font-semibold text-red-600">
-                                  -{totalQuantity} kg
+                                <p
+                                  className={cn(
+                                    'text-lg font-semibold font-mono',
+                                    totalSigned >= 0 ? 'text-emerald-700' : 'text-red-600'
+                                  )}
+                                >
+                                  {formatSignedKg(totalSigned)} kg
                                 </p>
                                 <p className="text-sm text-gray-500">
-                                  Promedio: {Math.round(totalQuantity / adjustmentCount)} kg/ajuste
+                                  Promedio |q|: {absAvg.toFixed(1)} kg/ajuste
                                 </p>
                               </div>
                             </div>
@@ -488,16 +532,22 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                   <div key={adj.id} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded">
                                     <div className="flex items-center gap-2">
                                       <Badge variant="outline" className="text-xs">
-                                        {adj.adjustment_type === 'consumption' ? 'Consumo' :
-                                         adj.adjustment_type === 'waste' ? 'Mal Estado' :
-                                         adj.adjustment_type === 'correction' ? 'Corrección' :
-                                         adj.adjustment_type === 'transfer' ? 'Transferencia' :
-                                         'Pérdida'}
+                                        {adjustmentTypeLabelEs(adj.adjustment_type)}
                                       </Badge>
                                       <span>{format(new Date(adj.adjustment_date), 'dd/MM', { locale: es })}</span>
                                     </div>
-                                    <span className="text-red-600 font-medium">
-                                      -{adj.quantity_adjusted} kg
+                                    <span
+                                      className={cn(
+                                        'font-mono font-medium',
+                                        stockDirectionForType(adj.adjustment_type) === 'increase'
+                                          ? 'text-emerald-700'
+                                          : 'text-red-600'
+                                      )}
+                                    >
+                                      {formatSignedKg(
+                                        signedQuantityForStockEffect(adj.adjustment_type, adj.quantity_adjusted)
+                                      )}{' '}
+                                      kg
                                     </span>
                                   </div>
                                 ))}

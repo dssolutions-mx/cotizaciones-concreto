@@ -5,6 +5,8 @@ import {
   MaterialAdjustmentInputSchema,
   UpdateMaterialAdjustmentSchema 
 } from '@/lib/validations/inventory';
+import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
+import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -64,27 +66,17 @@ export async function GET(request: NextRequest) {
       // Executives and Admin Operations can see all plants, but if plant_id is provided in query, filter by it
       const queryPlantId = searchParams.get('plant_id');
       if (queryPlantId) {
-        console.log('EXECUTIVE: Filtering by query plant_id:', queryPlantId);
         query = query.eq('plant_id', queryPlantId);
-      } else {
-        console.log('EXECUTIVE/ADMIN_OPERATIONS: No plant filter applied - seeing all plants');
       }
     } else {
-      // Other users can only see their assigned plant
-      console.log('NON-EXECUTIVE: Filtering by user plant_id:', profile.plant_id);
-      if (!profile.plant_id) {
-        console.log('WARNING: User has no plant_id assigned!');
-      }
       query = query.eq('plant_id', profile.plant_id);
     }
 
     if (validatedQuery.date_from) {
-      console.log('Applying date_from filter:', validatedQuery.date_from);
       query = query.gte('adjustment_date', validatedQuery.date_from);
     }
 
     if (validatedQuery.date_to) {
-      console.log('Applying date_to filter:', validatedQuery.date_to);
       query = query.lte('adjustment_date', validatedQuery.date_to);
     }
 
@@ -92,7 +84,6 @@ export async function GET(request: NextRequest) {
     if (!validatedQuery.date_from && !validatedQuery.date_to) {
       const dateParam = searchParams.get('date');
       if (dateParam) {
-        console.log('Applying single date filter:', dateParam);
         query = query.eq('adjustment_date', dateParam);
       }
     }
@@ -111,38 +102,6 @@ export async function GET(request: NextRequest) {
       console.error('Adjustments query error:', adjustmentsError);
       throw new Error(`Error al obtener ajustes de material: ${adjustmentsError.message}`);
     }
-
-    console.log('=== ADJUSTMENTS API DEBUG ===');
-    console.log('User profile:', {
-      id: profile.id,
-      role: profile.role,
-      plant_id: profile.plant_id,
-      business_unit_id: profile.business_unit_id
-    });
-    console.log('Query parameters:', {
-      date_from: validatedQuery.date_from,
-      date_to: validatedQuery.date_to,
-      material_id: validatedQuery.material_id
-    });
-    console.log('Search params:', Object.fromEntries(searchParams.entries()));
-
-    // Try to get a count first to see if table exists
-    const { count, error: countError } = await supabase
-      .from('material_adjustments')
-      .select('*', { count: 'exact', head: true });
-
-    console.log('Table count result:', { count, countError });
-
-    console.log('Adjustments query result:', {
-      adjustmentsCount: adjustments?.length || 0,
-      adjustments: adjustments?.slice(0, 3).map(adj => ({
-        id: adj.id,
-        adjustment_date: adj.adjustment_date,
-        plant_id: adj.plant_id,
-        adjustment_type: adj.adjustment_type,
-        quantity_adjusted: adj.quantity_adjusted
-      }))
-    });
 
     return NextResponse.json({
       success: true,
@@ -251,18 +210,12 @@ export async function POST(request: NextRequest) {
       .eq('material_id', validatedData.material_id)
       .single();
 
-    const POSITIVE_ADJUSTMENT_TYPES = [
-      'initial_count',
-      'physical_count',
-      'positive_correction',
-    ] as const;
     const inventoryBefore = currentInventory?.current_stock || 0;
-    const isPositiveAdjustment = POSITIVE_ADJUSTMENT_TYPES.includes(
-      validatedData.adjustment_type as (typeof POSITIVE_ADJUSTMENT_TYPES)[number]
+    const inventoryAfter = computeInventoryAfter(
+      inventoryBefore,
+      validatedData.quantity_adjusted,
+      validatedData.adjustment_type
     );
-    const inventoryAfter = isPositiveAdjustment
-      ? inventoryBefore + validatedData.quantity_adjusted
-      : inventoryBefore - validatedData.quantity_adjusted;
 
     // Create adjustment
     const { data: result, error: adjustmentError } = await supabase
@@ -288,26 +241,6 @@ export async function POST(request: NextRequest) {
       console.error('Error creating adjustment:', adjustmentError);
       throw new Error(`Error al crear ajuste: ${adjustmentError.message}`);
     }
-
-    console.log('=== ADJUSTMENT CREATED SUCCESSFULLY ===');
-    console.log('Created adjustment:', {
-      id: result.id,
-      adjustment_number: result.adjustment_number,
-      plant_id: result.plant_id,
-      adjustment_date: result.adjustment_date,
-      adjustment_type: result.adjustment_type,
-      quantity_adjusted: result.quantity_adjusted,
-      reference_notes: result.reference_notes
-    });
-
-    // Verify the adjustment was saved by querying it back
-    const { data: verifyAdjustment, error: verifyError } = await supabase
-      .from('material_adjustments')
-      .select('*')
-      .eq('id', result.id)
-      .single();
-
-    console.log('Verification query result:', { verifyAdjustment, verifyError });
 
     return NextResponse.json({
       success: true,
@@ -405,17 +338,26 @@ export async function PUT(request: NextRequest) {
     const validatedData = UpdateMaterialAdjustmentSchema.parse(body);
     const { id, ...updateData } = validatedData;
 
-    // Update material adjustment
-    const { data: result, error: updateError } = await supabase
+    let updateQuery = supabase
       .from('material_adjustments')
       .update({
         ...updateData,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', id)
-      .eq('plant_id', profile.plant_id) // Ensure user can only update their plant's adjustments
-      .select()
-      .single();
+      .eq('id', id);
+
+    if (!canAccessAllInventoryPlants(profile.role)) {
+      if (profile.plant_id) {
+        updateQuery = updateQuery.eq('plant_id', profile.plant_id);
+      } else {
+        return NextResponse.json(
+          { success: false, error: 'Usuario sin planta asignada' },
+          { status: 403 }
+        );
+      }
+    }
+
+    const { data: result, error: updateError } = await updateQuery.select().single();
 
     if (updateError) {
       throw new Error(`Error al actualizar ajuste: ${updateError.message}`);

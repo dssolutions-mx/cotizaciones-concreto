@@ -30,16 +30,7 @@ import SimpleFileUpload from './SimpleFileUpload'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { uploadInventoryDocumentFromClient } from '@/lib/inventory/uploadInventoryEntryDocumentFromClient'
-
-const POSITIVE_ADJUSTMENT_TYPES = [
-  'initial_count',
-  'physical_count',
-  'positive_correction',
-] as const
-
-function isPositiveAdjustmentType(t: string): boolean {
-  return (POSITIVE_ADJUSTMENT_TYPES as readonly string[]).includes(t)
-}
+import { isPositiveAdjustmentType } from '@/lib/inventory/adjustmentModel'
 
 interface MaterialAdjustmentFormData {
   material_id: string
@@ -133,10 +124,6 @@ export default function MaterialAdjustmentForm({
   
   // Check if user is DOSIFICADOR for simplified form
   const isDosificador = profile?.role === 'DOSIFICADOR'
-  
-  console.log('MaterialAdjustmentForm - profile:', profile);
-  console.log('MaterialAdjustmentForm - currentPlant:', currentPlant);
-  console.log('MaterialAdjustmentForm - currentPlant?.id:', currentPlant?.id);
   
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState<MaterialAdjustmentFormData>({
@@ -276,9 +263,6 @@ export default function MaterialAdjustmentForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    console.log('Form submission - currentPlant:', currentPlant);
-    console.log('Form submission - formData:', formData);
-    
     if (!formData.material_id || formData.quantity_adjusted <= 0 || !formData.reference_notes) {
       toast.error('Por favor complete todos los campos requeridos')
       return
@@ -297,8 +281,6 @@ export default function MaterialAdjustmentForm({
       return
     }
 
-    console.log('Submitting with plant_id:', plantId);
-
     setLoading(true)
     try {
       const requestBody = {
@@ -306,12 +288,6 @@ export default function MaterialAdjustmentForm({
         plant_id: plantId
       };
 
-      console.log('=== FRONTEND: Submitting adjustment ===')
-      console.log('Form data:', formData)
-      console.log('Plant ID:', plantId)
-      console.log('Request body being sent:', requestBody)
-      console.log('POST URL:', '/api/inventory/adjustments')
-      
       const response = await fetch('/api/inventory/adjustments', {
         method: 'POST',
         headers: {
@@ -322,10 +298,6 @@ export default function MaterialAdjustmentForm({
 
       if (response.ok) {
         const data = await response.json()
-        console.log('=== FRONTEND: Adjustment created successfully ===')
-        console.log('Response data:', data)
-        console.log('Adjustment ID:', data.data?.id)
-        console.log('Adjustment number:', data.data?.adjustment_number)
         toast.success('Ajuste de inventario registrado correctamente')
         
         // Upload pending documents
