@@ -5,7 +5,7 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -44,17 +45,15 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  FileSearch,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseMasterAndVariantFromRecipeCode } from '@/lib/utils/masterRecipeUtils';
 import { AddRecipeModalV2 } from '@/components/recipes/AddRecipeModalV2';
-import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleIndicator from '@/components/ui/RoleIndicator';
 import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
 import { isQualityTeamInRestrictedPlant } from '@/app/layout';
-import type { RecipeSearchResult } from '@/types/recipes';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 type MasterRecipeWithStats = {
   id: string;
@@ -105,18 +104,18 @@ function MasterRecipesContent() {
   const [error, setError] = useState<string | null>(null);
   const [showOrphans, setShowOrphans] = useState(true);
   const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
-  const [groupBy, setGroupBy] = useState<'none' | 'strength' | 'placement'>(
-    (searchParams.get('groupBy') as 'none' | 'strength' | 'placement') || 'none',
-  );
   const [activeOnly, setActiveOnly] = useState(searchParams.get('active') === '1');
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
+  // Hierarchical grouping expand/collapse:
+  // collapsedStrengths = strength values explicitly collapsed (default: all open)
+  // expandedSubGroups = composite keys "a:{fc}_{ageKey}", "t:{fc}_{ageKey}_{tma}", "r:{fc}_{ageKey}_{tma}_{slump}" that are open
+  const [collapsedStrengths, setCollapsedStrengths] = useState<Set<number>>(new Set());
+  const [expandedSubGroups, setExpandedSubGroups] = useState<Set<string>>(new Set());
   const [selectedOrphans, setSelectedOrphans] = useState<Set<string>>(new Set());
   const [promotingVariant, setPromotingVariant] = useState<string | null>(null);
   const [creatingMaster, setCreatingMaster] = useState(false);
 
-  // Recipe creation + advanced search modals
   const [addRecipeOpen, setAddRecipeOpen] = useState(false);
-  const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false);
 
   // ARKIK bulk export selection (recipe codes)
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
@@ -126,22 +125,22 @@ function MasterRecipesContent() {
   const [governanceSheet, setGovernanceSheet] = useState<{
     open: boolean;
     masterCode: string;
-  }>({ open: false, masterCode: '' });
+    masterId: string;
+  }>({ open: false, masterCode: '', masterId: '' });
 
   // Persist filters in URL
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString());
     if (searchTerm) params.set('q', searchTerm);
     else params.delete('q');
-    if (groupBy !== 'none') params.set('groupBy', groupBy);
-    else params.delete('groupBy');
+    params.delete('groupBy'); // hierarchy is always on, no need to persist
     if (activeOnly) params.set('active', '1');
     else params.delete('active');
     const next = params.toString();
     const target = next ? `${pathname}?${next}` : pathname;
     router.replace(target, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchTerm, groupBy, activeOnly]);
+  }, [searchTerm, activeOnly]);
 
   // Auto-expand a master when arriving from /quality/calculator with ?master=XXX
   useEffect(() => {
@@ -184,22 +183,187 @@ function MasterRecipesContent() {
     return orphans.filter((o) => o.recipe_code.toLowerCase().includes(lower));
   }, [orphans, searchTerm]);
 
-  // Grouped view: by strength (numeric ascending) or by placement type
-  const groupedMasters = useMemo(() => {
-    if (groupBy === 'none') return null;
-    const groups = new Map<string | number, MasterRecipeWithStats[]>();
+  // 4-level hierarchy: strength → age → TMA → slump → masters
+  const hierarchy = useMemo(() => {
+    type SlumpGroup = { slump: number; masters: MasterRecipeWithStats[] };
+    type TmaGroup = { tma: number; total: number; slumps: SlumpGroup[] };
+    type AgeGroup = { ageKey: string; ageLabel: string; total: number; tmas: TmaGroup[] };
+    type StrengthGroup = { strength: number; total: number; ages: AgeGroup[] };
+
+    const s = new Map<number, Map<string, Map<number, Map<number, MasterRecipeWithStats[]>>>>();
     for (const m of filteredMasters) {
-      const key: string | number = groupBy === 'strength' ? m.strength_fc : m.placement_type;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(m);
+      const ageKey = m.age_days ? `${m.age_days}d` : `${m.age_hours}h`;
+      if (!s.has(m.strength_fc)) s.set(m.strength_fc, new Map());
+      const ag = s.get(m.strength_fc)!;
+      if (!ag.has(ageKey)) ag.set(ageKey, new Map());
+      const tm = ag.get(ageKey)!;
+      if (!tm.has(m.max_aggregate_size)) tm.set(m.max_aggregate_size, new Map());
+      const sl = tm.get(m.max_aggregate_size)!;
+      if (!sl.has(m.slump)) sl.set(m.slump, []);
+      sl.get(m.slump)!.push(m);
     }
-    // Stable, predictable ordering
-    const sortedKeys = [...groups.keys()].sort((a, b) => {
-      if (typeof a === 'number' && typeof b === 'number') return a - b;
-      return String(a).localeCompare(String(b));
+
+    const result: StrengthGroup[] = [...s.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([strength, ageMap]) => {
+        const ages: AgeGroup[] = [...ageMap.entries()]
+          .sort(([a], [b]) => {
+            const da = a.endsWith('d') ? Number(a.slice(0, -1)) : Number(a.slice(0, -1)) / 24;
+            const db = b.endsWith('d') ? Number(b.slice(0, -1)) : Number(b.slice(0, -1)) / 24;
+            return da - db;
+          })
+          .map(([ageKey, tmaMap]) => {
+            const tmas: TmaGroup[] = [...tmaMap.entries()]
+              .sort(([a], [b]) => a - b)
+              .map(([tma, slumpMap]) => {
+                const slumps: SlumpGroup[] = [...slumpMap.entries()]
+                  .sort(([a], [b]) => a - b)
+                  .map(([slump, masters]) => ({ slump, masters }));
+                return { tma, total: slumps.reduce((n, g) => n + g.masters.length, 0), slumps };
+              });
+            const total = tmas.reduce((n, g) => n + g.total, 0);
+            const ageLabel = ageKey.endsWith('d')
+              ? `${ageKey.slice(0, -1)} días`
+              : `${ageKey.slice(0, -1)} horas`;
+            return { ageKey, ageLabel, total, tmas };
+          });
+        const total = ages.reduce((n, g) => n + g.total, 0);
+        return { strength, total, ages };
+      });
+
+    return result;
+  }, [filteredMasters]);
+
+  const toggleStrengthGroup = (strength: number) => {
+    setCollapsedStrengths((prev) => {
+      const next = new Set(prev);
+      if (next.has(strength)) next.delete(strength);
+      else next.add(strength);
+      return next;
     });
-    return sortedKeys.map((k) => ({ key: k, masters: groups.get(k)! }));
-  }, [filteredMasters, groupBy]);
+  };
+
+  const toggleSubGroup = (key: string) => {
+    setExpandedSubGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const renderMasterCard = (master: MasterRecipeWithStats) => {
+    const isExpanded = expandedMasters.has(master.id);
+    return (
+      <div key={master.id} className="border border-gray-200 rounded-xl bg-white shadow-sm overflow-hidden">
+        <button
+          type="button"
+          className="w-full p-4 text-left hover:bg-gray-50 transition-colors"
+          onClick={() => toggleMaster(master.id)}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+              )}
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-bold text-gray-900">{master.master_code}</span>
+                  <Badge className="bg-sky-100 text-sky-800 border border-sky-200">
+                    {master.variant_count} variante{master.variant_count !== 1 ? 's' : ''}
+                  </Badge>
+                  {master.has_active_price && <Badge variant="success">Precio activo</Badge>}
+                  {master.recent_usage_count > 0 && (
+                    <Badge variant="secondary">
+                      {master.recent_usage_count} uso{master.recent_usage_count !== 1 ? 's' : ''} (90d)
+                    </Badge>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  f&apos;c: {master.strength_fc} kg/cm² · Edad:{' '}
+                  {master.age_days ? `${master.age_days}d` : `${master.age_hours}h`} · Rev:{' '}
+                  {master.slump} cm · TMA: {master.max_aggregate_size} mm · {master.placement_type}
+                </div>
+              </div>
+            </div>
+          </div>
+        </button>
+
+        {isExpanded && (
+          <div className="border-t border-gray-100 bg-gray-50 p-4 space-y-2">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Variantes</h4>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs gap-1 h-7"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGovernanceSheet({ open: true, masterCode: master.master_code, masterId: master.id });
+                }}
+              >
+                Ver versiones
+              </Button>
+            </div>
+            {master.variants.map((variant) => (
+              <div
+                key={variant.id}
+                className="flex items-center justify-between gap-3 p-3 bg-white rounded-xl border border-gray-100"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <Checkbox
+                    checked={selectedCodes.has(variant.recipe_code)}
+                    onCheckedChange={() => toggleCodeSelection(variant.recipe_code)}
+                    aria-label={`Seleccionar ${variant.recipe_code} para exportación ARKIK`}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-mono font-semibold text-sm text-gray-800 truncate">
+                      {variant.recipe_code}
+                    </div>
+                    {variant.variant_suffix && (
+                      <div className="text-xs text-gray-500">Sufijo: {variant.variant_suffix}</div>
+                    )}
+                    <div className="text-xs text-gray-400">
+                      {new Date(variant.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+                {hasEditPermission && (
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => unlinkVariantFromMaster(variant.id, variant.recipe_code)}
+                      className="gap-1"
+                    >
+                      <Unlink className="h-3 w-3" />
+                      Desvincular
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => promoteVariantToMaster(variant.id, variant.recipe_code)}
+                      disabled={promotingVariant === variant.id}
+                      className="gap-1"
+                    >
+                      {promotingVariant === variant.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      Promover
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const loadData = async () => {
     if (!plantId) return;
@@ -382,15 +546,6 @@ function MasterRecipesContent() {
     URL.revokeObjectURL(url);
   };
 
-  const handleAdvancedSearchSelect = useCallback(
-    (recipe: RecipeSearchResult) => {
-      setAdvancedSearchOpen(false);
-      // Drop the selected recipe code into the search field so the matching master expands
-      setSearchTerm(recipe.recipe_code);
-    },
-    [],
-  );
-
   const promoteVariantToMaster = async (variantId: string, recipeCode: string) => {
     if (!confirm(`¿Promover "${recipeCode}" a maestro independiente?`)) return;
     setPromotingVariant(variantId);
@@ -506,6 +661,12 @@ function MasterRecipesContent() {
 
   return (
     <div className="p-6 space-y-6">
+      <QualityBreadcrumb
+        hubName="Recetas"
+        hubHref="/quality/recetas-hub"
+        items={[{ label: 'Maestros' }]}
+      />
+
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -524,20 +685,9 @@ function MasterRecipesContent() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <RoleProtectedButton
-            allowedRoles={['QUALITY_TEAM', 'EXECUTIVE', 'SALES_AGENT']}
-            onClick={() => setAdvancedSearchOpen(true)}
-            className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' inline-flex items-center gap-2'}
-            showDisabled
-            disabledMessage="Solo usuarios autorizados pueden buscar recetas"
-          >
-            <FileSearch className="h-4 w-4" />
-            Búsqueda avanzada
-          </RoleProtectedButton>
-
-          <RoleProtectedButton
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
             onClick={() => setAddRecipeOpen(true)}
-            className={buttonVariants({ variant: 'primary', size: 'sm' }) + ' inline-flex items-center gap-2'}
+            className="h-9 px-3 py-1.5 text-sm rounded-xl bg-sky-600 text-white hover:bg-sky-700 inline-flex items-center gap-2 font-medium transition-all duration-200 shadow-sm disabled:opacity-50 disabled:pointer-events-none"
             showDisabled
             disabledMessage="Solo el equipo de calidad y ejecutivos pueden agregar recetas"
           >
@@ -546,10 +696,10 @@ function MasterRecipesContent() {
           </RoleProtectedButton>
 
           <Button
-            variant={showOrphans ? 'primary' : 'secondary'}
+            variant="secondary"
             size="sm"
             onClick={() => setShowOrphans(!showOrphans)}
-            className="gap-2"
+            className={cn('gap-2', showOrphans && 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100')}
           >
             {showOrphans ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             {showOrphans ? 'Ocultar independientes' : 'Mostrar independientes'}
@@ -575,7 +725,7 @@ function MasterRecipesContent() {
             placeholder="Buscar por código maestro o variante..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-9 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            className="w-full pl-10 pr-9 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm"
           />
           {searchTerm && (
             <button
@@ -589,25 +739,13 @@ function MasterRecipesContent() {
           )}
         </div>
 
-        <Select value={groupBy} onValueChange={(v: 'none' | 'strength' | 'placement') => setGroupBy(v)}>
-          <SelectTrigger className="w-44">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Sin agrupar</SelectItem>
-            <SelectItem value="strength">Por resistencia</SelectItem>
-            <SelectItem value="placement">Por colocación</SelectItem>
-          </SelectContent>
-        </Select>
-
         <button
           type="button"
           onClick={() => setActiveOnly(!activeOnly)}
-          className={`px-3 py-2 text-sm border rounded-xl transition-colors ${
-            activeOnly
-              ? 'bg-blue-50 border-blue-300 text-blue-700'
-              : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-          }`}
+          className={cn(
+            'px-3 py-2 text-sm border rounded-xl transition-colors',
+            activeOnly ? 'bg-sky-50 border-sky-300 text-sky-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50',
+          )}
         >
           Solo con uso reciente
         </button>
@@ -641,12 +779,15 @@ function MasterRecipesContent() {
         </Alert>
       )}
 
-      {/* Masters List */}
-      <div className="space-y-3">
-        <h2 className="text-base font-semibold flex items-center gap-2 text-gray-700">
-          <Link2 className="h-4 w-4" />
-          Recetas Maestras ({filteredMasters.length})
-        </h2>
+      {/* Masters — 4-level hierarchy: resistencia → días → TMA → revenimiento */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 mb-1">
+          <Link2 className="h-4 w-4 text-gray-500" />
+          <span className="text-base font-semibold text-gray-700">
+            Recetas Maestras ({filteredMasters.length})
+          </span>
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+        </div>
 
         {filteredMasters.length === 0 && !loading && (
           <Alert>
@@ -654,23 +795,135 @@ function MasterRecipesContent() {
           </Alert>
         )}
 
-        {groupedMasters ? (
-          <div className="space-y-6">
-            {groupedMasters.map(({ key, masters: groupMasters }) => (
-              <section key={String(key)} className="space-y-3">
-                <div className="flex items-center justify-between border-b border-gray-100 pb-1.5">
-                  <h3 className="text-sm font-semibold text-gray-700">
-                    {groupBy === 'strength' ? `${key} kg/cm²` : `Colocación: ${key}`}
-                  </h3>
-                  <span className="text-xs text-gray-400">{groupMasters.length} maestros</span>
+        {hierarchy.map(({ strength, total, ages }) => {
+          const isStrengthOpen = !collapsedStrengths.has(strength);
+          return (
+            <section key={strength} className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+              {/* L1: Resistencia */}
+              <button
+                type="button"
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-sky-50 transition-colors text-left"
+                onClick={() => toggleStrengthGroup(strength)}
+              >
+                <div className="flex items-center gap-2">
+                  {isStrengthOpen ? (
+                    <ChevronDown className="h-4 w-4 text-sky-500 shrink-0" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+                  )}
+                  <span className="font-semibold text-gray-900">
+                    f&apos;c {strength} kg/cm²
+                  </span>
                 </div>
-                {groupMasters.map((master) => renderMasterCard(master))}
-              </section>
-            ))}
-          </div>
-        ) : (
-          filteredMasters.map((master) => renderMasterCard(master))
-        )}
+                <span className="text-xs text-gray-400 font-medium">
+                  {total} maestro{total !== 1 ? 's' : ''}
+                </span>
+              </button>
+
+              {isStrengthOpen && (
+                <div className="border-t border-gray-100 divide-y divide-gray-100">
+                  {ages.map(({ ageKey, ageLabel, total: ageTotal, tmas }) => {
+                    const ageGroupKey = `a:${strength}_${ageKey}`;
+                    const isAgeOpen = expandedSubGroups.has(ageGroupKey);
+                    return (
+                      <div key={ageKey} className="bg-gray-50/50">
+                        {/* L2: Días */}
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between pl-8 pr-4 py-2 hover:bg-sky-50/60 transition-colors text-left"
+                          onClick={() => toggleSubGroup(ageGroupKey)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {isAgeOpen ? (
+                              <ChevronDown className="h-3.5 w-3.5 text-sky-400 shrink-0" />
+                            ) : (
+                              <ChevronRight className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                            )}
+                            <span className="text-sm font-medium text-gray-700">{ageLabel}</span>
+                          </div>
+                          <span className="text-xs text-gray-400">
+                            {ageTotal} maestro{ageTotal !== 1 ? 's' : ''}
+                          </span>
+                        </button>
+
+                        {isAgeOpen && (
+                          <div className="divide-y divide-gray-100">
+                            {tmas.map(({ tma, total: tmaTotal, slumps }) => {
+                              const tmaGroupKey = `t:${strength}_${ageKey}_${tma}`;
+                              const isTmaOpen = expandedSubGroups.has(tmaGroupKey);
+                              return (
+                                <div key={tma} className="bg-white/60">
+                                  {/* L3: TMA */}
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center justify-between pl-12 pr-4 py-1.5 hover:bg-sky-50/40 transition-colors text-left"
+                                    onClick={() => toggleSubGroup(tmaGroupKey)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {isTmaOpen ? (
+                                        <ChevronDown className="h-3 w-3 text-sky-400 shrink-0" />
+                                      ) : (
+                                        <ChevronRight className="h-3 w-3 text-gray-400 shrink-0" />
+                                      )}
+                                      <span className="text-xs font-medium text-gray-600">
+                                        TMA {tma} mm
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-gray-400">
+                                      {tmaTotal} maestro{tmaTotal !== 1 ? 's' : ''}
+                                    </span>
+                                  </button>
+
+                                  {isTmaOpen && (
+                                    <div className="divide-y divide-gray-50">
+                                      {slumps.map(({ slump, masters: slumpMasters }) => {
+                                        const slumpGroupKey = `r:${strength}_${ageKey}_${tma}_${slump}`;
+                                        const isSlumpOpen = expandedSubGroups.has(slumpGroupKey);
+                                        return (
+                                          <div key={slump}>
+                                            {/* L4: Revenimiento */}
+                                            <button
+                                              type="button"
+                                              className="w-full flex items-center justify-between pl-16 pr-4 py-1.5 hover:bg-gray-50 transition-colors text-left"
+                                              onClick={() => toggleSubGroup(slumpGroupKey)}
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                {isSlumpOpen ? (
+                                                  <ChevronDown className="h-3 w-3 text-gray-400 shrink-0" />
+                                                ) : (
+                                                  <ChevronRight className="h-3 w-3 text-gray-400 shrink-0" />
+                                                )}
+                                                <span className="text-xs text-gray-500">
+                                                  Rev {slump} cm
+                                                </span>
+                                              </div>
+                                              <span className="text-xs text-gray-400">
+                                                {slumpMasters.length} maestro{slumpMasters.length !== 1 ? 's' : ''}
+                                              </span>
+                                            </button>
+                                            {isSlumpOpen && (
+                                              <div className="pl-16 pr-4 pb-3 pt-1 space-y-2 bg-gray-50/30">
+                                                {slumpMasters.map((master) => renderMasterCard(master))}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
 
       {/* Orphans Section */}
@@ -748,15 +1001,18 @@ function MasterRecipesContent() {
         open={governanceSheet.open}
         onOpenChange={(open) => setGovernanceSheet((s) => ({ ...s, open }))}
       >
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-          <SheetHeader className="mb-4">
+        <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col overflow-hidden">
+          <SheetHeader className="shrink-0 mb-2">
             <SheetTitle>Versiones — {governanceSheet.masterCode}</SheetTitle>
           </SheetHeader>
           {plantId && governanceSheet.open && (
-            <RecipeVersionGovernance
-              plantId={plantId}
-              initialSearch={governanceSheet.masterCode}
-            />
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <RecipeVersionGovernance
+                plantId={plantId}
+                initialSearch={governanceSheet.masterCode}
+                initialMasterId={governanceSheet.masterId}
+              />
+            </div>
           )}
         </SheetContent>
       </Sheet>
@@ -818,16 +1074,6 @@ function MasterRecipesContent() {
         }}
       />
 
-      {/*
-        TODO(2026-04-27): RecipeSearchModal does spec-based search filtered to recipes that
-        have quality data (muestreos / site-checks). Underused on this page; observe usage for
-        ~60 days and retire if not adopted. Owner: quality team.
-      */}
-      <RecipeSearchModal
-        isOpen={advancedSearchOpen}
-        onClose={() => setAdvancedSearchOpen(false)}
-        onRecipeSelect={handleAdvancedSearchSelect}
-      />
     </div>
   );
 }

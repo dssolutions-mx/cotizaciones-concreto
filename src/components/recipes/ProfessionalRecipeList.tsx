@@ -1,245 +1,110 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Eye, Beaker, Zap } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye } from 'lucide-react';
 import { RecipeSearchResult } from '@/types/recipes';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
 
 interface ProfessionalRecipeListProps {
   results: RecipeSearchResult[];
   onSelect: (recipe: RecipeSearchResult) => void;
 }
 
-interface GroupedRecipes {
-  [recipeType: string]: {
-    [strength: string]: {
-      [slump: string]: RecipeSearchResult[];
-    };
-  };
-}
-
-export const ProfessionalRecipeList: React.FC<ProfessionalRecipeListProps> = ({ 
-  results, 
-  onSelect 
-}) => {
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(['FC'])); // Expand FC by default
-  const [expandedStrengths, setExpandedStrengths] = useState<Set<string>>(new Set());
-
-  // Group recipes by type → strength → slump (like RecipeList)
-  const groupedRecipes = useMemo(() => {
-    const grouped: GroupedRecipes = {};
-    
-    results.forEach(recipe => {
-      const spec = recipe.specification;
-      const recipeType = recipe.recipe_type || spec?.recipe_type || 'FC';
-      const strength = spec?.strength_fc || 0;
-      const slump = spec?.slump || 0;
-      
-      if (!grouped[recipeType]) grouped[recipeType] = {};
-      if (!grouped[recipeType][strength]) grouped[recipeType][strength] = {};
-      if (!grouped[recipeType][strength][slump]) grouped[recipeType][strength][slump] = [];
-      
-      grouped[recipeType][strength][slump].push(recipe);
-    });
-    
-    return grouped;
+export const ProfessionalRecipeList: React.FC<ProfessionalRecipeListProps> = ({ results, onSelect }) => {
+  // Group by strength_fc ascending — meaningful taxonomy, not provenance notes
+  const groups = useMemo(() => {
+    const map = new Map<number, RecipeSearchResult[]>();
+    for (const r of results) {
+      const fc = (r.specification?.strength_fc as number) ?? 0;
+      if (!map.has(fc)) map.set(fc, []);
+      map.get(fc)!.push(r);
+    }
+    return [...map.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([fc, recipes]) => ({
+        fc,
+        recipes: [...recipes].sort((a, b) => {
+          const ageDiff = ((a.specification?.age_days as number) ?? 0) - ((b.specification?.age_days as number) ?? 0);
+          return ageDiff !== 0 ? ageDiff : a.recipe_code.localeCompare(b.recipe_code);
+        }),
+      }));
   }, [results]);
 
-  const toggleType = (type: string) => {
-    const newExpanded = new Set(expandedTypes);
-    if (newExpanded.has(type)) {
-      newExpanded.delete(type);
-    } else {
-      newExpanded.add(type);
-    }
-    setExpandedTypes(newExpanded);
-  };
-
-  const toggleStrength = (typeStrengthKey: string) => {
-    const newExpanded = new Set(expandedStrengths);
-    if (newExpanded.has(typeStrengthKey)) {
-      newExpanded.delete(typeStrengthKey);
-    } else {
-      newExpanded.add(typeStrengthKey);
-    }
-    setExpandedStrengths(newExpanded);
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'FC': return 'Concreto (FC)';
-      case 'MR': return 'Mortero (MR)';
-      default: return type;
-    }
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'FC': return <Beaker className="h-4 w-4" />;
-      case 'MR': return <Zap className="h-4 w-4" />;
-      default: return <Beaker className="h-4 w-4" />;
-    }
-  };
-
-  const countRecipesInGroup = (group: any): number => {
-    if (Array.isArray(group)) return group.length;
-    return Object.values(group).reduce((sum: number, subGroup) => sum + countRecipesInGroup(subGroup), 0);
-  };
+  // All strength groups expanded by default
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const toggle = (fc: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(fc)) next.delete(fc);
+      else next.add(fc);
+      return next;
+    });
 
   if (results.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
-        <Beaker className="h-12 w-12 mx-auto mb-4 opacity-50" />
         <p>No se encontraron recetas</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4 max-h-96 overflow-y-auto">
-      {Object.entries(groupedRecipes).map(([recipeType, strengthGroups]) => (
-        <Card key={recipeType} className="overflow-hidden">
-          {/* Recipe Type Header */}
-          <div 
-            className="p-4 bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors border-b"
-            onClick={() => toggleType(recipeType)}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {expandedTypes.has(recipeType) ? (
-                  <ChevronDown className="h-5 w-5 text-gray-500" />
+    <div className="space-y-2 max-h-[56vh] overflow-y-auto">
+      {groups.map(({ fc, recipes }) => {
+        const isOpen = !collapsed.has(fc);
+        return (
+          <div key={fc} className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+              onClick={() => toggle(fc)}
+            >
+              <div className="flex items-center gap-2">
+                {isOpen ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 shrink-0" />
                 ) : (
-                  <ChevronRight className="h-5 w-5 text-gray-500" />
+                  <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
                 )}
-                {getTypeIcon(recipeType)}
-                <h3 className="font-semibold text-gray-900">{getTypeLabel(recipeType)}</h3>
+                <span className="font-semibold text-gray-900">f&apos;c {fc} kg/cm²</span>
               </div>
               <Badge variant="secondary" className="text-xs">
-                {countRecipesInGroup(strengthGroups)} recetas
+                {recipes.length} receta{recipes.length !== 1 ? 's' : ''}
               </Badge>
-            </div>
-          </div>
+            </button>
 
-          {/* Strength Groups */}
-          {expandedTypes.has(recipeType) && (
-            <div>
-              {Object.entries(strengthGroups)
-                .sort(([a], [b]) => Number(b) - Number(a)) // Sort by strength descending
-                .map(([strength, slumpGroups]) => {
-                  const typeStrengthKey = `${recipeType}-${strength}`;
-                  const isStrengthExpanded = expandedStrengths.has(typeStrengthKey);
-                  
+            {isOpen && (
+              <div className="border-t border-gray-100 divide-y divide-gray-50">
+                {recipes.map((recipe) => {
+                  const spec = recipe.specification;
                   return (
-                    <div key={typeStrengthKey} className="border-b last:border-b-0">
-                      {/* Strength Header */}
-                      <div 
-                        className="p-3 pl-8 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
-                        onClick={() => toggleStrength(typeStrengthKey)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {isStrengthExpanded ? (
-                              <ChevronDown className="h-4 w-4 text-gray-400" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-gray-400" />
-                            )}
-                            <span className="font-medium text-gray-800">
-                              f'c {strength} MPa
-                            </span>
-                          </div>
-                          <Badge variant="outline" className="text-xs">
-                            {countRecipesInGroup(slumpGroups)} recetas
-                          </Badge>
+                    <button
+                      key={recipe.recipe_id}
+                      type="button"
+                      className="w-full flex items-center justify-between gap-4 px-4 py-2.5 hover:bg-sky-50 transition-colors text-left group"
+                      onClick={() => onSelect(recipe)}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono font-semibold text-sm text-sky-700 group-hover:text-sky-900 truncate">
+                          {recipe.recipe_code}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {spec?.age_days ? `${spec.age_days}d` : spec?.age_hours ? `${spec.age_hours}h` : '—'} ·{' '}
+                          TMA {spec?.max_aggregate_size ?? '—'} mm · Rev {spec?.slump ?? '—'} cm ·{' '}
+                          {spec?.placement_type === 'B' ? 'Bombeo' : spec?.placement_type === 'D' ? 'Directa' : spec?.placement_type ?? '—'}
                         </div>
                       </div>
-
-                      {/* Slump Groups & Recipes */}
-                      {isStrengthExpanded && (
-                        <div className="bg-gray-50">
-                          {Object.entries(slumpGroups)
-                            .sort(([a], [b]) => Number(a) - Number(b)) // Sort by slump ascending
-                            .map(([slump, recipes]) => (
-                              <div key={`${typeStrengthKey}-${slump}`} className="border-b last:border-b-0">
-                                {/* Slump Header */}
-                                <div className="p-2 pl-12 bg-gray-100 text-sm font-medium text-gray-700">
-                                  Revenimiento {slump} cm ({recipes.length} recetas)
-                                </div>
-                                
-                                {/* Recipe Cards */}
-                                <div className="p-4 pl-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                  {recipes.map(recipe => (
-                                    <RecipeCard 
-                                      key={recipe.recipe_id} 
-                                      recipe={recipe} 
-                                      onSelect={onSelect} 
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
+                      <div className="flex items-center gap-1.5 shrink-0 text-xs text-gray-400 group-hover:text-sky-600">
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>Seleccionar</span>
+                      </div>
+                    </button>
                   );
                 })}
-            </div>
-          )}
-        </Card>
-      ))}
-    </div>
-  );
-};
-
-const RecipeCard: React.FC<{ 
-  recipe: RecipeSearchResult; 
-  onSelect: (recipe: RecipeSearchResult) => void; 
-}> = ({ recipe, onSelect }) => {
-  const spec = recipe.specification;
-  const codingSystem = recipe.coding_system || 'legacy';
-
-  return (
-    <div 
-      className="bg-white border rounded-lg p-3 hover:shadow-md transition-all cursor-pointer group"
-      onClick={() => onSelect(recipe)}
-    >
-      <div className="flex justify-between items-start mb-2">
-        <h4 className="font-semibold text-blue-600 group-hover:text-blue-800 text-sm">
-          {recipe.recipe_code}
-        </h4>
-        <Badge 
-          variant={codingSystem === 'new_system' ? 'default' : 'secondary'} 
-          className="text-xs"
-        >
-          {codingSystem === 'new_system' ? 'Nuevo' : 'Legacy'}
-        </Badge>
-      </div>
-      
-      <div className="space-y-1 text-xs text-gray-600 mb-3">
-        <div className="flex justify-between">
-          <span>Edad:</span>
-          <span className="font-medium">{spec?.age_days || 'N/A'} días</span>
-        </div>
-        <div className="flex justify-between">
-          <span>Colocación:</span>
-          <span className="font-medium">{spec?.placement_type || 'N/A'}</span>
-        </div>
-        <div className="flex justify-between">
-          <span>T.M.N.:</span>
-          <span className="font-medium">{spec?.max_aggregate_size || 'N/A'} mm</span>
-        </div>
-        {recipe.has_waterproofing && (
-          <div className="text-green-600 font-medium text-xs">✓ Impermeabilizado</div>
-        )}
-      </div>
-
-      <div className="flex justify-between items-center text-xs text-gray-500">
-        <span>v{recipe.current_version_number}</span>
-        <div className="flex items-center gap-1 text-blue-600 group-hover:text-blue-800">
-          <Eye className="h-3 w-3" />
-          <span>Seleccionar</span>
-        </div>
-      </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };

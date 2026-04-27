@@ -4,8 +4,8 @@ import { Suspense } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import PlantSelectionGuard from '@/components/auth/PlantSelectionGuard';
 import ConcreteMixCalculator from '@/components/calculator/ConcreteMixCalculator';
-import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 function CalculatorLoading() {
   return (
@@ -51,17 +51,11 @@ export default function CalculatorPage() {
       <div className="min-h-screen bg-gray-50">
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/quality/recetas-hub"
-                className="inline-flex items-center text-gray-600 hover:text-gray-900"
-              >
-                <ArrowLeft className="h-5 w-5 mr-2" />
-                Volver a Recetas
-              </Link>
-              <div className="border-l border-gray-300 h-6"></div>
-              <h1 className="text-lg font-semibold text-gray-900">Calculadora de Mezclas</h1>
-            </div>
+            <QualityBreadcrumb
+              hubName="Recetas"
+              hubHref="/quality/recetas-hub"
+              items={[{ label: 'Calculadora' }]}
+            />
             <div className="text-sm text-gray-500">Sistema integrado de diseño de mezclas</div>
           </div>
         </div>
@@ -76,10 +70,9 @@ export default function CalculatorPage() {
               <div className="bg-white rounded-lg shadow-sm p-8 text-center">
                 <div className="mb-6">
                   <Link
-                    href="/quality/recetas-hub"
-                    className="inline-flex items-center text-blue-600 hover:text-blue-800 mb-4"
+                    href="/masters/recipes"
+                    className="inline-flex items-center text-sky-600 hover:text-sky-800 mb-4"
                   >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
                     Volver a Recetas
                   </Link>
                 </div>

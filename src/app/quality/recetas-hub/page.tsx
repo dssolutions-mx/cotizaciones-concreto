@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import {
-  FileText,
   FileUp,
   Layers,
   DollarSign,
@@ -80,23 +79,14 @@ export default function RecetasHub() {
       href: '/quality/arkik-requests',
       IconComponent: FileUp,
       color: 'emerald',
-      featured: pendingArkik > 0,
       badge: pendingArkik > 0 ? pendingArkik : undefined,
     },
     {
       title: 'Recetas',
-      description: 'Ver y gestionar recetas de concreto activas',
-      href: '/quality/recipes',
-      IconComponent: FileText,
-      color: 'sky',
-      featured: pendingArkik === 0,
-    },
-    {
-      title: 'Maestros',
-      description: 'Recetas maestras y configuración base de mezclas',
+      description: 'Explorar, crear y gestionar recetas maestras y variantes',
       href: '/masters/recipes',
       IconComponent: Layers,
-      color: 'violet',
+      color: 'sky',
     },
     {
       title: 'Calculadora de Mezclas',

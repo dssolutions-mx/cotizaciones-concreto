@@ -12,14 +12,7 @@ import { Button } from '@/components/ui/button';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbSeparator,
-  BreadcrumbLink,
-  BreadcrumbPage,
-} from '@/components/ui/breadcrumb';
+import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { 
   Loader2, 
@@ -71,11 +64,6 @@ export default function RecipeAnalysisPage() {
   const allowedRoles = ['QUALITY_TEAM', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
 
-  const breadcrumbItems = [
-    { label: 'Calidad', href: '/quality' },
-    { label: 'Recetas', href: '/quality/recetas-hub' },
-    { label: 'Análisis por Receta', href: '/quality/recetas-analisis' },
-  ];
 
   const headerSubtitle = useMemo(() => {
     if (!dateRange?.from || !dateRange?.to) return 'Selecciona un período y una receta maestra para comenzar';
@@ -125,34 +113,12 @@ export default function RecipeAnalysisPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
-      {/* Breadcrumb Navigation */}
       <div className="mb-6">
-        <Breadcrumb>
-          <BreadcrumbList>
-            {breadcrumbItems.map((item, index) => {
-              const isLast = index === breadcrumbItems.length - 1;
-              return (
-                <React.Fragment key={item.href}>
-                  <BreadcrumbItem>
-                    {isLast ? (
-                      <BreadcrumbPage className="flex items-center gap-2">
-                        <FileBarChart className="h-4 w-4" />
-                        {item.label}
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink asChild>
-                        <a href={item.href} className="flex items-center gap-2 hover:text-gray-900">
-                          {item.label}
-                        </a>
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-                  {!isLast && <BreadcrumbSeparator />}
-                </React.Fragment>
-              );
-            })}
-          </BreadcrumbList>
-        </Breadcrumb>
+        <QualityBreadcrumb
+          hubName="Recetas"
+          hubHref="/quality/recetas-hub"
+          items={[{ label: 'Análisis por Receta' }]}
+        />
       </div>
 
       {/* Header */}

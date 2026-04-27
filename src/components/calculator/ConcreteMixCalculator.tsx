@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { Calculator, Download, FileText, Database, Loader2, AlertTriangle, CheckCircle2, XCircle, AlertCircle, Info, Plus, Minus, RefreshCw } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -3663,6 +3664,16 @@ const ConcreteMixCalculator = () => {
               >
                 Cerrar
               </Button>
+              {successRecipeCodes.length > 0 && (
+                <Link
+                  href={`/masters/recipes?q=${encodeURIComponent(successRecipeCodes[0])}`}
+                  onClick={() => setSuccessOpen(false)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-50 transition-colors"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  Ver en Maestros
+                </Link>
+              )}
               <Button
                 onClick={async () => {
                   try {
