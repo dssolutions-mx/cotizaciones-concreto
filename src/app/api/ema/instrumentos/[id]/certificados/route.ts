@@ -8,6 +8,7 @@ import {
   isSafeCalibrationStoragePath,
   normalizeCalibrationArchivoPath,
 } from '@/lib/ema/calibrationCertificateStorage';
+import { validateCalibrationCertificateSanity } from '@/lib/ema/calibrationCertificateSanity';
 import { z } from 'zod';
 import { EMA_CERTIFICADO_WRITE_ROLES } from '@/lib/ema/emaCertificadoWriteRoles';
 import type { UserRole } from '@/store/auth/types';
@@ -143,6 +144,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
         { status: 400 },
       );
+    }
+
+    const uVal = parsed.data.incertidumbre_expandida;
+    const uUnit = parsed.data.incertidumbre_unidad?.trim();
+    if (uVal != null && uUnit) {
+      const sanity = validateCalibrationCertificateSanity({
+        incertidumbre_expandida: uVal,
+        incertidumbre_unidad: uUnit,
+        rango_medicion: parsed.data.rango_medicion,
+        observaciones: parsed.data.observaciones,
+        metodo_calibracion: parsed.data.metodo_calibracion,
+      });
+      if (!sanity.ok) {
+        return NextResponse.json({ error: sanity.message }, { status: 400 });
+      }
     }
 
     const admin = createServiceClient();

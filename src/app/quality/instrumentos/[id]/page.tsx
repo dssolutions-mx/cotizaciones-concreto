@@ -583,7 +583,10 @@ function TraceabilityCard({
           <li>
             <strong>U</strong> (incertidumbre expandida) y <strong>k</strong> (factor de cobertura) provienen del{' '}
             <strong>certificado del laboratorio acreditado</strong>; al registrar el certificado, la ficha del
-            instrumento patrón se actualiza con esos valores para cálculos internos (p. ej. cociente TUR orientativo).
+            instrumento se sincroniza con esos valores para cálculos internos (p. ej. cociente TUR orientativo en
+            verificaciones tipo C). Si el certificado da <strong>U(L)</strong> según la longitud, use un valor{' '}
+            <strong>único coherente con el intervalo</strong> (p. ej. U en el extremo superior del rango), en la misma
+            unidad que registre.
           </li>
           <li>
             Puede ajustar manualmente U, k y unidad en <strong>Editar</strong> (tipos A y B) si el laboratorio emite
@@ -693,6 +696,7 @@ function CertificadosSection({
   const [certs, setCerts] = useState<CertificadoCalibracionConPdf[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [syncingUncertainty, setSyncingUncertainty] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
 
   const loadCerts = useCallback(async () => {
@@ -726,7 +730,27 @@ function CertificadosSection({
     }
   }
 
+  const handleSyncUncertaintyFromCert = async () => {
+    setSyncingUncertainty(true)
+    setListError(null)
+    try {
+      const res = await fetch(`/api/ema/instrumentos/${instrumentoId}/sync-uncertainty-from-cert`, {
+        method: 'POST',
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setListError((j as { error?: string }).error ?? 'No se pudo sincronizar U/k desde el certificado vigente')
+        return
+      }
+      await loadCerts()
+      await onRefresh()
+    } finally {
+      setSyncingUncertainty(false)
+    }
+  }
+
   const usesExternalCert = instrumentoTipo === 'A' || instrumentoTipo === 'B'
+  const hasVigenteCert = certs.some((c) => c.is_vigente)
 
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
 
@@ -748,6 +772,20 @@ function CertificadosSection({
               <RefreshCw className={cn('h-3 w-3', refreshing && 'animate-spin')} />
               Actualizar
             </Button>
+            {usesExternalCert && canAttachDocument && hasVigenteCert && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 border-stone-300 text-stone-700 gap-1 text-xs"
+                onClick={handleSyncUncertaintyFromCert}
+                disabled={syncingUncertainty || refreshing}
+                title="Copia U, k y unidad del certificado vigente a la ficha del instrumento"
+              >
+                <RefreshCw className={cn('h-3 w-3', syncingUncertainty && 'animate-spin')} />
+                Sincronizar U/k
+              </Button>
+            )}
             {usesExternalCert && (
               <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
                 <Link href={`/quality/instrumentos/${instrumentoId}/certificar`}>

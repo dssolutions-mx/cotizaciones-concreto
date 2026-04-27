@@ -801,11 +801,14 @@ export async function fetchLatestVigenteCertUncertaintyByInstrumentIds(
   return out;
 }
 
-/** Copy latest vigente certificado U, k, unidad onto `instrumentos` (canonical for TUR / pantallas). */
+/**
+ * Copy latest vigente certificado U, k, unidad onto `instrumentos` (canonical for TUR / pantallas).
+ * Uses the service client so denormalization is not blocked by RLS when the caller is a normal session.
+ */
 export async function syncInstrumentUncertaintyFromVigenteCertificado(instrumentoId: string): Promise<void> {
-  const snap = (await fetchLatestVigenteCertUncertaintyByInstrumentIds([instrumentoId])).get(instrumentoId);
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
+  const admin = createServiceClient();
+  const snap = (await fetchLatestVigenteCertUncertaintyByInstrumentIds([instrumentoId], admin)).get(instrumentoId);
+  const { error } = await admin
     .from('instrumentos')
     .update({
       incertidumbre_expandida: snap?.incertidumbre_expandida ?? null,
@@ -875,8 +878,8 @@ export async function createCertificado(
   if (error) throw error;
   try {
     await syncInstrumentUncertaintyFromVigenteCertificado(input.instrumento_id);
-  } catch {
-    /* no bloquear alta de certificado si la copia a ficha falla por RLS u otro motivo */
+  } catch (e) {
+    console.warn('[ema] syncInstrumentUncertaintyFromVigenteCertificado failed', input.instrumento_id, e);
   }
   return data;
 }

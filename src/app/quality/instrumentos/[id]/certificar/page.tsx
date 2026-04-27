@@ -13,6 +13,7 @@ import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { cn } from '@/lib/utils'
 import type { InstrumentoDetalle } from '@/types/ema'
+import { validateCalibrationCertificateSanity } from '@/lib/ema/calibrationCertificateSanity'
 
 export default function CertificarPage() {
   const { id } = useParams<{ id: string }>()
@@ -103,6 +104,17 @@ export default function CertificarPage() {
       const k = form.factor_cobertura.trim() ? parseFloat(form.factor_cobertura) : NaN
       if (!Number.isFinite(k) || k < 1 || k > 10) {
         setError('Indique el factor de cobertura k (típico 2; entre 1 y 10).')
+        return
+      }
+      const sanity = validateCalibrationCertificateSanity({
+        incertidumbre_expandida: u,
+        incertidumbre_unidad: form.incertidumbre_unidad.trim(),
+        rango_medicion: form.rango_medicion || null,
+        observaciones: form.observaciones || null,
+        metodo_calibracion: form.metodo_calibracion || null,
+      })
+      if (!sanity.ok) {
+        setError(sanity.message)
         return
       }
     }
@@ -375,6 +387,14 @@ export default function CertificarPage() {
             Datos del certificado: incertidumbre expandida U, factor de cobertura k, y rango calibrado.
             Estos valores son requeridos para demostrar trazabilidad metrológica ante EMA.
           </p>
+          <p className="text-xs text-stone-600 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 leading-relaxed">
+            <span className="font-medium text-stone-800">U dependiente de la longitud (ej. calibre digital):</span> si el
+            certificado indica U en µm como ±[a+(b×L)] con L en mm, registre <strong>un valor escalar U</strong> en la{' '}
+            <strong>misma unidad</strong> que elija abajo. Lo habitual para TUR conservador frente al intervalo del
+            certificado es usar U en el <strong>extremo superior del rango</strong> (máximo de la ley en ese tramo).
+            Ejemplo NMX-CH-002 con a=9,9 µm, b=0,01 µm/mm y rango 0–600 mm: (9,9+0,01×600) µm = 15,9 µm ={' '}
+            <span className="font-mono">0,0159 mm</span>. Puede detallar la fórmula en observaciones.
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-stone-600">Incertidumbre U (±)</Label>
@@ -415,7 +435,7 @@ export default function CertificarPage() {
               <Input
                 value={form.rango_medicion}
                 onChange={e => update('rango_medicion', e.target.value)}
-                placeholder="ej. 0–2000 kN"
+                placeholder="ej. 0 mm-600 mm"
                 className="border-stone-200 font-mono text-sm"
               />
             </div>
@@ -555,12 +575,18 @@ export default function CertificarPage() {
         {/* 6. Notes */}
         <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Observaciones</h2>
+          <p className="text-xs text-stone-500 -mt-2">
+            Si el certificado trae una fórmula <span className="font-mono">U(L)</span> en µm, copie aquí la línea tal
+            cual (p. ej. <span className="font-mono">± [ 9,9 + ( 0,01 × L ) ] µm</span>); el sistema comprobará que U
+            y el rango calibrado sean coherentes.
+          </p>
           <Textarea
             rows={3}
             value={form.observaciones}
             onChange={e => update('observaciones', e.target.value)}
-            placeholder="Notas adicionales sobre la calibración, desviaciones detectadas, recomendaciones del laboratorio..."
+            placeholder="Ej. ± [ 9,9 + ( 0,01 × L ) ] µm (L en mm). También: notas del laboratorio, desviaciones, recomendaciones…"
             className="border-stone-200 resize-none"
+            spellCheck={false}
           />
         </div>
 
