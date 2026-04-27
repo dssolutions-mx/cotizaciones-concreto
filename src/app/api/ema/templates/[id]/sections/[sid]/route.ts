@@ -20,6 +20,7 @@ const PatchSectionSchema = z.object({
   instances_config: z.record(z.string(), z.any()).optional(),
   series_config: z.record(z.string(), z.any()).optional(),
   orden: z.number().int().optional(),
+  repetition_conformity_policy: z.enum(['all_reps_must_pass', 'aggregate_then_evaluate']).optional(),
 });
 
 /** PATCH /api/ema/templates/[id]/sections/[sid] */

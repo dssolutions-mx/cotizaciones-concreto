@@ -22,6 +22,7 @@ import type {
   TipoItemVerificacion,
   PassFailRule,
 } from '@/types/ema'
+import { effectiveLayout, effectiveSectionRepetitions } from '@/lib/ema/sectionLayout'
 import { evaluateFormula, parseFormula, extractVariables } from '@/lib/ema/formula'
 import { evaluatePassFailRule } from '@/lib/ema/passFail'
 import { TemplateFicha } from '@/components/ema/TemplateFicha'
@@ -831,7 +832,33 @@ function SectionCard({
   onUpdated: (s: VerificacionTemplateSection & { items: VerificacionTemplateItem[] }) => void
   onDeleted: (id: string) => void
 }) {
+  const layoutEff = effectiveLayout(section)
+  const isReferenceSeries = layoutEff === 'reference_series'
   const [expanded, setExpanded] = useState(true)
+  const [repCountDraft, setRepCountDraft] = useState(() =>
+    Math.min(10, Math.max(1, effectiveSectionRepetitions(section))),
+  )
+  const [repCfgBusy, setRepCfgBusy] = useState(false)
+  const [repCfgErr, setRepCfgErr] = useState<string | null>(null)
+  const [codigoRequiredDraft, setCodigoRequiredDraft] = useState(
+    () => !!section.instances_config?.codigo_required,
+  )
+
+  useEffect(() => {
+    setRepCountDraft(Math.min(10, Math.max(1, effectiveSectionRepetitions(section))))
+  }, [
+    section.id,
+    section.repetible,
+    section.repeticiones_default,
+    section.instances_config,
+    section.series_config,
+    section.layout,
+  ])
+
+  useEffect(() => {
+    setCodigoRequiredDraft(!!section.instances_config?.codigo_required)
+  }, [section.id, section.instances_config])
+
   const [addingItem, setAddingItem] = useState(false)
   const [itemForm, setItemForm] = useState<ItemFormState>(emptyItemForm())
   const [savingItem, setSavingItem] = useState(false)
@@ -889,6 +916,43 @@ function SectionCard({
     if (res.ok) onDeleted(section.id)
   }
 
+  async function handleSaveSectionRepetitions() {
+    const n = repCountDraft
+    if (n < 1 || n > 10) return
+    setRepCfgBusy(true)
+    setRepCfgErr(null)
+    try {
+      const repetible = n > 1
+      const layout = repetible ? 'instrument_grid' : 'linear'
+      const instances_config = repetible
+        ? {
+            min_count: n,
+            max_count: n,
+            instance_label: 'Instancia',
+            codigo_required: codigoRequiredDraft,
+          }
+        : {}
+      const res = await fetch(`/api/ema/templates/${templateId}/sections/${section.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repetible,
+          repeticiones_default: n,
+          layout,
+          instances_config,
+          repetition_conformity_policy: 'all_reps_must_pass',
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      const j = await res.json()
+      onUpdated({ ...section, ...j.data })
+    } catch (e: any) {
+      setRepCfgErr(e.message)
+    } finally {
+      setRepCfgBusy(false)
+    }
+  }
+
   const formulaVariables = section.items
     .filter(i => i.tipo !== 'calculado' && i.variable_name?.trim())
     .map(i => i.variable_name!.trim())
@@ -934,6 +998,78 @@ function SectionCard({
 
       {expanded && (
         <div className="divide-y divide-stone-100 bg-stone-50/40">
+          {!isReferenceSeries && (
+            <div className="px-4 py-3 bg-white space-y-3">
+              <p className="text-xs font-semibold text-stone-700 uppercase tracking-wide">
+                Repeticiones de sección
+              </p>
+              <p className="text-[11px] text-stone-500 leading-relaxed">
+                Indica cuántas veces se recorrerá esta sección en la verificación (1 = una sola pasada).
+                Con más de una repetición, cada paso pide los mismos puntos. En verificación solo se pide código de fila
+                si la sección incluye ítems «Equipo ref.» (verificación tipo C con patrón) o si activas «código manual» abajo; si no, no se pide nada extra.
+                La política de cumplimiento define cómo afecta al resultado global si una repetición falla.
+              </p>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-stone-500 uppercase tracking-wide">Número de repeticiones</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    className="h-8 w-20 border-stone-200 font-mono text-sm"
+                    value={repCountDraft}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10)
+                      setRepCountDraft(Number.isFinite(v) ? Math.min(10, Math.max(1, v)) : 1)
+                    }}
+                  />
+                </div>
+                {repCountDraft > 1 && (
+                  <p className="text-[11px] text-stone-500 max-w-xl flex-1 leading-relaxed">
+                    <span className="font-medium text-stone-600">Cumplimiento entre repeticiones: </span>
+                    todas deben cumplir en los ítems que cuentan para el resultado; si una repetición falla, la
+                    verificación se sugiere como no conforme. (Persistido como{' '}
+                    <span className="font-mono">all_reps_must_pass</span>.)
+                  </p>
+                )}
+                {repCountDraft > 1 && (
+                  <div className="flex items-start gap-2 w-full max-w-xl">
+                    <input
+                      type="checkbox"
+                      id={`codigo-req-${section.id}`}
+                      checked={codigoRequiredDraft}
+                      onChange={(e) => setCodigoRequiredDraft(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    />
+                    <label htmlFor={`codigo-req-${section.id}`} className="text-[11px] text-stone-600 leading-relaxed">
+                      Exigir <span className="font-medium">código manual por repetición</span> solo si esta sección no
+                      usa instrumento patrón y necesitas identificar pieza, corrida o posición (p. ej. VAR-001). Si hay
+                      puntos de tipo «Equipo ref.» / patrón, en verificación tipo C no hace falta marcar esto.
+                    </label>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={repCfgBusy}
+                  onClick={() => void handleSaveSectionRepetitions()}
+                >
+                  {repCfgBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                  Guardar repetición
+                </Button>
+              </div>
+              {repCfgErr && <p className="text-xs text-red-600">{repCfgErr}</p>}
+            </div>
+          )}
+          {isReferenceSeries && (
+            <div className="px-4 py-2 bg-amber-50/50 text-[11px] text-amber-900">
+              Esta sección usa <span className="font-mono">reference_series</span>: el número de pasos lo define la
+              serie en <span className="font-mono">series_config</span>. Para cambiar repeticiones, ajusta los puntos de
+              la serie (no desde este control).
+            </div>
+          )}
           {/* Items table */}
           {section.items.length > 0 && (
             <div className="overflow-x-auto bg-white">

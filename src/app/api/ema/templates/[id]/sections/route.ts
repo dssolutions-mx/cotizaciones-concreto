@@ -20,6 +20,7 @@ const SectionSchema = z.object({
   instances_config: z.record(z.string(), z.any()).optional(),
   series_config: z.record(z.string(), z.any()).optional(),
   orden: z.number().int().optional(),
+  repetition_conformity_policy: z.enum(['all_reps_must_pass', 'aggregate_then_evaluate']).default('all_reps_must_pass'),
 });
 
 /** POST /api/ema/templates/[id]/sections */
@@ -54,7 +55,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             min_count: parsed.data.repeticiones_default,
             max_count: parsed.data.repeticiones_default,
             instance_label: 'Instancia',
-            codigo_required: true,
+            // Solo pedir código de fila en verificación si el autor lo marca o hay ítems de patrón (tipo C).
+            codigo_required: false,
           }
         : {});
     const series_config = parsed.data.series_config ?? {};
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         series_config,
         orden,
         evidencia_config: {},
+        repetition_conformity_policy: parsed.data.repetition_conformity_policy,
       })
       .select()
       .single();

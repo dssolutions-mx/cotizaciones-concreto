@@ -31,6 +31,12 @@ import {
   missingSectionFormulaVariableNames,
   previewSectionMeasurements,
 } from '@/lib/ema/measurementCompute'
+import {
+  normalizeRepetitionConformityPolicy,
+  repetitionConformityPolicyLabelEs,
+  suggestGlobalResultadoFromComputedRows,
+} from '@/lib/ema/sectionRepetitionPolicy'
+import { sectionRequestsInstrumentGridInstanceCode } from '@/lib/ema/sectionInstanceTraceability'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +71,37 @@ function formatEmaApiError(j: EmaApiErrorPayload): string {
   return [base, ...lines].join('\n')
 }
 
+/**
+ * Instrumentos tipo C: el código de trazabilidad de la fila puede tomarse del equipo patrón ya
+ * elegido al inicio (evita captura manual redundante). Si hay un solo patrón, todas las
+ * repeticiones reutilizan su `codigo`; si hay varios, la repetición i usa el patrón i mientras exista.
+ */
+function instanceCodeFromPatronesTipoC(
+  instrumentoTipo: string | undefined,
+  patrones: Array<{ codigo: string }> | undefined,
+  rep1Based: number,
+): string | null {
+  if (instrumentoTipo !== 'C' || !patrones?.length) return null
+  const codes = patrones.map((p) => p.codigo?.trim()).filter((c): c is string => !!c)
+  if (!codes.length) return null
+  if (codes.length === 1) return codes[0]
+  if (rep1Based >= 1 && rep1Based <= codes.length) return codes[rep1Based - 1] ?? null
+  return null
+}
+
+function effectiveInstanceCodeRow(
+  instKey: string,
+  instanceCodes: Record<string, string>,
+  instrumentoTipo: string | undefined,
+  patrones: Array<{ codigo: string }> | undefined,
+  rep1Based: number,
+): string | null {
+  const fromPatron = instanceCodeFromPatronesTipoC(instrumentoTipo, patrones, rep1Based)
+  if (fromPatron) return fromPatron
+  const manual = instanceCodes[instKey]?.trim() || null
+  return manual
+}
+
 // ─── Pass/fail logic ──────────────────────────────────────────────────────────
 
 function computeCumpleForItem(item: VerificacionTemplateItem, mv: MeasurementValue): boolean | null {
@@ -94,11 +131,7 @@ function autoSuggestResultado(
     incoming,
     headerScope ?? {},
   )
-  let hasNoConforme = false
-  for (const row of rows) {
-    if (row.cumple === false) hasNoConforme = true
-  }
-  return hasNoConforme ? 'no_conforme' : 'conforme'
+  return suggestGlobalResultadoFromComputedRows(snapshot.sections, rows)
 }
 
 // ─── Item Row Component ───────────────────────────────────────────────────────
@@ -573,7 +606,23 @@ export default function VerificarPage() {
     const rep = step.repeticion!
 
     const instKey = `${section.id}:${rep}`
-    const codeRow = instanceCodes[instKey]?.trim() || null
+    const wantsInstanceTrace = sectionRequestsInstrumentGridInstanceCode(section, instrumento?.tipo)
+    const codeRow = wantsInstanceTrace
+      ? effectiveInstanceCodeRow(
+          instKey,
+          instanceCodes,
+          instrumento?.tipo,
+          referenciaEquipoPatronesReadonly,
+          rep,
+        )
+      : null
+
+    if (wantsInstanceTrace && !codeRow) {
+      setError(
+        'Complete la trazabilidad de esta repetición: código de instancia, o asigne patrón(es) al inicio si aplica.',
+      )
+      return
+    }
 
     const previewInputs = [...(section.items ?? [])]
       .sort((a, b) => a.orden - b.orden)
@@ -704,7 +753,7 @@ export default function VerificarPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-4 max-w-2xl">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
         <div className="h-4 w-48 bg-stone-200 rounded animate-pulse" />
         <div className="h-64 rounded-lg bg-stone-100 animate-pulse" />
       </div>
@@ -714,7 +763,7 @@ export default function VerificarPage() {
   // ── Plantilla picker (≥2 publicadas) ──────────────────────────────────────
   if (plantillaCandidates.length > 1 && !snapshot) {
     return (
-      <div className="flex flex-col gap-5 max-w-2xl">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
         <EmaBreadcrumb items={[
           { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
           { label: 'Nueva verificación' },
@@ -762,7 +811,7 @@ export default function VerificarPage() {
 
   if (noTemplate) {
     return (
-      <div className="flex flex-col gap-5 max-w-2xl">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
         <EmaBreadcrumb items={[
           { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
           { label: 'Verificar' },
@@ -790,7 +839,7 @@ export default function VerificarPage() {
   const progress = Math.round((currentStep / (totalSteps - 1)) * 100)
 
   return (
-    <div className="flex flex-col gap-5 max-w-2xl">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
       <EmaBreadcrumb items={[
         { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
         { label: 'Nueva verificación' },
@@ -1050,7 +1099,19 @@ export default function VerificarPage() {
         const refPt = layout === 'reference_series' ? referencePointForRow(section as any, rep) : null
 
         const instKeyLocal = `${section.id}:${rep}`
-        const codeRowLocal = instanceCodes[instKeyLocal]?.trim() || null
+        const wantsInstanceTrace = sectionRequestsInstrumentGridInstanceCode(section, instrumento?.tipo)
+        const codeRowLocal = wantsInstanceTrace
+          ? effectiveInstanceCodeRow(
+              instKeyLocal,
+              instanceCodes,
+              instrumento?.tipo,
+              referenciaEquipoPatronesReadonly,
+              rep,
+            )
+          : null
+        const patronDerivedCode = wantsInstanceTrace
+          ? instanceCodeFromPatronesTipoC(instrumento?.tipo, referenciaEquipoPatronesReadonly, rep)
+          : null
         const previewInputsLocal = [...(section.items ?? [])]
           .sort((a, b) => a.orden - b.orden)
           .filter(it => normalizeTemplateItem(it).item_role !== 'derivado')
@@ -1098,6 +1159,14 @@ export default function VerificarPage() {
               {section.descripcion && (
                 <p className="text-xs text-stone-500 mt-0.5">{section.descripcion}</p>
               )}
+              {totalReps > 1 && (
+                <p className="text-[11px] text-stone-600 mt-2 rounded-md border border-stone-200 bg-stone-50/80 px-2.5 py-1.5 leading-relaxed">
+                  <span className="font-medium text-stone-700">Política entre repeticiones: </span>
+                  {repetitionConformityPolicyLabelEs(
+                    normalizeRepetitionConformityPolicy(section.repetition_conformity_policy),
+                  )}
+                </p>
+              )}
               {refPt != null && (
                 <p className="text-xs font-mono text-stone-600 mt-2">
                   Valor patrón: <strong>{refPt}</strong>
@@ -1106,18 +1175,37 @@ export default function VerificarPage() {
               )}
             </div>
 
-            {layout === 'instrument_grid' && (
+            {layout === 'instrument_grid' && wantsInstanceTrace && (
               <div className="px-5 py-3 border-b border-stone-100 bg-stone-50/50">
-                <Label className="text-xs text-stone-600">Código de instancia</Label>
-                <Input
-                  className="mt-1 border-stone-200 font-mono text-sm max-w-md"
-                  placeholder="Ej. VAR-001"
-                  value={instanceCodes[`${section.id}:${rep}`] ?? ''}
-                  onChange={e => setInstanceCodes(prev => ({
-                    ...prev,
-                    [`${section.id}:${rep}`]: e.target.value,
-                  }))}
-                />
+                {patronDerivedCode ? (
+                  <>
+                    <Label className="text-xs text-stone-600">Trazabilidad de la fila</Label>
+                    <p className="mt-1 font-mono text-sm text-stone-800">
+                      <span className="rounded-md border border-stone-200 bg-white px-2 py-1">{patronDerivedCode}</span>
+                      <span className="ml-2 text-[11px] font-normal text-stone-500">
+                        (código del instrumento patrón seleccionado al inicio; no hace falta escribirlo)
+                      </span>
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Label className="text-xs text-stone-600">Código de instancia</Label>
+                    <p className="text-[11px] text-stone-500 mt-0.5 mb-1">
+                      {instrumento?.tipo === 'C'
+                        ? 'Hay más repeticiones que patrones seleccionados al inicio, o falta código en el patrón: indique un identificador para esta fila.'
+                        : 'Identificador de la pieza, corrida o posición (trazabilidad de esta repetición).'}
+                    </p>
+                    <Input
+                      className="mt-1 border-stone-200 font-mono text-sm max-w-md"
+                      placeholder="Ej. VAR-001"
+                      value={instanceCodes[`${section.id}:${rep}`] ?? ''}
+                      onChange={e => setInstanceCodes(prev => ({
+                        ...prev,
+                        [`${section.id}:${rep}`]: e.target.value,
+                      }))}
+                    />
+                  </>
+                )}
               </div>
             )}
 

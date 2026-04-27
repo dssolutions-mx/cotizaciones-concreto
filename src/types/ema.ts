@@ -373,6 +373,11 @@ export interface VerificacionTemplate {
   updated_at: string;
 }
 
+/** How pass/fail across UI repetitions of a section feeds the global result (EMA). */
+export type RepetitionConformityPolicy =
+  | 'all_reps_must_pass'
+  | 'aggregate_then_evaluate';
+
 export interface VerificacionTemplateSection {
   id: string;
   template_id: string;
@@ -385,6 +390,8 @@ export interface VerificacionTemplateSection {
   layout?: SectionLayout;
   instances_config?: InstancesConfig;
   series_config?: SeriesConfig;
+  /** When absent (legacy snapshots), treat as `all_reps_must_pass`. */
+  repetition_conformity_policy?: RepetitionConformityPolicy | null;
   evidencia_config: { min_photos?: number; labels?: string[] };
   created_at: string;
   updated_at: string;

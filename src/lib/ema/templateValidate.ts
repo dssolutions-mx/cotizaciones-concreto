@@ -1,5 +1,6 @@
 import { extractVariables, parseFormula, validateDerivadoDAG } from './formula';
 import { normalizeTemplateItem } from './templateItem';
+import { normalizeRepetitionConformityPolicy } from './sectionRepetitionPolicy';
 import type { PassFailRule, VerificacionTemplateHeaderField, VerificacionTemplateSnapshot } from '@/types/ema';
 
 export interface TemplateValidationResult {
@@ -55,6 +56,11 @@ export function validateTemplateForPublish(snapshot: VerificacionTemplateSnapsho
   const headerVarNames = validateHeaderFieldsChain(snapshot.header_fields, errors);
 
   for (const sec of snapshot.sections ?? []) {
+    if (normalizeRepetitionConformityPolicy(sec.repetition_conformity_policy) === 'aggregate_then_evaluate') {
+      errors.push(
+        `Sección «${sec.titulo}»: la política «Agregar entre repeticiones y evaluar» aún no está soportada; use «Todas las repeticiones deben cumplir».`,
+      );
+    }
     const items = (sec.items ?? []).map(normalizeTemplateItem);
     const names = new Set<string>();
     for (const it of items) {

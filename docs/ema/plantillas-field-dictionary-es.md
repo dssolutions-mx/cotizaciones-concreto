@@ -36,7 +36,8 @@ En UI actual: **Campos de cabecera (ficha)**. En rediseño: preferir **Datos ini
 | Descripción | `descripcion` | Instrucciones del bloque. |
 | Layout de sección | `layout` | `linear`: lista de puntos. `instrument_grid`: varias piezas/códigos por fila. `reference_series`: serie de puntos de referencia (balanza/flexómetro). |
 | Repeticiones | `repeticiones_default` + `repetible` | Cuántas filas/instancias por defecto; legacy `repetible`. |
-| Config. grilla | `instances_config` | Mín/máx de instancias, etiqueta, si `codigo_required`. |
+| Política entre repeticiones | `repetition_conformity_policy` | `all_reps_must_pass` (por defecto): todas las repeticiones deben cumplir en ítems que cuentan para el resultado. `aggregate_then_evaluate` reservado (no publicable hasta fase 2). |
+| Config. grilla | `instances_config` | Mín/máx de instancias, etiqueta. `codigo_required`: solo si el autor lo marca; en verificación pide código manual por repetición cuando no basta patrón automático (tipo C + ítems ref. equipo). |
 | Config. serie | `series_config` | `points`, variables de referencia/lectura, derivados de fila. |
 | Evidencia | `evidencia_config` | Fotos mínimas / etiquetas. |
 

@@ -10507,6 +10507,7 @@ export type Database = {
           orden: number
           repetible: boolean
           repeticiones_default: number | null
+          repetition_conformity_policy: string
           series_config: Json
           template_id: string
           titulo: string
@@ -10522,6 +10523,7 @@ export type Database = {
           orden: number
           repetible?: boolean
           repeticiones_default?: number | null
+          repetition_conformity_policy?: string
           series_config?: Json
           template_id: string
           titulo: string
@@ -10537,6 +10539,7 @@ export type Database = {
           orden?: number
           repetible?: boolean
           repeticiones_default?: number | null
+          repetition_conformity_policy?: string
           series_config?: Json
           template_id?: string
           titulo?: string
