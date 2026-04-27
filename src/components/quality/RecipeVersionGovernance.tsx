@@ -247,27 +247,6 @@ export default function RecipeVersionGovernance({ plantId, initialSearch, initia
     return { totalMasters: masters.length, totalVariants, upToDate, outdated, noVersion, errors, warnings };
   }, [masters]);
 
-  // --- Critical issues ---
-  const criticalIssues = useMemo(() => {
-    const out: Array<{
-      masterId: string; masterCode: string;
-      variantId: string; variantCode: string;
-      errors: MaterialValidationIssue[]; warnings: MaterialValidationIssue[];
-    }> = [];
-    for (const m of masters) {
-      for (const v of m.variants) {
-        if (!v.isQuoteBuilderVariant || !(v.validationIssues?.length)) continue;
-        out.push({
-          masterId: m.masterId, masterCode: m.masterCode,
-          variantId: v.variantId, variantCode: v.recipeCode,
-          errors: v.validationIssues.filter((i) => i.severity === 'error'),
-          warnings: v.validationIssues.filter((i) => i.severity === 'warning'),
-        });
-      }
-    }
-    return out.sort((a, b) => b.errors.length - a.errors.length || b.warnings.length - a.warnings.length);
-  }, [masters]);
-
   const selectedMaster = useMemo(
     () => filteredMasters.find((m) => m.masterId === selectedMasterId) ?? null,
     [filteredMasters, selectedMasterId]
@@ -333,54 +312,6 @@ export default function RecipeVersionGovernance({ plantId, initialSearch, initia
           <RefreshCw className="w-3 h-3 mr-1" />Actualizar
         </Button>
       </div>
-
-      {/* Critical issues — compact */}
-      {criticalIssues.length > 0 && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-            <span className="text-sm font-semibold text-red-900">
-              {criticalIssues.length} variante{criticalIssues.length !== 1 ? 's' : ''} QB con problemas
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {criticalIssues.slice(0, 5).map((issue) => (
-              <button
-                key={issue.variantId}
-                type="button"
-                className="text-left px-2 py-1 rounded-lg border border-red-200 bg-white hover:bg-red-50 transition-colors"
-                onClick={() => {
-                  setSelectedMasterId(issue.masterId);
-                  setActiveTab('validaciones');
-                  // Scroll the left rail master item into view after render
-                  requestAnimationFrame(() => {
-                    const el = document.getElementById(`rail-master-${issue.masterId}`);
-                    el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                  });
-                }}
-              >
-                <div className="text-xs font-semibold text-gray-900">{issue.masterCode}</div>
-                <div className="text-xs text-gray-500">{issue.variantCode}</div>
-                <div className="flex gap-1 mt-0.5">
-                  {issue.errors.length > 0 && (
-                    <span className="text-xs text-red-700 font-medium flex items-center gap-0.5">
-                      <XCircle className="w-2.5 h-2.5" />{issue.errors.length}
-                    </span>
-                  )}
-                  {issue.warnings.length > 0 && (
-                    <span className="text-xs text-yellow-700 flex items-center gap-0.5">
-                      <AlertTriangle className="w-2.5 h-2.5" />{issue.warnings.length}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
-            {criticalIssues.length > 5 && (
-              <span className="text-xs text-red-600 self-center">+{criticalIssues.length - 5} más</span>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Master / Detail layout */}
       <div className="flex gap-0 border border-gray-200 rounded-xl overflow-hidden flex-1 min-h-0">
