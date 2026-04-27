@@ -71,10 +71,10 @@ export default function RecipeAnalysisPage() {
   const allowedRoles = ['QUALITY_TEAM', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
 
-  // Breadcrumb items for navigation
   const breadcrumbItems = [
     { label: 'Calidad', href: '/quality' },
-    { label: 'Análisis por Receta', href: '/quality/recetas-analisis' }
+    { label: 'Recetas', href: '/quality/recetas-hub' },
+    { label: 'Análisis por Receta', href: '/quality/recetas-analisis' },
   ];
 
   const headerSubtitle = useMemo(() => {
@@ -141,8 +141,7 @@ export default function RecipeAnalysisPage() {
                       </BreadcrumbPage>
                     ) : (
                       <BreadcrumbLink asChild>
-                        <a href={item.href} className="flex items-center gap-2">
-                          <BarChart3 className="h-4 w-4" />
+                        <a href={item.href} className="flex items-center gap-2 hover:text-gray-900">
                           {item.label}
                         </a>
                       </BreadcrumbLink>
@@ -159,8 +158,8 @@ export default function RecipeAnalysisPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-100 rounded-lg">
-            <FlaskConical className="h-6 w-6 text-blue-600" />
+          <div className="p-2 bg-gray-100 rounded-xl">
+            <FlaskConical className="h-6 w-6 text-gray-600" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Análisis por Receta</h1>

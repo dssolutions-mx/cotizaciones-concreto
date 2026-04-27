@@ -74,11 +74,8 @@ export const RecipeSearchModal: React.FC<RecipeSearchModalProps> = ({
 
       const results = await recipeService.findRecipesBySpecifications({
         ...cleanFilters,
-        // Allow simple recipe_code includes search if query is provided
-        // The service should ignore unknown filters gracefully
-        // @ts-ignore
         recipe_code_ilike: debouncedQuery ? `%${debouncedQuery}%` : undefined,
-      } as any);
+      } as Parameters<typeof recipeService.findRecipesBySpecifications>[0]);
       setSearchResults(results);
     } catch (err: any) {
       setError(err.message || 'Error al buscar recetas');

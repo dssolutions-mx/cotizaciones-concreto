@@ -18,13 +18,14 @@ import MaterialQuantityEditor from './MaterialQuantityEditor';
 
 interface RecipeVersionGovernanceProps {
   plantId: string;
+  initialSearch?: string;
 }
 
-export default function RecipeVersionGovernance({ plantId }: RecipeVersionGovernanceProps) {
+export default function RecipeVersionGovernance({ plantId, initialSearch }: RecipeVersionGovernanceProps) {
   const [masters, setMasters] = useState<MasterGovernanceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch ?? '');
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
   const [expandedVariants, setExpandedVariants] = useState<Set<string>>(new Set());
   const [availableMaterials, setAvailableMaterials] = useState<AvailableMaterial[]>([]);

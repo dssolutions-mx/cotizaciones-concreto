@@ -1,6 +1,6 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-// Reuse the existing Recipes page under the Quality hub
-export { default } from '@/app/recipes/page';
-
-
+// /quality/recipes is now unified with /masters/recipes — single recipes destination.
+export default function QualityRecipesRedirect() {
+  redirect('/masters/recipes');
+}

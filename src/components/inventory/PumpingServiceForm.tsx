@@ -762,8 +762,12 @@ export default function PumpingServiceForm() {
                     <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-full p-0" align="start">
-                  <Command>
+                <PopoverContent
+                  className="w-[var(--radix-popover-trigger-width)] min-w-[12rem] max-w-[min(100vw-1.5rem,40rem)] p-0 overscroll-contain"
+                  align="start"
+                  collisionPadding={16}
+                >
+                  <Command className="h-auto max-h-[min(70vh,24rem)]">
                     <CommandInput
                       placeholder="Buscar por número de remisión, orden o cliente..."
                       value={remisionSearchTerm}

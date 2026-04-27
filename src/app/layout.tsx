@@ -39,7 +39,7 @@ import {
   Truck,
   Clock,
   Layers,
-  GitBranch,
+  Calculator,
   ShieldCheck,
   Briefcase,
   MapPin,
@@ -406,12 +406,11 @@ const QUALITY_SECTIONS: QualitySection[] = [
     hubHref: '/quality/recetas-hub',
     IconComponent: FileText,
     items: [
-      { title: 'Recetas', href: '/quality/recipes', IconComponent: FileText, excludeRestrictedPlants: true },
+      { title: 'Recetas', href: '/masters/recipes', IconComponent: FileText, excludeRestrictedPlants: true },
       { title: 'Solicitudes Arkik', href: '/quality/arkik-requests', IconComponent: FileUp },
-      { title: 'Maestros', href: '/masters/recipes', IconComponent: Layers, excludeRestrictedPlants: true },
       { title: 'Agrupación', href: '/masters/grouping', IconComponent: Layers, excludeRestrictedPlants: true },
       { title: 'Consolidación Precios', href: '/masters/pricing', IconComponent: DollarSign, excludeRestrictedPlants: true },
-      { title: 'Gobernanza', href: '/quality/recipe-governance', IconComponent: GitBranch, excludeRestrictedPlants: true },
+      { title: 'Calculadora', href: '/quality/calculator', IconComponent: Calculator, excludeRestrictedPlants: true },
     ],
   },
 ];
@@ -456,7 +455,7 @@ const COMERCIAL_ROLES = ['CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGEN
 const CANONICAL_NAV_ITEMS: NavItemDef[] = [
   { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
   { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
-  { href: '/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
+  { href: '/masters/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
   { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'] },
   { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
@@ -473,7 +472,7 @@ function getNavItemsForRole(role: string | undefined): Array<{ href: string; lab
   // Remove top-level Recipes when Quality section exists (recetas in quality submenu)
   const hasQuality = items.some((i) => i.href === '/quality');
   if (hasQuality) {
-    return items.filter((i) => i.href !== '/recipes');
+    return items.filter((i) => i.href !== '/masters/recipes');
   }
   return items;
 }

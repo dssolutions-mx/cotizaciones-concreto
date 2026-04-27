@@ -6,7 +6,8 @@ import {
   FileUp,
   Layers,
   DollarSign,
-  GitBranch,
+  Calculator,
+  BarChart2,
 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
@@ -97,12 +98,25 @@ export default function RecetasHub() {
       IconComponent: Layers,
       color: 'violet',
     },
+    {
+      title: 'Calculadora de Mezclas',
+      description: 'Diseño y cálculo de proporciones para mezclas de concreto',
+      href: '/quality/calculator',
+      IconComponent: Calculator,
+      color: 'amber',
+    },
+    {
+      title: 'Análisis por Receta',
+      description: 'Métricas de calidad, costo, rendimiento y consumo por maestro',
+      href: '/quality/recetas-analisis',
+      IconComponent: BarChart2,
+      color: 'rose',
+    },
   ]
 
   const secondaryActions: SecondaryLink[] = [
     { href: '/masters/grouping', label: 'Agrupación', IconComponent: Layers },
     { href: '/masters/pricing', label: 'Consolidación Precios', IconComponent: DollarSign },
-    { href: '/quality/recipe-governance', label: 'Gobernanza de Versiones', IconComponent: GitBranch },
   ]
 
   return (
