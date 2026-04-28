@@ -16,6 +16,82 @@ export type CatalogAdditionalProduct = {
   totalPrice: number
   quoteId: string
   billingType: 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT'
+  notes: string | null
+}
+
+type QuoteRow = {
+  id: string
+  quote_number?: string
+  created_at?: string
+  status?: string
+}
+
+function normalizeConstructionSiteLabel(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+/**
+ * Approved quotes for obra: prefer construction_site_id, then exact text, then normalized text match.
+ * Mirrors how orders store obra (text + optional FK).
+ */
+async function fetchApprovedQuotesForSite(
+  supabase: SupabaseClient,
+  clientId: string,
+  constructionSite: string,
+  constructionSiteId?: string | null
+): Promise<QuoteRow[]> {
+  const trimmed = constructionSite.trim()
+
+  if (constructionSiteId && UUID_RE.test(constructionSiteId)) {
+    const { data: byFk, error: e1 } = await supabase
+      .from('quotes')
+      .select('id, quote_number, created_at, status')
+      .eq('client_id', clientId)
+      .eq('construction_site_id', constructionSiteId)
+      .eq('status', 'APPROVED')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+
+    if (!e1 && byFk && byFk.length > 0) {
+      return byFk as QuoteRow[]
+    }
+  }
+
+  const { data: exact, error: e2 } = await supabase
+    .from('quotes')
+    .select('id, quote_number, created_at, status')
+    .eq('client_id', clientId)
+    .eq('construction_site', trimmed)
+    .eq('status', 'APPROVED')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+
+  if (!e2 && exact && exact.length > 0) {
+    return exact as QuoteRow[]
+  }
+
+  const { data: pool, error: e3 } = await supabase
+    .from('quotes')
+    .select('id, quote_number, created_at, status, construction_site')
+    .eq('client_id', clientId)
+    .eq('status', 'APPROVED')
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+
+  if (e3 || !pool?.length) {
+    return []
+  }
+
+  const target = normalizeConstructionSiteLabel(trimmed)
+  return (pool as (QuoteRow & { construction_site?: string })[]).filter(
+    (q) => normalizeConstructionSiteLabel(q.construction_site || '') === target
+  )
 }
 
 export async function fetchCatalogAdditionalProducts(
@@ -23,39 +99,39 @@ export async function fetchCatalogAdditionalProducts(
   params: {
     clientId: string
     constructionSite: string
+    /** Prefer quotes linked to construction_sites.id (matches quotes.construction_site_id) */
+    constructionSiteId?: string | null
+    /** Prioritize lines from this quote (same as OrderDetails / audit add-line) */
     orderQuoteId?: string | null
+    /** When set: prefer additional_products scoped to this plant; if that yields nothing, fall back to all active lines */
+    plantId?: string | null
   }
 ): Promise<CatalogAdditionalProduct[]> {
-  const { clientId, constructionSite, orderQuoteId } = params
+  const { clientId, constructionSite, constructionSiteId, orderQuoteId, plantId } = params
 
-  let orderQuote: { id: string; quote_number?: string; created_at?: string; status?: string } | null = null
+  let orderQuote: QuoteRow | null = null
 
   if (orderQuoteId) {
     const { data: orderQuoteData, error: orderQuoteError } = await supabase
       .from('quotes')
-      .select('id, quote_number, created_at, status')
+      .select('id, quote_number, created_at, status, client_id')
       .eq('id', orderQuoteId)
-      .single()
+      .maybeSingle()
 
-    if (!orderQuoteError && orderQuoteData) {
-      orderQuote = orderQuoteData as typeof orderQuote
+    if (!orderQuoteError && orderQuoteData && orderQuoteData.client_id === clientId) {
+      const { client_id: _c, ...rest } = orderQuoteData as typeof orderQuoteData & { client_id: string }
+      orderQuote = rest as QuoteRow
     }
   }
 
-  const { data: allApprovedQuotes, error: approvedQuotesError } = await supabase
-    .from('quotes')
-    .select('id, quote_number, created_at, status')
-    .eq('client_id', clientId)
-    .eq('construction_site', constructionSite)
-    .eq('status', 'APPROVED')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
+  const allApprovedQuotes = await fetchApprovedQuotesForSite(
+    supabase,
+    clientId,
+    constructionSite,
+    constructionSiteId ?? null
+  )
 
-  if (approvedQuotesError) {
-    console.error('fetchCatalogAdditionalProducts: approved quotes', approvedQuotesError)
-  }
-
-  const allQuotes: { id: string; quote_number?: string; created_at?: string; status?: string }[] = []
+  const allQuotes: QuoteRow[] = []
   const quoteIdSet = new Set<string>()
 
   if (orderQuote && !quoteIdSet.has(orderQuote.id)) {
@@ -63,12 +139,10 @@ export async function fetchCatalogAdditionalProducts(
     quoteIdSet.add(orderQuote.id)
   }
 
-  if (allApprovedQuotes) {
-    for (const q of allApprovedQuotes) {
-      if (!quoteIdSet.has(q.id)) {
-        allQuotes.push(q)
-        quoteIdSet.add(q.id)
-      }
+  for (const q of allApprovedQuotes) {
+    if (!quoteIdSet.has(q.id)) {
+      allQuotes.push(q)
+      quoteIdSet.add(q.id)
     }
   }
 
@@ -127,7 +201,7 @@ export async function fetchCatalogAdditionalProducts(
     }
   }
 
-  return Array.from(latestAdditionalProducts.values()).map((ap) => ({
+  const rows = Array.from(latestAdditionalProducts.values()).map((ap) => ({
     id: ap.id,
     quoteAdditionalProductId: ap.id,
     additionalProductId: ap.additional_product_id,
@@ -141,5 +215,39 @@ export async function fetchCatalogAdditionalProducts(
     billingType: (ap.billing_type ||
       (ap.additional_products as { billing_type?: string } | null)?.billing_type ||
       'PER_M3') as CatalogAdditionalProduct['billingType'],
+    notes: ap.notes ?? null,
   }))
+
+  const additionalIds = [...new Set(rows.map((r) => r.additionalProductId))]
+  if (additionalIds.length === 0) return []
+
+  const { data: apMeta, error: apMetaError } = await supabase
+    .from('additional_products')
+    .select('id, plant_id, is_active')
+    .in('id', additionalIds)
+
+  if (apMetaError) {
+    console.error('fetchCatalogAdditionalProducts: additional_products meta', apMetaError)
+    return rows
+  }
+
+  const activeIds = new Set((apMeta || []).filter((ap) => ap.is_active).map((ap) => ap.id))
+
+  const activeRows = rows.filter((r) => activeIds.has(r.additionalProductId))
+  if (activeRows.length === 0) return []
+
+  const filterByPlant = (set: typeof activeRows) =>
+    set.filter((r) => {
+      const meta = (apMeta || []).find((m) => m.id === r.additionalProductId)
+      if (!meta) return false
+      if (!plantId) return true
+      return !meta.plant_id || meta.plant_id === plantId
+    })
+
+  let out = filterByPlant(activeRows)
+  if (plantId && out.length === 0 && activeRows.length > 0) {
+    out = activeRows
+  }
+
+  return out
 }

@@ -7,7 +7,7 @@ import {
   ArrowLeft, 
   MapPin, 
   Calendar, 
-  Package, 
+  Package,
   Truck,
   Clock,
   CheckCircle2,
@@ -30,6 +30,77 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day);
 };
 
+function getVatRateFromOrder(order: {
+  plant?: { business_unit?: { vat_rate?: number } | { vat_rate?: number }[] | null } | null;
+}): number {
+  const bu = order.plant?.business_unit;
+  const raw = Array.isArray(bu) ? bu[0]?.vat_rate : bu?.vat_rate;
+  return typeof raw === 'number' && !Number.isNaN(raw) ? raw : 0.16;
+}
+
+/** Aligns with operación interna: montos de partida son sin IVA; total con IVA cuando aplica factura. */
+function getClientPortalOrderTotals(order: {
+  total_amount: number;
+  final_amount?: number | null;
+  invoice_amount?: number | null;
+  requires_invoice?: boolean;
+  order_items?: { total_price?: number }[];
+  order_additional_products?: { total_price?: number }[];
+  plant?: {
+    business_unit?: { vat_rate?: number } | { vat_rate?: number }[] | null;
+  } | null;
+}): {
+  vatRate: number;
+  subtotal: number;
+  iva: number;
+  total: number;
+  requiresInvoice: boolean;
+} {
+  const vatRate = getVatRateFromOrder(order);
+  const concreteSum =
+    order.order_items?.reduce((s, i) => s + (Number(i.total_price) || 0), 0) ?? 0;
+  const extrasSum =
+    order.order_additional_products?.reduce((s, i) => s + (Number(i.total_price) || 0), 0) ?? 0;
+  const itemsSum = concreteSum + extrasSum;
+  const requiresInvoice = Boolean(order.requires_invoice);
+
+  if (!requiresInvoice) {
+    const subtotal =
+      order.final_amount != null && !Number.isNaN(Number(order.final_amount))
+        ? Number(order.final_amount)
+        : Number(order.total_amount) || itemsSum;
+    return { vatRate, subtotal, iva: 0, total: subtotal, requiresInvoice: false };
+  }
+
+  const invoiceAmt =
+    order.invoice_amount != null && !Number.isNaN(Number(order.invoice_amount))
+      ? Number(order.invoice_amount)
+      : null;
+
+  if (invoiceAmt != null) {
+    const total = invoiceAmt;
+    let subtotal: number;
+    if (order.final_amount != null && !Number.isNaN(Number(order.final_amount))) {
+      subtotal = Number(order.final_amount);
+    } else {
+      subtotal = total / (1 + vatRate);
+    }
+    let iva = total - subtotal;
+    if (iva < 0 || !Number.isFinite(iva)) {
+      iva = subtotal * vatRate;
+    }
+    return { vatRate, subtotal, iva, total, requiresInvoice: true };
+  }
+
+  const subtotal =
+    order.final_amount != null && !Number.isNaN(Number(order.final_amount))
+      ? Number(order.final_amount)
+      : Number(order.total_amount) || itemsSum;
+  const iva = subtotal * vatRate;
+  const total = subtotal + iva;
+  return { vatRate, subtotal, iva, total, requiresInvoice: true };
+}
+
 interface OrderDetail {
   id: string;
   order_number: string;
@@ -39,6 +110,11 @@ interface OrderDetail {
   order_status: string;
   client_approval_status?: string;
   total_amount: number;
+  final_amount?: number | null;
+  invoice_amount?: number | null;
+  plant?: {
+    business_unit?: { vat_rate?: number } | { vat_rate?: number }[] | null;
+  } | null;
   elemento?: string;
   special_requirements?: string;
   requires_invoice?: boolean;
@@ -59,6 +135,27 @@ interface OrderDetail {
     empty_truck_volume?: number;
     empty_truck_price?: number;
   }>;
+  order_additional_products?: Array<{
+    id: string;
+    quantity: number;
+    unit_price: number;
+    total_price: number;
+    notes?: string | null;
+    additional_products?:
+      | { name?: string | null; code?: string | null; unit?: string | null }
+      | { name?: string | null; code?: string | null; unit?: string | null }[]
+      | null;
+  }>;
+}
+
+function portalAdditionalProductMeta(line: NonNullable<OrderDetail['order_additional_products']>[number]) {
+  const raw = line.additional_products;
+  const meta = Array.isArray(raw) ? raw[0] : raw;
+  return {
+    name: meta?.name?.trim() || 'Producto adicional',
+    code: meta?.code?.trim() || '',
+    unit: meta?.unit?.trim() || '',
+  };
 }
 
 // Helper function to get the combined status for client portal display
@@ -126,9 +223,6 @@ interface OrderResponse {
     totalVolume: number;
     totalMuestreos: number;
     totalSiteChecks: number;
-    avgRendimientoVolumetrico?: number | null;
-    totalMaterialReal?: number;
-    totalMaterialTeorico?: number;
   };
 }
 
@@ -209,6 +303,8 @@ export default function OrderDetailPage() {
     );
   }
 
+  const orderTotals = getClientPortalOrderTotals(order);
+
   // const config = statusConfig[order.order_status] || statusConfig.created;
   // const totalVolume = 0;
 
@@ -265,7 +361,6 @@ export default function OrderDetailPage() {
             </div>
 
             <div className={`grid grid-cols-1 gap-6 ${
-              orderData?.summary?.avgRendimientoVolumetrico ? 'md:grid-cols-4' : 
               order?.elemento ? 'md:grid-cols-4' : 'md:grid-cols-3'
             }`}>
               <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
@@ -313,33 +408,6 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              {orderData?.summary?.avgRendimientoVolumetrico !== null && 
-               orderData?.summary?.avgRendimientoVolumetrico !== undefined && (
-                <div className="glass-thin rounded-2xl p-6 border-2 border-primary/30 transition-all hover:border-primary/40 hover:shadow-md">
-                  <div className="flex items-center gap-4 mb-3">
-                    <CheckCircle2 className="w-5 h-5 text-primary" />
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide">
-                      Rendimiento
-                    </p>
-                  </div>
-                  <p className="text-title-3 font-bold text-label-primary">
-                    {orderData.summary.avgRendimientoVolumetrico.toFixed(1)}%
-                  </p>
-                  <Badge 
-                    variant={
-                      orderData.summary.avgRendimientoVolumetrico >= 98 ? 'success' : 
-                      orderData.summary.avgRendimientoVolumetrico >= 95 ? 'primary' : 
-                      'neutral'
-                    }
-                    className="mt-2"
-                  >
-                    {orderData.summary.avgRendimientoVolumetrico >= 98 ? 'Excelente' : 
-                     orderData.summary.avgRendimientoVolumetrico >= 95 ? 'Bueno' : 
-                     'Aceptable'}
-                  </Badge>
-                </div>
-              )}
-
               <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
                 <div className="flex items-center gap-4 mb-3">
                   <Truck className="w-5 h-5 text-primary" />
@@ -356,7 +424,8 @@ export default function OrderDetailPage() {
         </motion.div>
 
         {/* Order Items */}
-        {order?.order_items && order.order_items.length > 0 && (
+        {(order?.order_items && order.order_items.length > 0) ||
+        (order?.order_additional_products && order.order_additional_products.length > 0) ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -364,61 +433,206 @@ export default function OrderDetailPage() {
             className="mb-8"
           >
             <div className="glass-base rounded-3xl p-8 shadow-sm">
-              <h2 className="text-title-2 font-bold text-label-primary mb-8">
-                Productos del Pedido
-              </h2>
-              <div className="space-y-4">
-                {order.order_items.map((item, index) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.3 + index * 0.05 }}
-                    className="glass-thin rounded-xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-body font-semibold text-label-primary">
-                        {item.product_type}
-                      </p>
-                      {canViewPrices ? (
-                        <p className="text-title-3 font-bold text-label-primary">
-                          ${item.total_price.toLocaleString('es-MX')}
-                        </p>
-                      ) : (
-                        <p className="text-title-3 font-bold text-label-tertiary">
-                          Precio no disponible
-                        </p>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-footnote">
-                      <div>
-                        <p className="text-label-tertiary">Volumen</p>
-                        <p className="text-label-primary font-medium">{item.volume} m³</p>
-                      </div>
-                      <div>
-                        <p className="text-label-tertiary">Precio Unitario</p>
-                        {canViewPrices ? (
-                          <p className="text-label-primary font-medium">${item.unit_price.toLocaleString('es-MX')}</p>
-                        ) : (
-                          <p className="text-label-tertiary font-medium">No disponible</p>
+              {order.order_items && order.order_items.length > 0 ? (
+                <>
+                  <h2 className="text-title-2 font-bold text-label-primary mb-8">
+                    Productos del Pedido
+                  </h2>
+                  <div className="space-y-4">
+                    {order.order_items.map((item, index) => (
+                      <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.3 + index * 0.05 }}
+                        className="glass-thin rounded-xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm"
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-body font-semibold text-label-primary">
+                            {item.product_type}
+                          </p>
+                          {canViewPrices ? (
+                            <div className="text-right">
+                              <p className="text-footnote text-label-tertiary">Importe (sin IVA)</p>
+                              <p className="text-title-3 font-bold text-label-primary">
+                                ${item.total_price.toLocaleString('es-MX')}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-title-3 font-bold text-label-tertiary">
+                              Precio no disponible
+                            </p>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-footnote">
+                          <div>
+                            <p className="text-label-tertiary">Volumen</p>
+                            <p className="text-label-primary font-medium">{item.volume} m³</p>
+                          </div>
+                          <div>
+                            <p className="text-label-tertiary">
+                              Precio unitario{order.requires_invoice ? ' (sin IVA)' : ''}
+                            </p>
+                            {canViewPrices ? (
+                              <p className="text-label-primary font-medium">${item.unit_price.toLocaleString('es-MX')}</p>
+                            ) : (
+                              <p className="text-label-tertiary font-medium">No disponible</p>
+                            )}
+                          </div>
+                        </div>
+                        {item.has_pump_service && (
+                          <div className="mt-3 pt-3 border-t border-white/20">
+                            <p className="text-caption text-label-secondary">
+                              Servicio de bombeo incluido
+                              {canViewPrices && ` • $${item.pump_price?.toLocaleString('es-MX')}`}
+                              {` • ${item.pump_volume} m³`}
+                            </p>
+                          </div>
                         )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
+              {order.order_additional_products && order.order_additional_products.length > 0 ? (
+                <div
+                  className={
+                    order.order_items && order.order_items.length > 0
+                      ? 'mt-10 pt-2 border-t border-white/10'
+                      : ''
+                  }
+                >
+                  <h2 className="text-title-2 font-bold text-label-primary mb-8">
+                    Productos adicionales
+                  </h2>
+                  <p className="text-caption text-label-secondary -mt-4 mb-6">
+                    Partidas de la cotización asociadas a este pedido (no son el concreto principal).
+                  </p>
+                  <div className="space-y-4">
+                    {order.order_additional_products.map((line, index) => {
+                      const meta = portalAdditionalProductMeta(line);
+                      const delayBase =
+                        (order.order_items?.length ?? 0) > 0 ? 0.35 + order.order_items!.length * 0.05 : 0.3;
+                      return (
+                        <motion.div
+                          key={line.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: delayBase + index * 0.05 }}
+                          className="glass-thin rounded-xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm"
+                        >
+                          <div className="flex items-center justify-between mb-3 gap-4">
+                            <div className="min-w-0">
+                              <p className="text-body font-semibold text-label-primary">{meta.name}</p>
+                              {meta.code ? (
+                                <p className="text-footnote text-label-tertiary mt-0.5">Código: {meta.code}</p>
+                              ) : null}
+                            </div>
+                            {canViewPrices ? (
+                              <div className="text-right shrink-0">
+                                <p className="text-footnote text-label-tertiary">Importe (sin IVA)</p>
+                                <p className="text-title-3 font-bold text-label-primary">
+                                  ${line.total_price.toLocaleString('es-MX')}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-title-3 font-bold text-label-tertiary shrink-0">
+                                Precio no disponible
+                              </p>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 text-footnote">
+                            <div>
+                              <p className="text-label-tertiary">Cantidad</p>
+                              <p className="text-label-primary font-medium">
+                                {line.quantity}
+                                {meta.unit ? ` ${meta.unit}` : ''}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-label-tertiary">
+                                Precio unitario{order.requires_invoice ? ' (sin IVA)' : ''}
+                              </p>
+                              {canViewPrices ? (
+                                <p className="text-label-primary font-medium">
+                                  ${line.unit_price.toLocaleString('es-MX')}
+                                </p>
+                              ) : (
+                                <p className="text-label-tertiary font-medium">No disponible</p>
+                              )}
+                            </div>
+                          </div>
+                          {line.notes ? (
+                            <p className="text-caption text-label-secondary mt-3 pt-3 border-t border-white/20">
+                              {line.notes}
+                            </p>
+                          ) : null}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {canViewPrices && (
+                <div className="mt-8 pt-6 border-t border-white/20 space-y-3">
+                  {orderTotals.requiresInvoice ? (
+                    <>
+                      <div className="flex justify-between text-footnote">
+                        <span className="text-label-tertiary">Subtotal (sin IVA)</span>
+                        <span className="text-label-primary font-medium tabular-nums">
+                          ${orderTotals.subtotal.toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </span>
                       </div>
-                    </div>
-                    {item.has_pump_service && (
-                      <div className="mt-3 pt-3 border-t border-white/20">
-                        <p className="text-caption text-label-secondary">
-                          Servicio de bombeo incluido
-                          {canViewPrices && ` • $${item.pump_price?.toLocaleString('es-MX')}`}
-                          {` • ${item.pump_volume} m³`}
-                        </p>
+                      <div className="flex justify-between text-footnote">
+                        <span className="text-label-tertiary">
+                          IVA ({(orderTotals.vatRate * 100).toFixed(0)}%)
+                        </span>
+                        <span className="text-label-primary font-medium tabular-nums">
+                          ${orderTotals.iva.toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </span>
                       </div>
-                    )}
-                  </motion.div>
-                ))}
-              </div>
+                      <div className="flex justify-between items-baseline gap-4 pt-2">
+                        <span className="text-body font-semibold text-label-primary">Total (con IVA)</span>
+                        <span className="text-title-2 font-bold text-label-primary tabular-nums">
+                          ${orderTotals.total.toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-caption text-label-tertiary pt-1">
+                        Los importes por producto y el subtotal son antes de IVA. El total final corresponde al monto a facturar.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-baseline gap-4">
+                        <span className="text-body font-semibold text-label-primary">Total</span>
+                        <span className="text-title-2 font-bold text-label-primary tabular-nums">
+                          ${orderTotals.total.toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-caption text-label-tertiary pt-1">
+                        Pedido sin factura: no aplica IVA. El monto mostrado es el total del pedido.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
-        )}
+        ) : null}
 
         {/* Remisiones with Quality Data */}
         <motion.div
@@ -497,45 +711,6 @@ export default function OrderDetailPage() {
                         </>
                       )}
                     </div>
-
-                    {/* Material Consumption & Rendimiento */}
-                    {remision.materiales && remision.materiales.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-white/10">
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-caption font-semibold text-label-primary flex items-center gap-2">
-                            <Package className="w-4 h-4 text-primary" />
-                            Consumo de Materiales
-                          </p>
-                          {remision.rendimiento_volumetrico && (
-                            <Badge variant={remision.rendimiento_volumetrico >= 98 ? 'success' : remision.rendimiento_volumetrico >= 95 ? 'primary' : 'neutral'}>
-                              Rendimiento: {remision.rendimiento_volumetrico.toFixed(1)}%
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          {remision.materiales.map((material: any) => (
-                            <div key={material.id} className="bg-white/5 rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-1">
-                                <p className="text-caption text-label-primary font-medium">
-                                  {material.material_type}
-                                </p>
-                                <p className="text-caption text-label-secondary">
-                                  {material.cantidad_real ? `${parseFloat(material.cantidad_real).toFixed(1)} kg` : 'N/A'}
-                                </p>
-                              </div>
-                              <div className="flex items-center justify-between text-caption text-label-tertiary">
-                                <span>Teórico: {material.cantidad_teorica ? `${parseFloat(material.cantidad_teorica).toFixed(1)} kg` : 'N/A'}</span>
-                                {material.ajuste && parseFloat(material.ajuste) !== 0 && (
-                                  <span className="text-yellow-600">
-                                    Ajuste: {parseFloat(material.ajuste).toFixed(1)} kg
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Muestreos */}
                     {remision.muestreos && remision.muestreos.length > 0 && (
@@ -703,7 +878,7 @@ export default function OrderDetailPage() {
               <h2 className="text-title-2 font-bold text-label-primary mb-8">
                 Resumen de Calidad
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                 <div className="text-center">
                   <p className="text-footnote text-label-tertiary mb-2">Entregas</p>
                   <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalRemisiones}</p>
@@ -716,50 +891,7 @@ export default function OrderDetailPage() {
                   <p className="text-footnote text-label-tertiary mb-2">Pruebas en Obra</p>
                   <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalSiteChecks}</p>
                 </div>
-                {orderData.summary.avgRendimientoVolumetrico !== null && orderData.summary.avgRendimientoVolumetrico !== undefined && (
-                  <div className="text-center">
-                    <p className="text-footnote text-label-tertiary mb-2">Rendimiento Volumétrico</p>
-                    <p className="text-title-1 font-bold text-label-primary">
-                      {orderData.summary.avgRendimientoVolumetrico.toFixed(1)}%
-                    </p>
-                    <Badge 
-                      variant={
-                        orderData.summary.avgRendimientoVolumetrico >= 98 ? 'success' : 
-                        orderData.summary.avgRendimientoVolumetrico >= 95 ? 'primary' : 
-                        'neutral'
-                      }
-                      className="mt-2"
-                    >
-                      {orderData.summary.avgRendimientoVolumetrico >= 98 ? 'Excelente' : 
-                       orderData.summary.avgRendimientoVolumetrico >= 95 ? 'Bueno' : 
-                       'Aceptable'}
-                    </Badge>
-                  </div>
-                )}
               </div>
-              
-              {/* Material Consumption Summary */}
-              {orderData.summary.totalMaterialReal > 0 && orderData.summary.totalMaterialTeorico > 0 && (
-                <div className="mt-6 pt-6 border-t border-white/20">
-                  <h3 className="text-body font-semibold text-label-primary mb-4">
-                    Consumo Total de Materiales
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="glass-thin rounded-xl p-4 border border-white/10">
-                      <p className="text-footnote text-label-tertiary mb-1">Material Real</p>
-                      <p className="text-title-3 font-bold text-label-primary">
-                        {(orderData.summary.totalMaterialReal / 1000).toFixed(2)} ton
-                      </p>
-                    </div>
-                    <div className="glass-thin rounded-xl p-4 border border-white/10">
-                      <p className="text-footnote text-label-tertiary mb-1">Material Teórico</p>
-                      <p className="text-title-3 font-bold text-label-primary">
-                        {(orderData.summary.totalMaterialTeorico / 1000).toFixed(2)} ton
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </motion.div>
         )}

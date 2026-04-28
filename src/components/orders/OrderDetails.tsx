@@ -991,6 +991,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       const additionalProductsArray = await fetchCatalogAdditionalProducts(supabase, {
         clientId: order.client_id,
         constructionSite: order.construction_site,
+        constructionSiteId: (order as { construction_site_id?: string | null }).construction_site_id ?? null,
         orderQuoteId: (order as { quote_id?: string | null }).quote_id ?? null,
       });
 

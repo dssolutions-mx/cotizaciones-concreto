@@ -404,6 +404,7 @@ export default function ConcreteEvidenceOrderAuditSections({
         const list = await fetchCatalogAdditionalProducts(supabase, {
           clientId,
           constructionSite,
+          constructionSiteId: (o.construction_site_id as string | null | undefined) ?? null,
           orderQuoteId: (o.quote_id as string | null | undefined) ?? null,
         })
         if (!cancelled) setCatalogProducts(list)

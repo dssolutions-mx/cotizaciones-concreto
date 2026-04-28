@@ -1,6 +1,48 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 
+type ProductPriceRow = {
+  quote_id: string | null;
+  master_recipe_id: string | null;
+  recipe_id: string | null;
+  updated_at: string | null;
+};
+
+/** Aligns portal filtering with ScheduleOrderForm: one winning price row per master (latest updated_at). */
+function canonicalPlacementForSpec(t: string | null | undefined): string {
+  const u = (t ?? '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim()
+    .normalize('NFC')
+    .replace(/\s+/g, ' ')
+    .toUpperCase();
+  if (!u) return '';
+  if (u === 'D' || u === 'DIRECTO' || u === 'DIRECTA') return 'DIRECTO';
+  if (u.startsWith('DIRECTO')) return 'DIRECTO';
+  if (u === 'B' || u === 'BOMBEADO' || u.startsWith('BOMBEADO')) return 'BOMBEADO';
+  return u;
+}
+
+function engineeringSpecKey(
+  p: {
+    strength_fc: number;
+    slump: number | null;
+    placement_type: string | null;
+    age_days: number | null;
+    max_aggregate_size: number | null;
+  },
+  plantScope: string
+): string {
+  return [
+    p.strength_fc,
+    p.slump ?? '',
+    canonicalPlacementForSpec(p.placement_type),
+    p.age_days ?? '',
+    p.max_aggregate_size ?? '',
+    plantScope,
+  ].join('|');
+}
+
 /**
  * GET /api/client-portal/master-recipes
  * Returns active master recipes with pricing for a client+site(+plant optional).
@@ -11,13 +53,11 @@ export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
-    // Auth (client user)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check user permissions - require view_prices permission (needed for order creation)
     const { data: association, error: assocError } = await supabase
       .from('client_portal_users')
       .select('role_within_client, permissions, client_id')
@@ -39,13 +79,10 @@ export async function GET(request: Request) {
       );
     }
 
-    // Executives always have all permissions
     const isExecutive = association?.role_within_client === 'executive';
     const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
     const hasCreateOrdersPermission = isExecutive || association?.permissions?.create_orders === true;
 
-    // User needs create_orders permission to load products (for order creation)
-    // view_prices only controls whether prices are shown in the response
     if (!hasCreateOrdersPermission) {
       return NextResponse.json(
         { error: 'No tienes permiso para crear pedidos. Contacta al administrador de tu organización.' },
@@ -63,10 +100,9 @@ export async function GET(request: Request) {
 
     const clientId = association.client_id;
 
-    // 1. Fetch active product_prices (master-level) for this client/site
-    const { data: activePrices, error: pricesError } = await supabase
+    const { data: activePricesRaw, error: pricesError } = await supabase
       .from('product_prices')
-      .select('quote_id, master_recipe_id, recipe_id, is_active')
+      .select('quote_id, master_recipe_id, recipe_id, is_active, updated_at')
       .eq('client_id', clientId)
       .eq('construction_site', site)
       .eq('is_active', true);
@@ -76,52 +112,68 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to load products' }, { status: 500 });
     }
 
-    if (!activePrices || activePrices.length === 0) {
+    const activePrices = (activePricesRaw || []) as ProductPriceRow[];
+    if (activePrices.length === 0) {
       return NextResponse.json({ products: [] });
     }
 
-    // Build active quote-master combinations
-    const activeQuoteMasterCombos = new Set<string>();
-    activePrices
-      .filter((p: any) => p.quote_id && p.master_recipe_id)
-      .forEach((p: any) => activeQuoteMasterCombos.add(`${p.quote_id}:${p.master_recipe_id}`));
+    const sortedPrices = [...activePrices].sort((a, b) => {
+      const ta = new Date(a.updated_at || 0).getTime();
+      const tb = new Date(b.updated_at || 0).getTime();
+      return tb - ta;
+    });
 
-    // 2. Handle recipe-level prices → map to masters
-    const recipeIds = Array.from(
-      new Set(
-        activePrices
-          .filter((p: any) => p.recipe_id && !p.master_recipe_id)
-          .map((p: any) => p.recipe_id)
-      )
+    const recipeIdsAll = Array.from(
+      new Set(sortedPrices.map((p) => p.recipe_id).filter(Boolean) as string[])
     );
+
     let recipeIdToMasterId: Record<string, string> = {};
-    if (recipeIds.length > 0) {
+    if (recipeIdsAll.length > 0) {
       const { data: recipes } = await supabase
         .from('recipes')
         .select('id, master_recipe_id')
-        .in('id', recipeIds);
+        .in('id', recipeIdsAll);
       if (recipes) {
-        for (const r of recipes as any[]) {
+        for (const r of recipes as { id: string; master_recipe_id: string | null }[]) {
           if (r.master_recipe_id) recipeIdToMasterId[r.id] = r.master_recipe_id;
         }
       }
     }
 
-    activePrices
-      .filter((p: any) => p.quote_id && p.recipe_id && recipeIdToMasterId[p.recipe_id])
-      .forEach((p: any) => {
-        const masterId = recipeIdToMasterId[p.recipe_id];
-        activeQuoteMasterCombos.add(`${p.quote_id}:${masterId}`);
-      });
+    const winningByMaster = new Map<string, ProductPriceRow>();
+
+    for (const price of sortedPrices) {
+      if (!price.quote_id) continue;
+
+      if (price.master_recipe_id) {
+        const m = price.master_recipe_id;
+        if (!winningByMaster.has(m)) winningByMaster.set(m, price);
+        continue;
+      }
+
+      if (price.recipe_id && recipeIdToMasterId[price.recipe_id]) {
+        const m = recipeIdToMasterId[price.recipe_id];
+        if (!winningByMaster.has(m)) winningByMaster.set(m, price);
+      }
+    }
+
+    const activeQuoteMasterCombos = new Set<string>();
+    winningByMaster.forEach((price, masterId) => {
+      if (price.quote_id) activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+    });
 
     const uniqueQuoteIds = Array.from(
-      new Set(activePrices.filter((p: any) => p.quote_id).map((p: any) => p.quote_id))
+      new Set(
+        Array.from(winningByMaster.values())
+          .map((p) => p.quote_id)
+          .filter(Boolean) as string[]
+      )
     );
+
     if (uniqueQuoteIds.length === 0) {
       return NextResponse.json({ products: [] });
     }
 
-    // 3. Fetch quote_details with master_recipes
     const { data: quotesData, error: quotesError } = await supabase
       .from('quotes')
       .select(`
@@ -144,6 +196,7 @@ export async function GET(request: Request) {
           ),
           recipes:recipe_id(
             master_recipe_id,
+            plant_id,
             master_recipes:master_recipe_id(
               id,
               master_code,
@@ -170,7 +223,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ products: [] });
     }
 
-    // 4. Build products list (unique master recipes with pricing)
     const productsMap = new Map<string, any>();
     for (const quote of quotesData) {
       for (const detail of (quote.quote_details || []) as any[]) {
@@ -187,10 +239,8 @@ export async function GET(request: Request) {
 
         if (!masterData || !masterId) continue;
 
-        // Check active combo
         if (!activeQuoteMasterCombos.has(`${quote.id}:${masterId}`)) continue;
 
-        // Plant filter if provided
         if (plantId && masterData.plant_id !== plantId) continue;
 
         const key = masterId;
@@ -199,25 +249,52 @@ export async function GET(request: Request) {
             id: masterId,
             master_code: masterData.master_code || 'Unknown',
             strength_fc: masterData.strength_fc || 0,
-            age_days: masterData.age_days || null,
-            slump: masterData.slump || null,
-            placement_type: masterData.placement_type || null,
-            max_aggregate_size: masterData.max_aggregate_size || null,
-            // Only include price if user has view_prices permission
-            // Backend will still use the correct price when creating the order
+            age_days: masterData.age_days ?? null,
+            slump: masterData.slump ?? null,
+            placement_type: masterData.placement_type ?? null,
+            max_aggregate_size: masterData.max_aggregate_size ?? null,
+            master_plant_id: masterData.plant_id ?? null,
             unit_price: hasViewPricesPermission ? (detail.final_price || 0) : null,
             quote_detail_id: detail.id,
-            quote_id: quote.id
+            quote_id: quote.id,
+            quote_number: quote.quote_number ?? null,
           });
         }
       }
     }
 
-    const products = Array.from(productsMap.values()).sort((a, b) =>
-      a.master_code.localeCompare(b.master_code)
-    );
+    const rawList = Array.from(productsMap.values());
+    const bySpec = new Map<string, (typeof rawList)[number]>();
 
-    // Include flag so UI knows whether to show prices
+    for (const p of rawList) {
+      const plantKey = plantId || (p.master_plant_id ?? '');
+      const key = engineeringSpecKey(
+        {
+          strength_fc: p.strength_fc,
+          slump: p.slump,
+          placement_type: p.placement_type,
+          age_days: p.age_days,
+          max_aggregate_size: p.max_aggregate_size,
+        },
+        plantKey
+      );
+      const cur = bySpec.get(key);
+      if (!cur) {
+        bySpec.set(key, p);
+        continue;
+      }
+      if ((p.master_code || '').localeCompare(cur.master_code || '') < 0) {
+        bySpec.set(key, p);
+      }
+    }
+
+    const products = Array.from(bySpec.values())
+      .map((p) => {
+        const { master_plant_id: _m, ...rest } = p as typeof p & { master_plant_id?: string | null };
+        return rest;
+      })
+      .sort((a, b) => a.master_code.localeCompare(b.master_code));
+
     return NextResponse.json({ products, canViewPrices: hasViewPricesPermission });
   } catch (e) {
     console.error('master-recipes GET error:', e);

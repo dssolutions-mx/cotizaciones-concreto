@@ -1,6 +1,32 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
+/** Hide money fields when portal user lacks view_prices (defense in depth vs UI). */
+function stripOrderFinancialsForPortal(order: Record<string, unknown>, showPrices: boolean) {
+  if (showPrices) return order;
+  const o = JSON.parse(JSON.stringify(order)) as Record<string, unknown>;
+  o.total_amount = null;
+  o.final_amount = null;
+  o.invoice_amount = null;
+  const items = o.order_items as Record<string, unknown>[] | undefined;
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      item.unit_price = null;
+      item.total_price = null;
+      item.pump_price = null;
+      item.empty_truck_price = null;
+    }
+  }
+  const extras = o.order_additional_products as Record<string, unknown>[] | undefined;
+  if (Array.isArray(extras)) {
+    for (const line of extras) {
+      line.unit_price = null;
+      line.total_price = null;
+    }
+  }
+  return o;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -15,6 +41,19 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { data: portalAssoc } = await supabase
+      .from('client_portal_users')
+      .select('role_within_client, permissions')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const canViewPrices =
+      portalAssoc?.role_within_client === 'executive' ||
+      portalAssoc?.permissions?.view_prices === true;
+
     // Get order details with order items - RLS will automatically filter by client_id
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -27,6 +66,8 @@ export async function GET(
         order_status,
         client_approval_status,
         total_amount,
+        final_amount,
+        invoice_amount,
         elemento,
         special_requirements,
         requires_invoice,
@@ -35,6 +76,11 @@ export async function GET(
         created_at,
         updated_at,
         quote_id,
+        plant:plant_id(
+          business_unit:business_unit_id(
+            vat_rate
+          )
+        ),
         order_items (
           id,
           product_type,
@@ -47,6 +93,18 @@ export async function GET(
           has_empty_truck_charge,
           empty_truck_volume,
           empty_truck_price
+        ),
+        order_additional_products (
+          id,
+          quantity,
+          unit_price,
+          total_price,
+          notes,
+          additional_products (
+            name,
+            code,
+            unit
+          )
         )
       `)
       .eq('id', orderId)
@@ -106,29 +164,6 @@ export async function GET(
       }
     } catch (error) {
       console.error('Error fetching remisiones:', error);
-    }
-
-    // Get material consumption data for remisiones
-    let remisionMateriales: any[] = [];
-    if (remisiones && remisiones.length > 0) {
-      const remisionIds = remisiones.map(r => r.id);
-      const { data: materialesData, error: materialesError } = await supabase
-        .from('remision_materiales')
-        .select(`
-          id,
-          remision_id,
-          material_type,
-          cantidad_real,
-          cantidad_teorica,
-          ajuste
-        `)
-        .in('remision_id', remisionIds);
-      
-      if (materialesError) {
-        console.error('Error fetching remision_materiales:', materialesError);
-      }
-      
-      remisionMateriales = materialesData || [];
     }
 
     // Get muestreos (samplings) for this order's remisiones
@@ -275,66 +310,28 @@ export async function GET(
       siteChecks = siteChecksData || [];
     }
 
-    // Organize data by remision for easier frontend consumption
+    // Organize data by remision (no remision_materiales / internal consumption — not for client portal)
     const remisionesWithDetails = (remisiones || []).map((remision: any) => {
       const remisionMuestreos = muestreos.filter(m => m.remision_id === remision.id);
       const remisionSiteChecks = siteChecks.filter(sc => sc.remision_id === remision.id);
-      const remisionMaterialesData = remisionMateriales.filter(m => m.remision_id === remision.id);
-      
-      // Calculate rendimiento volumétrico for this remision
-      let rendimientoVolumetrico = null;
-      if (remisionMaterialesData.length > 0 && remision.volumen_fabricado > 0) {
-        // Sum all material quantities (kg) - use cantidad_real (actual materials used)
-        const sumaMateriales = remisionMaterialesData.reduce((sum: number, m: any) => 
-          sum + (parseFloat(m.cantidad_real) || 0), 0);
-        
-        // Get masa unitaria from muestreos for this remision
-        const remisionMuestreos = muestreos.filter(m => m.remision_id === remision.id);
-        const avgMasaUnitaria = remisionMuestreos.length > 0
-          ? remisionMuestreos.reduce((sum: number, m: any) => sum + (m.masa_unitaria || 0), 0) / remisionMuestreos.length
-          : 0;
-        
-        if (sumaMateriales > 0 && avgMasaUnitaria > 0) {
-          // Correct formula: Rendimiento = (Volumen Fabricado / Volumen Teórico) * 100
-          // Where: Volumen Teórico = Suma Materiales / Masa Unitaria
-          const volumenTeorico = sumaMateriales / avgMasaUnitaria;
-          rendimientoVolumetrico = (remision.volumen_fabricado / volumenTeorico) * 100;
-        }
-      }
-      
+
       return {
         ...remision,
         muestreos: remisionMuestreos,
-        site_checks: remisionSiteChecks,
-        materiales: remisionMaterialesData,
-        rendimiento_volumetrico: rendimientoVolumetrico
+        site_checks: remisionSiteChecks
       };
     });
 
-    // Calculate overall rendimiento volumétrico
-    const remisionesWithRendimiento = remisionesWithDetails.filter(r => r.rendimiento_volumetrico !== null);
-    const avgRendimientoVolumetrico = remisionesWithRendimiento.length > 0
-      ? remisionesWithRendimiento.reduce((sum, r) => sum + r.rendimiento_volumetrico, 0) / remisionesWithRendimiento.length
-      : null;
-
-    // Calculate total material consumption
-    const totalMaterialReal = remisionMateriales.reduce((sum: number, m: any) => 
-      sum + (parseFloat(m.cantidad_real) || 0), 0);
-    const totalMaterialTeorico = remisionMateriales.reduce((sum: number, m: any) => 
-      sum + (parseFloat(m.cantidad_teorica) || 0), 0);
-
     return NextResponse.json({
-      order,
+      order: stripOrderFinancialsForPortal(order as Record<string, unknown>, canViewPrices),
+      canViewPrices,
       quote: quoteInfo,
       remisiones: remisionesWithDetails,
       summary: {
         totalRemisiones: remisiones?.length || 0,
         totalVolume: remisiones?.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0) || 0,
         totalMuestreos: muestreos.length,
-        totalSiteChecks: siteChecks.length,
-        avgRendimientoVolumetrico,
-        totalMaterialReal,
-        totalMaterialTeorico
+        totalSiteChecks: siteChecks.length
       }
     });
 

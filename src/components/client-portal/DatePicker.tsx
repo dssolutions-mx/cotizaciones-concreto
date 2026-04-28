@@ -10,6 +10,8 @@ interface DatePickerProps {
   onChange: (date: string) => void;
   minDate?: string; // YYYY-MM-DD
   label?: string;
+  /** When set, associates the visible label with the date trigger for accessibility */
+  inputId?: string;
 }
 
 // Helper to parse date string as local date (not UTC)
@@ -26,7 +28,7 @@ const formatLocalDate = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
-export default function DatePicker({ value, onChange, minDate, label }: DatePickerProps) {
+export default function DatePicker({ value, onChange, minDate, label, inputId }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState(() => value ? parseLocalDate(value) : new Date());
 
@@ -55,8 +57,9 @@ export default function DatePicker({ value, onChange, minDate, label }: DatePick
 
   return (
     <div className="relative">
-      <label className="block text-footnote text-label-tertiary mb-2">{label || 'Fecha'}</label>
+      <label htmlFor={inputId} className="block text-footnote text-label-tertiary mb-2">{label || 'Fecha'}</label>
       <button
+        id={inputId}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="w-full text-left rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none flex items-center justify-between"

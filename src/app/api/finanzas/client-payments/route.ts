@@ -124,6 +124,70 @@ export async function POST(request: NextRequest) {
 
     const normalizedSite = construction_site === 'general' ? null : (construction_site ?? null);
 
+    // Resolve the distribution target up-front: per-site balances drift from the aggregate
+    // unless every distribution row has a site. Reject ambiguous payments instead of silently
+    // creating a NULL-site distribution.
+    let distributionSite: string | null = normalizedSite;
+
+    if (!distributionSite) {
+      // Active sites = sites with billable orders (remisiones / effective_for_balance) or distributions
+      const [{ data: orderSites }, { data: distSites }] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('construction_site, remisiones!inner(id), effective_for_balance')
+          .eq('client_id', client_id)
+          .not('construction_site', 'is', null)
+          .not('order_status', 'eq', 'cancelled'),
+        supabase
+          .from('client_payment_distributions')
+          .select('construction_site, payment:client_payments!inner(client_id)')
+          .eq('payment.client_id', client_id)
+          .not('construction_site', 'is', null),
+      ]);
+
+      const activeSites = new Set<string>();
+      for (const o of orderSites || []) {
+        const site = (o as { construction_site?: string | null }).construction_site;
+        if (site) activeSites.add(site);
+      }
+      for (const d of distSites || []) {
+        const site = (d as { construction_site?: string | null }).construction_site;
+        if (site) activeSites.add(site);
+      }
+
+      if (activeSites.size === 1) {
+        distributionSite = [...activeSites][0];
+      } else if (activeSites.size === 0) {
+        // No active site context yet; allow only if client has zero sites on any order at all.
+        const { data: anySites } = await supabase
+          .from('orders')
+          .select('construction_site')
+          .eq('client_id', client_id)
+          .not('construction_site', 'is', null)
+          .limit(1);
+        if ((anySites || []).length === 0) {
+          // Truly site-less client: keep NULL (no per-site row will exist; invariant trivially holds)
+          distributionSite = null;
+        } else {
+          return NextResponse.json(
+            {
+              error:
+                'construction_site is required for this client (multiple sites exist). Specify which site this payment applies to.',
+            },
+            { status: 400 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              'construction_site is required for this client (multiple sites exist). Specify which site this payment applies to.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const insertPayload: Record<string, unknown> = {
       client_id,
       amount,
@@ -149,34 +213,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
     }
 
-    // ============================================================
-    // AUTO-CREATE DISTRIBUTION
-    // The update_client_balance function uses distributions to calculate balances.
-    // If distributions exist globally, payments without distributions are NOT counted.
-    // ============================================================
-    
-    let distributionSite: string | null = normalizedSite;
-    
-    // If it's a general payment (no specific site), determine where to distribute
-    if (!normalizedSite) {
-      // Get all sites with orders for this client
-      const { data: clientSites } = await supabase
-        .from('orders')
-        .select('construction_site')
-        .eq('client_id', client_id)
-        .not('construction_site', 'is', null)
-        .not('order_status', 'eq', 'cancelled');
-      
-      const uniqueSites = [...new Set((clientSites || []).map(o => o.construction_site).filter(Boolean))];
-      
-      // If client has exactly 1 site, distribute to that site
-      // Otherwise, leave as null (general distribution)
-      if (uniqueSites.length === 1) {
-        distributionSite = uniqueSites[0];
-      }
-    }
-
-    // Create the distribution record
     const { error: distError } = await supabase
       .from('client_payment_distributions')
       .insert({

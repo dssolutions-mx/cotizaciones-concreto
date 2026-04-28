@@ -181,7 +181,9 @@ export async function POST(request: Request) {
       quote_id,
       quote_detail_id,
       volume,
-      unit_price
+      unit_price,
+      /** When present: only these quote_additional_products ids are copied; [] = none. Omit = copy all (legacy). */
+      selected_additional_product_ids
     } = body || {};
 
     // Minimal validation
@@ -342,37 +344,93 @@ export async function POST(request: Request) {
       }
     }
 
-    // Copy additional products from quote if quote_id provided
-    if (created?.id && quote_id) {
-      // Fetch additional products from the quote
-      const { data: quoteAdditionalProducts, error: additionalError } = await supabase
-        .from('quote_additional_products')
-        .select('*')
-        .eq('quote_id', quote_id);
+    // Additional products: explicit selection (catalog / multi-quote) or legacy copy-all from quote_id
+    if (created?.id) {
+      const hasExplicitSelection = Array.isArray(selected_additional_product_ids);
 
-      if (additionalError) {
-        console.error('Error fetching quote additional products:', additionalError);
-      } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
-        // Prepare order additional products
-        const orderAdditionalProducts = quoteAdditionalProducts.map(product => ({
-          order_id: created.id,
-          quote_additional_product_id: product.id,
-          additional_product_id: product.additional_product_id,
-          quantity: product.quantity,
-          unit_price: product.unit_price,
-          total_price: product.total_price,
-          notes: product.notes
-        }));
+      if (hasExplicitSelection) {
+        const want = new Set(
+          selected_additional_product_ids.filter((x: unknown) => typeof x === 'string') as string[]
+        );
 
-        // Insert into order_additional_products
-        const { error: insertAdditionalError } = await supabase
-          .from('order_additional_products')
-          .insert(orderAdditionalProducts);
+        if (want.size > 0) {
+          const ids = Array.from(want);
+          const { data: qapRows, error: qapFetchError } = await supabase
+            .from('quote_additional_products')
+            .select('*')
+            .in('id', ids);
 
-        if (insertAdditionalError) {
-          console.error('Error inserting order additional products:', insertAdditionalError);
-        } else {
-          console.log(`Copied ${quoteAdditionalProducts.length} additional products to order ${created.id}`);
+          if (qapFetchError) {
+            console.error('Error fetching selected quote additional products:', qapFetchError);
+          } else if (qapRows && qapRows.length > 0) {
+            const quoteIds = Array.from(new Set(qapRows.map((r: { quote_id: string }) => r.quote_id)));
+            const { data: quoteRows } = await supabase
+              .from('quotes')
+              .select('id, client_id')
+              .in('id', quoteIds);
+
+            const clientByQuote = new Map((quoteRows || []).map((q: any) => [q.id, q.client_id]));
+            const toCopy = qapRows.filter((r: any) => clientByQuote.get(r.quote_id) === clientId);
+
+            if (toCopy.length < want.size) {
+              console.warn(
+                'Some selected_additional_product_ids were skipped (not found or wrong client)'
+              );
+            }
+
+            if (toCopy.length > 0) {
+              const orderAdditionalProducts = toCopy.map((product: any) => ({
+                order_id: created.id,
+                quote_additional_product_id: product.id,
+                additional_product_id: product.additional_product_id,
+                quantity: product.quantity,
+                unit_price: product.unit_price,
+                total_price: product.total_price,
+                notes: product.notes,
+              }));
+
+              const { error: insertAdditionalError } = await supabase
+                .from('order_additional_products')
+                .insert(orderAdditionalProducts);
+
+              if (insertAdditionalError) {
+                console.error('Error inserting order additional products:', insertAdditionalError);
+              } else {
+                console.log(`Copied ${toCopy.length} additional products to order ${created.id}`);
+              }
+            }
+          }
+        }
+      } else if (quote_id) {
+        const { data: quoteAdditionalProducts, error: additionalError } = await supabase
+          .from('quote_additional_products')
+          .select('*')
+          .eq('quote_id', quote_id);
+
+        if (additionalError) {
+          console.error('Error fetching quote additional products:', additionalError);
+        } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
+          const orderAdditionalProducts = quoteAdditionalProducts.map((product) => ({
+            order_id: created.id,
+            quote_additional_product_id: product.id,
+            additional_product_id: product.additional_product_id,
+            quantity: product.quantity,
+            unit_price: product.unit_price,
+            total_price: product.total_price,
+            notes: product.notes,
+          }));
+
+          const { error: insertAdditionalError } = await supabase
+            .from('order_additional_products')
+            .insert(orderAdditionalProducts);
+
+          if (insertAdditionalError) {
+            console.error('Error inserting order additional products:', insertAdditionalError);
+          } else {
+            console.log(
+              `Copied ${quoteAdditionalProducts.length} additional products to order ${created.id}`
+            );
+          }
         }
       }
     }
