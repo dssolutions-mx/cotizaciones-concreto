@@ -24,7 +24,13 @@ import PayrollWeekGrid from '@/components/hr/PayrollWeekGrid';
 import UnitsWeekGrid from '@/components/hr/UnitsWeekGrid';
 import { UnitsSummaryTable } from '@/components/hr/UnitsSummaryTable';
 import { HrWeeklyCompliancePanel } from '@/components/hr/HrWeeklyCompliancePanel';
-import { fetchHrWeeklyRemisiones, type HrWeeklyResponse } from '@/services/hrWeeklyRemisionesService';
+import {
+  fetchHrWeeklyRemisiones,
+  type HrWeeklyRemisionRow,
+  type HrWeeklyResponse,
+} from '@/services/hrWeeklyRemisionesService';
+import { buildHrWeeklyRemisionesExcel } from '@/lib/reports/hrWeeklyRemisionesExcel';
+import { downloadExcelBuffer } from '@/lib/reports/deliveryReceiptExcel';
 import type { HrComplianceFinding } from '@/lib/hr/complianceFromRuns';
 import { cn } from '@/lib/utils';
 import {
@@ -33,7 +39,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Download, RefreshCw, Search, ChevronLeft, ChevronRight, Factory, AlertTriangle } from 'lucide-react';
+import {
+  Download,
+  FileSpreadsheet,
+  RefreshCw,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Factory,
+  AlertTriangle,
+} from 'lucide-react';
 import {
   computeComplianceRemisionStats,
   HR_COMPLIANCE_RULE_LABELS,
@@ -79,6 +94,17 @@ function escapeCsv(value: any) {
   return s;
 }
 
+/** Concrete + pumping remisiones so RH can reconcile payroll with the pumping scheme (SERVICIO DE BOMBEO). */
+const HR_WEEKLY_INCLUDE_TYPES = ['CONCRETO', 'BOMBEO'] as const;
+
+function hrWeeklyNotesTitle(r: HrWeeklyRemisionRow): string {
+  const segs: string[] = [];
+  if (r.reassignment_note) segs.push(`Reasignación (Arkik): ${r.reassignment_note}`);
+  if (r.cancelled_reason) segs.push(`Motivo cancelación: ${r.cancelled_reason}`);
+  if (r.order?.comentarios_internos) segs.push(`Comentarios pedido: ${r.order.comentarios_internos}`);
+  return segs.join('\n\n');
+}
+
 export default function WeeklyRemisionesReport() {
   const { profile } = useAuthBridge();
   const [dateRange, setDateRange] = useState<DateRange>(initialWeekRange());
@@ -102,6 +128,7 @@ export default function WeeklyRemisionesReport() {
 
   const [page, setPage] = useState(1);
   const [pageSize] = useState(75);
+  const [excelLoading, setExcelLoading] = useState(false);
 
   const [data, setData] = useState<HrWeeklyResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -127,7 +154,7 @@ export default function WeeklyRemisionesReport() {
         trucks: filters.trucks.length ? filters.trucks : undefined,
         plantIds: filters.plantIds.length ? filters.plantIds : undefined,
         day: filters.day,
-        includeTypes: ['CONCRETO'],
+        includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
         includeCompliance: true,
       });
       setData(next);
@@ -232,13 +259,14 @@ export default function WeeklyRemisionesReport() {
           trucks: filters.trucks.length ? filters.trucks : undefined,
           plantIds: filters.plantIds.length ? filters.plantIds : undefined,
           day: filters.day,
-          includeTypes: ['CONCRETO'],
+          includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
           export: true,
         });
 
         const header = [
           'fecha',
           'hora_carga',
+          'tipo_remision',
           'remision_number',
           'conductor',
           'unidad',
@@ -249,6 +277,9 @@ export default function WeeklyRemisionesReport() {
           'plant_name',
           'produccion_cruzada',
           'planta_facturacion',
+          'reassignment_arkik',
+          'cancelled_reason',
+          'comentarios_pedido_internos',
         ];
         const lines = [
           header.join(','),
@@ -256,6 +287,7 @@ export default function WeeklyRemisionesReport() {
             [
               escapeCsv(r.fecha),
               escapeCsv(r.hora_carga ?? ''),
+              escapeCsv(r.tipo_remision ?? ''),
               escapeCsv(r.remision_number ?? ''),
               escapeCsv(r.conductor ?? ''),
               escapeCsv(r.unidad ?? ''),
@@ -266,6 +298,9 @@ export default function WeeklyRemisionesReport() {
               escapeCsv(r.plant?.name ?? ''),
               escapeCsv(r.is_production_record ? 'Sí' : 'No'),
               escapeCsv(r.billing_plant?.name ?? r.cross_plant_billing_plant_id ?? ''),
+              escapeCsv(r.reassignment_note ?? ''),
+              escapeCsv(r.cancelled_reason ?? ''),
+              escapeCsv(r.order?.comentarios_internos ?? ''),
             ].join(',')
           ),
         ];
@@ -274,6 +309,37 @@ export default function WeeklyRemisionesReport() {
         downloadCsv(file, lines.join('\n'));
       } catch (e) {
         console.error('CSV export failed:', e);
+      }
+    })();
+  };
+
+  const handleExportExcel = () => {
+    if (!startDate || !endDate) return;
+    (async () => {
+      setExcelLoading(true);
+      try {
+        const exportData = await fetchHrWeeklyRemisiones({
+          startDate,
+          endDate,
+          search: debouncedSearch || undefined,
+          drivers: filters.drivers.length ? filters.drivers : undefined,
+          trucks: filters.trucks.length ? filters.trucks : undefined,
+          plantIds: filters.plantIds.length ? filters.plantIds : undefined,
+          day: filters.day,
+          includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
+          export: true,
+        });
+        const buf = await buildHrWeeklyRemisionesExcel(exportData.rows, {
+          startDate: exportData.startDate,
+          endDate: exportData.endDate,
+          generatedAt: new Date(),
+        });
+        const slug = `rh-remisiones-${exportData.startDate}_a_${exportData.endDate}`;
+        downloadExcelBuffer(buf, slug);
+      } catch (e) {
+        console.error('Excel export failed:', e);
+      } finally {
+        setExcelLoading(false);
       }
     })();
   };
@@ -311,7 +377,9 @@ export default function WeeklyRemisionesReport() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Recursos Humanos</h1>
             <p className="text-sm text-gray-600">
-              Reporte semanal de remisiones (viajes) por <span className="font-medium">conductor</span> y <span className="font-medium">unidad</span>.
+              Reporte semanal de remisiones de <span className="font-medium">concreto</span> y{' '}
+              <span className="font-medium">bombeo</span> (viajes) por conductor y unidad, para revisar el esquema de
+              bombeo junto a producción.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -823,10 +891,28 @@ export default function WeeklyRemisionesReport() {
                     )}
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" onClick={handleExportCsv} disabled={!data.rows.length} className="gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleExportExcel}
+                    disabled={(data.total ?? 0) === 0 || excelLoading}
+                    className="gap-2"
+                  >
+                    {excelLoading ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
+                    ) : (
+                      <FileSpreadsheet className="h-4 w-4" />
+                    )}
+                    Excel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleExportCsv}
+                    disabled={(data.total ?? 0) === 0}
+                    className="gap-2"
+                  >
                     <Download className="h-4 w-4" />
-                    Exportar CSV
+                    CSV
                   </Button>
                 </div>
               </div>
@@ -845,7 +931,8 @@ export default function WeeklyRemisionesReport() {
                       <TableHead>Obra</TableHead>
                       <TableHead>Planta</TableHead>
                       <TableHead className="text-right">Volumen</TableHead>
-                      <TableHead>Tipo</TableHead>
+                      <TableHead className="min-w-[130px]">Tipo remisión</TableHead>
+                      <TableHead className="min-w-[200px] max-w-[min(28rem,45vw)]">Notas</TableHead>
                       <TableHead className="min-w-[120px]">Cumplimiento</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -853,14 +940,14 @@ export default function WeeklyRemisionesReport() {
                     {loading ? (
                       Array.from({ length: 8 }).map((_, i) => (
                         <TableRow key={`sk-${i}`}>
-                          <TableCell colSpan={11}>
+                          <TableCell colSpan={12}>
                             <Skeleton className="h-6 w-full" />
                           </TableCell>
                         </TableRow>
                       ))
                     ) : data.rows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={11} className="text-center py-10 text-gray-500">
+                        <TableCell colSpan={12} className="text-center py-10 text-gray-500">
                           No hay remisiones para los filtros seleccionados.
                         </TableCell>
                       </TableRow>
@@ -922,14 +1009,63 @@ export default function WeeklyRemisionesReport() {
                             {(Number(r.volumen_fabricado) || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³
                           </TableCell>
                           <TableCell>
-                            {r.is_production_record ? (
-                              <div className="flex items-center gap-1.5" title={r.billing_plant?.name ? `Factura a: ${r.billing_plant.name}` : 'Producción cruzada'}>
-                                <Factory className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
-                                <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 whitespace-nowrap">
-                                  {r.billing_plant?.code ?? 'Cruzada'}
+                            <div className="flex flex-col gap-1.5">
+                              {r.tipo_remision === 'BOMBEO' ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-xs w-fit bg-sky-100 text-sky-900 border-sky-200"
+                                  title="Remisión de servicio de bombeo"
+                                >
+                                  BOMBEO
                                 </Badge>
-                              </div>
-                            ) : null}
+                              ) : r.tipo_remision ? (
+                                <Badge variant="outline" className="text-xs w-fit">
+                                  {r.tipo_remision}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                              {r.is_production_record ? (
+                                <div
+                                  className="flex items-center gap-1.5"
+                                  title={r.billing_plant?.name ? `Factura a: ${r.billing_plant.name}` : 'Producción cruzada'}
+                                >
+                                  <Factory className="h-3.5 w-3.5 text-orange-500 flex-shrink-0" />
+                                  <Badge variant="outline" className="text-xs bg-orange-50 text-orange-700 border-orange-200 whitespace-nowrap">
+                                    {r.billing_plant?.code ?? 'Cruzada'}
+                                  </Badge>
+                                </div>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell
+                            className="max-w-[min(28rem,45vw)] align-top text-xs text-gray-800"
+                            title={hrWeeklyNotesTitle(r) || undefined}
+                          >
+                            {(() => {
+                              const parts: { label: string; text: string }[] = [];
+                              if (r.reassignment_note)
+                                parts.push({ label: 'Reasignación', text: r.reassignment_note });
+                              if (r.cancelled_reason)
+                                parts.push({ label: 'Cancelación', text: r.cancelled_reason });
+                              if (r.order?.comentarios_internos)
+                                parts.push({ label: 'Pedido', text: r.order.comentarios_internos });
+                              if (parts.length === 0) {
+                                return <span className="text-gray-400">—</span>;
+                              }
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  {parts.map((p) => (
+                                    <div key={p.label} className="rounded border border-gray-100 bg-stone-50/80 px-2 py-1.5">
+                                      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                        {p.label}
+                                      </div>
+                                      <div className="whitespace-pre-wrap break-words text-gray-800">{p.text}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>
                             {data.complianceByRemisionId?.[r.id]?.length ? (

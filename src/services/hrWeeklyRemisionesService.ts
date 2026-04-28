@@ -25,6 +25,9 @@ export type HrWeeklyRemisionRow = {
   unidad: string | null;
   volumen_fabricado: number | string | null;
   tipo_remision?: string | null;
+  cancelled_reason?: string | null;
+  /** Arkik remisión reassignment lines (←/→ other folio + reason). */
+  reassignment_note?: string | null;
   plant_id?: string | null;
   plant?: { id: string; code: string | null; name: string | null } | null;
   hora_carga?: string | null;
@@ -35,6 +38,7 @@ export type HrWeeklyRemisionRow = {
   order?: {
     id: string;
     construction_site: string | null;
+    comentarios_internos?: string | null;
     client_id?: string | null;
     client?: { id: string; business_name: string | null } | null;
   } | null;

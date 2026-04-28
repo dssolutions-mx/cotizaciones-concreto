@@ -7,6 +7,7 @@ import {
   buildComplianceByUnitKey,
   type HrComplianceFinding,
 } from '@/lib/hr/complianceFromRuns';
+import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
 
 type RemisionRow = {
   id: string;
@@ -16,6 +17,8 @@ type RemisionRow = {
   unidad: string | null;
   volumen_fabricado: number | string | null;
   tipo_remision?: string | null;
+  cancelled_reason?: string | null;
+  reassignment_note?: string | null;
   plant_id?: string | null;
   plant?: { id: string; code: string | null; name: string | null } | null;
   hora_carga?: string | null;
@@ -26,6 +29,7 @@ type RemisionRow = {
   order?: {
     id: string;
     construction_site: string | null;
+    comentarios_internos?: string | null;
     client_id?: string | null;
     client?: { id: string; business_name: string | null } | null;
   } | null;
@@ -205,6 +209,7 @@ export async function POST(request: NextRequest) {
             unidad,
             volumen_fabricado,
             tipo_remision,
+            cancelled_reason,
             plant_id,
             hora_carga,
             order_id,
@@ -215,6 +220,7 @@ export async function POST(request: NextRequest) {
             order:orders(
               id,
               construction_site,
+              comentarios_internos,
               client_id,
               client:clients(id, business_name)
             )
@@ -290,6 +296,18 @@ export async function POST(request: NextRequest) {
     if (pageCount >= maxPages) {
       console.warn(`[HR API] Pagination stopped at ${maxPages} pages. Total remisiones fetched: ${allRemisiones.length}, expected: ${totalCount}`);
     }
+
+    const remisionNumbersForNotes = allRemisiones
+      .map((r) => String(r.remision_number ?? '').trim())
+      .filter(Boolean);
+    const reassignmentMap = await fetchReassignmentNotesByRemisionNumbers(service, remisionNumbersForNotes);
+    allRemisiones = (allRemisiones as RemisionRow[]).map((r) => {
+      const key = String(r.remision_number ?? '').trim();
+      return {
+        ...r,
+        reassignment_note: key ? reassignmentMap.get(key) ?? null : null,
+      };
+    });
 
     const all = (allRemisiones as RemisionRow[]).filter(r => {
       const driverKey = normalizeKey(r.conductor);

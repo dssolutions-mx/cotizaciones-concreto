@@ -576,16 +576,17 @@ function Navigation({ children }: { children: React.ReactNode }) {
       // New users have created_at === last_sign_in_at (they've never logged in with password)
       const isNewUser = session.user.created_at === session.user.last_sign_in_at;
       
-      // Also check user metadata for invitation indicators
+      // Explicit invite flag only — EXTERNAL_CLIENT appears on all portal JWTs and must not
+      // force everyone through update-password forever when password_set is missing.
       const userMetadata = session.user.user_metadata || {};
-      const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+      const isExplicitInvite = userMetadata.invited === true;
       const hasPasswordSet = userMetadata.password_set === true; // Check if password has been set
       
-      // Only redirect if user is new/invited AND hasn't set password yet
-      if ((isNewUser || isInvitationMetadata) && !hasPasswordSet) {
+      // Only redirect if user is new or explicitly invited AND hasn't set password yet
+      if ((isNewUser || isExplicitInvite) && !hasPasswordSet) {
         console.log('Root layout: Detected new user/invitation without password, redirecting to update-password', {
           isNewUser,
-          isInvitationMetadata,
+          isExplicitInvite,
           hasPasswordSet,
           email: session.user.email
         });

@@ -107,7 +107,7 @@ function AuthCallbackHandler() {
               
               // Also check user metadata for invitation indicators
               const userMetadata = session.user?.user_metadata || {};
-              const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+              const isInvitationMetadata = userMetadata.invited === true;
               
               if (isNewUser || isInvitationMetadata) {
                 console.log('New user/invitation detected from SendGrid redirect, redirecting to update-password', {
@@ -144,7 +144,7 @@ function AuthCallbackHandler() {
           
           // Also check user metadata for invitation indicators
           const userMetadata = session.user?.user_metadata || {};
-          const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+          const isInvitationMetadata = userMetadata.invited === true;
           
           if (isNewUser || isInvitationMetadata) {
             console.log('New user/invitation detected from session (no hash), redirecting to update-password', {
@@ -179,7 +179,7 @@ function AuthCallbackHandler() {
         
         // Also check if user metadata indicates this is an invitation
         const userMetadata = data.user?.user_metadata || {};
-        const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+        const isInvitationMetadata = userMetadata.invited === true;
 
         // Both new users (invitations) and password recovery should go to update-password
         // Be more aggressive: if type is invite/signup OR if it's a new user OR if metadata indicates invitation
@@ -250,7 +250,7 @@ function AuthCallbackHandler() {
         
         // Also check user metadata for invitation indicators
         const userMetadata = data.user?.user_metadata || {};
-        const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+        const isInvitationMetadata = userMetadata.invited === true;
         
         if (isRecoveryFlow || isNewUser || isInvitationMetadata) {
           console.log('Password recovery or new user flow detected, redirecting to update-password', {
@@ -278,7 +278,7 @@ function AuthCallbackHandler() {
           
           // Also check user metadata for invitation indicators
           const userMetadata = sessionData.session.user?.user_metadata || {};
-          const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+          const isInvitationMetadata = userMetadata.invited === true;
           
           if (isNewUser || isInvitationMetadata) {
             console.log('New user or invitation detected from session, redirecting to update-password', {

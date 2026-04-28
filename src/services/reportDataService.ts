@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
 import { format } from 'date-fns';
 import {
   enrichRemisiones,
@@ -247,45 +248,11 @@ async function fetchRemisionesByIds(
 // Arkik remision_reassignments → display line per remisión number
 // ---------------------------------------------------------------------------
 
-const REASSIGNMENT_CHUNK = 150;
-
 /** Exported for Finanzas Ventas and other remisión lists (batched by remisión number). */
 export async function fetchArkikReassignmentNotesByRemisionNumber(
   remisionNumbers: string[],
 ): Promise<Map<string, string>> {
-  const unique = [...new Set(remisionNumbers.map(String).filter(Boolean))];
-  if (!unique.length) return new Map();
-
-  const byRowId = new Map<string, Record<string, unknown>>();
-  for (let i = 0; i < unique.length; i += REASSIGNMENT_CHUNK) {
-    const chunk = unique.slice(i, i + REASSIGNMENT_CHUNK);
-    const [{ data: asSource }, { data: asTarget }] = await Promise.all([
-      supabase.from('remision_reassignments').select('*').in('source_remision_number', chunk),
-      supabase.from('remision_reassignments').select('*').in('target_remision_number', chunk),
-    ]);
-    for (const row of [...(asSource || []), ...(asTarget || [])]) {
-      const r = row as { id: string };
-      if (r.id) byRowId.set(r.id, row as Record<string, unknown>);
-    }
-  }
-
-  const linesByRemision = new Map<string, Set<string>>();
-  const addLine = (remNum: string, line: string) => {
-    if (!linesByRemision.has(remNum)) linesByRemision.set(remNum, new Set());
-    linesByRemision.get(remNum)!.add(line);
-  };
-
-  for (const row of byRowId.values()) {
-    const src = String(row.source_remision_number ?? '');
-    const tgt = String(row.target_remision_number ?? '');
-    const reason = String(row.reason ?? '').trim() || '—';
-    if (src) addLine(src, `→ ${tgt}: ${reason}`);
-    if (tgt) addLine(tgt, `← ${src}: ${reason}`);
-  }
-
-  return new Map(
-    [...linesByRemision.entries()].map(([k, set]) => [k, [...set].join(' | ')]),
-  );
+  return fetchReassignmentNotesByRemisionNumbers(supabase, remisionNumbers);
 }
 
 // ---------------------------------------------------------------------------

@@ -49,15 +49,13 @@ function UpdatePasswordForm() {
     };
   }, []);
 
-  // Process URL hash for auth tokens if present (for invitation flows)
+  // Process URL hash for auth tokens if present (recovery links also carry hash tokens)
   useEffect(() => {
-    // This effect runs only once on component mount to handle URL hash
     if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token=')) {
-      console.log('Detected auth tokens in URL hash in component mount effect');
-      setInvitationFlow(true);
-      
-      // Let the Supabase client handle the tokens automatically
-      // We'll check for session in the next effect
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const tokenType = hashParams.get('type');
+      console.log('Detected auth tokens in URL hash in component mount effect', { tokenType });
+      setInvitationFlow(tokenType !== 'recovery');
     }
   }, []);
 
@@ -103,7 +101,17 @@ function UpdatePasswordForm() {
             user: sessionData.session.user
           });
           setSessionEstablished(true);
-          setInvitationFlow(true); // Assume this is invitation flow if we have a session
+          // Honor ?type=recovery from auth/callback; do not treat every session as invite
+          const typeFromUrl = searchParams.get('type');
+          const isNewUser =
+            sessionData.session.user.created_at === sessionData.session.user.last_sign_in_at;
+          if (typeFromUrl === 'recovery') {
+            setInvitationFlow(false);
+          } else if (typeFromUrl === 'invite' || typeFromUrl === 'signup') {
+            setInvitationFlow(true);
+          } else {
+            setInvitationFlow(isNewUser);
+          }
           setAuthReady(true);
           setLoading(false);
           return; // We have a valid session, no need to check URL parameters
