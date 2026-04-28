@@ -275,7 +275,7 @@ export default function ReviewedEntriesForAccountingTable({
   if (!loading && entries.length === 0) {
     return (
       <div className="py-12 text-center text-stone-500 text-sm">
-        No hay entradas revisadas en este período.
+        No hay entradas revisadas con recepción en este período.
       </div>
     )
   }
@@ -350,10 +350,12 @@ export default function ReviewedEntriesForAccountingTable({
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="whitespace-nowrap text-xs">Entrada</TableHead>
-              <TableHead className="whitespace-nowrap text-xs min-w-[7.5rem]" title="Momento en que se marcó revisada">
-                Revisada
+              <TableHead
+                className="whitespace-nowrap text-xs min-w-[8rem] font-semibold text-stone-900"
+                title="Fecha de ingreso del material a planta; define el período del listado y exportación"
+              >
+                Recepción
               </TableHead>
-              <TableHead className="whitespace-nowrap text-xs min-w-[7rem]">Recepción</TableHead>
               <TableHead className="text-xs min-w-[8rem]">Material</TableHead>
               <TableHead className="text-xs min-w-[6.5rem] whitespace-nowrap" title="Clave de producto (ERP)">
                 Clave ERP
@@ -371,7 +373,13 @@ export default function ReviewedEntriesForAccountingTable({
                 Landed/kg
               </TableHead>
               <TableHead className="text-center text-xs whitespace-nowrap">Docs</TableHead>
-              <TableHead className="text-xs min-w-[5rem]">Revisó</TableHead>
+              <TableHead
+                className="whitespace-nowrap text-[10px] font-normal text-stone-500 min-w-[6.5rem]"
+                title="Momento en que se confirmó la revisión de precios (referencia interna, no define el período)"
+              >
+                Revisión
+              </TableHead>
+              <TableHead className="text-xs min-w-[5rem] text-stone-500 font-normal">Revisó</TableHead>
               <TableHead className="text-right w-[100px]" />
             </TableRow>
           </TableHeader>
@@ -400,12 +408,11 @@ export default function ReviewedEntriesForAccountingTable({
                   <TableCell className="font-mono text-[11px] text-stone-800 py-2">
                     {e.entry_number || e.id.slice(0, 8)}
                   </TableCell>
-                  <TableCell className="text-[11px] text-stone-700 tabular-nums py-2 whitespace-nowrap">
-                    {formatReviewedAt(e.reviewed_at)}
-                  </TableCell>
-                  <TableCell className="text-[11px] align-top py-2 whitespace-nowrap">
+                  <TableCell className="text-xs align-top py-2 whitespace-nowrap">
                     <div className="leading-tight">
-                      <div>{formatReceptionAssignedDay(e)}</div>
+                      <div className="font-semibold text-stone-900 tabular-nums">
+                        {formatReceptionAssignedDay(e)}
+                      </div>
                       <div className="text-[10px] text-stone-500 tabular-nums">
                         Reg. {formatEntrySavedShortFor(e)}
                       </div>
@@ -465,6 +472,12 @@ export default function ReviewedEntriesForAccountingTable({
                   </TableCell>
                   <TableCell className="text-center text-xs tabular-nums py-2">
                     {e.document_count ?? 0}
+                  </TableCell>
+                  <TableCell
+                    className="text-[10px] text-stone-500 tabular-nums py-2 whitespace-nowrap align-top"
+                    title={e.reviewed_at ? formatReviewedAt(e.reviewed_at) : undefined}
+                  >
+                    {formatReviewedAt(e.reviewed_at)}
                   </TableCell>
                   <TableCell className="text-[11px] text-stone-600 py-2" title={reviewerShort(e)}>
                     {reviewerShort(e)}

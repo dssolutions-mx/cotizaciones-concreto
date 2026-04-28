@@ -66,7 +66,6 @@ import {
 } from '@/components/ui/sheet'
 import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import ReviewedEntriesForAccountingTable from '@/components/procurement/ReviewedEntriesForAccountingTable'
-import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -310,7 +309,6 @@ export default function ProcurementMaterialEntriesView({
     to: Date | undefined
   }>(defaultRange)
   const [reviewedPreset, setReviewedPreset] = useState<DateRangePreset>('last7days')
-  const [reviewedFilterByReception, setReviewedFilterByReception] = useState(false)
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [pricingSheetEntry, setPricingSheetEntry] = useState<MaterialEntry | null>(null)
@@ -573,13 +571,8 @@ export default function ProcurementMaterialEntriesView({
       if (poIdFromUrl) params.set('po_id', poIdFromUrl)
       if (reviewedSupplierId) params.set('supplier_id', reviewedSupplierId)
       if (reviewedDateRange.from && reviewedDateRange.to) {
-        if (reviewedFilterByReception) {
-          params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
-          params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
-        } else {
-          params.set('reviewed_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
-          params.set('reviewed_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
-        }
+        params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
+        params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
       }
       return params
     },
@@ -589,7 +582,6 @@ export default function ProcurementMaterialEntriesView({
       reviewedSupplierId,
       reviewedDateRange.from,
       reviewedDateRange.to,
-      reviewedFilterByReception,
     ]
   )
 
@@ -778,7 +770,6 @@ export default function ProcurementMaterialEntriesView({
     buildReviewedFetchParams,
     reviewedDateRange.from,
     reviewedDateRange.to,
-    reviewedFilterByReception,
     reviewedReloadNonce,
     reviewedSupplierId,
   ])
@@ -1223,8 +1214,15 @@ export default function ProcurementMaterialEntriesView({
           {/* ─── Reviewed (accounting) ─── */}
           <TabsContent value="revisadas" className="mt-0 flex-1 min-h-0 flex flex-col">
             <div className="border border-t-0 border-stone-200 bg-white rounded-b-lg flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="shrink-0 flex flex-col gap-3 px-4 py-2.5 border-b border-stone-100">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+              <div className="shrink-0 flex flex-col gap-3 px-4 py-3 border-b border-stone-200 bg-stone-50/40">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-stone-900">Fecha de recepción</p>
+                  <p className="text-[11px] text-stone-600 leading-relaxed max-w-xl">
+                    Este listado y la exportación se acotan por la fecha en que el material ingresó a planta. La fecha en
+                    que se revisó el precio aparece en la tabla solo como referencia operativa.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <DateRangePresets
                     selectedPreset={reviewedPreset}
                     onPresetSelect={handleReviewedPresetSelect}
@@ -1235,23 +1233,25 @@ export default function ProcurementMaterialEntriesView({
                         variant="outline"
                         size="sm"
                         className={cn(
-                          'w-full lg:w-[280px] justify-start text-left font-normal',
+                          'w-full sm:w-[min(100%,280px)] justify-start text-left font-normal border-stone-300 bg-white shadow-sm',
                           !reviewedDateRange.from && 'text-muted-foreground'
                         )}
                       >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0 text-amber-800/90" />
                         {reviewedDateRange.from ? (
                           reviewedDateRange.to ? (
                             <>
-                              {reviewedFilterByReception ? 'Recepción: ' : 'Revisadas: '}
-                              {format(reviewedDateRange.from, 'dd MMM', { locale: es })} -{' '}
-                              {format(reviewedDateRange.to, 'dd MMM yyyy', { locale: es })}
+                              <span className="font-medium text-stone-900">Recepción:</span>{' '}
+                              <span className="tabular-nums">
+                                {format(reviewedDateRange.from, 'dd MMM', { locale: es })} –{' '}
+                                {format(reviewedDateRange.to, 'dd MMM yyyy', { locale: es })}
+                              </span>
                             </>
                           ) : (
                             format(reviewedDateRange.from, 'dd MMM yyyy', { locale: es })
                           )
                         ) : (
-                          'Rango de fechas'
+                          'Elegir rango de recepción'
                         )}
                       </Button>
                     </PopoverTrigger>
@@ -1266,19 +1266,6 @@ export default function ProcurementMaterialEntriesView({
                       />
                     </PopoverContent>
                   </Popover>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="reviewed-filter-reception"
-                    checked={reviewedFilterByReception}
-                    onCheckedChange={setReviewedFilterByReception}
-                  />
-                  <Label
-                    htmlFor="reviewed-filter-reception"
-                    className="text-xs text-stone-600 cursor-pointer font-normal leading-snug"
-                  >
-                    Filtrar por fecha de recepción (en lugar de fecha de revisión)
-                  </Label>
                 </div>
               </div>
 
@@ -1313,9 +1300,10 @@ export default function ProcurementMaterialEntriesView({
                     <SheetHeader className="space-y-1.5 p-0">
                       <SheetTitle className="text-base">Exportación contable (ERP)</SheetTitle>
                       <SheetDescription className="text-xs leading-relaxed">
-                        Elija planta y proveedor de material para filtrar recepciones y definir los valores contables del
-                        Excel. El Excel contable exige proveedor; el detallado puede usarse con o sin filtro. La tabla de
-                        la pestaña se actualiza al cambiar planta o proveedor.
+                        El rango de fechas de la pestaña es siempre por recepción (ingreso a planta). Elija planta y
+                        proveedor de material para filtrar recepciones y definir los valores contables del Excel. El
+                        Excel contable exige proveedor; el detallado puede usarse con o sin filtro. La tabla de la
+                        pestaña se actualiza al cambiar planta o proveedor.
                       </SheetDescription>
                       <p className="text-xs pt-1">
                         <Link
