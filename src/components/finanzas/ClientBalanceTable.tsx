@@ -25,7 +25,7 @@ import {
   User,
   Phone,
 } from 'lucide-react';
-import { financialService } from '@/lib/supabase/financial';
+import { financialService, type PaymentData } from '@/lib/supabase/financial';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import {
   Tooltip,
@@ -64,12 +64,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { paymentNeedsExplicitConstructionSite } from '@/lib/finanzas/paymentConstructionSite';
+import {
+  paymentNeedsExplicitConstructionSite,
+  computeFifoAllocation,
+  type SiteDebtFifo,
+} from '@/lib/finanzas/paymentConstructionSite';
+import { fetchFifoSiteDebts } from '@/lib/finanzas/fifoSiteDebts';
+import { supabase } from '@/lib/supabase/client';
 
 const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
-
-/** Matches PaymentForm — Radix Select cannot use empty string as a selectable value for “pick obra”. */
-const SITE_SELECT_PLACEHOLDER = '__none__';
 
 /** Match client_payments row to selected obra / general (aligned with API storage). */
 function paymentMatchesConstructionSelection(
@@ -154,6 +157,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       reference_number?: string | null;
     }[]
   >([]);
+  const [paymentFifoDebts, setPaymentFifoDebts] = useState<SiteDebtFifo[]>([]);
 
   const namedPaymentSites = useMemo(
     () => paymentModalSites.filter((s) => s?.name?.trim()),
@@ -182,10 +186,11 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
   });
 
   const watchedConstructionSite = paymentForm.watch('construction_site');
+  const watchedAmountStr = paymentForm.watch('amount');
 
   const paymentContextForSelection = useMemo(() => {
     const raw = watchedConstructionSite?.trim() ?? '';
-    if (!raw || (paymentNeedsExplicitObra && !raw)) {
+    if (!raw) {
       return {
         showPanel: false as const,
         balance: null as number | null,
@@ -214,6 +219,23 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
     paymentBalanceGeneral,
     paymentBalanceBySiteName,
     paymentRecentHistory,
+  ]);
+
+  const fifoPreview = useMemo(() => {
+    if (!paymentNeedsExplicitObra || namedPaymentSites.length <= 1) return null;
+    if ((watchedConstructionSite?.trim() ?? '') !== 'general') return null;
+    const amt = parseFloat(watchedAmountStr || '');
+    if (!(amt > 0)) return null;
+    if (paymentFifoDebts.length === 0) {
+      return { distributions: [] as { construction_site: string; amount: number }[], surplusToGeneral: amt };
+    }
+    return computeFifoAllocation(paymentFifoDebts, amt);
+  }, [
+    paymentNeedsExplicitObra,
+    namedPaymentSites.length,
+    watchedConstructionSite,
+    watchedAmountStr,
+    paymentFifoDebts,
   ]);
 
   // Fetch client balances if not provided
@@ -311,6 +333,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
     setPaymentBalanceGeneral(null);
     setPaymentBalanceBySiteName({});
     setPaymentRecentHistory([]);
+    setPaymentFifoDebts([]);
     setIsPaymentModalOpen(true);
     resetPaymentFormDefaults();
     setPaymentSitesLoading(true);
@@ -351,10 +374,18 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
         console.error('Error loading balance snapshot for payment modal:', snapshotErr);
       }
 
+      try {
+        const fifoDebts = await fetchFifoSiteDebts(supabase, client.client_id);
+        setPaymentFifoDebts(fifoDebts);
+      } catch (fifoErr) {
+        console.error('Error loading FIFO site debts:', fifoErr);
+        setPaymentFifoDebts([]);
+      }
+
       if (named.length === 1) {
         paymentForm.setValue('construction_site', named[0].name);
       } else if (named.length > 1) {
-        paymentForm.setValue('construction_site', '');
+        paymentForm.setValue('construction_site', 'general');
       } else {
         paymentForm.setValue('construction_site', 'general');
       }
@@ -384,31 +415,16 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
   const onSubmitPayment = async (values: z.infer<typeof paymentFormSchema>) => {
     if (!selectedClient) return;
 
-    if (paymentNeedsExplicitObra) {
-      const sel = values.construction_site?.trim();
-      if (!sel || sel === 'general') {
-        toast.error(
-          'Seleccione la obra a la que aplica este pago (cliente con varias obras).'
-        );
-        return;
-      }
-    }
-
     setIsSubmitting(true);
     try {
-      let constructionSite: string;
-      if (paymentNeedsExplicitObra) {
-        constructionSite = values.construction_site!.trim();
-      } else {
-        const sel = values.construction_site?.trim();
-        constructionSite =
-          !sel || sel === 'general' ? 'general' : sel;
-      }
+      const sel = values.construction_site?.trim() ?? '';
+      const constructionSite = !sel || sel === 'general' ? 'general' : sel;
 
-      // Convert amount string to number
-      const paymentData: Record<string, unknown> = {
+      const amountNum = parseFloat(values.amount);
+
+      const paymentData: PaymentData = {
         client_id: selectedClient.client_id,
-        amount: parseFloat(values.amount),
+        amount: amountNum,
         payment_date: values.payment_date,
         payment_method: values.payment_method,
         reference_number: values.reference || null,
@@ -432,14 +448,14 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
           client.client_id === selectedClient.client_id 
             ? { 
                 ...client, 
-                current_balance: client.current_balance - paymentData.amount,
+                current_balance: client.current_balance - amountNum,
                 last_payment_date: values.payment_date
               } 
             : client
         )
       );
       
-      toast.success(`Se ha registrado un pago de ${formatCurrency(paymentData.amount)} para ${selectedClient.business_name}`);
+      toast.success(`Se ha registrado un pago de ${formatCurrency(amountNum)} para ${selectedClient.business_name}`);
       setIsPaymentModalOpen(false);
     } catch (err: any) {
       console.error('Error registering payment:', err);
@@ -766,10 +782,11 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
             setPaymentBalanceGeneral(null);
             setPaymentBalanceBySiteName({});
             setPaymentRecentHistory([]);
+            setPaymentFifoDebts([]);
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Registrar Pago</DialogTitle>
             <DialogDescription>
@@ -869,19 +886,10 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                   name="construction_site"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
-                        {paymentNeedsExplicitObra ? 'Obra (obligatorio)' : 'Obra'}
-                      </FormLabel>
+                      <FormLabel>Obra</FormLabel>
                       <Select
-                        value={
-                          paymentNeedsExplicitObra
-                            ? !field.value?.trim()
-                              ? SITE_SELECT_PLACEHOLDER
-                              : field.value
-                            : field.value
-                        }
+                        value={field.value?.trim() ? field.value : 'general'}
                         onValueChange={(v) => {
-                          if (v === SITE_SELECT_PLACEHOLDER) return;
                           field.onChange(v);
                         }}
                         onOpenChange={(open) => {
@@ -891,24 +899,14 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                       >
                         <FormControl>
                           <SelectTrigger ref={field.ref}>
-                            <SelectValue
-                              placeholder={
-                                paymentNeedsExplicitObra
-                                  ? 'Seleccione la obra…'
-                                  : 'Pago general u obra específica'
-                              }
-                            />
+                            <SelectValue placeholder="Pago general u obra específica" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {paymentNeedsExplicitObra ? (
                             <>
-                              <SelectItem
-                                value={SITE_SELECT_PLACEHOLDER}
-                                disabled
-                                className="text-muted-foreground"
-                              >
-                                — Seleccione obra —
+                              <SelectItem value="general">
+                                — Pago general (FIFO automático) —
                               </SelectItem>
                               {namedPaymentSites.map((site) => (
                                 <SelectItem key={site.id} value={site.name}>
@@ -936,7 +934,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                       </Select>
                       {paymentNeedsExplicitObra && (
                         <p className="text-xs text-muted-foreground">
-                          Este cliente tiene varias obras: indique a cuál aplica el pago para que el saldo por obra coincida con el saldo general.
+                          Varias obras: use &quot;Pago general&quot; para distribuir el monto en orden FIFO (obra con pedido más antiguo primero), o elija una obra para aplicar todo el monto ahí.
                         </p>
                       )}
                       <FormMessage />
@@ -1002,6 +1000,32 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                       </ul>
                     )}
                   </div>
+                </div>
+              )}
+
+              {!paymentSitesLoading && fifoPreview && (
+                <div className="rounded-md border border-dashed border-primary/35 bg-primary/5 p-3 space-y-2">
+                  <p className="text-xs font-medium text-foreground">
+                    Distribución FIFO prevista (obra con pedido más antiguo primero)
+                  </p>
+                  {fifoPreview.distributions.length > 0 ? (
+                    <ul className="space-y-1.5 text-xs">
+                      {fifoPreview.distributions.map((d, i) => (
+                        <li key={`${d.construction_site}-${i}`} className="flex justify-between gap-2">
+                          <span className="text-muted-foreground truncate">{d.construction_site}</span>
+                          <span className="font-medium tabular-nums shrink-0">{formatCurrency(d.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {fifoPreview.surplusToGeneral > 0 ? (
+                    <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+                      Saldo a favor (crédito general):{' '}
+                      <span className="font-semibold text-green-700 tabular-nums">
+                        {formatCurrency(fifoPreview.surplusToGeneral)}
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
               )}
               

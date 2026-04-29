@@ -38,7 +38,7 @@ interface ClientPayment {
 }
 
 // Add interface for payment data
-interface PaymentData {
+export interface PaymentData {
   client_id: string;
   amount: number;
   payment_date: string;
@@ -197,7 +197,7 @@ export const financialService = {
 
       // Prefer server-controlled API route in the browser for governance/permissions
       if (typeof window !== 'undefined') {
-      // construction_site: omit or 'general' only when client has 0–1 obra in CRM; multi-obra clients must send the obra name (see PaymentForm / paymentConstructionSite.ts).
+      // construction_site: 'general' triggers FIFO split on server when multiple obras have debt; otherwise explicit obra or aggregate credit.
       const body: Record<string, unknown> = {
         client_id: paymentData.client_id,
         amount: paymentData.amount,

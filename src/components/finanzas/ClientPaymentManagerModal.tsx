@@ -168,12 +168,6 @@ export function ClientPaymentManagerModal({
       toast.error('Método requerido');
       return;
     }
-    if (sites && paymentNeedsExplicitConstructionSite(sites) && editForm.construction_site === 'general') {
-      toast.error(
-        'Seleccione la obra a la que aplica este pago. «General» no está permitido para clientes con varias obras.'
-      );
-      return;
-    }
 
     setSaving(true);
     try {

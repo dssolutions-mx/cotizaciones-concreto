@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { computeFifoAllocation } from '@/lib/finanzas/paymentConstructionSite';
+import { fetchFifoSiteDebts } from '@/lib/finanzas/fifoSiteDebts';
 
 const ALLOWED_ROLES = [
   'EXECUTIVE',
@@ -50,6 +52,24 @@ async function requireAllowedRole(supabase: any, userId: string) {
   }
 
   return { ok: true as const, role };
+}
+
+async function recalcBalancesForSites(
+  supabase: any,
+  clientId: string,
+  siteNames: Set<string | null | undefined>
+) {
+  const uniqueSites = [...siteNames].filter((s): s is string => typeof s === 'string' && s.length > 0);
+  for (const site of uniqueSites) {
+    await supabase.rpc('update_client_balance', {
+      p_client_id: clientId,
+      p_site_name: site,
+    });
+  }
+  await supabase.rpc('update_client_balance', {
+    p_client_id: clientId,
+    p_site_name: null,
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -122,71 +142,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const normalizedSite = construction_site === 'general' ? null : (construction_site ?? null);
+    const wantsGeneral =
+      construction_site == null ||
+      construction_site === '' ||
+      (typeof construction_site === 'string' && construction_site.trim().toLowerCase() === 'general');
 
-    // Resolve the distribution target up-front: per-site balances drift from the aggregate
-    // unless every distribution row has a site. Reject ambiguous payments instead of silently
-    // creating a NULL-site distribution.
-    let distributionSite: string | null = normalizedSite;
-
-    if (!distributionSite) {
-      // Active sites = sites with billable orders (remisiones / effective_for_balance) or distributions
-      const [{ data: orderSites }, { data: distSites }] = await Promise.all([
-        supabase
-          .from('orders')
-          .select('construction_site, remisiones!inner(id), effective_for_balance')
-          .eq('client_id', client_id)
-          .not('construction_site', 'is', null)
-          .not('order_status', 'eq', 'cancelled'),
-        supabase
-          .from('client_payment_distributions')
-          .select('construction_site, payment:client_payments!inner(client_id)')
-          .eq('payment.client_id', client_id)
-          .not('construction_site', 'is', null),
-      ]);
-
-      const activeSites = new Set<string>();
-      for (const o of orderSites || []) {
-        const site = (o as { construction_site?: string | null }).construction_site;
-        if (site) activeSites.add(site);
-      }
-      for (const d of distSites || []) {
-        const site = (d as { construction_site?: string | null }).construction_site;
-        if (site) activeSites.add(site);
-      }
-
-      if (activeSites.size === 1) {
-        distributionSite = [...activeSites][0];
-      } else if (activeSites.size === 0) {
-        // No active site context yet; allow only if client has zero sites on any order at all.
-        const { data: anySites } = await supabase
-          .from('orders')
-          .select('construction_site')
-          .eq('client_id', client_id)
-          .not('construction_site', 'is', null)
-          .limit(1);
-        if ((anySites || []).length === 0) {
-          // Truly site-less client: keep NULL (no per-site row will exist; invariant trivially holds)
-          distributionSite = null;
-        } else {
-          return NextResponse.json(
-            {
-              error:
-                'construction_site is required for this client (multiple sites exist). Specify which site this payment applies to.',
-            },
-            { status: 400 }
-          );
-        }
-      } else {
-        return NextResponse.json(
-          {
-            error:
-              'construction_site is required for this client (multiple sites exist). Specify which site this payment applies to.',
-          },
-          { status: 400 }
-        );
-      }
-    }
+    const explicitSiteName = wantsGeneral
+      ? null
+      : typeof construction_site === 'string'
+        ? construction_site.trim()
+        : null;
 
     const insertPayload: Record<string, unknown> = {
       client_id,
@@ -195,7 +160,7 @@ export async function POST(request: NextRequest) {
       payment_method,
       reference_number: reference_number || null,
       notes: notes || null,
-      construction_site: normalizedSite,
+      construction_site: explicitSiteName,
       created_by: user.id,
     };
     if (isCashPayment) {
@@ -204,7 +169,7 @@ export async function POST(request: NextRequest) {
 
     const { data: payment, error } = await supabase
       .from('client_payments')
-      .insert(insertPayload)
+      .insert(insertPayload as never)
       .select()
       .single();
 
@@ -213,37 +178,74 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
     }
 
-    const { error: distError } = await supabase
-      .from('client_payment_distributions')
-      .insert({
+    const sitesToRecalc = new Set<string | null | undefined>();
+
+    if (explicitSiteName) {
+      const { error: distError } = await supabase.from('client_payment_distributions').insert({
         payment_id: payment.id,
-        construction_site: distributionSite,
-        amount: amount,
+        construction_site: explicitSiteName,
+        amount,
       });
 
-    if (distError) {
-      console.error('Failed to create payment distribution:', distError);
-      // Payment was created but distribution failed - log but don't fail the request
-      // The payment exists, just the distribution is missing
+      if (distError) {
+        console.error('Failed to create payment distribution:', distError);
+      }
+      sitesToRecalc.add(explicitSiteName);
+    } else {
+      const debts = await fetchFifoSiteDebts(supabase, client_id);
+
+      if (debts.length === 0) {
+        const { error: distError } = await supabase.from('client_payment_distributions').insert({
+          payment_id: payment.id,
+          construction_site: null,
+          amount,
+        });
+        if (distError) {
+          console.error('Failed to create payment distribution (general credit):', distError);
+        }
+      } else {
+        const { distributions, surplusToGeneral } = computeFifoAllocation(debts, amount);
+
+        const rows: { payment_id: string; construction_site: string | null; amount: number }[] =
+          distributions.map((d) => ({
+            payment_id: payment.id,
+            construction_site: d.construction_site,
+            amount: d.amount,
+          }));
+
+        if (surplusToGeneral > 0) {
+          rows.push({
+            payment_id: payment.id,
+            construction_site: null,
+            amount: surplusToGeneral,
+          });
+        }
+
+        if (rows.length === 0) {
+          const { error: distError } = await supabase.from('client_payment_distributions').insert({
+            payment_id: payment.id,
+            construction_site: null,
+            amount,
+          });
+          if (distError) {
+            console.error('Failed to create fallback payment distribution:', distError);
+          }
+        } else {
+          const { error: distError } = await supabase.from('client_payment_distributions').insert(rows);
+          if (distError) {
+            console.error('Failed to create payment distributions:', distError);
+          }
+        }
+
+        for (const d of distributions) sitesToRecalc.add(d.construction_site);
+        if (surplusToGeneral > 0) sitesToRecalc.add(null);
+      }
     }
 
-    // Trigger balance recalculation
     try {
-      // Update balance for the specific site if applicable
-      if (distributionSite) {
-        await supabase.rpc('update_client_balance', { 
-          p_client_id: client_id, 
-          p_site_name: distributionSite 
-        });
-      }
-      // Always update the general balance
-      await supabase.rpc('update_client_balance', { 
-        p_client_id: client_id, 
-        p_site_name: null 
-      });
+      await recalcBalancesForSites(supabase, client_id, sitesToRecalc);
     } catch (balanceErr) {
       console.error('Balance update error:', balanceErr);
-      // Don't fail the request - payment was created successfully
     }
 
     return NextResponse.json({ payment });
@@ -252,4 +254,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

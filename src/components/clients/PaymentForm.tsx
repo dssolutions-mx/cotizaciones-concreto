@@ -23,11 +23,13 @@ import { toast } from "sonner";
 import {
   paymentNeedsExplicitConstructionSite,
   countNamedConstructionSites,
+  computeFifoAllocation,
+  type SiteDebtFifo,
 } from '@/lib/finanzas/paymentConstructionSite';
+import { fetchFifoSiteDebts } from '@/lib/finanzas/fifoSiteDebts';
+import { supabase } from '@/lib/supabase/client';
 
 const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
-
-const SITE_SELECT_PLACEHOLDER = '__none__';
 
 // Define the component props interface
 export interface PaymentFormProps {
@@ -58,6 +60,7 @@ export default function PaymentForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false); // State for confirmation step
   const [verificationCallConfirmed, setVerificationCallConfirmed] = useState(false);
+  const [paymentFifoDebts, setPaymentFifoDebts] = useState<SiteDebtFifo[]>([]);
   const [clientInfo, setClientInfo] = useState<{ business_name?: string; phone?: string } | null>(
     clientNameProp || clientPhoneProp ? { business_name: clientNameProp, phone: clientPhoneProp } : null
   );
@@ -69,9 +72,9 @@ export default function PaymentForm({
       return;
     }
     let cancelled = false;
-    clientService.getClientById(clientId).then((client: { business_name?: string; phone?: string } | null) => {
+    clientService.getClientById(clientId).then((client) => {
       if (!cancelled && client) {
-        setClientInfo({ business_name: client.business_name, phone: client.phone });
+        setClientInfo({ business_name: client.business_name, phone: client.phone ?? undefined });
       }
     }).catch(() => {
       if (!cancelled) setClientInfo(null);
@@ -99,7 +102,38 @@ export default function PaymentForm({
     construction_site: defaultConstructionSite || 'general',
   });
 
-  // Align obra selection with API rules: multi-obra → must pick one; single → that obra; none → general
+  useEffect(() => {
+    let cancelled = false;
+    fetchFifoSiteDebts(supabase, clientId)
+      .then((rows) => {
+        if (!cancelled) setPaymentFifoDebts(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setPaymentFifoDebts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  const fifoPreview = useMemo(() => {
+    if (!needsExplicitSite || nSites <= 1) return null;
+    if ((paymentData.construction_site?.trim() ?? '') !== 'general') return null;
+    const amt = parseFloat(paymentData.amount || '');
+    if (!(amt > 0)) return null;
+    if (paymentFifoDebts.length === 0) {
+      return { distributions: [] as { construction_site: string; amount: number }[], surplusToGeneral: amt };
+    }
+    return computeFifoAllocation(paymentFifoDebts, amt);
+  }, [
+    needsExplicitSite,
+    nSites,
+    paymentData.construction_site,
+    paymentData.amount,
+    paymentFifoDebts,
+  ]);
+
+  // Align obra selection with API rules: single → that obra; none / multi → default general (FIFO for multi)
   useEffect(() => {
     const named = sites.filter((s) => s?.name?.trim());
     setPaymentData((prev) => {
@@ -112,7 +146,7 @@ export default function PaymentForm({
       if (defaultConstructionSite && named.some((s) => s.name === defaultConstructionSite)) {
         return { ...prev, construction_site: defaultConstructionSite };
       }
-      return { ...prev, construction_site: '' };
+      return { ...prev, construction_site: 'general' };
     });
   }, [sites, defaultConstructionSite]);
 
@@ -143,13 +177,6 @@ export default function PaymentForm({
       toast.error('La fecha del pago es obligatoria');
       return;
     }
-    if (needsExplicitSite) {
-      const sel = paymentData.construction_site?.trim();
-      if (!sel || sel === 'general') {
-        toast.error('Seleccione la obra a la que aplica este pago (cliente con varias obras).');
-        return;
-      }
-    }
     // Reset verification when entering confirmation (e.g. user changed to cash)
     setVerificationCallConfirmed(false);
     setIsConfirming(true);
@@ -160,12 +187,8 @@ export default function PaymentForm({
     setIsConfirming(false); // Move back from confirmation view immediately
     try {
       const amount = parseFloat(paymentData.amount);
-      const cs =
-        needsExplicitSite
-          ? paymentData.construction_site.trim()
-          : paymentData.construction_site === 'general' || !paymentData.construction_site?.trim()
-            ? 'general'
-            : paymentData.construction_site.trim();
+      const sel = paymentData.construction_site?.trim() ?? '';
+      const cs = !sel || sel === 'general' ? 'general' : sel;
 
       const body: Record<string, unknown> = {
         client_id: clientId,
@@ -236,15 +259,13 @@ export default function PaymentForm({
   // Render confirmation view if isConfirming is true
   if (isConfirming) {
     const selectedSiteName =
-      needsExplicitSite && paymentData.construction_site && paymentData.construction_site !== 'general'
-        ? paymentData.construction_site
-        : paymentData.construction_site === 'general'
-          ? nSites === 0
-            ? 'Pago general (sin obras registradas)'
-            : nSites === 1
-              ? `Obra única: ${namedSites[0]?.name ?? ''}`
-              : 'Pago general (distribución automática)'
-          : paymentData.construction_site || '—';
+      paymentData.construction_site === 'general' || !paymentData.construction_site?.trim()
+        ? nSites === 0
+          ? 'Pago general (sin obras registradas)'
+          : nSites === 1
+            ? `Obra única: ${namedSites[0]?.name ?? ''}`
+            : 'Pago general (FIFO por obra)'
+        : paymentData.construction_site || '—';
     return (
       <div className="space-y-6 py-4">
         <ClientInfoCard />
@@ -405,37 +426,32 @@ export default function PaymentForm({
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="construction_site">
-            {needsExplicitSite ? 'Obra (obligatorio)' : 'Obra'}
-          </Label>
+          <Label htmlFor="construction_site">Obra</Label>
           <Select
             name="construction_site"
             value={
               needsExplicitSite
-                ? paymentData.construction_site === '' || !paymentData.construction_site
-                  ? SITE_SELECT_PLACEHOLDER
-                  : paymentData.construction_site
+                ? paymentData.construction_site?.trim()
+                  ? paymentData.construction_site
+                  : 'general'
                 : paymentData.construction_site
             }
-            onValueChange={(value) => {
-              if (value === SITE_SELECT_PLACEHOLDER) return;
-              handleChange({ target: { name: 'construction_site', value } } as React.ChangeEvent<HTMLSelectElement>);
-            }}
+            onValueChange={(value) =>
+              handleChange({ target: { name: 'construction_site', value } } as React.ChangeEvent<HTMLSelectElement>)
+            }
             disabled={isSubmitting}
           >
             <SelectTrigger id="construction_site">
               <SelectValue
                 placeholder={
-                  needsExplicitSite ? 'Seleccione la obra…' : 'Pago general u obra específica'
+                  needsExplicitSite ? 'Pago general (FIFO) u obra específica' : 'Pago general u obra específica'
                 }
               />
             </SelectTrigger>
             <SelectContent>
               {needsExplicitSite ? (
                 <>
-                  <SelectItem value={SITE_SELECT_PLACEHOLDER} disabled className="text-muted-foreground">
-                    — Seleccione obra —
-                  </SelectItem>
+                  <SelectItem value="general">— Pago general (FIFO automático) —</SelectItem>
                   {namedSites.map((site) => (
                     <SelectItem key={site.id} value={site.name}>
                       {site.name}
@@ -462,10 +478,36 @@ export default function PaymentForm({
           </Select>
           {needsExplicitSite && (
             <p className="text-xs text-muted-foreground">
-              Este cliente tiene varias obras: indique a cuál aplica el pago para que el saldo por obra coincida con el saldo general.
+              Varias obras: elija pago general para FIFO (obra más antigua primero) o una obra para aplicar todo el monto.
             </p>
           )}
         </div>
+
+        {fifoPreview && (
+          <div className="md:col-span-2 rounded-md border border-dashed border-primary/35 bg-primary/5 p-3 space-y-2">
+            <p className="text-xs font-medium text-foreground">
+              Distribución FIFO prevista (obra con pedido más antiguo primero)
+            </p>
+            {fifoPreview.distributions.length > 0 ? (
+              <ul className="space-y-1.5 text-xs">
+                {fifoPreview.distributions.map((d, i) => (
+                  <li key={`${d.construction_site}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-muted-foreground truncate">{d.construction_site}</span>
+                    <span className="font-medium tabular-nums shrink-0">{formatCurrency(d.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {fifoPreview.surplusToGeneral > 0 ? (
+              <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
+                Saldo a favor (crédito general):{' '}
+                <span className="font-semibold text-green-700 tabular-nums">
+                  {formatCurrency(fifoPreview.surplusToGeneral)}
+                </span>
+              </p>
+            ) : null}
+          </div>
+        )}
         
         <div className="md:col-span-2 space-y-2">
           <Label htmlFor="notes">Notas</Label>
