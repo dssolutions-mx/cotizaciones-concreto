@@ -1,6 +1,10 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { startOfMonthDate } from '@/lib/materialPricePeriod';
+import type { Database } from '@/types/supabase';
 import { FIFOAllocationResult, FIFOAllocationRequest, MaterialConsumptionAllocation } from '@/types/fifo';
+
+type DbClient = SupabaseClient<Database>;
 
 /**
  * FIFO Pricing Service
@@ -21,9 +25,10 @@ export class FIFOPricingService {
    */
   async allocateFIFOConsumption(
     request: FIFOAllocationRequest,
-    userId: string
+    userId: string,
+    supabaseClient?: DbClient
   ): Promise<FIFOAllocationResult> {
-    const supabase = await createServerSupabaseClient();
+    const supabase = supabaseClient ?? (await createServerSupabaseClient());
     const {
       remisionId,
       remisionMaterialId,
@@ -420,7 +425,8 @@ export const fifoPricingService = new FIFOPricingService();
  */
 export async function autoAllocateRemisionFIFO(
   remisionId: string,
-  userId: string
+  userId: string,
+  options?: { supabase?: DbClient }
 ): Promise<{
   success: boolean;
   allocationsCreated: number;
@@ -428,7 +434,7 @@ export async function autoAllocateRemisionFIFO(
   skipped: Array<{ remisionMaterialId: string; materialId: string; reason: string }>;
   allocationResults: Array<{ remisionMaterialId: string; materialId: string; totalCost: number }>;
 }> {
-  const supabase = await createServerSupabaseClient();
+  const supabase = options?.supabase ?? (await createServerSupabaseClient());
   const { data: remision, error: remisionError } = await supabase
     .from('remisiones')
     .select('id, plant_id, fecha')
@@ -486,7 +492,8 @@ export async function autoAllocateRemisionFIFO(
           quantityToConsume: quantityKg,
           consumptionDate: remision.fecha,
         },
-        userId
+        userId,
+        supabase
       );
 
       if (result.skipped) {

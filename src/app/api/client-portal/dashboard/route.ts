@@ -1,11 +1,14 @@
-import { createServerSupabaseClient, createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
-    // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       console.error('Dashboard API: Auth error:', authError);
@@ -13,10 +16,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get orders count - RLS will automatically filter by client_id
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    const ctx = resolved.ctx;
+    const clientId = ctx.clientId;
+    const isExecutive = ctx.roleWithinClient === 'executive';
+
     const { count: totalOrders, error: ordersError } = await supabase
       .from('orders')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .eq('client_id', clientId);
 
     if (ordersError) {
       console.error('Dashboard API: Orders query error:', ordersError);
@@ -34,6 +46,7 @@ export async function GET(request: Request) {
     const { data: orderItems, error: orderItemsError } = await supabase
       .from('order_items')
       .select('concrete_volume_delivered, orders!inner(delivery_date, client_id)')
+      .eq('orders.client_id', clientId)
       .gte('orders.delivery_date', firstDayStr)
       .lte('orders.delivery_date', lastDayStr);
 
@@ -64,6 +77,7 @@ export async function GET(request: Request) {
     const { data: balance, error: balanceError } = await supabase
       .from('client_balances')
       .select('current_balance')
+      .eq('client_id', clientId)
       .is('construction_site', null)
       .is('construction_site_id', null)
       .maybeSingle();
@@ -74,32 +88,6 @@ export async function GET(request: Request) {
 
     const currentBalance = balance?.current_balance || 0;
 
-    // Get client_id from client_portal_users (multi-user system)
-    const { data: association } = await supabase
-      .from('client_portal_users')
-      .select('client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    let clientId: string | null = null;
-
-    if (association?.client_id) {
-      clientId = association.client_id;
-    } else {
-      // Fallback to legacy portal_user_id for backward compatibility
-      const { data: legacyClient } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('portal_user_id', user.id)
-        .maybeSingle();
-      
-      clientId = legacyClient?.id || null;
-    }
-
-    // Get quality score using the same RPC function as quality page
     let qualityScore = 0;
     if (clientId) {
       // Get quality summary from last 90 days
@@ -123,17 +111,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // Get user's role to determine if they can see prices
-    const { data: clientPortalUser } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .maybeSingle();
-    
-    const isExecutive = clientPortalUser?.role_within_client === 'executive';
-
-    // Get recent activity: orders, payments, and quality tests
     let recentActivity: any[] = [];
     let validEnsayos: any[] = [];
 
@@ -147,6 +124,7 @@ export async function GET(request: Request) {
       const { data: recentOrders } = await supabase
         .from('orders')
         .select(orderFields)
+        .eq('client_id', clientId)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -159,6 +137,7 @@ export async function GET(request: Request) {
       const { data: recentPayments } = await supabase
         .from('client_payments')
         .select(paymentFields)
+        .eq('client_id', clientId)
         .order('payment_date', { ascending: false })
         .limit(10);
 

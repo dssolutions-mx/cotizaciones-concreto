@@ -12,6 +12,7 @@ import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import DatePicker from '@/components/client-portal/DatePicker';
 import { cn } from '@/lib/utils';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { appendPortalClientId, getStoredPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { format, parseISO, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -183,7 +184,7 @@ export default function ScheduleOrderPage() {
       setLoading(true);
       try {
         const [sitesRes, plantsRes] = await Promise.all([
-          fetch('/api/client-portal/sites'),
+          fetch(appendPortalClientId('/api/client-portal/sites')),
           fetch('/api/plants')
         ]);
         const sitesJson = await sitesRes.json();
@@ -238,7 +239,7 @@ export default function ScheduleOrderPage() {
     let cancelled = false;
     setExtrasLoading(true);
 
-    fetch(`/api/client-portal/catalog-additional-products?${params.toString()}`)
+    fetch(appendPortalClientId(`/api/client-portal/catalog-additional-products?${params.toString()}`))
       .then((res) => res.json())
       .then((json: { items?: QuoteExtraItem[] }) => {
         if (cancelled) return;
@@ -298,7 +299,9 @@ export default function ScheduleOrderPage() {
         }
 
         const res = await fetch(
-          `/api/client-portal/master-recipes?site=${encodeURIComponent(siteName)}&plant_id=${encodeURIComponent(plantId)}`
+          appendPortalClientId(
+            `/api/client-portal/master-recipes?site=${encodeURIComponent(siteName)}&plant_id=${encodeURIComponent(plantId)}`
+          )
         );
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Error al cargar productos');
@@ -545,6 +548,8 @@ export default function ScheduleOrderPage() {
         unit_price: selectedProduct?.unit_price || 0,
         selected_additional_product_ids: Array.from(selectedAdditionalIds),
       };
+      const cid = getStoredPortalClientId();
+      if (cid) payload.client_id = cid;
 
       const res = await fetch('/api/client-portal/orders', {
         method: 'POST',

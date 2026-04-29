@@ -22,6 +22,7 @@ import { QuickAction } from '@/components/ui/QuickAction';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -82,7 +83,9 @@ export default function ClientPortalDashboard() {
       try {
         // Stage 1: Fetch metrics first (faster)
         setLoadingStage('Cargando métricas...');
-        const metricsResponse = await fetch('/api/client-portal/dashboard?activity=false');
+        const metricsResponse = await fetch(
+          appendPortalClientId('/api/client-portal/dashboard?activity=false')
+        );
         const metricsResult = await metricsResponse.json();
 
         if (metricsResponse.ok) {
@@ -93,7 +96,9 @@ export default function ClientPortalDashboard() {
         }
 
         // Stage 2: Fetch activity (slower, loads separately in background)
-        const activityResponse = await fetch('/api/client-portal/dashboard?metrics=false&activity_limit=10');
+        const activityResponse = await fetch(
+          appendPortalClientId('/api/client-portal/dashboard?metrics=false&activity_limit=10')
+        );
         const activityResult = await activityResponse.json();
 
         if (activityResponse.ok) {

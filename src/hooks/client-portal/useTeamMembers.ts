@@ -5,17 +5,33 @@
  * Provides automatic revalidation, caching, and error handling.
  */
 
+'use client';
+
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { fetchTeamMembers, TeamMember } from '@/lib/client-portal/teamService';
+import {
+  PORTAL_CLIENT_ID_CHANGED_EVENT,
+  appendPortalClientId,
+} from '@/lib/client-portal/portalClientIdUrl';
 
 export function useTeamMembers() {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const onChange = () => bump((n) => n + 1);
+    window.addEventListener(PORTAL_CLIENT_ID_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(PORTAL_CLIENT_ID_CHANGED_EVENT, onChange);
+  }, []);
+
+  const swrKey = appendPortalClientId('/api/client-portal/team');
+
   const {
     data,
     error,
     mutate,
     isLoading,
     isValidating,
-  } = useSWR<TeamMember[]>('/api/client-portal/team', fetchTeamMembers, {
+  } = useSWR<TeamMember[]>(swrKey, fetchTeamMembers, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     dedupingInterval: 5000, // Prevent duplicate requests within 5 seconds

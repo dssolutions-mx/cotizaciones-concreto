@@ -171,8 +171,8 @@ Passwords are delegated to Supabase Auth. No custom hashing, reset logic, or pol
 ### 3.4 Fine-Grained Authorization
 
 - **Permission model:** Role-based (SALES_AGENT, EXECUTIVE, PLANT_MANAGER, etc.).
-- **Multi-tenancy:** Client portal uses `client_portal_users` association; `portal_user_id` on clients for single-user; multi-user via associations.
-- **Client portal isolation:** Policies gate by `client_portal_users` and `portal_user_id`.
+- **Multi-tenancy:** Client portal uses `client_portal_users` association; `portal_user_id` on clients for single-user; multi-user via associations. Optional per-membership **construction site allowlist** via `client_portal_user_construction_sites` (empty = all sites for that client).
+- **Client portal isolation:** Policies gate by `client_portal_users`, optional junction-based site predicates, and `portal_user_id` where applicable. Next.js **`/api/client-portal/*`** routes resolve membership with `resolvePortalContext` and require `client_id` when the user has multiple active clients.
 
 ---
 

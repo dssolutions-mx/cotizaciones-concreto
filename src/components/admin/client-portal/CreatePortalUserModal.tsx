@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const createPortalUserSchema = z.object({
   email: z.string().email('Email inválido'),
@@ -57,11 +58,14 @@ let cachedClients: Array<{ id: string; business_name: string; client_code: strin
 let clientsCacheTimestamp: number = 0;
 const CLIENTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+/** Stable default when `defaultClientIds` is omitted — avoid `= []` (new array every render → useEffect loops). */
+const EMPTY_DEFAULT_CLIENT_IDS: string[] = [];
+
 function CreatePortalUserModalComponent({
   open,
   onOpenChange,
   onSuccess,
-  defaultClientIds = [],
+  defaultClientIds = EMPTY_DEFAULT_CLIENT_IDS,
 }: CreatePortalUserModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>(
@@ -70,6 +74,13 @@ function CreatePortalUserModalComponent({
   const [loadingClients, setLoadingClients] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [clientRoles, setClientRoles] = useState<Record<string, 'executive' | 'user'>>({});
+  type ClientSitePick = {
+    allSites: boolean;
+    selectedIds: Set<string>;
+    loaded: boolean;
+    options: { id: string; name: string }[];
+  };
+  const [sitePicks, setSitePicks] = useState<Record<string, ClientSitePick>>({});
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -123,6 +134,11 @@ function CreatePortalUserModalComponent({
     }
   }, [toast]);
 
+  const defaultClientIdsKey =
+    defaultClientIds.length === 0
+      ? ''
+      : [...defaultClientIds].slice().sort().join(',');
+
   // Load clients when modal opens
   useEffect(() => {
     if (open) {
@@ -132,12 +148,36 @@ function CreatePortalUserModalComponent({
       if (defaultClientIds.length > 0) {
         setSelectedClients(defaultClientIds);
         const defaultRoles: Record<string, 'executive' | 'user'> = {};
-        defaultClientIds.forEach(clientId => {
-          defaultRoles[clientId] = 'executive'; // Default to executive for new users
+        defaultClientIds.forEach((clientId) => {
+          defaultRoles[clientId] = 'executive';
         });
         setClientRoles(defaultRoles);
         form.setValue('clientIds', defaultClientIds);
         form.setValue('roles', defaultRoles);
+        defaultClientIds.forEach((clientId) => {
+          void (async () => {
+            try {
+              const sites = await clientService.getClientSites(clientId, false, false);
+              setSitePicks((prev) => ({
+                ...prev,
+                [clientId]: {
+                  allSites: true,
+                  selectedIds: new Set(),
+                  loaded: true,
+                  options: (sites || []).map((s: { id: string; name: string }) => ({
+                    id: s.id,
+                    name: s.name,
+                  })),
+                },
+              }));
+            } catch {
+              setSitePicks((prev) => ({
+                ...prev,
+                [clientId]: { allSites: true, selectedIds: new Set(), loaded: true, options: [] },
+              }));
+            }
+          })();
+        });
       }
     } else {
       // Reset form and state when modal closes
@@ -150,8 +190,9 @@ function CreatePortalUserModalComponent({
       });
       setSelectedClients([]);
       setClientRoles({});
+      setSitePicks({});
     }
-  }, [open, defaultClientIds, form, loadClients]);
+  }, [open, defaultClientIdsKey, form, loadClients]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -172,6 +213,11 @@ function CreatePortalUserModalComponent({
       setClientRoles(newRoles);
       form.setValue('clientIds', newSelected);
       form.setValue('roles', newRoles);
+      setSitePicks((prev) => {
+        const next = { ...prev };
+        delete next[clientId];
+        return next;
+      });
     } else {
       const newSelected = [...selectedClients, clientId];
       setSelectedClients(newSelected);
@@ -179,6 +225,28 @@ function CreatePortalUserModalComponent({
       setClientRoles(newRoles);
       form.setValue('clientIds', newSelected);
       form.setValue('roles', newRoles);
+      void (async () => {
+        try {
+          const sites = await clientService.getClientSites(clientId, false, false);
+          setSitePicks((prev) => ({
+            ...prev,
+            [clientId]: {
+              allSites: true,
+              selectedIds: new Set(),
+              loaded: true,
+              options: (sites || []).map((s: { id: string; name: string }) => ({
+                id: s.id,
+                name: s.name,
+              })),
+            },
+          }));
+        } catch {
+          setSitePicks((prev) => ({
+            ...prev,
+            [clientId]: { allSites: true, selectedIds: new Set(), loaded: true, options: [] },
+          }));
+        }
+      })();
     }
   }, [selectedClients, clientRoles, form]);
 
@@ -191,6 +259,25 @@ function CreatePortalUserModalComponent({
 
   // Memoize submit handler
   const onSubmit = useCallback(async (data: CreatePortalUserFormData) => {
+    const constructionSiteIdsByClient: Record<string, string[]> = {};
+    for (const cid of data.clientIds) {
+      const pick = sitePicks[cid];
+      if (!pick?.loaded) continue;
+      if (!pick.allSites) {
+        const ids = [...pick.selectedIds];
+        if (ids.length === 0) {
+          const label = clients.find((c) => c.id === cid)?.business_name || cid;
+          toast({
+            title: 'Obras requeridas',
+            description: `Selecciona al menos una obra para "${label}" o marca "Todas las obras".`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        constructionSiteIdsByClient[cid] = ids;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch('/api/admin/client-portal-users', {
@@ -204,6 +291,8 @@ function CreatePortalUserModalComponent({
           lastName: data.lastName,
           clientIds: data.clientIds,
           roles: data.roles,
+          constructionSiteIdsByClient:
+            Object.keys(constructionSiteIdsByClient).length > 0 ? constructionSiteIdsByClient : undefined,
         }),
       });
 
@@ -228,6 +317,7 @@ function CreatePortalUserModalComponent({
       });
       setSelectedClients([]);
       setClientRoles({});
+      setSitePicks({});
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -239,7 +329,7 @@ function CreatePortalUserModalComponent({
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, toast, onOpenChange, onSuccess]);
+  }, [form, toast, onOpenChange, onSuccess, sitePicks, clients]);
 
   // Memoize modal close handler
   const handleClose = useCallback(() => {
@@ -355,6 +445,72 @@ function CreatePortalUserModalComponent({
                                   </Label>
                                 </div>
                               </RadioGroup>
+                              {(() => {
+                                const pick = sitePicks[client.id];
+                                if (!pick?.loaded) {
+                                  return (
+                                    <p className="text-xs text-muted-foreground mt-1">Cargando obras…</p>
+                                  );
+                                }
+                                if (pick.options.length === 0) {
+                                  return null;
+                                }
+                                return (
+                                  <div className="mt-2 space-y-2 rounded border p-2 bg-muted/30">
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`all-sites-${client.id}`}
+                                        checked={pick.allSites}
+                                        onCheckedChange={(checked) => {
+                                          const v = checked === true;
+                                          setSitePicks((prev) => ({
+                                            ...prev,
+                                            [client.id]: {
+                                              ...prev[client.id],
+                                              allSites: v,
+                                              selectedIds: v ? new Set() : prev[client.id].selectedIds,
+                                            },
+                                          }));
+                                        }}
+                                      />
+                                      <Label htmlFor={`all-sites-${client.id}`} className="text-xs cursor-pointer">
+                                        Todas las obras
+                                      </Label>
+                                    </div>
+                                    {!pick.allSites && (
+                                      <div className="max-h-36 overflow-y-auto space-y-1 pl-1">
+                                        {pick.options.map((site) => (
+                                          <div key={site.id} className="flex items-center space-x-2">
+                                            <Checkbox
+                                              id={`site-${client.id}-${site.id}`}
+                                              checked={pick.selectedIds.has(site.id)}
+                                              onCheckedChange={(checked) => {
+                                                setSitePicks((prev) => {
+                                                  const cur = prev[client.id];
+                                                  if (!cur) return prev;
+                                                  const nextIds = new Set(cur.selectedIds);
+                                                  if (checked === true) nextIds.add(site.id);
+                                                  else nextIds.delete(site.id);
+                                                  return {
+                                                    ...prev,
+                                                    [client.id]: { ...cur, selectedIds: nextIds },
+                                                  };
+                                                });
+                                              }}
+                                            />
+                                            <Label
+                                              htmlFor={`site-${client.id}-${site.id}`}
+                                              className="text-xs cursor-pointer font-normal"
+                                            >
+                                              {site.name}
+                                            </Label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

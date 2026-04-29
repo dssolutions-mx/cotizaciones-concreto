@@ -9,6 +9,10 @@
 
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { hasPermission, getEffectivePermissions, PermissionKey, Permissions } from '@/lib/client-portal/permissionTemplates';
+import {
+  appendPortalClientId,
+  setStoredPortalClientId,
+} from '@/lib/client-portal/portalClientIdUrl';
 import { useEffect, useState } from 'react';
 
 export interface UserRole {
@@ -33,10 +37,26 @@ export function useUserPermissions() {
       }
 
       try {
-        // Fetch user's role and permissions from client_portal_users
-        const response = await fetch('/api/client-portal/me/role-and-permissions', {
+        let url = appendPortalClientId('/api/client-portal/me/role-and-permissions');
+        let response = await fetch(url, {
           credentials: 'include',
         });
+
+        if (response.status === 400) {
+          let errBody: { error?: string } = {};
+          try {
+            errBody = await response.json();
+          } catch {
+            /* ignore */
+          }
+          const msg = typeof errBody.error === 'string' ? errBody.error : '';
+          if (msg.includes('not in your active memberships')) {
+            setStoredPortalClientId(null);
+            response = await fetch('/api/client-portal/me/role-and-permissions', {
+              credentials: 'include',
+            });
+          }
+        }
 
         if (response.ok) {
           const data = await response.json();
@@ -44,6 +64,10 @@ export function useUserPermissions() {
           const configuredPermissions = data.permissions as Partial<Permissions>;
 
           const effectivePermissions = getEffectivePermissions(role, configuredPermissions);
+
+          if (typeof data.client_id === 'string' && data.client_id) {
+            setStoredPortalClientId(data.client_id);
+          }
 
           setUserRole({
             role,

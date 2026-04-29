@@ -159,6 +159,11 @@ export const priceService = {
     return await supabase.rpc('refresh_plant_financial_analysis_mv');
   },
 
+  /** Refresh vw_plant_financial_analysis_fifo (FIFO / lot-based material costs). */
+  async refreshPlantFinancialAnalysisMvFifo() {
+    return await supabase.rpc('refresh_plant_financial_analysis_mv_fifo');
+  },
+
   // Gastos administrativos
   async saveAdminCost(costData: {
     costType: string;

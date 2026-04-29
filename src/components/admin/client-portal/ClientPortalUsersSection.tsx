@@ -1,27 +1,31 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { UserPlus, Users } from 'lucide-react';
-import { ClientAssociationsList } from './ClientAssociationsList';
+import { UserPlus, Users, MapPin } from 'lucide-react';
 import { AssignClientModal } from './AssignClientModal';
 import { CreatePortalUserModal } from './CreatePortalUserModal';
+import { EditPortalMembershipSitesModal } from './EditPortalMembershipSitesModal';
 import { Badge } from '@/components/ui/badge';
 import { UserRoleBadge } from '@/components/client-portal/shared/UserRoleBadge';
 import { useToast } from '@/components/ui/use-toast';
-import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
+import type { ClientAssociation, PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 interface ClientPortalUsersSectionProps {
   clientId: string;
 }
 
 export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionProps) {
+  const defaultClientIdsForCreate = useMemo(() => [clientId], [clientId]);
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [sitesModal, setSitesModal] = useState<{ userId: string; association: ClientAssociation } | null>(
+    null
+  );
   const { toast } = useToast();
 
   useEffect(() => {
@@ -175,7 +179,14 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
                             </Badge>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 mb-3">{user.email}</p>
+                        <p className="text-sm text-gray-600 mb-2">{user.email}</p>
+                        {association && (
+                          <p className="text-xs text-gray-500 mb-2">
+                            {association.allowed_construction_site_ids?.length
+                              ? `${association.allowed_construction_site_ids.length} obra(s) permitida(s)`
+                              : 'Todas las obras'}
+                          </p>
+                        )}
                         {association && (
                           <div className="flex items-center gap-2">
                             <UserRoleBadge role={association.role_within_client} />
@@ -183,14 +194,31 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
                         )}
                       </div>
                       {association && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveClient(user.id)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          Eliminar
-                        </Button>
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() =>
+                              setSitesModal({
+                                userId: user.id,
+                                association,
+                              })
+                            }
+                          >
+                            <MapPin className="h-3.5 w-3.5" />
+                            Obras
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveClient(user.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -204,7 +232,7 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
       <CreatePortalUserModal
         open={createModalOpen}
         onOpenChange={setCreateModalOpen}
-        defaultClientIds={[clientId]}
+        defaultClientIds={defaultClientIdsForCreate}
         onSuccess={() => {
           setCreateModalOpen(false);
           fetchPortalUsers();
@@ -222,6 +250,21 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
           fetchPortalUsers();
         }}
       />
+
+      {sitesModal ? (
+        <EditPortalMembershipSitesModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setSitesModal(null);
+          }}
+          userId={sitesModal.userId}
+          association={sitesModal.association}
+          onSuccess={() => {
+            setSitesModal(null);
+            fetchPortalUsers();
+          }}
+        />
+      ) : null}
     </>
   );
 }

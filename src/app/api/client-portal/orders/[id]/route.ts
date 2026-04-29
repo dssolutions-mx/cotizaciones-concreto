@@ -1,4 +1,8 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextResponse } from 'next/server';
 
 /** Hide money fields when portal user lacks view_prices (defense in depth vs UI). */
@@ -41,24 +45,22 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: portalAssoc } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client, permissions')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    const ctx = resolved.ctx;
 
     const canViewPrices =
-      portalAssoc?.role_within_client === 'executive' ||
-      portalAssoc?.permissions?.view_prices === true;
+      ctx.roleWithinClient === 'executive' || ctx.permissions?.view_prices === true;
 
     // Get order details with order items - RLS will automatically filter by client_id
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(`
         id,
+        client_id,
         order_number,
         construction_site,
         delivery_date,
@@ -116,6 +118,10 @@ export async function GET(
       }
       console.error('Error fetching order:', orderError);
       return NextResponse.json({ error: 'Failed to fetch order' }, { status: 500 });
+    }
+
+    if ((order as { client_id?: string }).client_id !== ctx.clientId) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 });
     }
 
     // Get related quote information if available

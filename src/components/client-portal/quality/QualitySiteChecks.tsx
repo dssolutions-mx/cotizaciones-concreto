@@ -21,6 +21,7 @@ import PlantVerificationViewer from './PlantVerificationViewer';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState, useEffect } from 'react';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 // @ts-ignore - JSZip types will be available after npm install
 import JSZip from 'jszip';
 
@@ -351,7 +352,8 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
                 const params = new URLSearchParams();
                 if (selectedPlant && selectedPlant !== 'all') params.set('plant_id', selectedPlant);
                 
-                const res = await fetch(`/api/client-portal/quality/dossier${params.toString() ? `?${params.toString()}` : ''}`);
+                const dossierPath = `/api/client-portal/quality/dossier${params.toString() ? `?${params.toString()}` : ''}`;
+                const res = await fetch(appendPortalClientId(dossierPath));
                 if (!res.ok) {
                   console.error('Dossier download failed');
                   alert('Error al obtener certificados');

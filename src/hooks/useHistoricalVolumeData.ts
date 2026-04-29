@@ -16,13 +16,16 @@ interface UseHistoricalVolumeDataProps {
   startDate?: Date | null;      // Optional explicit start date
   endDate?: Date | null;        // Optional explicit end date
   plantIds?: string[];
+  /** 'list' = material_prices unified view (default). 'fifo' = lot/FIFO-cost unified view. */
+  financialUnifiedSource?: 'list' | 'fifo';
 }
 
 export function useHistoricalVolumeData({
   monthsBack = null,  // Default to all-time
   startDate: explicitStartDate = null,
   endDate: explicitEndDate = null,
-  plantIds
+  plantIds,
+  financialUnifiedSource,
 }: UseHistoricalVolumeDataProps = {}) {
   const [data, setData] = useState<HistoricalDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,9 +76,15 @@ export function useHistoricalVolumeData({
           );
         }
 
-        // Fetch from vw_plant_financial_analysis_unified view for concrete volume and revenue
+        const unifiedTable =
+          financialUnifiedSource === 'fifo' ||
+          process.env.NEXT_PUBLIC_PLANT_FINANCIAL_UNIFIED_SOURCE === 'fifo'
+            ? 'vw_plant_financial_analysis_unified_fifo'
+            : 'vw_plant_financial_analysis_unified';
+
+        // Fetch from unified plant financial view for concrete volume and revenue
         let query = supabase
-          .from('vw_plant_financial_analysis_unified')
+          .from(unifiedTable)
           .select('plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source');
         
         // Apply date filters only if dates are specified
@@ -245,7 +254,7 @@ export function useHistoricalVolumeData({
     }
 
     fetchHistoricalData();
-  }, [monthsBack, explicitStartDate?.getTime(), explicitEndDate?.getTime(), plantIds?.join(',')]);
+  }, [monthsBack, explicitStartDate?.getTime(), explicitEndDate?.getTime(), plantIds?.join(','), financialUnifiedSource]);
 
   return { data, loading, error };
 }

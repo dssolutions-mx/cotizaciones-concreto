@@ -5,6 +5,7 @@
  * All functions communicate with the backend API endpoints.
  */
 
+import { appendPortalClientId } from './portalClientIdUrl';
 export interface PendingOrder {
   id: string;
   order_number: string;
@@ -37,8 +38,8 @@ export interface ApiResponse<T> {
 /**
  * Fetch all orders pending approval for the current executive user
  */
-export async function fetchPendingApprovals(): Promise<PendingOrder[]> {
-  const response = await fetch('/api/client-portal/orders/pending-approval', {
+export async function fetchPendingApprovals(url: string): Promise<PendingOrder[]> {
+  const response = await fetch(url, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -67,7 +68,7 @@ export async function fetchPendingApprovals(): Promise<PendingOrder[]> {
 export async function approveOrder(
   orderId: string
 ): Promise<ApiResponse<any>> {
-  const response = await fetch(`/api/client-portal/orders/${orderId}/approve`, {
+  const response = await fetch(appendPortalClientId(`/api/client-portal/orders/${orderId}/approve`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -91,7 +92,7 @@ export async function rejectOrder(
   orderId: string,
   reason: string
 ): Promise<ApiResponse<any>> {
-  const response = await fetch(`/api/client-portal/orders/${orderId}/reject`, {
+  const response = await fetch(appendPortalClientId(`/api/client-portal/orders/${orderId}/reject`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

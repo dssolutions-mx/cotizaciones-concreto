@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { ResponsiveContainer, ComposedChart, Line, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Legend } from 'recharts';
 
 interface ClientPointAnalysisProps {
@@ -38,7 +39,7 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
         const fetchOrderElemento = async () => {
           try {
             setLoadingElemento(true);
-            const response = await fetch(`/api/client-portal/orders/${orderId}`);
+            const response = await fetch(appendPortalClientId(`/api/client-portal/orders/${orderId}`));
             if (response.ok) {
               const data = await response.json();
               setOrderElemento(data.elemento || null);

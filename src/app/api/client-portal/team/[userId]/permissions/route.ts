@@ -1,4 +1,9 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromBody,
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -9,6 +14,7 @@ const updatePermissionsSchema = z.object({
   permissions: z.record(z.boolean(), {
     required_error: 'Permissions object is required',
   }),
+  client_id: z.string().uuid().optional(),
 });
 
 /**
@@ -46,25 +52,25 @@ export async function PATCH(
       );
     }
 
-    const { permissions } = validation.data;
+    const { permissions, client_id: bodyClientId } = validation.data;
 
-    // Check if current user is an executive
-    const { data: currentUserAssociation, error: currentUserError } = await supabase
-      .from('client_portal_users')
-      .select('client_id, role_within_client')
-      .eq('user_id', user.id)
-      .eq('role_within_client', 'executive')
-      .eq('is_active', true)
-      .single();
+    const clientIdParam =
+      (bodyClientId && bodyClientId.trim()) ||
+      getOptionalPortalClientIdFromBody(body) ||
+      getOptionalPortalClientIdFromRequest(request);
 
-    if (currentUserError || !currentUserAssociation) {
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    if (resolved.ctx.roleWithinClient !== 'executive') {
       return NextResponse.json(
         { error: 'Access denied. Only executive users can update permissions.' },
         { status: 403 }
       );
     }
 
-    const clientId = currentUserAssociation.client_id;
+    const clientId = resolved.ctx.clientId;
 
     // Get the target user's association
     const { data: targetAssociation, error: targetError } = await supabase

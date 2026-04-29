@@ -13,6 +13,7 @@ import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
 export default function QualityPage() {
@@ -78,7 +79,7 @@ export default function QualityPage() {
       }, 300);
 
       // Fetch summary first
-      const response = await fetch(`/api/client-portal/quality?${params}`);
+      const response = await fetch(appendPortalClientId(`/api/client-portal/quality?${params}`));
       const result = await response.json();
 
       if (!response.ok) {
@@ -102,7 +103,7 @@ export default function QualityPage() {
             offset: String(offset)
           });
 
-          const sliceResponse = await fetch(`/api/client-portal/quality?${sliceParams}`);
+          const sliceResponse = await fetch(appendPortalClientId(`/api/client-portal/quality?${sliceParams}`));
           const sliceResult = await sliceResponse.json();
 
           if (!sliceResponse.ok || !sliceResult.data?.remisiones) {

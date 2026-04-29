@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, XCircle, Calendar, Clock, DollarSign, Package, User } from 'lucide-react';
 import { PendingOrder } from '@/lib/client-portal/approvalService';
+import { parseLocalDate } from '@/lib/parseLocalDate';
 
 interface OrderApprovalCardProps {
   order: PendingOrder;
@@ -21,7 +22,7 @@ interface OrderApprovalCardProps {
 }
 
 export function OrderApprovalCard({ order, onApprove, onReject }: OrderApprovalCardProps) {
-  const deliveryDate = new Date(order.delivery_date).toLocaleDateString('es-MX', {
+  const deliveryDate = parseLocalDate(order.delivery_date).toLocaleDateString('es-MX', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',

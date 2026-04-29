@@ -1,0 +1,490 @@
+-- FIFO / lot-based duplicate of plant financial analysis (hybrid: COALESCE(total_cost_fifo, list-price fallback)).
+-- Mirrors: vw_plant_financial_analysis MV + plant_financial_analysis_history + vw_plant_financial_analysis_unified.
+
+-- ---------------------------------------------------------------------------
+-- History table (same shape as plant_financial_analysis_history)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.plant_financial_analysis_history_fifo (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plant_id uuid NOT NULL REFERENCES public.plants (id) ON DELETE CASCADE,
+  plant_code character varying NOT NULL,
+  plant_name character varying NOT NULL,
+  volumen_concreto_m3 numeric NOT NULL DEFAULT 0,
+  pv_unitario numeric NOT NULL DEFAULT 0,
+  ventas_total_concreto numeric NOT NULL DEFAULT 0,
+  volumen_producido_m3 numeric NOT NULL DEFAULT 0,
+  fc_ponderada_kg_cm2 numeric NOT NULL DEFAULT 0,
+  edad_ponderada_dias numeric NOT NULL DEFAULT 0,
+  costo_mp_unitario numeric NOT NULL DEFAULT 0,
+  consumo_cem_per_m3_kg numeric NOT NULL DEFAULT 0,
+  costo_cem_per_m3 numeric NOT NULL DEFAULT 0,
+  costo_mp_total_concreto numeric NOT NULL DEFAULT 0,
+  costo_mp_percent numeric NOT NULL DEFAULT 0,
+  spread_unitario numeric NOT NULL DEFAULT 0,
+  spread_unitario_percent numeric NOT NULL DEFAULT 0,
+  remisiones_fabricated_count integer NOT NULL DEFAULT 0,
+  volumen_sold_not_fabricated numeric NOT NULL DEFAULT 0,
+  period_start date NOT NULL,
+  period_end date NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  snapshot_date timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT unique_plant_month_fifo UNIQUE (plant_id, period_start)
+);
+
+ALTER TABLE public.plant_financial_analysis_history_fifo ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow authenticated users to read financial history fifo"
+  ON public.plant_financial_analysis_history_fifo;
+DROP POLICY IF EXISTS "Only admins can modify financial history fifo"
+  ON public.plant_financial_analysis_history_fifo;
+
+CREATE POLICY "Allow authenticated users to read financial history fifo"
+  ON public.plant_financial_analysis_history_fifo
+  FOR SELECT
+  TO authenticated
+  USING (true);
+
+CREATE POLICY "Only admins can modify financial history fifo"
+  ON public.plant_financial_analysis_history_fifo
+  FOR ALL
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.user_profiles
+      WHERE user_profiles.id = auth.uid()
+        AND user_profiles.role = ANY (ARRAY['admin'::text, 'executive'::text])
+    )
+  );
+
+GRANT SELECT ON public.plant_financial_analysis_history_fifo TO anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Materialized view (same logic as vw_plant_financial_analysis; fifo CTE)
+-- ---------------------------------------------------------------------------
+DROP MATERIALIZED VIEW IF EXISTS public.vw_plant_financial_analysis_fifo CASCADE;
+
+CREATE MATERIALIZED VIEW public.vw_plant_financial_analysis_fifo AS
+ WITH date_params AS (
+         SELECT (date_trunc('month'::text, (CURRENT_DATE)::timestamp with time zone))::date AS start_date,
+            ((date_trunc('month'::text, (CURRENT_DATE)::timestamp with time zone) + '1 mon -1 days'::interval))::date AS end_date
+        ), remisiones_priced_with_materials AS (
+         SELECT DISTINCT r.id AS remision_id
+           FROM (((remisiones r
+             JOIN remision_materiales rm ON ((rm.remision_id = r.id)))
+             CROSS JOIN date_params dp)
+             JOIN remisiones_with_pricing rp ON (((rp.remision_id = (r.id)::text) AND ((rp.tipo_remision)::text = 'CONCRETO'::text) AND (rp.fecha = r.fecha) AND (rp.subtotal_amount > (0)::numeric))))
+          WHERE (((r.tipo_remision)::text = 'CONCRETO'::text) AND (r.fecha >= dp.start_date) AND (r.fecha <= dp.end_date))
+        ), fifo_material_cost_lookup AS (
+         SELECT DISTINCT ON (rm.id) rm.id AS rm_id,
+            rm.remision_id,
+            rm.material_id,
+            rm.material_type,
+            rm.cantidad_real,
+            r.plant_id,
+            COALESCE(mp_direct.price_per_unit, mp_type.price_per_unit, (0)::numeric) AS list_price_per_unit,
+            COALESCE(rm.total_cost_fifo, rm.cantidad_real * COALESCE(mp_direct.price_per_unit, mp_type.price_per_unit, (0)::numeric)) AS effective_line_cost,
+            m.category,
+            m.material_name
+           FROM ((((((remision_materiales rm
+             JOIN remisiones r ON ((r.id = rm.remision_id)))
+             CROSS JOIN date_params dp)
+             JOIN remisiones_priced_with_materials rpw ON ((rpw.remision_id = r.id)))
+             LEFT JOIN materials m ON ((m.id = rm.material_id)))
+             LEFT JOIN LATERAL ( SELECT mp.price_per_unit
+                   FROM material_prices mp
+                  WHERE ((mp.material_id = rm.material_id) AND ((mp.plant_id = r.plant_id) OR (mp.plant_id IS NULL)) AND (mp.period_start <= (date_trunc('month'::text, (r.fecha)::timestamp with time zone))::date))
+                  ORDER BY
+                        CASE
+                            WHEN (mp.plant_id IS NOT NULL) THEN 0
+                            ELSE 1
+                        END, mp.period_start DESC
+                 LIMIT 1) mp_direct ON ((rm.material_id IS NOT NULL)))
+             LEFT JOIN LATERAL ( SELECT mp.price_per_unit
+                   FROM material_prices mp
+                  WHERE ((rm.material_type IS NOT NULL) AND ((mp.material_type)::text = (rm.material_type)::text) AND ((mp.plant_id = r.plant_id) OR (mp.plant_id IS NULL)) AND (mp.period_start <= (date_trunc('month'::text, (r.fecha)::timestamp with time zone))::date))
+                  ORDER BY
+                        CASE
+                            WHEN (mp.plant_id IS NOT NULL) THEN 0
+                            ELSE 1
+                        END, mp.period_start DESC
+                 LIMIT 1) mp_type ON ((rm.material_id IS NULL)))
+          WHERE (((r.tipo_remision)::text = 'CONCRETO'::text) AND (r.fecha >= dp.start_date) AND (r.fecha <= dp.end_date))
+        ), sold_metrics AS (
+         SELECT r.plant_id,
+            sum(
+                CASE
+                    WHEN (rp.subtotal_amount > (0)::numeric) THEN r.volumen_fabricado
+                    ELSE (0)::numeric
+                END) AS sold_concrete_volume,
+            sum(
+                CASE
+                    WHEN (rp.subtotal_amount > (0)::numeric) THEN COALESCE(rp.subtotal_amount, (0)::numeric)
+                    ELSE (0)::numeric
+                END) AS concrete_subtotal
+           FROM ((remisiones r
+             CROSS JOIN date_params dp)
+             LEFT JOIN remisiones_with_pricing rp ON (((rp.remision_id = (r.id)::text) AND ((rp.tipo_remision)::text = 'CONCRETO'::text) AND (rp.fecha = r.fecha))))
+          WHERE (((r.tipo_remision)::text = 'CONCRETO'::text) AND (r.fecha >= dp.start_date) AND (r.fecha <= dp.end_date))
+          GROUP BY r.plant_id
+        ), produced_metrics AS (
+         SELECT r.plant_id,
+            sum(r.volumen_fabricado) AS produced_volume,
+            sum(
+                CASE
+                    WHEN (rec.strength_fc IS NOT NULL) THEN ((r.volumen_fabricado)::double precision * rec.strength_fc)
+                    ELSE (0)::double precision
+                END) AS fc_weighted_sum,
+            sum(
+                CASE
+                    WHEN (rec.age_days IS NOT NULL) THEN (r.volumen_fabricado * (rec.age_days)::numeric)
+                    ELSE (0)::numeric
+                END) AS age_weighted_sum,
+            count(r.id) AS remisiones_count
+           FROM (((remisiones r
+             CROSS JOIN date_params dp)
+             JOIN remisiones_priced_with_materials rpw ON ((rpw.remision_id = r.id)))
+             LEFT JOIN recipes rec ON ((rec.id = r.recipe_id)))
+          WHERE (((r.tipo_remision)::text = 'CONCRETO'::text) AND (r.fecha >= dp.start_date) AND (r.fecha <= dp.end_date))
+          GROUP BY r.plant_id
+        ), unified_metrics AS (
+         SELECT COALESCE(sm.plant_id, pm.plant_id) AS plant_id,
+            COALESCE(sm.sold_concrete_volume, (0)::numeric) AS sold_concrete_volume,
+            COALESCE(sm.concrete_subtotal, (0)::numeric) AS concrete_subtotal,
+            COALESCE(pm.produced_volume, (0)::numeric) AS produced_volume,
+            COALESCE(pm.fc_weighted_sum, (0)::double precision) AS fc_weighted_sum,
+            COALESCE(pm.age_weighted_sum, (0)::numeric) AS age_weighted_sum,
+            COALESCE(pm.remisiones_count, (0)::bigint) AS remisiones_count
+           FROM (sold_metrics sm
+             FULL JOIN produced_metrics pm ON ((pm.plant_id = sm.plant_id)))
+        ), material_costs AS (
+         SELECT mpl.plant_id,
+            sum(mpl.effective_line_cost) AS total_material_cost,
+            sum(
+                CASE
+                    WHEN ((lower((COALESCE(mpl.category, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_name, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_name, ''::character varying))::text) ~~ '%cemento%'::text) OR (lower((COALESCE(mpl.material_type, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_type, ''::character varying))::text) ~~ '%cemento%'::text)) THEN mpl.cantidad_real
+                    ELSE (0)::numeric
+                END) AS cement_consumption,
+            sum(
+                CASE
+                    WHEN ((lower((COALESCE(mpl.category, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_name, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_name, ''::character varying))::text) ~~ '%cemento%'::text) OR (lower((COALESCE(mpl.material_type, ''::character varying))::text) ~~ '%cement%'::text) OR (lower((COALESCE(mpl.material_type, ''::character varying))::text) ~~ '%cemento%'::text)) THEN mpl.effective_line_cost
+                    ELSE (0)::numeric
+                END) AS cement_cost
+           FROM fifo_material_cost_lookup mpl
+          GROUP BY mpl.plant_id
+        )
+ SELECT p.id AS plant_id,
+    p.code AS plant_code,
+    p.name AS plant_name,
+    COALESCE(um.sold_concrete_volume, (0)::numeric) AS volumen_concreto_m3,
+    COALESCE((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, (0)::numeric)), (0)::numeric) AS pv_unitario,
+    COALESCE(um.concrete_subtotal, (0)::numeric) AS ventas_total_concreto,
+    COALESCE(um.produced_volume, (0)::numeric) AS volumen_producido_m3,
+    COALESCE((um.fc_weighted_sum / (NULLIF(um.produced_volume, (0)::numeric))::double precision), (0)::double precision) AS fc_ponderada_kg_cm2,
+    COALESCE((um.age_weighted_sum / NULLIF(um.produced_volume, (0)::numeric)), (0)::numeric) AS edad_ponderada_dias,
+    COALESCE((mc.total_material_cost / NULLIF(um.produced_volume, (0)::numeric)), (0)::numeric) AS costo_mp_unitario,
+    COALESCE((mc.cement_consumption / NULLIF(um.produced_volume, (0)::numeric)), (0)::numeric) AS consumo_cem_per_m3_kg,
+    COALESCE((mc.cement_cost / NULLIF(um.produced_volume, (0)::numeric)), (0)::numeric) AS costo_cem_per_m3,
+    COALESCE(mc.total_material_cost, (0)::numeric) AS costo_mp_total_concreto,
+    COALESCE(((mc.total_material_cost / NULLIF(um.concrete_subtotal, (0)::numeric)) * (100)::numeric), (0)::numeric) AS costo_mp_percent,
+    COALESCE(((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, (0)::numeric)) - (mc.total_material_cost / NULLIF(um.produced_volume, (0)::numeric))), (0)::numeric) AS spread_unitario,
+    COALESCE(((((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, (0)::numeric)) - (mc.total_material_cost / NULLIF(um.produced_volume, (0)::numeric))) / NULLIF((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, (0)::numeric)), (0)::numeric)) * (100)::numeric), (0)::numeric) AS spread_unitario_percent,
+    COALESCE(um.remisiones_count, (0)::bigint) AS remisiones_fabricated_count,
+    COALESCE((um.sold_concrete_volume - um.produced_volume), (0)::numeric) AS volumen_sold_not_fabricated,
+    ( SELECT date_params.start_date
+           FROM date_params) AS period_start,
+    ( SELECT date_params.end_date
+           FROM date_params) AS period_end,
+    CURRENT_TIMESTAMP AS last_updated
+   FROM ((plants p
+     LEFT JOIN unified_metrics um ON ((um.plant_id = p.id)))
+     LEFT JOIN material_costs mc ON ((mc.plant_id = p.id)))
+  WHERE (p.is_active = true)
+  ORDER BY p.code;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vw_pfa_fifo_plant_id
+  ON public.vw_plant_financial_analysis_fifo (plant_id);
+
+GRANT SELECT ON public.vw_plant_financial_analysis_fifo TO anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Unified view (current FIFO MV + FIFO history snapshots)
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW public.vw_plant_financial_analysis_unified_fifo AS
+ WITH current_period AS (
+         SELECT vw_plant_financial_analysis_fifo.period_start,
+            vw_plant_financial_analysis_fifo.period_end
+           FROM public.vw_plant_financial_analysis_fifo
+         LIMIT 1
+        )
+ SELECT vw_plant_financial_analysis_fifo.plant_id,
+    vw_plant_financial_analysis_fifo.plant_code,
+    vw_plant_financial_analysis_fifo.plant_name,
+    vw_plant_financial_analysis_fifo.volumen_concreto_m3,
+    vw_plant_financial_analysis_fifo.pv_unitario,
+    vw_plant_financial_analysis_fifo.ventas_total_concreto,
+    vw_plant_financial_analysis_fifo.volumen_producido_m3,
+    vw_plant_financial_analysis_fifo.fc_ponderada_kg_cm2,
+    vw_plant_financial_analysis_fifo.edad_ponderada_dias,
+    vw_plant_financial_analysis_fifo.costo_mp_unitario,
+    vw_plant_financial_analysis_fifo.consumo_cem_per_m3_kg,
+    vw_plant_financial_analysis_fifo.costo_cem_per_m3,
+    vw_plant_financial_analysis_fifo.costo_mp_total_concreto,
+    vw_plant_financial_analysis_fifo.costo_mp_percent,
+    vw_plant_financial_analysis_fifo.spread_unitario,
+    vw_plant_financial_analysis_fifo.spread_unitario_percent,
+    vw_plant_financial_analysis_fifo.remisiones_fabricated_count,
+    vw_plant_financial_analysis_fifo.volumen_sold_not_fabricated,
+    vw_plant_financial_analysis_fifo.period_start,
+    vw_plant_financial_analysis_fifo.period_end,
+    vw_plant_financial_analysis_fifo.period_start AS snapshot_date,
+    'current'::text AS data_source
+   FROM public.vw_plant_financial_analysis_fifo
+UNION ALL
+ SELECT h.plant_id,
+    h.plant_code,
+    h.plant_name,
+    h.volumen_concreto_m3,
+    h.pv_unitario,
+    h.ventas_total_concreto,
+    h.volumen_producido_m3,
+    h.fc_ponderada_kg_cm2,
+    h.edad_ponderada_dias,
+    h.costo_mp_unitario,
+    h.consumo_cem_per_m3_kg,
+    h.costo_cem_per_m3,
+    h.costo_mp_total_concreto,
+    h.costo_mp_percent,
+    h.spread_unitario,
+    h.spread_unitario_percent,
+    h.remisiones_fabricated_count,
+    h.volumen_sold_not_fabricated,
+    h.period_start,
+    h.period_end,
+    h.snapshot_date::date AS snapshot_date,
+    'monthly'::text AS data_source
+   FROM public.plant_financial_analysis_history_fifo h
+     CROSS JOIN current_period cp
+  WHERE h.period_start < cp.period_start;
+
+GRANT SELECT ON public.vw_plant_financial_analysis_unified_fifo TO anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- Refresh RPCs
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.refresh_plant_financial_analysis_fifo()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  start_time TIMESTAMPTZ;
+  end_time TIMESTAMPTZ;
+  duration_ms NUMERIC;
+BEGIN
+  start_time := clock_timestamp();
+
+  BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.vw_plant_financial_analysis_fifo;
+  EXCEPTION
+    WHEN OTHERS THEN
+      REFRESH MATERIALIZED VIEW public.vw_plant_financial_analysis_fifo;
+  END;
+
+  end_time := clock_timestamp();
+  duration_ms := EXTRACT(MILLISECONDS FROM (end_time - start_time));
+
+  RAISE NOTICE 'Plant financial analysis (FIFO) refreshed at % (took % ms)', end_time, duration_ms;
+
+  RETURN json_build_object(
+    'success', true,
+    'refreshed_at', end_time,
+    'duration_ms', duration_ms,
+    'message', 'FIFO financial analysis refreshed successfully'
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE WARNING 'Failed to refresh FIFO plant financial analysis: %', SQLERRM;
+    RETURN json_build_object(
+      'success', false,
+      'error', SQLERRM,
+      'message', 'Failed to refresh FIFO financial analysis'
+    );
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.refresh_plant_financial_analysis_mv_fifo()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.vw_plant_financial_analysis_fifo;
+  EXCEPTION
+    WHEN OTHERS THEN
+      REFRESH MATERIALIZED VIEW public.vw_plant_financial_analysis_fifo;
+  END;
+END;
+$function$;
+
+-- Include FIFO MV in hourly analytics refresh (same timeout budget).
+CREATE OR REPLACE FUNCTION public.refresh_analytics_materialized_views()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET statement_timeout TO '5min'
+AS $function$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_pumping_analysis_unified;
+
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_sales_assets_daily;
+
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.vw_plant_financial_analysis;
+
+    REFRESH MATERIALIZED VIEW CONCURRENTLY public.vw_plant_financial_analysis_fifo;
+
+    RAISE NOTICE 'Materialized views refreshed at %', NOW();
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'Error refreshing materialized views: %', SQLERRM;
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- Monthly backfill (history_fifo) + archive prior month
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.backfill_financial_analysis_month_fifo(p_year integer, p_month integer)
+RETURNS json
+LANGUAGE plpgsql
+AS $function$
+DECLARE month_start DATE; month_end DATE; inserted_count INTEGER := 0; indirect_result json;
+BEGIN
+  month_start := make_date(p_year, p_month, 1);
+  month_end := (month_start + INTERVAL '1 month - 1 day')::date;
+  WITH date_params AS (SELECT month_start AS start_date, month_end AS end_date),
+  remisiones_priced_with_materials AS (
+    SELECT DISTINCT r.id AS remision_id FROM remisiones r
+    INNER JOIN remision_materiales rm ON rm.remision_id = r.id
+    CROSS JOIN date_params dp
+    INNER JOIN remisiones_with_pricing rp ON rp.remision_id = r.id::text AND rp.tipo_remision = 'CONCRETO' AND rp.fecha = r.fecha AND rp.subtotal_amount > 0
+    WHERE r.tipo_remision = 'CONCRETO' AND r.fecha BETWEEN dp.start_date AND dp.end_date
+  ),
+  fifo_material_cost_lookup AS (
+    SELECT DISTINCT ON (rm.id) rm.id AS rm_id, rm.remision_id, rm.material_id, rm.material_type, rm.cantidad_real, r.plant_id,
+      COALESCE(mp_direct.price_per_unit, mp_type.price_per_unit, 0) AS list_price_per_unit,
+      COALESCE(rm.total_cost_fifo, rm.cantidad_real * COALESCE(mp_direct.price_per_unit, mp_type.price_per_unit, 0)) AS effective_line_cost,
+      m.category, m.material_name
+    FROM remision_materiales rm INNER JOIN remisiones r ON r.id = rm.remision_id CROSS JOIN date_params dp
+    INNER JOIN remisiones_priced_with_materials rpw ON rpw.remision_id = r.id
+    LEFT JOIN materials m ON m.id = rm.material_id
+    LEFT JOIN LATERAL (SELECT price_per_unit FROM material_prices mp WHERE mp.material_id = rm.material_id AND (mp.plant_id = r.plant_id OR mp.plant_id IS NULL)
+      AND mp.period_start <= date_trunc('month', r.fecha::timestamp with time zone)::date
+      ORDER BY CASE WHEN mp.plant_id IS NOT NULL THEN 0 ELSE 1 END, mp.period_start DESC LIMIT 1) mp_direct ON rm.material_id IS NOT NULL
+    LEFT JOIN LATERAL (SELECT price_per_unit FROM material_prices mp WHERE rm.material_type IS NOT NULL AND mp.material_type::text = rm.material_type::text AND (mp.plant_id = r.plant_id OR mp.plant_id IS NULL)
+      AND mp.period_start <= date_trunc('month', r.fecha::timestamp with time zone)::date
+      ORDER BY CASE WHEN mp.plant_id IS NOT NULL THEN 0 ELSE 1 END, mp.period_start DESC LIMIT 1) mp_type ON rm.material_id IS NULL
+    WHERE r.tipo_remision = 'CONCRETO' AND r.fecha BETWEEN dp.start_date AND dp.end_date
+  ),
+  unified_metrics AS (
+    SELECT r.plant_id,
+      SUM(CASE WHEN rp.subtotal_amount > 0 THEN r.volumen_fabricado ELSE 0 END) AS sold_concrete_volume,
+      SUM(CASE WHEN rp.subtotal_amount > 0 THEN COALESCE(rp.subtotal_amount, 0) ELSE 0 END) AS concrete_subtotal,
+      SUM(CASE WHEN rpw.remision_id IS NOT NULL THEN r.volumen_fabricado ELSE 0 END) AS produced_volume,
+      SUM(CASE WHEN rpw.remision_id IS NOT NULL AND rec.strength_fc IS NOT NULL THEN r.volumen_fabricado::double precision * rec.strength_fc ELSE 0::double precision END) AS fc_weighted_sum,
+      SUM(CASE WHEN rpw.remision_id IS NOT NULL AND rec.age_days IS NOT NULL THEN r.volumen_fabricado * rec.age_days::numeric ELSE 0::numeric END) AS age_weighted_sum,
+      COUNT(DISTINCT CASE WHEN rpw.remision_id IS NOT NULL THEN r.id END) AS remisiones_count
+    FROM remisiones r CROSS JOIN date_params dp
+    LEFT JOIN remisiones_with_pricing rp ON rp.remision_id = r.id::text AND rp.tipo_remision = 'CONCRETO' AND rp.fecha = r.fecha
+    LEFT JOIN remisiones_priced_with_materials rpw ON rpw.remision_id = r.id
+    LEFT JOIN recipes rec ON rec.id = r.recipe_id
+    WHERE r.tipo_remision = 'CONCRETO' AND r.fecha BETWEEN dp.start_date AND dp.end_date
+    GROUP BY r.plant_id
+  ),
+  material_costs AS (
+    SELECT mpl.plant_id, SUM(mpl.effective_line_cost) AS total_material_cost,
+      SUM(CASE WHEN LOWER(COALESCE(mpl.category, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_name, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_name, '')) LIKE '%cemento%' OR LOWER(COALESCE(mpl.material_type, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_type, '')) LIKE '%cemento%' THEN mpl.cantidad_real ELSE 0 END) AS cement_consumption,
+      SUM(CASE WHEN LOWER(COALESCE(mpl.category, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_name, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_name, '')) LIKE '%cemento%' OR LOWER(COALESCE(mpl.material_type, '')) LIKE '%cement%' OR LOWER(COALESCE(mpl.material_type, '')) LIKE '%cemento%' THEN mpl.effective_line_cost ELSE 0 END) AS cement_cost
+    FROM fifo_material_cost_lookup mpl GROUP BY mpl.plant_id
+  )
+  INSERT INTO plant_financial_analysis_history_fifo (plant_id, plant_code, plant_name, volumen_concreto_m3, pv_unitario, ventas_total_concreto, volumen_producido_m3, fc_ponderada_kg_cm2, edad_ponderada_dias, costo_mp_unitario, consumo_cem_per_m3_kg, costo_cem_per_m3, costo_mp_total_concreto, costo_mp_percent, spread_unitario, spread_unitario_percent, remisiones_fabricated_count, volumen_sold_not_fabricated, period_start, period_end, snapshot_date)
+  SELECT p.id, p.code, p.name, COALESCE(um.sold_concrete_volume, 0)::numeric, COALESCE(um.concrete_subtotal / NULLIF(um.sold_concrete_volume, 0), 0)::numeric, COALESCE(um.concrete_subtotal, 0)::numeric, COALESCE(um.produced_volume, 0)::numeric, COALESCE(um.fc_weighted_sum / NULLIF(um.produced_volume, 0)::double precision, 0::double precision)::numeric, COALESCE(um.age_weighted_sum / NULLIF(um.produced_volume, 0), 0)::numeric, COALESCE(mc.total_material_cost / NULLIF(um.produced_volume, 0), 0)::numeric, COALESCE(mc.cement_consumption / NULLIF(um.produced_volume, 0), 0)::numeric, COALESCE(mc.cement_cost / NULLIF(um.produced_volume, 0), 0)::numeric, COALESCE(mc.total_material_cost, 0)::numeric, COALESCE((mc.total_material_cost / NULLIF(um.concrete_subtotal, 0)) * 100, 0)::numeric, COALESCE((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, 0)) - (mc.total_material_cost / NULLIF(um.produced_volume, 0)), 0)::numeric, COALESCE((((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, 0)) - (mc.total_material_cost / NULLIF(um.produced_volume, 0))) / NULLIF((um.concrete_subtotal / NULLIF(um.sold_concrete_volume, 0)), 0)) * 100, 0)::numeric, COALESCE(um.remisiones_count, 0)::bigint, COALESCE(um.sold_concrete_volume - um.produced_volume, 0)::numeric, month_start, month_end, CURRENT_TIMESTAMP
+  FROM plants p LEFT JOIN unified_metrics um ON um.plant_id = p.id LEFT JOIN material_costs mc ON mc.plant_id = p.id
+  WHERE p.is_active = TRUE
+  ON CONFLICT (plant_id, period_start) DO UPDATE SET volumen_concreto_m3 = EXCLUDED.volumen_concreto_m3, pv_unitario = EXCLUDED.pv_unitario, ventas_total_concreto = EXCLUDED.ventas_total_concreto, volumen_producido_m3 = EXCLUDED.volumen_producido_m3, fc_ponderada_kg_cm2 = EXCLUDED.fc_ponderada_kg_cm2, edad_ponderada_dias = EXCLUDED.edad_ponderada_dias, costo_mp_unitario = EXCLUDED.costo_mp_unitario, consumo_cem_per_m3_kg = EXCLUDED.consumo_cem_per_m3_kg, costo_cem_per_m3 = EXCLUDED.costo_cem_per_m3, costo_mp_total_concreto = EXCLUDED.costo_mp_total_concreto, costo_mp_percent = EXCLUDED.costo_mp_percent, spread_unitario = EXCLUDED.spread_unitario, spread_unitario_percent = EXCLUDED.spread_unitario_percent, remisiones_fabricated_count = EXCLUDED.remisiones_fabricated_count, volumen_sold_not_fabricated = EXCLUDED.volumen_sold_not_fabricated, snapshot_date = EXCLUDED.snapshot_date;
+  GET DIAGNOSTICS inserted_count = ROW_COUNT;
+  indirect_result := backfill_indirect_material_costs(p_year, p_month);
+  RETURN json_build_object('success', true, 'year', p_year, 'month', p_month, 'period_start', month_start, 'period_end', month_end, 'plants_backfilled', inserted_count, 'indirect_costs', indirect_result, 'message', format('FIFO backfilled %s plants for %s-%s', inserted_count, p_year, p_month));
+EXCEPTION WHEN OTHERS THEN RETURN json_build_object('success', false, 'error', SQLERRM, 'message', 'Failed to backfill FIFO historical data');
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.archive_monthly_financial_analysis_fifo()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  previous_month_start DATE;
+  archive_result json;
+BEGIN
+  previous_month_start := DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')::date;
+
+  archive_result := backfill_financial_analysis_month_fifo(
+    EXTRACT(YEAR FROM previous_month_start)::integer,
+    EXTRACT(MONTH FROM previous_month_start)::integer
+  );
+
+  RETURN archive_result;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN json_build_object(
+      'success', false,
+      'error', SQLERRM,
+      'message', 'Failed to archive monthly FIFO financial analysis'
+    );
+END;
+$function$;
+
+-- Daily maintenance: refresh list MV + FIFO MV; archive both stacks on 1st of month.
+CREATE OR REPLACE FUNCTION public.daily_financial_analysis_maintenance()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE refresh_result json; refresh_fifo_result json; archive_result json; archive_fifo_result json; indirect_current json; is_first_day_of_month BOOLEAN;
+BEGIN
+  refresh_result := refresh_plant_financial_analysis();
+  refresh_fifo_result := refresh_plant_financial_analysis_fifo();
+  is_first_day_of_month := EXTRACT(DAY FROM CURRENT_DATE) = 1;
+  IF is_first_day_of_month THEN
+    archive_result := archive_monthly_financial_analysis();
+    archive_fifo_result := archive_monthly_financial_analysis_fifo();
+  ELSE
+    archive_result := json_build_object('success', true, 'archived_plants', 0, 'message', 'Not first day of month, no archiving needed');
+    archive_fifo_result := json_build_object('success', true, 'archived_plants', 0, 'message', 'Not first day of month, no FIFO archiving needed');
+  END IF;
+  indirect_current := backfill_indirect_material_costs(EXTRACT(YEAR FROM CURRENT_DATE)::int, EXTRACT(MONTH FROM CURRENT_DATE)::int);
+  RETURN json_build_object(
+    'success',
+    (refresh_result->>'success')::boolean
+      AND (refresh_fifo_result->>'success')::boolean
+      AND (archive_result->>'success')::boolean
+      AND (archive_fifo_result->>'success')::boolean,
+    'refresh', refresh_result,
+    'refresh_fifo', refresh_fifo_result,
+    'archive', archive_result,
+    'archive_fifo', archive_fifo_result,
+    'indirect_current_month', indirect_current,
+    'executed_at', CURRENT_TIMESTAMP
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN json_build_object('success', false, 'error', SQLERRM, 'message', 'Daily maintenance failed');
+END;
+$function$;

@@ -5,6 +5,7 @@ import { MapPin, Calendar, Package, ChevronRight } from 'lucide-react';
 import { Badge } from './badge';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/parseLocalDate';
 
 interface OrderCardProps {
   order: {
@@ -106,7 +107,7 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
           <div className="flex items-center gap-2 text-callout text-gray-600">
             <Calendar className="w-4 h-4 text-gray-400" />
             <span>
-              {format(new Date(order.delivery_date), "d 'de' MMMM, yyyy", { locale: es })}
+              {format(parseLocalDate(order.delivery_date), "d 'de' MMMM, yyyy", { locale: es })}
             </span>
           </div>
 

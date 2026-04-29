@@ -56,7 +56,6 @@ import {
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
-import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
@@ -1091,11 +1090,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
             <PlantContextDisplay className="min-w-0 max-w-xs sm:min-w-[200px]" showLabel={false} />
             <ProfileMenu />
           </div>
-        </div>
-        
-        {/* Añadir el indicador de estado de autenticación */}
-        <div className="hidden md:block">
-          <AuthStatusIndicator />
         </div>
         
         {/* Menú móvil: Sheet lateral */}

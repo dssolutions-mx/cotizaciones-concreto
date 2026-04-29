@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,37 +19,23 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    // Resolve client for naming the file (optional)
-    // Get client_id from client_portal_users (multi-user system)
-    const { data: association } = await supabase
-      .from('client_portal_users')
-      .select('client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    const clientId = resolved.ctx.clientId;
+
+    const { data: clientData } = await supabase
+      .from('clients')
+      .select('business_name, client_code')
+      .eq('id', clientId)
       .maybeSingle();
 
-    let client: { business_name: string; client_code: string } | null = null;
+    const client = clientData;
 
-    if (association?.client_id) {
-      // Fetch client details
-      const { data: clientData } = await supabase
-        .from('clients')
-        .select('business_name, client_code')
-        .eq('id', association.client_id)
-        .maybeSingle();
-      
-      client = clientData;
-    } else {
-      // Fallback to legacy portal_user_id for backward compatibility
-      const { data: legacyClient } = await supabase
-        .from('clients')
-        .select('business_name, client_code')
-        .eq('portal_user_id', user.id)
-        .maybeSingle();
-      
-      client = legacyClient;
+    if (!client) {
+      return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
     }
 
     const today = new Date();

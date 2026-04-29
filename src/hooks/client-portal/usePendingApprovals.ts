@@ -6,32 +6,46 @@
  * Only fetches data for executive users.
  */
 
+'use client';
+
+import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { fetchPendingApprovals, PendingOrder } from '@/lib/client-portal/approvalService';
 import { useUserPermissions } from './useUserPermissions';
+import {
+  PORTAL_CLIENT_ID_CHANGED_EVENT,
+  appendPortalClientId,
+} from '@/lib/client-portal/portalClientIdUrl';
 
 export function usePendingApprovals() {
   const { isExecutive, isLoading: permissionsLoading } = useUserPermissions();
-  
+
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const onChange = () => bump((n) => n + 1);
+    window.addEventListener(PORTAL_CLIENT_ID_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(PORTAL_CLIENT_ID_CHANGED_EVENT, onChange);
+  }, []);
+
   // Only fetch if user is an executive
   const shouldFetch = isExecutive && !permissionsLoading;
-  
+
+  const swrKey = shouldFetch
+    ? appendPortalClientId('/api/client-portal/orders/pending-approval')
+    : null;
+
   const {
     data,
     error,
     mutate,
     isLoading,
     isValidating,
-  } = useSWR<PendingOrder[]>(
-    shouldFetch ? '/api/client-portal/orders/pending-approval' : null,
-    fetchPendingApprovals,
-    {
-      refreshInterval: shouldFetch ? 30000 : 0, // Auto-refresh every 30 seconds only if fetching
-      revalidateOnFocus: shouldFetch,
-      revalidateOnReconnect: shouldFetch,
-      dedupingInterval: 5000,
-    }
-  );
+  } = useSWR<PendingOrder[]>(swrKey, fetchPendingApprovals, {
+    refreshInterval: shouldFetch ? 30000 : 0, // Auto-refresh every 30 seconds only if fetching
+    revalidateOnFocus: shouldFetch,
+    revalidateOnReconnect: shouldFetch,
+    dedupingInterval: 5000,
+  });
 
   return {
     pendingOrders: data,

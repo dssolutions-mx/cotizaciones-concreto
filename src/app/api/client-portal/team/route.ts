@@ -1,4 +1,9 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromBody,
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -31,6 +36,8 @@ const inviteUserSchema = z.object({
     required_error: 'Role must be either executive or user',
   }),
   permissions: z.record(z.boolean()).optional(),
+  /** When the inviter has multiple clients, required (or use query/header). */
+  client_id: z.string().uuid().optional(),
 });
 
 /**
@@ -62,41 +69,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get all clients the user has access to
-    const { data: clientAssociations, error: clientsError } = await supabase
-      .from('client_portal_users')
-      .select('client_id, role_within_client')
-      .eq('user_id', user.id)
-      .eq('is_active', true);
-
-    if (clientsError) {
-      console.error('Error fetching user clients:', clientsError);
-      return NextResponse.json(
-        { error: 'Failed to fetch user clients' },
-        { status: 500 }
-      );
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
-
-    // Check if user is an executive for at least one client
-    const isExecutiveForAnyClient = clientAssociations?.some(
-      (assoc) => assoc.role_within_client === 'executive'
-    );
-
-    if (!isExecutiveForAnyClient) {
+    if (resolved.ctx.roleWithinClient !== 'executive') {
       return NextResponse.json(
         { error: 'Access denied. Only executive users can manage team members.' },
         { status: 403 }
       );
     }
 
-    // Get the first client where user is executive (for MVP, could be enhanced for multi-client)
-    const executiveClient = clientAssociations.find(
-      (assoc) => assoc.role_within_client === 'executive'
-    );
-
-    if (!executiveClient) {
-      return NextResponse.json({ success: true, data: [] });
-    }
+    const clientId = resolved.ctx.clientId;
 
     // Get all team members for this client
     const { data: teamMembers, error: teamError } = await supabase
@@ -117,7 +102,7 @@ export async function GET(request: NextRequest) {
           last_name
         )
       `)
-      .eq('client_id', executiveClient.client_id)
+      .eq('client_id', clientId)
       .order('created_at', { ascending: false });
 
     if (teamError) {
@@ -128,22 +113,49 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const siteMap = new Map<string, string[]>();
+    if (serviceRoleKey && supabaseUrl && teamMembers?.length) {
+      const { createClient } = await import('@supabase/supabase-js');
+      const admin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+      const memIds = teamMembers.map((m: { id: string }) => m.id).filter(Boolean);
+      if (memIds.length > 0) {
+        const { data: jrows } = await admin
+          .from('client_portal_user_construction_sites')
+          .select('client_portal_user_id, construction_site_id')
+          .in('client_portal_user_id', memIds);
+        for (const row of jrows || []) {
+          const r = row as { client_portal_user_id: string; construction_site_id: string };
+          if (!siteMap.has(r.client_portal_user_id)) siteMap.set(r.client_portal_user_id, []);
+          siteMap.get(r.client_portal_user_id)!.push(r.construction_site_id);
+        }
+      }
+    }
+
     // Transform the data to a cleaner format
     // Filter out any members where user_profiles is null (data integrity issue)
     const formattedTeamMembers = teamMembers
       ?.filter((member) => member.user_profiles !== null)
-      .map((member) => ({
-        id: member.id,
-        user_id: member.user_id,
-        email: member.user_profiles?.email || '',
-        first_name: member.user_profiles?.first_name || '',
-        last_name: member.user_profiles?.last_name || '',
-        role_within_client: member.role_within_client,
-        permissions: member.permissions,
-        is_active: member.is_active,
-        invited_at: member.invited_at,
-        last_login: null, // last_sign_in_at is in auth.users, not user_profiles
-      })) || [];
+      .map((member) => {
+        const scoped = siteMap.get(member.id);
+        return {
+          id: member.id,
+          user_id: member.user_id,
+          email: member.user_profiles?.email || '',
+          first_name: member.user_profiles?.first_name || '',
+          last_name: member.user_profiles?.last_name || '',
+          role_within_client: member.role_within_client,
+          permissions: member.permissions,
+          is_active: member.is_active,
+          invited_at: member.invited_at,
+          last_login: null, // last_sign_in_at is in auth.users, not user_profiles
+          allowed_construction_site_ids:
+            scoped && scoped.length > 0 ? scoped : null,
+        };
+      }) || [];
 
     return NextResponse.json({
       success: true,
@@ -187,13 +199,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { email, firstName, lastName, role, permissions } = validation.data;
-    
-    // Names are already normalized by zod transform, but ensure they're not empty strings
+    const { email, firstName, lastName, role, permissions, client_id: bodyClientId } = validation.data;
+
     const normalizedFirstName = firstName && firstName.trim() ? firstName.trim() : undefined;
     const normalizedLastName = lastName && lastName.trim() ? lastName.trim() : undefined;
 
-    // Get user's profile to check role
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('role')
@@ -207,24 +217,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get the client where user is executive
-    const { data: clientAssociations, error: clientsError } = await supabase
-      .from('client_portal_users')
-      .select('client_id, role_within_client, clients!inner(id, business_name, default_permissions)')
-      .eq('user_id', user.id)
-      .eq('role_within_client', 'executive')
-      .eq('is_active', true)
-      .single();
+    const clientIdParam =
+      (bodyClientId && bodyClientId.trim()) ||
+      getOptionalPortalClientIdFromBody(body) ||
+      getOptionalPortalClientIdFromRequest(request);
 
-    if (clientsError || !clientAssociations) {
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    if (resolved.ctx.roleWithinClient !== 'executive') {
       return NextResponse.json(
         { error: 'Access denied. Only executive users can invite team members.' },
         { status: 403 }
       );
     }
 
-    const clientId = clientAssociations.client_id;
-    const client = clientAssociations.clients as any;
+    const clientId = resolved.ctx.clientId;
+
+    const { data: clientRow, error: clientRowErr } = await supabase
+      .from('clients')
+      .select('id, business_name, default_permissions')
+      .eq('id', clientId)
+      .single();
+
+    if (clientRowErr || !clientRow) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    }
+
+    const client = clientRow;
 
     // Check if user already exists
     const { data: existingUser, error: userCheckError } = await supabase
@@ -563,7 +584,8 @@ Si no solicitaste esta invitación, puedes ignorar este mensaje de forma segura.
       // Continue with association creation
     }
 
-    // Create client portal user association
+    // New memberships intentionally have no rows in client_portal_user_construction_sites
+    // => unrestricted access to all construction sites for that client (back-compat default).
     const { error: associationError } = await supabase
       .from('client_portal_users')
       .insert({

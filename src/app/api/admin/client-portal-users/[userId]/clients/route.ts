@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
-import { VIEW_ONLY } from '@/lib/client-portal/permissionTemplates';
+import { replaceClientPortalMembershipSiteIds } from '@/lib/supabase/portalMembershipSites';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,11 +11,13 @@ const assignClientSchema = z.object({
     required_error: 'El rol debe ser executive o user',
   }),
   permissions: z.record(z.boolean()).optional(),
+  constructionSiteIds: z.array(z.string().uuid()).optional(),
 });
 
 const updateRoleSchema = z.object({
   role: z.enum(['executive', 'user']),
   permissions: z.record(z.boolean()).optional(),
+  constructionSiteIds: z.array(z.string().uuid()).optional(),
 });
 
 /**
@@ -54,6 +56,13 @@ export async function POST(
       );
     }
 
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const validation = assignClientSchema.safeParse(body);
@@ -68,7 +77,21 @@ export async function POST(
       );
     }
 
-    const { clientId, role, permissions } = validation.data;
+    const { clientId, role, permissions, constructionSiteIds } = validation.data;
+
+    if (constructionSiteIds?.length) {
+      const { count, error: cntErr } = await supabase
+        .from('construction_sites')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientId)
+        .in('id', constructionSiteIds);
+      if (cntErr) {
+        return NextResponse.json({ error: 'Error validando obras' }, { status: 500 });
+      }
+      if ((count ?? 0) !== constructionSiteIds.length) {
+        return NextResponse.json({ error: 'Una o más obras no pertenecen a este cliente' }, { status: 400 });
+      }
+    }
 
     // Verify user exists and is EXTERNAL_CLIENT
     const { data: portalUser } = await supabase
@@ -86,7 +109,7 @@ export async function POST(
     }
 
     // Check if association already exists
-    const { data: existing } = await supabase
+    const { data: existing } = await db
       .from('client_portal_users')
       .select('id')
       .eq('user_id', userId)
@@ -109,11 +132,11 @@ export async function POST(
         .eq('id', clientId)
         .single();
       
-      finalPermissions = client?.default_permissions || VIEW_ONLY;
+      finalPermissions = client?.default_permissions || {};
     }
 
     // Create association
-    const { error: insertError } = await supabase
+    const { data: insertedAssoc, error: insertError } = await db
       .from('client_portal_users')
       .insert({
         user_id: userId,
@@ -123,14 +146,26 @@ export async function POST(
         is_active: true,
         invited_by: user.id,
         invited_at: new Date().toISOString(),
-      });
+      })
+      .select('id')
+      .single();
 
-    if (insertError) {
+    if (insertError || !insertedAssoc?.id) {
       console.error('Error creating association:', insertError);
       return NextResponse.json(
         { error: 'Error al crear asociación' },
         { status: 500 }
       );
+    }
+
+    const { error: siteErr } = await replaceClientPortalMembershipSiteIds(
+      db,
+      insertedAssoc.id,
+      constructionSiteIds
+    );
+    if (siteErr) {
+      console.error('Error assigning obra scope:', siteErr);
+      return NextResponse.json({ error: 'Asociación creada pero falló asignación de obras' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -191,8 +226,15 @@ export async function DELETE(
       );
     }
 
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+    }
+
     // Delete association
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await db
       .from('client_portal_users')
       .delete()
       .eq('user_id', userId)
@@ -264,6 +306,13 @@ export async function PATCH(
       );
     }
 
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+    }
+
     // Parse and validate request body
     const body = await request.json();
     const validation = updateRoleSchema.safeParse(body);
@@ -278,7 +327,21 @@ export async function PATCH(
       );
     }
 
-    const { role, permissions } = validation.data;
+    const { role, permissions, constructionSiteIds } = validation.data;
+
+    if (constructionSiteIds?.length) {
+      const { count, error: cntErr } = await supabase
+        .from('construction_sites')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientId)
+        .in('id', constructionSiteIds);
+      if (cntErr) {
+        return NextResponse.json({ error: 'Error validando obras' }, { status: 500 });
+      }
+      if ((count ?? 0) !== constructionSiteIds.length) {
+        return NextResponse.json({ error: 'Una o más obras no pertenecen a este cliente' }, { status: 400 });
+      }
+    }
 
     // Update association
     const updateData: any = {
@@ -291,7 +354,7 @@ export async function PATCH(
       updateData.permissions = {};
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await db
       .from('client_portal_users')
       .update(updateData)
       .eq('user_id', userId)
@@ -303,6 +366,26 @@ export async function PATCH(
         { error: 'Error al actualizar asociación' },
         { status: 500 }
       );
+    }
+
+    if (constructionSiteIds !== undefined) {
+      const { data: row } = await db
+        .from('client_portal_users')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('client_id', clientId)
+        .maybeSingle();
+      if (row?.id) {
+        const { error: siteErr } = await replaceClientPortalMembershipSiteIds(
+          db,
+          row.id,
+          constructionSiteIds
+        );
+        if (siteErr) {
+          console.error('Error updating obra scope:', siteErr);
+          return NextResponse.json({ error: 'Rol actualizado pero falló asignación de obras' }, { status: 500 });
+        }
+      }
     }
 
     return NextResponse.json({

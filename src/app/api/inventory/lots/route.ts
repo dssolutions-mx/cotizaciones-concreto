@@ -27,13 +27,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'plant_id requerido' }, { status: 400 });
     }
 
+    const hr = searchParams.get('has_remaining');
+    const hasRemainingFilter =
+      hr === 'true' ? true : hr === 'false' ? false : undefined;
+
     const service = new MaterialLotService();
     const result = await service.getLotsByPlant(plantId, {
       material_id: searchParams.get('material_id') || undefined,
       supplier_id: searchParams.get('supplier_id') || undefined,
       date_from: searchParams.get('date_from') || undefined,
       date_to: searchParams.get('date_to') || undefined,
-      has_remaining: searchParams.get('has_remaining') === 'true' ? true : undefined,
+      has_remaining: hasRemainingFilter,
       quality_status: (searchParams.get('quality_status') as 'pending' | 'approved' | 'rejected' | 'na') || undefined,
       limit: parseInt(searchParams.get('limit') || '50'),
       offset: parseInt(searchParams.get('offset') || '0'),

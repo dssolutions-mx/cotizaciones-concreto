@@ -56,6 +56,11 @@ function ClientAssociationsListComponent({
                   </Badge>
                 )}
               </div>
+              <p className="text-xs text-muted-foreground mt-1 pl-7">
+                {assoc.allowed_construction_site_ids?.length
+                  ? `${assoc.allowed_construction_site_ids.length} obra(s) permitida(s)`
+                  : 'Todas las obras'}
+              </p>
             </div>
           </div>
           {showActions && onRemove && (

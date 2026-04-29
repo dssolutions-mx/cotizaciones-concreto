@@ -1,4 +1,10 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  assertConstructionSiteAllowedForCreate,
+  getOptionalPortalClientIdFromBody,
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
@@ -10,13 +16,17 @@ export async function GET(request: Request) {
     const fromDate = searchParams.get('from');
     const toDate = searchParams.get('to');
 
-    // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Build the base query - RLS will automatically filter by client_id
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+
     let ordersQuery = supabase
       .from('orders')
       .select(`
@@ -30,6 +40,7 @@ export async function GET(request: Request) {
         elemento,
         created_at
       `)
+      .eq('client_id', resolved.ctx.clientId)
       .order('delivery_date', { ascending: false });
 
     // Apply status filter if provided
@@ -107,32 +118,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check user permissions - require create_orders permission
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client, permissions, client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError) {
-      console.error('Error fetching user permissions:', assocError);
-      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
+    const body = await request.json();
+    const clientIdParam =
+      getOptionalPortalClientIdFromRequest(request) || getOptionalPortalClientIdFromBody(body);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
+    const association = resolved.ctx;
 
-    if (!association) {
-      console.error('User not found in client_portal_users table:', user.id);
-      return NextResponse.json(
-        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
-        { status: 404 }
-      );
-    }
-
-    // Executives always have permission, regular users need explicit permission
-    const isExecutive = association?.role_within_client === 'executive';
-    const hasCreatePermission = isExecutive || association?.permissions?.create_orders === true;
+    const isExecutive = association.roleWithinClient === 'executive';
+    const hasCreatePermission =
+      isExecutive || association.permissions?.create_orders === true;
 
     if (!hasCreatePermission) {
       return NextResponse.json(
@@ -141,18 +138,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Note: client_approval_status is handled by the database trigger (set_order_client_approval_status)
-    // The trigger checks bypass_executive_approval permission and sets the status accordingly
-
-    // Resolve client by portal user
-    const clientId = association?.client_id;
-    if (!clientId) {
-      console.error('Association found but client_id is null:', association);
-      return NextResponse.json(
-        { error: 'No se encontró el cliente asociado. Contacta al administrador.' },
-        { status: 404 }
-      );
-    }
+    const clientId = association.clientId;
 
     const { data: client, error: clientError } = await supabase
       .from('clients')
@@ -168,7 +154,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
     const {
       construction_site,
       construction_site_id,
@@ -243,6 +228,11 @@ export async function POST(request: Request) {
     // If it's not a UUID, it's likely a fallback site name, so set it to null
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const validSiteId = construction_site_id && uuidRegex.test(construction_site_id) ? construction_site_id : null;
+
+    const siteGate = assertConstructionSiteAllowedForCreate(association, validSiteId);
+    if (!siteGate.ok) {
+      return NextResponse.json({ error: siteGate.message }, { status: 403 });
+    }
 
     const insertPayload: Record<string, any> = {
       client_id: client.id,

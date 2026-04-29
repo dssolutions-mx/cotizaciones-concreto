@@ -14,6 +14,7 @@ import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
 import { format, subDays, addDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import Link from 'next/link';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 
 interface Order {
   id: string;
@@ -72,7 +73,7 @@ export default function OrdersPage() {
         params.set('from', formatDateForAPI(dateRange.from));
         params.set('to', formatDateForAPI(dateRange.to));
 
-        const response = await fetch(`/api/client-portal/orders?${params}`);
+        const response = await fetch(appendPortalClientId(`/api/client-portal/orders?${params}`));
         const result = await response.json();
 
         if (!response.ok) {

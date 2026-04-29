@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { fetchCatalogAdditionalProducts } from '@/lib/finanzas/additionalProductsCatalog';
 
 /**
@@ -15,20 +19,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('client_id, role_within_client, permissions')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError || !association?.client_id) {
-      return NextResponse.json({ error: 'No se encontró tu asociación con el cliente.' }, { status: 404 });
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
+    const association = resolved.ctx;
 
-    const isExecutive = association.role_within_client === 'executive';
+    const isExecutive = association.roleWithinClient === 'executive';
     const canViewPrices =
       isExecutive || association.permissions?.view_prices === true;
 
@@ -43,7 +41,7 @@ export async function GET(request: Request) {
     }
 
     const catalog = await fetchCatalogAdditionalProducts(supabase, {
-      clientId: association.client_id,
+      clientId: association.clientId,
       constructionSite: site.trim(),
       constructionSiteId: constructionSiteId?.trim() || null,
       orderQuoteId: quoteId?.trim() || null,

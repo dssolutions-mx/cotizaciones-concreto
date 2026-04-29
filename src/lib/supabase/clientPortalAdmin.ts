@@ -22,6 +22,8 @@ export interface ClientAssociation {
   permissions: Permissions;
   is_active: boolean;
   invited_at: string;
+  /** null = all sites; non-empty = restricted to these construction_sites ids */
+  allowed_construction_site_ids?: string[] | null;
 }
 
 export interface CreatePortalUserData {
@@ -31,6 +33,7 @@ export interface CreatePortalUserData {
   clientIds: string[];
   roles: Record<string, 'executive' | 'user'>; // clientId -> role
   permissions?: Record<string, Partial<Permissions>>; // clientId -> permissions
+  constructionSiteIdsByClient?: Record<string, string[]>;
 }
 
 export interface AssignClientData {
@@ -57,9 +60,8 @@ export const clientPortalAdminService = {
         return [];
       }
 
-      const userIds = users.map(u => u.id);
+      const userIds = users.map((u) => u.id);
 
-      // Get all client associations for these users
       const { data: associations, error: assocError } = await supabase
         .from('client_portal_users')
         .select(`
@@ -80,6 +82,20 @@ export const clientPortalAdminService = {
 
       if (assocError) throw assocError;
 
+      const assocIds = (associations || []).map((a: { id: string }) => a.id).filter(Boolean);
+      const siteMap = new Map<string, string[]>();
+      if (assocIds.length > 0) {
+        const { data: jrows } = await supabase
+          .from('client_portal_user_construction_sites')
+          .select('client_portal_user_id, construction_site_id')
+          .in('client_portal_user_id', assocIds);
+        for (const row of jrows || []) {
+          const k = (row as { client_portal_user_id: string }).client_portal_user_id;
+          if (!siteMap.has(k)) siteMap.set(k, []);
+          siteMap.get(k)!.push((row as { construction_site_id: string }).construction_site_id);
+        }
+      }
+
       // Group associations by user
       const associationsByUser = new Map<string, ClientAssociation[]>();
       associations?.forEach((assoc: any) => {
@@ -91,19 +107,26 @@ export const clientPortalAdminService = {
           id: assoc.id,
           client_id: assoc.client_id,
           client_name: client.business_name,
-          client_code: client.client_code,
+          client_code: client.client_code ?? '',
           role_within_client: assoc.role_within_client,
-          permissions: assoc.permissions || {},
+          permissions: (assoc.permissions || {}) as Permissions,
           is_active: assoc.is_active,
           invited_at: assoc.invited_at,
+          allowed_construction_site_ids: siteMap.get(assoc.id) ?? null,
         });
       });
 
       // Combine users with their associations
-      return users.map(user => ({
-        ...user,
-        client_associations: associationsByUser.get(user.id) || [],
-      }));
+      return users.map(
+        (user) =>
+          ({
+            ...user,
+            role: 'EXTERNAL_CLIENT' as const,
+            is_active: user.is_active ?? false,
+            created_at: user.created_at ?? '',
+            client_associations: associationsByUser.get(user.id) || [],
+          }) as PortalUser
+      );
     } catch (error) {
       const errorMessage = handleError(error, 'getAllPortalUsers');
       console.error(errorMessage);
@@ -147,24 +170,42 @@ export const clientPortalAdminService = {
 
       if (assocError) throw assocError;
 
+      const assocIds = (associations || []).map((a: { id: string }) => a.id).filter(Boolean);
+      const siteMap = new Map<string, string[]>();
+      if (assocIds.length > 0) {
+        const { data: jrows } = await supabase
+          .from('client_portal_user_construction_sites')
+          .select('client_portal_user_id, construction_site_id')
+          .in('client_portal_user_id', assocIds);
+        for (const row of jrows || []) {
+          const k = (row as { client_portal_user_id: string }).client_portal_user_id;
+          if (!siteMap.has(k)) siteMap.set(k, []);
+          siteMap.get(k)!.push((row as { construction_site_id: string }).construction_site_id);
+        }
+      }
+
       const clientAssociations: ClientAssociation[] = (associations || []).map((assoc: any) => {
         const client = assoc.clients;
         return {
           id: assoc.id,
           client_id: assoc.client_id,
           client_name: client.business_name,
-          client_code: client.client_code,
+          client_code: client.client_code ?? '',
           role_within_client: assoc.role_within_client,
-          permissions: assoc.permissions || {},
+          permissions: (assoc.permissions || {}) as Permissions,
           is_active: assoc.is_active,
           invited_at: assoc.invited_at,
+          allowed_construction_site_ids: siteMap.get(assoc.id) ?? null,
         };
       });
 
       return {
         ...user,
-        client_associations,
-      };
+        role: 'EXTERNAL_CLIENT' as const,
+        is_active: user.is_active ?? false,
+        created_at: user.created_at ?? '',
+        client_associations: clientAssociations,
+      } as PortalUser;
     } catch (error) {
       const errorMessage = handleError(error, 'getPortalUserById');
       console.error(errorMessage);
@@ -203,7 +244,7 @@ export const clientPortalAdminService = {
           .eq('id', clientId)
           .single();
         
-        finalPermissions = client?.default_permissions || {};
+        finalPermissions = (client?.default_permissions as Partial<Permissions>) || {};
       }
 
       const { error } = await supabase

@@ -38,6 +38,9 @@ export class MaterialLotService {
     if (filters.has_remaining === true) {
       query = query.gt('remaining_quantity_kg', 0);
     }
+    if (filters.has_remaining === false) {
+      query = query.lte('remaining_quantity_kg', 0);
+    }
     if (filters.quality_status) {
       query = query.eq('quality_status', filters.quality_status);
     }

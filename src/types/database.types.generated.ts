@@ -1321,6 +1321,42 @@ export type Database = {
           },
         ]
       }
+      client_portal_user_construction_sites: {
+        Row: {
+          client_portal_user_id: string
+          construction_site_id: string
+          created_at: string
+          id: string
+        }
+        Insert: {
+          client_portal_user_id: string
+          construction_site_id: string
+          created_at?: string
+          id?: string
+        }
+        Update: {
+          client_portal_user_id?: string
+          construction_site_id?: string
+          created_at?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_user_construction_sites_client_portal_user_id_fkey"
+            columns: ["client_portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_portal_user_construction_sites_construction_site_id_fkey"
+            columns: ["construction_site_id"]
+            isOneToOne: false
+            referencedRelation: "construction_sites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null
@@ -7623,6 +7659,106 @@ export type Database = {
           },
         ]
       }
+      plant_financial_analysis_history_fifo: {
+        Row: {
+          consumo_cem_per_m3_kg: number
+          costo_cem_per_m3: number
+          costo_mp_percent: number
+          costo_mp_total_concreto: number
+          costo_mp_unitario: number
+          created_at: string
+          edad_ponderada_dias: number
+          fc_ponderada_kg_cm2: number
+          id: string
+          period_end: string
+          period_start: string
+          plant_code: string
+          plant_id: string
+          plant_name: string
+          pv_unitario: number
+          remisiones_fabricated_count: number
+          snapshot_date: string
+          spread_unitario: number
+          spread_unitario_percent: number
+          ventas_total_concreto: number
+          volumen_concreto_m3: number
+          volumen_producido_m3: number
+          volumen_sold_not_fabricated: number
+        }
+        Insert: {
+          consumo_cem_per_m3_kg?: number
+          costo_cem_per_m3?: number
+          costo_mp_percent?: number
+          costo_mp_total_concreto?: number
+          costo_mp_unitario?: number
+          created_at?: string
+          edad_ponderada_dias?: number
+          fc_ponderada_kg_cm2?: number
+          id?: string
+          period_end: string
+          period_start: string
+          plant_code: string
+          plant_id: string
+          plant_name: string
+          pv_unitario?: number
+          remisiones_fabricated_count?: number
+          snapshot_date?: string
+          spread_unitario?: number
+          spread_unitario_percent?: number
+          ventas_total_concreto?: number
+          volumen_concreto_m3?: number
+          volumen_producido_m3?: number
+          volumen_sold_not_fabricated?: number
+        }
+        Update: {
+          consumo_cem_per_m3_kg?: number
+          costo_cem_per_m3?: number
+          costo_mp_percent?: number
+          costo_mp_total_concreto?: number
+          costo_mp_unitario?: number
+          created_at?: string
+          edad_ponderada_dias?: number
+          fc_ponderada_kg_cm2?: number
+          id?: string
+          period_end?: string
+          period_start?: string
+          plant_code?: string
+          plant_id?: string
+          plant_name?: string
+          pv_unitario?: number
+          remisiones_fabricated_count?: number
+          snapshot_date?: string
+          spread_unitario?: number
+          spread_unitario_percent?: number
+          ventas_total_concreto?: number
+          volumen_concreto_m3?: number
+          volumen_producido_m3?: number
+          volumen_sold_not_fabricated?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_financial_analysis_history_fifo_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "plant_financial_analysis_history_fifo_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plant_financial_analysis_history_fifo_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
       plant_indirect_material_costs: {
         Row: {
           amount: number
@@ -11876,6 +12012,59 @@ export type Database = {
         }
         Relationships: []
       }
+      vw_plant_financial_analysis_fifo: {
+        Row: {
+          consumo_cem_per_m3_kg: number | null
+          costo_cem_per_m3: number | null
+          costo_mp_percent: number | null
+          costo_mp_total_concreto: number | null
+          costo_mp_unitario: number | null
+          edad_ponderada_dias: number | null
+          fc_ponderada_kg_cm2: number | null
+          last_updated: string | null
+          period_end: string | null
+          period_start: string | null
+          plant_code: string | null
+          plant_id: string | null
+          plant_name: string | null
+          pv_unitario: number | null
+          remisiones_fabricated_count: number | null
+          spread_unitario: number | null
+          spread_unitario_percent: number | null
+          ventas_total_concreto: number | null
+          volumen_concreto_m3: number | null
+          volumen_producido_m3: number | null
+          volumen_sold_not_fabricated: number | null
+        }
+        Relationships: []
+      }
+      vw_plant_financial_analysis_unified_fifo: {
+        Row: {
+          consumo_cem_per_m3_kg: number | null
+          costo_cem_per_m3: number | null
+          costo_mp_percent: number | null
+          costo_mp_total_concreto: number | null
+          costo_mp_unitario: number | null
+          data_source: string | null
+          edad_ponderada_dias: number | null
+          fc_ponderada_kg_cm2: number | null
+          period_end: string | null
+          period_start: string | null
+          plant_code: string | null
+          plant_id: string | null
+          plant_name: string | null
+          pv_unitario: number | null
+          remisiones_fabricated_count: number | null
+          snapshot_date: string | null
+          spread_unitario: number | null
+          spread_unitario_percent: number | null
+          ventas_total_concreto: number | null
+          volumen_concreto_m3: number | null
+          volumen_producido_m3: number | null
+          volumen_sold_not_fabricated: number | null
+        }
+        Relationships: []
+      }
       vw_pumping_analysis_by_plant_date: {
         Row: {
           fecha: string | null
@@ -12028,7 +12217,12 @@ export type Database = {
       }
       approve_order_credit: { Args: { order_id: string }; Returns: string }
       archive_monthly_financial_analysis: { Args: never; Returns: Json }
+      archive_monthly_financial_analysis_fifo: { Args: never; Returns: Json }
       backfill_financial_analysis_month: {
+        Args: { p_month: number; p_year: number }
+        Returns: Json
+      }
+      backfill_financial_analysis_month_fifo: {
         Args: { p_month: number; p_year: number }
         Returns: Json
       }
@@ -12368,6 +12562,22 @@ export type Database = {
         Returns: string
       }
       expire_construction_sites_by_valid_until: { Args: never; Returns: number }
+      external_portal_balance_row_allowed: {
+        Args: {
+          p_client_id: string
+          p_construction_site: string | null
+          p_construction_site_id: string | null
+        }
+        Returns: boolean
+      }
+      external_portal_order_site_allowed: {
+        Args: {
+          p_client_id: string
+          p_construction_site: string | null
+          p_construction_site_id: string | null
+        }
+        Returns: boolean
+      }
       find_potential_duplicate_clients: {
         Args: { p_business_name: string; p_client_code?: string }
         Returns: {
@@ -12510,6 +12720,10 @@ export type Database = {
       fn_batch_update_entry_remaining: {
         Args: { updates: Json }
         Returns: undefined
+      }
+      fn_fifo_auto_allocate_candidates: {
+        Args: { p_limit?: number; p_min_age_hours?: number }
+        Returns: string[]
       }
       generate_daily_snapshots: {
         Args: { p_target_date?: string }
@@ -12967,7 +13181,9 @@ export type Database = {
       refresh_analytics_materialized_views: { Args: never; Returns: undefined }
       refresh_client_quality_mv: { Args: never; Returns: undefined }
       refresh_plant_financial_analysis: { Args: never; Returns: Json }
+      refresh_plant_financial_analysis_fifo: { Args: never; Returns: Json }
       refresh_plant_financial_analysis_mv: { Args: never; Returns: undefined }
+      refresh_plant_financial_analysis_mv_fifo: { Args: never; Returns: undefined }
       reject_credit_by_validator: {
         Args: { order_id: string; p_rejection_reason: string }
         Returns: string

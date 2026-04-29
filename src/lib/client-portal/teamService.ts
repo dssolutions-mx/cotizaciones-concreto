@@ -6,6 +6,7 @@
  */
 
 import { Permissions } from './permissionTemplates';
+import { appendPortalClientId, getStoredPortalClientId } from './portalClientIdUrl';
 
 export interface TeamMember {
   id: string;
@@ -18,6 +19,8 @@ export interface TeamMember {
   is_active: boolean;
   invited_at: string;
   last_login: string | null;
+  /** null = todas las obras; array no vacío = restringido a esas obras */
+  allowed_construction_site_ids?: string[] | null;
 }
 
 export interface InviteUserData {
@@ -26,6 +29,8 @@ export interface InviteUserData {
   lastName?: string;
   role: 'executive' | 'user';
   permissions?: Partial<Permissions>;
+  /** Defaults from localStorage when user has multiple clients */
+  client_id?: string;
 }
 
 export interface ApiResponse<T> {
@@ -38,8 +43,8 @@ export interface ApiResponse<T> {
 /**
  * Fetch all team members for the current user's client
  */
-export async function fetchTeamMembers(): Promise<TeamMember[]> {
-  const response = await fetch('/api/client-portal/team', {
+export async function fetchTeamMembers(url: string): Promise<TeamMember[]> {
+  const response = await fetch(url, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -62,13 +67,22 @@ export async function fetchTeamMembers(): Promise<TeamMember[]> {
 export async function inviteTeamMember(
   data: InviteUserData
 ): Promise<ApiResponse<{ userId: string; invitationSent: boolean }>> {
+  const { email, firstName, lastName, role, permissions, client_id: explicitClientId } = data;
+  const clientId = explicitClientId ?? getStoredPortalClientId() ?? undefined;
   const response = await fetch('/api/client-portal/team', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     credentials: 'include',
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      email,
+      firstName,
+      lastName,
+      role,
+      permissions,
+      ...(clientId ? { client_id: clientId } : {}),
+    }),
   });
 
   const result = await response.json();
@@ -87,13 +101,17 @@ export async function updateTeamMemberRole(
   userId: string,
   role: 'executive' | 'user'
 ): Promise<ApiResponse<TeamMember>> {
+  const clientId = getStoredPortalClientId();
   const response = await fetch(`/api/client-portal/team/${userId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },
     credentials: 'include',
-    body: JSON.stringify({ role }),
+    body: JSON.stringify({
+      role,
+      ...(clientId ? { client_id: clientId } : {}),
+    }),
   });
 
   const result = await response.json();
@@ -112,13 +130,17 @@ export async function updateTeamMemberPermissions(
   userId: string,
   permissions: Permissions
 ): Promise<ApiResponse<{ permissions: Permissions }>> {
+  const clientId = getStoredPortalClientId();
   const response = await fetch(`/api/client-portal/team/${userId}/permissions`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },
     credentials: 'include',
-    body: JSON.stringify({ permissions }),
+    body: JSON.stringify({
+      permissions,
+      ...(clientId ? { client_id: clientId } : {}),
+    }),
   });
 
   const result = await response.json();
@@ -136,7 +158,7 @@ export async function updateTeamMemberPermissions(
 export async function deactivateTeamMember(
   userId: string
 ): Promise<ApiResponse<void>> {
-  const response = await fetch(`/api/client-portal/team/${userId}`, {
+  const response = await fetch(appendPortalClientId(`/api/client-portal/team/${userId}`), {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',

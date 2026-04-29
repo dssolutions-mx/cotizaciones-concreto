@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 
 /**
  * GET /api/client-portal/quote-additional-products?quote_id=
@@ -13,18 +17,12 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError || !association?.client_id) {
-      return NextResponse.json({ error: 'No se encontró tu asociación con el cliente.' }, { status: 404 });
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
+    const association = resolved.ctx;
 
     const quoteId = new URL(request.url).searchParams.get('quote_id');
     if (!quoteId) {
@@ -41,7 +39,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Cotización no encontrada' }, { status: 404 });
     }
 
-    if (quote.client_id !== association.client_id) {
+    if (quote.client_id !== association.clientId) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
 

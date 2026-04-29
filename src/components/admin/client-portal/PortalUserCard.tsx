@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, Building2, ChevronDown, ChevronRight, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { User, Mail, ChevronDown, ChevronRight, MoreVertical, Edit, Trash2, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ClientAssociationChips } from './ClientAssociationChips';
-import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
+import { EditPortalMembershipSitesModal } from './EditPortalMembershipSitesModal';
+import type { ClientAssociation, PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 interface PortalUserCardProps {
   user: PortalUser;
@@ -21,6 +23,7 @@ interface PortalUserCardProps {
 
 export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [sitesEdit, setSitesEdit] = useState<ClientAssociation | null>(null);
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Sin nombre';
   const isActive = user.is_active !== false;
 
@@ -54,9 +57,9 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setExpanded(true)}>
               <Edit className="h-4 w-4 mr-2" />
-              Editar
+              Ver detalles y obras
             </DropdownMenuItem>
             <DropdownMenuItem className="text-red-600">
               <Trash2 className="h-4 w-4 mr-2" />
@@ -111,14 +114,38 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
           </div>
           {user.client_associations && user.client_associations.length > 0 && (
             <div>
-              <span className="text-sm text-gray-500 block mb-2">Roles por cliente:</span>
-              <div className="space-y-1">
+              <span className="text-sm text-gray-500 block mb-2">Clientes y alcance de obras</span>
+              <div className="space-y-2">
                 {user.client_associations.map((assoc) => (
-                  <div key={assoc.id} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-700">{assoc.client_name}</span>
-                    <Badge variant="outline" className="text-xs">
-                      {assoc.role_within_client === 'executive' ? 'Ejecutivo' : 'Usuario'}
-                    </Badge>
+                  <div
+                    key={assoc.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-medium text-gray-800 block truncate">
+                        {assoc.client_name}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {assoc.allowed_construction_site_ids?.length
+                          ? `${assoc.allowed_construction_site_ids.length} obra(s) permitida(s)`
+                          : 'Todas las obras'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-xs whitespace-nowrap">
+                        {assoc.role_within_client === 'executive' ? 'Ejecutivo' : 'Usuario'}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 gap-1"
+                        onClick={() => setSitesEdit(assoc)}
+                      >
+                        <MapPin className="h-3.5 w-3.5" />
+                        Obras
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -126,6 +153,21 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
           )}
         </motion.div>
       )}
+
+      {sitesEdit ? (
+        <EditPortalMembershipSitesModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setSitesEdit(null);
+          }}
+          userId={user.id}
+          association={sitesEdit}
+          onSuccess={() => {
+            setSitesEdit(null);
+            onRefresh?.();
+          }}
+        />
+      ) : null}
     </motion.div>
   );
 }

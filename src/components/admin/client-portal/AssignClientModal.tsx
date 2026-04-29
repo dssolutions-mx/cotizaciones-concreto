@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
@@ -33,6 +33,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { clientService } from '@/lib/supabase/clients';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
 
 const assignClientSchema = z.object({
@@ -54,7 +55,7 @@ interface AssignClientModalProps {
 }
 
 // Cache clients list outside component to persist across modal opens/closes
-let cachedClientsForAssign: Array<{ id: string; business_name: string; client_code: string }> | null = null;
+let cachedClientsForAssign: Array<{ id: string; business_name: string; client_code: string | null }> | null = null;
 let clientsCacheTimestampForAssign: number = 0;
 const CLIENTS_CACHE_TTL_FOR_ASSIGN = 5 * 60 * 1000; // 5 minutes
 
@@ -67,7 +68,7 @@ function AssignClientModalComponent({
   triggerRef,
 }: AssignClientModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>(
+  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string | null }>>(
     cachedClientsForAssign || []
   );
   const [loadingClients, setLoadingClients] = useState(false);
@@ -81,6 +82,21 @@ function AssignClientModalComponent({
     defaultValues: {
       role: 'user',
     },
+  });
+
+  const watchedClientId = useWatch({ control: form.control, name: 'clientId' });
+
+  type SitePickState = {
+    allSites: boolean;
+    selectedIds: Set<string>;
+    options: { id: string; name: string }[];
+    loading: boolean;
+  };
+  const [sitePick, setSitePick] = useState<SitePickState>({
+    allSites: true,
+    selectedIds: new Set(),
+    options: [],
+    loading: false,
   });
 
   // Memoize loadClients function
@@ -154,6 +170,12 @@ function AssignClientModalComponent({
         clientId: '',
         role: 'user',
       });
+      setSitePick({
+        allSites: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
       // Restore focus to the trigger button or previously active element
       const elementToFocus = triggerRef || previousActiveElementRef.current;
       if (elementToFocus) {
@@ -164,6 +186,52 @@ function AssignClientModalComponent({
       }
     }
   }, [open, form, loadClients]);
+
+  useEffect(() => {
+    if (!open || !watchedClientId) {
+      setSitePick({
+        allSites: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    setSitePick({
+      allSites: true,
+      selectedIds: new Set(),
+      options: [],
+      loading: true,
+    });
+    clientService
+      .getClientSites(watchedClientId, false, false)
+      .then((sites) => {
+        if (cancelled) return;
+        setSitePick({
+          allSites: true,
+          selectedIds: new Set(),
+          loading: false,
+          options: (sites || []).map((s: { id: string; name: string }) => ({
+            id: s.id,
+            name: s.name,
+          })),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSitePick({
+            allSites: true,
+            selectedIds: new Set(),
+            options: [],
+            loading: false,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, watchedClientId]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -176,17 +244,35 @@ function AssignClientModalComponent({
 
   // Memoize submit handler
   const onSubmit = useCallback(async (data: AssignClientFormData) => {
+    if (
+      !sitePick.allSites &&
+      sitePick.options.length > 0 &&
+      sitePick.selectedIds.size === 0
+    ) {
+      toast({
+        title: 'Obras',
+        description: 'Selecciona al menos una obra o marca Todas las obras.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      const body: Record<string, unknown> = {
+        clientId: data.clientId,
+        role: data.role,
+      };
+      if (!sitePick.allSites && sitePick.selectedIds.size > 0) {
+        body.constructionSiteIds = Array.from(sitePick.selectedIds);
+      }
+
       const response = await fetch(`/api/admin/client-portal-users/${userId}/clients`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          clientId: data.clientId,
-          role: data.role,
-        }),
+        body: JSON.stringify(body),
       });
 
       const result = await response.json();
@@ -204,6 +290,12 @@ function AssignClientModalComponent({
         clientId: '',
         role: 'user',
       });
+      setSitePick({
+        allSites: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -215,7 +307,7 @@ function AssignClientModalComponent({
     } finally {
       setIsSubmitting(false);
     }
-  }, [userId, form, toast, onOpenChange, onSuccess]);
+  }, [userId, form, toast, onOpenChange, onSuccess, sitePick]);
 
   // Memoize available clients
   const availableClients = useMemo(() => {
@@ -261,7 +353,7 @@ function AssignClientModalComponent({
                     ) : (
                       <Select
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
+                        value={field.value || undefined}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Selecciona un cliente" />
@@ -274,7 +366,7 @@ function AssignClientModalComponent({
                           ) : (
                             availableClients.map((client) => (
                               <SelectItem key={client.id} value={client.id}>
-                                {client.business_name} ({client.client_code})
+                                {client.business_name} ({client.client_code ?? '—'})
                               </SelectItem>
                             ))
                           )}
@@ -327,6 +419,58 @@ function AssignClientModalComponent({
                 </FormItem>
               )}
             />
+
+            {watchedClientId && sitePick.options.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="assign-all-sites"
+                    checked={sitePick.allSites}
+                    onCheckedChange={(checked) => {
+                      const on = checked === true;
+                      setSitePick((p) => ({
+                        ...p,
+                        allSites: on,
+                        selectedIds: on ? new Set() : p.selectedIds,
+                      }));
+                    }}
+                  />
+                  <Label htmlFor="assign-all-sites" className="cursor-pointer font-medium">
+                    Todas las obras
+                  </Label>
+                </div>
+                {!sitePick.allSites && (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pl-1">
+                    {sitePick.loading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Cargando obras…
+                      </div>
+                    ) : (
+                      sitePick.options.map((site) => (
+                        <div key={site.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`assign-site-${site.id}`}
+                            checked={sitePick.selectedIds.has(site.id)}
+                            onCheckedChange={(checked) => {
+                              setSitePick((p) => {
+                                const next = new Set(p.selectedIds);
+                                if (checked === true) next.add(site.id);
+                                else next.delete(site.id);
+                                return { ...p, selectedIds: next };
+                              });
+                            }}
+                          />
+                          <Label htmlFor={`assign-site-${site.id}`} className="cursor-pointer text-sm">
+                            {site.name}
+                          </Label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <DialogFooter className="pt-4">
               <Button

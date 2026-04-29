@@ -328,8 +328,9 @@ export default function WeeklyRemisionesReport() {
           day: filters.day,
           includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
           export: true,
+          includeCompliance: true,
         });
-        const buf = await buildHrWeeklyRemisionesExcel(exportData.rows, {
+        const buf = await buildHrWeeklyRemisionesExcel(exportData, {
           startDate: exportData.startDate,
           endDate: exportData.endDate,
           generatedAt: new Date(),

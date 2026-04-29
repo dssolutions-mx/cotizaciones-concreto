@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import type { ClientQualityData, ClientQualitySummary, ClientQualityRemisionData } from '@/types/clientQuality';
 
 export const dynamic = 'force-dynamic';
@@ -19,59 +23,24 @@ export async function GET(request: Request) {
 
     console.log(`[Quality API] Authenticated user: ${user.id}, email: ${user.email}`);
 
-    // Step 2: Get client_id from client_portal_users (multi-user system)
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('client_id, role_within_client, is_active')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+    }
+    const clientId = resolved.ctx.clientId;
+
+    const { data: clientData, error: clientFetchError } = await supabase
+      .from('clients')
+      .select('id, business_name, client_code, rfc')
+      .eq('id', clientId)
       .maybeSingle();
-    
-    if (assocError) {
-      console.error('[Quality API] Error fetching client association:', assocError);
-    } else {
-      console.log(`[Quality API] Client association:`, {
-        clientId: association?.client_id,
-        role: association?.role_within_client,
-        isActive: association?.is_active
-      });
-    }
 
-    let clientId: string | null = null;
-    let client: { id: string; business_name: string; client_code: string; rfc: string } | null = null;
-
-    if (association?.client_id) {
-      clientId = association.client_id;
-      // Fetch client details
-      const { data: clientData } = await supabase
-        .from('clients')
-        .select('id, business_name, client_code, rfc')
-        .eq('id', clientId)
-        .maybeSingle();
-      
-      if (clientData) {
-        client = clientData;
-      }
-    } else {
-      // Fallback to legacy portal_user_id for backward compatibility
-      const { data: legacyClient } = await supabase
-        .from('clients')
-        .select('id, business_name, client_code, rfc')
-        .eq('portal_user_id', user.id)
-        .maybeSingle();
-      
-      if (legacyClient) {
-        clientId = legacyClient.id;
-        client = legacyClient;
-      }
-    }
-
-    if (!client || !clientId) {
-      console.error('[Quality API] Client not found for user:', user.id);
+    if (clientFetchError || !clientData) {
+      console.error('[Quality API] Client not found for user:', user.id, clientFetchError);
       return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
     }
+    const client = clientData;
     console.log(`[Quality API] Client: ${client.business_name} (${clientId})`);
 
     // Diagnostic: Test RLS access by trying to query a single order

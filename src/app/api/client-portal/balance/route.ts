@@ -1,5 +1,49 @@
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+
+/** Matches OrdersList / orderService classification for m³ reporting */
+function isEmptyTruckChargeItem(item: {
+  product_type?: string | null;
+  has_empty_truck_charge?: boolean | null;
+}): boolean {
+  const productType = (item.product_type || '').toString();
+  return (
+    !!item.has_empty_truck_charge ||
+    productType === 'VACÍO DE OLLA' ||
+    productType === 'EMPTY_TRUCK_CHARGE'
+  );
+}
+
+function isPumpServiceItem(item: { product_type?: string | null }): boolean {
+  const productType = (item.product_type || '').toString();
+  return (
+    productType === 'SERVICIO DE BOMBEO' ||
+    productType.toLowerCase().includes('bombeo') ||
+    productType.toLowerCase().includes('pump')
+  );
+}
+
+function concreteVolumeM3ForItem(item: Record<string, unknown>): number {
+  if (isEmptyTruckChargeItem(item) || isPumpServiceItem(item)) return 0;
+  const delivered = Number(item.concrete_volume_delivered) || 0;
+  if (delivered > 0) return delivered;
+  return Number(item.volume) || 0;
+}
+
+function pumpVolumeM3ForItem(item: Record<string, unknown>): number {
+  const delivered = Number(item.pump_volume_delivered) || 0;
+  if (delivered > 0) return delivered;
+  if (item.has_pump_service || isPumpServiceItem(item)) {
+    const pv = Number(item.pump_volume) || 0;
+    if (pv > 0) return pv;
+    if (isPumpServiceItem(item)) return Number(item.volume) || 0;
+  }
+  return 0;
+}
 
 export async function GET(request: Request) {
   try {
@@ -25,37 +69,20 @@ export async function GET(request: Request) {
       daysToFetch = parseInt(daysParam, 10);
     }
 
-    // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check user permissions - require view_prices permission
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client, permissions, client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError) {
-      console.error('Error fetching user permissions:', assocError);
-      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
+    const association = resolved.ctx;
 
-    if (!association) {
-      return NextResponse.json(
-        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
-        { status: 404 }
-      );
-    }
-
-    // Executives always have permission, regular users need explicit permission
-    const isExecutive = association?.role_within_client === 'executive';
-    const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
+    const isExecutive = association.roleWithinClient === 'executive';
+    const hasViewPricesPermission = isExecutive || association.permissions?.view_prices === true;
 
     if (!hasViewPricesPermission) {
       return NextResponse.json(
@@ -64,7 +91,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const clientId = association.client_id;
+    const clientId = association.clientId;
 
     // Fetch all client balances (general + sites) - RLS will filter automatically
     const { data: balances, error: balancesError } = await supabase
@@ -189,7 +216,9 @@ export async function GET(request: Request) {
           try {
             const { data: itemsData, error: itemsError } = await supabase
               .from('order_items')
-              .select('order_id, volume')
+              .select(
+                'order_id, volume, product_type, has_pump_service, has_empty_truck_charge, pump_volume, pump_volume_delivered, concrete_volume_delivered'
+              )
               .in('order_id', batchIds);
 
             if (itemsError) {
@@ -207,16 +236,17 @@ export async function GET(request: Request) {
     }
 
     // Calculate volumes and monetary amounts per construction site
-    const siteVolumes: Record<string, number> = {};
+    const siteConcreteVolumes: Record<string, number> = {};
+    const sitePumpVolumes: Record<string, number> = {};
     const siteMonetaryAmounts: Record<string, number> = {};
-    
-    // Aggregate volumes from order_items by construction site
+
     orderItems.forEach((item: any) => {
       const order = orders?.find(o => o.id === item.order_id);
       if (order && order.construction_site) {
         const site = order.construction_site;
-        const volume = parseFloat(item.volume) || 0;
-        siteVolumes[site] = (siteVolumes[site] || 0) + volume;
+        siteConcreteVolumes[site] =
+          (siteConcreteVolumes[site] || 0) + concreteVolumeM3ForItem(item);
+        sitePumpVolumes[site] = (sitePumpVolumes[site] || 0) + pumpVolumeM3ForItem(item);
       }
     });
 
@@ -229,20 +259,30 @@ export async function GET(request: Request) {
       }
     });
 
-    // Calculate totals for selected date range
-    const totalDeliveredVolume = orderItems.reduce((sum, item) => sum + (parseFloat(item.volume) || 0), 0);
+    // Calculate totals for selected date range (concrete + pumping m³)
+    const totalDeliveredVolume = orderItems.reduce(
+      (sum, item) => sum + concreteVolumeM3ForItem(item) + pumpVolumeM3ForItem(item),
+      0
+    );
     const totalPaid = paymentsInRange?.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) || 0;
     const totalConsumption = orders
       ?.filter(o => ordersWithItems.has(o.id))
       .reduce((sum, o) => sum + (parseFloat(o.final_amount as any) || 0), 0) || 0;
 
     // Format site balances with volumes and monetary amounts
-    const sitesWithVolume = siteBalances.map(balance => ({
-      site_name: balance.construction_site || 'Obra Desconocida',
-      balance: parseFloat(balance.current_balance) || 0,
-      volume: siteVolumes[balance.construction_site || ''] || 0,
-      monetary_amount: siteMonetaryAmounts[balance.construction_site || ''] || 0
-    }));
+    const sitesWithVolume = siteBalances.map(balance => {
+      const siteKey = balance.construction_site || '';
+      const volumeConcrete = siteConcreteVolumes[siteKey] || 0;
+      const volumePumping = sitePumpVolumes[siteKey] || 0;
+      return {
+        site_name: balance.construction_site || 'Obra Desconocida',
+        balance: parseFloat(balance.current_balance) || 0,
+        volume: volumeConcrete + volumePumping,
+        volume_concrete: volumeConcrete,
+        volume_pumping: volumePumping,
+        monetary_amount: siteMonetaryAmounts[siteKey] || 0
+      };
+    });
 
     const responseData = {
       general: {

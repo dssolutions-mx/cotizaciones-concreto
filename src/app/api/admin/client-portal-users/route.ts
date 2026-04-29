@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest, createServiceClient } from '@/lib/supabase/server';
+import { replaceClientPortalMembershipSiteIds } from '@/lib/supabase/portalMembershipSites';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -12,6 +13,8 @@ const createPortalUserSchema = z.object({
   clientIds: z.array(z.string().uuid()).min(1, 'Debe seleccionar al menos un cliente'),
   roles: z.record(z.enum(['executive', 'user'])),
   permissions: z.record(z.record(z.boolean())).optional(),
+  /** Per client_id: assigned construction_site UUIDs. Omit or empty array => all sites for that membership. */
+  constructionSiteIdsByClient: z.record(z.string(), z.array(z.string().uuid())).optional(),
 });
 
 /**
@@ -47,8 +50,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // RLS on client_portal_users only allows self + client-portal executives — not internal staff.
+    // After role check, load listing with service role (same pattern as invite branch below).
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json(
+        { error: 'Error de configuración del servidor' },
+        { status: 500 }
+      );
+    }
+
     // Get all portal users
-    const { data: users, error: usersError } = await supabase
+    const { data: users, error: usersError } = await db
       .from('user_profiles')
       .select('id, email, first_name, last_name, role, is_active, created_at')
       .eq('role', 'EXTERNAL_CLIENT')
@@ -69,7 +84,7 @@ export async function GET(request: NextRequest) {
     const userIds = users.map(u => u.id);
 
     // Get all client associations
-    const { data: associations, error: assocError } = await supabase
+    const { data: associations, error: assocError } = await db
       .from('client_portal_users')
       .select(`
         id,
@@ -95,6 +110,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const assocIds = (associations || []).map((a: { id: string }) => a.id).filter(Boolean);
+    const siteMap = new Map<string, string[]>();
+    if (assocIds.length > 0) {
+      const { data: jrows } = await db
+        .from('client_portal_user_construction_sites')
+        .select('client_portal_user_id, construction_site_id')
+        .in('client_portal_user_id', assocIds);
+      for (const row of jrows || []) {
+        const k = row.client_portal_user_id as string;
+        if (!siteMap.has(k)) siteMap.set(k, []);
+        siteMap.get(k)!.push(row.construction_site_id as string);
+      }
+    }
+
     // Group associations by user
     const associationsByUser = new Map<string, any[]>();
     associations?.forEach((assoc: any) => {
@@ -111,6 +140,7 @@ export async function GET(request: NextRequest) {
         permissions: assoc.permissions || {},
         is_active: assoc.is_active,
         invited_at: assoc.invited_at,
+        allowed_construction_site_ids: siteMap.get(assoc.id) ?? null,
       });
     });
 
@@ -180,7 +210,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { email, firstName, lastName, clientIds, roles, permissions } = validation.data;
+    const { email, firstName, lastName, clientIds, roles, permissions, constructionSiteIdsByClient } =
+      validation.data;
+
+    if (constructionSiteIdsByClient) {
+      for (const [cid, siteIds] of Object.entries(constructionSiteIdsByClient)) {
+        if (!clientIds.includes(cid)) {
+          return NextResponse.json(
+            { error: `constructionSiteIdsByClient contiene cliente no seleccionado: ${cid}` },
+            { status: 400 }
+          );
+        }
+        if (!siteIds?.length) continue;
+        const { count, error: cntErr } = await supabase
+          .from('construction_sites')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', cid)
+          .in('id', siteIds);
+        if (cntErr) {
+          return NextResponse.json({ error: 'Error validando obras' }, { status: 500 });
+        }
+        if ((count ?? 0) !== siteIds.length) {
+          return NextResponse.json(
+            { error: `Una o más obras no pertenecen al cliente ${cid}` },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     // Check if user already exists
     const { data: existingUser } = await supabase
@@ -334,8 +391,8 @@ export async function POST(request: NextRequest) {
         finalPermissions = client?.default_permissions || {};
       }
 
-      // Check if association already exists
-      const { data: existingAssoc } = await supabase
+      // Check if association already exists (service role: RLS only allows portal executives here)
+      const { data: existingAssoc } = await supabaseAdmin
         .from('client_portal_users')
         .select('id')
         .eq('user_id', userId)
@@ -344,7 +401,7 @@ export async function POST(request: NextRequest) {
 
       if (existingAssoc) {
         // Update existing association
-        const { error: updateError } = await supabase
+        const { error: updateError } = await supabaseAdmin
           .from('client_portal_users')
           .update({
             role_within_client: role,
@@ -357,10 +414,19 @@ export async function POST(request: NextRequest) {
           console.error(`Error updating association for client ${clientId}:`, updateError);
         } else {
           clientAssociations.push({ clientId, role });
+          const siteIds = constructionSiteIdsByClient?.[clientId];
+          const { error: siteErr } = await replaceClientPortalMembershipSiteIds(
+            supabaseAdmin,
+            existingAssoc.id,
+            siteIds
+          );
+          if (siteErr) {
+            console.error(`Error updating site assignment for client ${clientId}:`, siteErr);
+          }
         }
       } else {
         // Create new association
-        const { error: insertError } = await supabase
+        const { data: insertedAssoc, error: insertError } = await supabaseAdmin
           .from('client_portal_users')
           .insert({
             user_id: userId,
@@ -370,12 +436,23 @@ export async function POST(request: NextRequest) {
             is_active: true,
             invited_by: user.id,
             invited_at: new Date().toISOString(),
-          });
+          })
+          .select('id')
+          .single();
 
         if (insertError) {
           console.error(`Error creating association for client ${clientId}:`, insertError);
-        } else {
+        } else if (insertedAssoc?.id) {
           clientAssociations.push({ clientId, role });
+          const siteIds = constructionSiteIdsByClient?.[clientId];
+          const { error: siteErr } = await replaceClientPortalMembershipSiteIds(
+            supabaseAdmin,
+            insertedAssoc.id,
+            siteIds
+          );
+          if (siteErr) {
+            console.error(`Error inserting site assignment for client ${clientId}:`, siteErr);
+          }
         }
       }
     }

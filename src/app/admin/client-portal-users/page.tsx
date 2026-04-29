@@ -91,6 +91,7 @@ function ClientPortalUsersContent() {
       
       const response = await retryFetch('/api/admin/client-portal-users', {
         signal: abortControllerRef.current.signal,
+        credentials: 'include',
       }, 3, 1000);
       
       const result = await response.json();
@@ -189,7 +190,9 @@ function ClientPortalUsersContent() {
           <div>
             <h1 className="text-2xl font-bold">Usuarios del Portal de Cliente</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Gestiona usuarios del portal y sus asociaciones con clientes
+              Gestiona usuarios del portal y sus asociaciones con clientes. Para limitar el acceso por obra,
+              abre una tarjeta → <span className="font-medium">Ver detalles y obras</span> → <span className="font-medium">Obras</span> por cada cliente.
+              También puedes hacerlo desde la ficha del cliente (sección Usuarios del Portal).
             </p>
           </div>
           <Button onClick={() => setCreateModalOpen(true)}>

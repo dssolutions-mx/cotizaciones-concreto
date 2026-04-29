@@ -23,6 +23,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { applyStoredPortalClientIdToUrl } from '@/lib/client-portal/portalClientIdUrl';
 import {
   Select,
   SelectContent,
@@ -60,7 +61,10 @@ interface BalanceData {
   sites: Array<{
     site_name: string;
     balance: number;
+    /** Total m³ (concrete + pumping) for the range */
     volume: number;
+    volume_concrete: number;
+    volume_pumping: number;
     monetary_amount: number;
   }>;
   recentPayments: Array<{
@@ -94,7 +98,73 @@ export default function BalancePage() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateRange, setCustomDateRange] = useState<{ from: Date; to: Date } | null>(null);
 
-  // Check permissions
+  useEffect(() => {
+    if (permissionsLoading || !canViewPrices) {
+      return;
+    }
+
+    async function fetchBalance() {
+      setLoading(true);
+      try {
+        // Build URL with date range parameter
+        const url = new URL('/api/client-portal/balance', window.location.origin);
+        
+        if (customDateRange) {
+          // Use custom date range
+          url.searchParams.set('from', customDateRange.from.toISOString());
+          url.searchParams.set('to', customDateRange.to.toISOString());
+        } else if (dateRange !== 'all') {
+          // Use preset days
+          url.searchParams.set('days', dateRange);
+        }
+
+        applyStoredPortalClientIdToUrl(url);
+
+        // Use the dedicated balance API which returns complete financial data
+        const response = await fetch(url.toString());
+        const balanceData = await response.json();
+
+        if (!response.ok) throw new Error(balanceData.error || 'Failed to fetch balance data');
+
+        console.log('Balance data received:', balanceData);
+        const rawSites = balanceData.sites || [];
+        setData({
+          general: {
+            current_balance: balanceData.general?.current_balance || 0,
+            total_delivered: balanceData.general?.total_delivered || 0,
+            total_paid: balanceData.general?.total_paid || 0,
+            total_volume: balanceData.general?.total_volume || 0
+          },
+          sites: rawSites.map((s: Record<string, unknown>) => {
+            const vc = Number(s.volume_concrete) || 0;
+            const vp = Number(s.volume_pumping) || 0;
+            return {
+              site_name: String(s.site_name ?? ''),
+              balance: Number(s.balance) || 0,
+              volume: Number(s.volume) || vc + vp,
+              volume_concrete: vc,
+              volume_pumping: vp,
+              monetary_amount: Number(s.monetary_amount) || 0
+            };
+          }),
+          recentPayments: balanceData.recentPayments || []
+        });
+      } catch (error) {
+        console.error('Error fetching balance:', error);
+        setData({
+          general: { current_balance: 0, total_delivered: 0, total_paid: 0, total_volume: 0 },
+          sites: [],
+          recentPayments: []
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchBalance();
+  }, [dateRange, customDateRange, permissionsLoading, canViewPrices]);
+
+  // Check permissions (after all hooks — see Rules of Hooks)
   if (permissionsLoading) {
     return <ClientPortalLoader message="Verificando permisos..." />;
   }
@@ -113,54 +183,6 @@ export default function BalancePage() {
       </div>
     );
   }
-
-  useEffect(() => {
-    async function fetchBalance() {
-      setLoading(true);
-      try {
-        // Build URL with date range parameter
-        const url = new URL('/api/client-portal/balance', window.location.origin);
-        
-        if (customDateRange) {
-          // Use custom date range
-          url.searchParams.set('from', customDateRange.from.toISOString());
-          url.searchParams.set('to', customDateRange.to.toISOString());
-        } else if (dateRange !== 'all') {
-          // Use preset days
-          url.searchParams.set('days', dateRange);
-        }
-        
-        // Use the dedicated balance API which returns complete financial data
-        const response = await fetch(url.toString());
-        const balanceData = await response.json();
-
-        if (!response.ok) throw new Error(balanceData.error || 'Failed to fetch balance data');
-
-        console.log('Balance data received:', balanceData);
-        setData({
-          general: {
-            current_balance: balanceData.general?.current_balance || 0,
-            total_delivered: balanceData.general?.total_delivered || 0,
-            total_paid: balanceData.general?.total_paid || 0,
-            total_volume: balanceData.general?.total_volume || 0
-          },
-          sites: balanceData.sites || [],
-          recentPayments: balanceData.recentPayments || []
-        });
-      } catch (error) {
-        console.error('Error fetching balance:', error);
-        setData({
-          general: { current_balance: 0, total_delivered: 0, total_paid: 0, total_volume: 0 },
-          sites: [],
-          recentPayments: []
-        });
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchBalance();
-  }, [dateRange, customDateRange]);
 
   const handleApplyCustomDateRange = (range: { from: Date; to: Date }) => {
     setCustomDateRange(range);
@@ -386,12 +408,31 @@ export default function BalancePage() {
                       </div>
                       <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
                         <div>
-                          <p className="text-caption text-label-tertiary mb-1">
+                          <p className="text-caption text-label-tertiary mb-2">
                             Volumen Entregado
                           </p>
-                          <p className="text-callout font-semibold text-label-secondary">
-                            {site.volume.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³
-                          </p>
+                          <dl className="space-y-1.5">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <dt className="text-caption text-label-tertiary shrink-0">Concreto</dt>
+                              <dd className="text-callout font-semibold text-label-secondary tabular-nums">
+                                {site.volume_concrete.toLocaleString('es-MX', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                m³
+                              </dd>
+                            </div>
+                            <div className="flex items-baseline justify-between gap-2">
+                              <dt className="text-caption text-label-tertiary shrink-0">Bombeo</dt>
+                              <dd className="text-callout font-semibold text-label-secondary tabular-nums">
+                                {site.volume_pumping.toLocaleString('es-MX', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}{' '}
+                                m³
+                              </dd>
+                            </div>
+                          </dl>
                         </div>
                         <div>
                           <p className="text-caption text-label-tertiary mb-1">

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -45,6 +45,13 @@ export async function GET(
       );
     }
 
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+    }
+
     // Get user
     const { data: portalUser, error: userError } = await supabase
       .from('user_profiles')
@@ -60,8 +67,8 @@ export async function GET(
       );
     }
 
-    // Get client associations
-    const { data: associations, error: assocError } = await supabase
+    // Get client associations (RLS blocks internal staff on client_portal_users — use service role)
+    const { data: associations, error: assocError } = await db
       .from('client_portal_users')
       .select(`
         id,
@@ -245,8 +252,15 @@ export async function DELETE(
       );
     }
 
-    // Deactivate all client associations
-    const { error: assocError } = await supabase
+    let db;
+    try {
+      db = createServiceClient();
+    } catch {
+      return NextResponse.json({ error: 'Error de configuración del servidor' }, { status: 500 });
+    }
+
+    // Deactivate all client associations (service role: internal staff are not client executives in RLS)
+    const { error: assocError } = await db
       .from('client_portal_users')
       .update({ is_active: false })
       .eq('user_id', userId);

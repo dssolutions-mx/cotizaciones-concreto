@@ -21,14 +21,11 @@ import { Button } from '@/components/ui/button';
 import { DataList } from '@/components/ui/DataList';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-// Helper to parse date string (YYYY-MM-DD) without timezone conversion
-const parseLocalDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split('-').map(Number);
-  return new Date(year, month - 1, day);
-};
+import { parseLocalDate } from '@/lib/parseLocalDate';
 
 function getVatRateFromOrder(order: {
   plant?: { business_unit?: { vat_rate?: number } | { vat_rate?: number }[] | null } | null;
@@ -238,7 +235,7 @@ export default function OrderDetailPage() {
     async function fetchOrder() {
       try {
         setLoadingStage('order');
-        const response = await fetch(`/api/client-portal/orders/${params.id}`);
+        const response = await fetch(appendPortalClientId(`/api/client-portal/orders/${params.id}`));
         const result = await response.json();
 
         if (!response.ok) {

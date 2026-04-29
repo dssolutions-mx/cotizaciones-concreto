@@ -1,30 +1,27 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 
 export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
-    // Auth
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Resolve client via client_portal_users table (works for both executives and secondary users)
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError || !association?.client_id) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
 
-    const clientId = association.client_id;
+    const { ctx } = resolved;
+    const clientId = ctx.clientId;
 
     const { data, error } = await supabase
       .from('construction_sites')
@@ -37,8 +34,12 @@ export async function GET(request: Request) {
     }
 
     let sites = data || [];
+    if (ctx.sitesRestricted && ctx.allowedSiteIds?.length) {
+      const allow = new Set(ctx.allowedSiteIds);
+      sites = sites.filter((s) => allow.has(s.id));
+    }
+
     if (!sites || sites.length === 0) {
-      // Fallback to distinct construction_site names from product_prices
       const { data: prices, error: pricesError } = await supabase
         .from('product_prices')
         .select('construction_site')
@@ -51,8 +52,17 @@ export async function GET(request: Request) {
         return NextResponse.json({ sites: [] });
       }
 
-      const names = Array.from(new Set((prices || []).map(p => p.construction_site).filter(Boolean)));
-      sites = names.map((name: any) => ({ id: String(name), name: String(name) }));
+      const names = Array.from(new Set((prices || []).map((p) => p.construction_site).filter(Boolean)));
+      let fallback = names.map((name: unknown) => ({ id: String(name), name: String(name) }));
+      if (ctx.sitesRestricted && ctx.allowedSiteIds?.length) {
+        const { data: allowedRows } = await supabase
+          .from('construction_sites')
+          .select('id, name')
+          .in('id', ctx.allowedSiteIds);
+        const allowedNames = new Set((allowedRows || []).map((r) => r.name));
+        fallback = fallback.filter((f) => allowedNames.has(f.name));
+      }
+      sites = fallback;
     }
 
     return NextResponse.json({ sites });
@@ -61,5 +71,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-
-

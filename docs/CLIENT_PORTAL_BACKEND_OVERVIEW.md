@@ -6,14 +6,14 @@ This document summarizes the backend changes required to support the external cl
 
 ## 1. New Data Model Elements
 
-- **`user_profiles.role` constraint update**
+- `**user_profiles.role` constraint update**
   - Added `EXTERNAL_CLIENT` to the allowed roles list.
   - Ensures portal-only users can exist without impacting legacy authorization logic.
-- **`clients.portal_user_id` column**
+- `**clients.portal_user_id` column**
   - Type `uuid`, references `public.user_profiles(id)` with `ON DELETE SET NULL`.
   - Links each client record to the portal user that represents them.
   - Indexed via `idx_clients_portal_user` for fast lookup.
-- **`clients.is_portal_enabled` flag**
+- `**clients.is_portal_enabled` flag**
   - Default `false`; use this to control rollouts per client.
   - RLS logic verifies both linkage and flag.
 
@@ -21,9 +21,20 @@ This document summarizes the backend changes required to support the external cl
 
 1. Create a `user_profiles` record (and Supabase auth user) with `role = 'EXTERNAL_CLIENT'`.
 2. Update the corresponding `clients` row:
-   - Set `portal_user_id` to the new profile id.
-   - Set `is_portal_enabled = true`.
+  - Set `portal_user_id` to the new profile id.
+  - Set `is_portal_enabled = true`.
 3. Share portal credentials with the client. External user access is scoped entirely by RLS (see below).
+
+---
+
+## 1b. Per-membership construction site scope
+
+- Table `**client_portal_user_construction_sites`**: links a row in `**client_portal_users**` (membership) to `**construction_sites.id**`. Integrity is enforced in the database (site must belong to the same `client_id` as the membership).
+- **Semantics:** If a membership has **no** junction rows, that user may see **all** sites for that client (backward compatible). If it has **one or more** rows, access is **restricted** to those site IDs (RLS and Next.js API helpers align on this).
+- **API contract:** When a user has **more than one** active `client_portal_users` row, portal routes require an explicit `**client_id`** (query string `**?client_id=**` or header `**x-portal-client-id**`). The app stores the chosen client in `**localStorage**` key `portal_client_id` and appends it to fetches via `appendPortalClientId` (`src/lib/client-portal/portalClientIdUrl.ts`). Deep links can set the client with `**?client_id=**` on any portal URL (`ClientPortalClientIdHydrator`).
+- `**GET /api/client-portal/me/role-and-permissions**` returns `client_id`, `allowed_construction_site_ids` (null = unrestricted), and `sites_restricted`.
+- **Admin UI (rol interno `EXECUTIVE`):** en `**/admin/client-portal-users`**, expande la tarjeta del usuario (**Ver detalles y obras**) y usa **Obras** por cliente; o en la **ficha del cliente** → sección **Usuarios del Portal** → **Obras**.
+- **Portal (ejecutivo de cliente, `EXTERNAL_CLIENT` + `role_within_client = executive`):** en **`/client-portal/team`**, columna **Obras** y menú **Obras permitidas** por miembro. APIs: `GET /api/client-portal/team/construction-sites-options`, `PATCH /api/client-portal/team/[userId]/construction-sites` (cuerpo `construction_site_ids`: vacío = todas las obras; lista = restringido).
 
 ---
 
@@ -63,6 +74,7 @@ $$;
 ```
 
 **Key Notes**
+
 - Both functions run on the `public` schema and never expose other clients’ data.
 - `get_user_client_id()` returns `NULL` for internal users or disabled portal accounts.
 - Frontend services can rely on existing Supabase JS client calls; these functions are only used server-side in policies.
@@ -71,16 +83,18 @@ $$;
 
 ## 3. Row-Level Security Matrix
 
-| Table | Policy | Access Granted |
-|-------|--------|----------------|
-| `orders` | `external_client_orders_read` | Portal user reads own orders via `client_id` match. |
-| `remisiones` | `external_client_remisiones_read` | Delivery tickets tied to their orders. |
-| `client_balances` | `external_client_balances_read` | Balance summary for the linked client. |
-| `muestreos` | `external_client_muestreos_read` | Sampling records only for remisiones belonging to the client. |
-| `muestras` | `external_client_muestras_read` | Lab samples that originate from the client's muestreos. |
-| `ensayos` | `external_client_ensayos_read` | Test results derived from the client’s samples. |
-| `recipes` | `external_client_recipes_read` | Recipe metadata referenced by delivered remisiones. |
+
+| Table                 | Policy                                              | Access Granted                                                    |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| `orders`              | `external_client_orders_read`                       | Portal user reads own orders via `client_id` match.               |
+| `remisiones`          | `external_client_remisiones_read`                   | Delivery tickets tied to their orders.                            |
+| `client_balances`     | `external_client_balances_read`                     | Balance summary for the linked client.                            |
+| `muestreos`           | `external_client_muestreos_read`                    | Sampling records only for remisiones belonging to the client.     |
+| `muestras`            | `external_client_muestras_read`                     | Lab samples that originate from the client's muestreos.           |
+| `ensayos`             | `external_client_ensayos_read`                      | Test results derived from the client’s samples.                   |
+| `recipes`             | `external_client_recipes_read`                      | Recipe metadata referenced by delivered remisiones.               |
 | `material_quantities` | `material_quantities_hierarchical_access` (updated) | External clients blocked; internal hierarchical access unchanged. |
+
 
 ### Adjustments to Existing Policies
 
@@ -93,27 +107,32 @@ $$;
 ## 4. Frontend & Service Contract
 
 ### Auth Expectations
+
 - Portal routes must verify `profile.role === 'EXTERNAL_CLIENT'` before rendering content (already scaffolded in `ClientPortalGuard`).
 - Logging out should revoke the Supabase session normally; no extra backend steps required.
 
 ### Data Fetching Tips
-- All Supabase queries for portal views can use simple `.from('<table>').select(...)` calls—RLS handles scoping.
+
+- All Supabase queries for portal views can use simple `.from('<table>').select(...)` calls—RLS handles scoping (including per-site restrictions when the junction table is used).
 - Prefer `count` or aggregate queries directly where possible (orders count, volume totals, etc.) to minimize client-side filtering.
 - For rendimiento volumétrico calculations, rely on `remisiones` and `ensayos` data returned through RLS or request backend aggregates if performance becomes an issue.
+- **Multi-client users:** pass `client_id` on portal API requests as documented in §1b; the shared resolver is `resolvePortalContext` (`src/lib/client-portal/resolvePortalContext.ts`).
 
 ---
 
 ## 5. Testing & Validation
 
 ### Scenarios to Cover
+
 1. **Positive access**: External client sees only their own orders, remisiones, balances, quality data.
 2. **Cross-client isolation**: A second external client cannot view data belonging to the first.
 3. **Material compositions blocked**: Attempting to read `material_quantities` as external client should return empty set or error.
 4. **Disabled portal**: If `is_portal_enabled = false`, the user receives zero rows everywhere.
 
 ### Tools
+
 - Use Supabase key rotation or service-role tokens (not anon) to seed test users quickly.
-- Automated tests can extend the existing security test suite (see `/tests/security/rls-policies.test.ts`).
+- Run the lightweight portal scope unit script: `npx tsx tests/security/portal-site-scope.test.ts`.
 
 ---
 
@@ -158,12 +177,3 @@ WHERE id = '00000000-0000-0000-0000-000000000000';
 - **Support & Ops**: Prepare client onboarding scripts and documentation referencing this file.
 
 For questions or edge cases, ping Team A (Backend & Security) in the shared channel.
-
-
-
-
-
-
-
-
-

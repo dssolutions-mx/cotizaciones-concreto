@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 
 type ProductPriceRow = {
   quote_id: string | null;
@@ -58,30 +62,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client, permissions, client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError) {
-      console.error('Error fetching user permissions:', assocError);
-      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
+    const association = resolved.ctx;
 
-    if (!association) {
-      return NextResponse.json(
-        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
-        { status: 404 }
-      );
-    }
-
-    const isExecutive = association?.role_within_client === 'executive';
-    const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
-    const hasCreateOrdersPermission = isExecutive || association?.permissions?.create_orders === true;
+    const isExecutive = association.roleWithinClient === 'executive';
+    const hasViewPricesPermission = isExecutive || association.permissions?.view_prices === true;
+    const hasCreateOrdersPermission = isExecutive || association.permissions?.create_orders === true;
 
     if (!hasCreateOrdersPermission) {
       return NextResponse.json(
@@ -98,7 +88,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ products: [] });
     }
 
-    const clientId = association.client_id;
+    if (association.sitesRestricted && association.allowedSiteIds?.length) {
+      const { data: siteRow } = await supabase
+        .from('construction_sites')
+        .select('id')
+        .eq('client_id', association.clientId)
+        .eq('name', site)
+        .in('id', association.allowedSiteIds)
+        .maybeSingle();
+      if (!siteRow) {
+        return NextResponse.json({ error: 'Obra no permitida para tu cuenta' }, { status: 403 });
+      }
+    }
+
+    const clientId = association.clientId;
 
     const { data: activePricesRaw, error: pricesError } = await supabase
       .from('product_prices')

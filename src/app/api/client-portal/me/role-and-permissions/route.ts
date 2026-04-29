@@ -1,69 +1,44 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+  resolvePortalContext,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/client-portal/me/role-and-permissions
- * Gets the current user's role and permissions within their client organization
+ * Gets the current user's role and permissions within their client organization.
+ * Optional: ?client_id=... or header x-portal-client-id when user has multiple clients.
  */
 export async function GET(request: NextRequest) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
-    // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's client portal association(s)
-    // For MVP, we'll use the first active association
-    const { data: association, error: assocError } = await supabase
-      .from('client_portal_users')
-      .select('role_within_client, permissions, client_id')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-
-    if (assocError) {
-      console.error('Error fetching user association:', assocError);
-      return NextResponse.json(
-        { error: 'Failed to fetch user role' },
-        { status: 500 }
-      );
+    const clientIdParam = getOptionalPortalClientIdFromRequest(request);
+    const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
     }
 
-    if (!association) {
-      // User is not associated with any client yet
-      // This might happen for newly created users
-      return NextResponse.json({
-        role_within_client: 'user',
-        permissions: {
-          create_orders: false,
-          view_orders: true,
-          view_prices: false,
-          view_quality_data: false,
-          bypass_executive_approval: false,
-          manage_team: false,
-          approve_orders: false,
-        },
-        client_id: null,
-      });
-    }
+    const { ctx } = resolved;
 
     return NextResponse.json({
-      role_within_client: association.role_within_client,
-      permissions: association.permissions,
-      client_id: association.client_id,
+      role_within_client: ctx.roleWithinClient,
+      permissions: ctx.permissions,
+      client_id: ctx.clientId,
+      membership_id: ctx.membershipId,
+      allowed_construction_site_ids: ctx.allowedSiteIds,
+      sites_restricted: ctx.sitesRestricted,
     });
   } catch (error) {
     console.error('Role and permissions API error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

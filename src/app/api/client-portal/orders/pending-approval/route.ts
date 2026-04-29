@@ -1,4 +1,7 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import {
+  getOptionalPortalClientIdFromRequest,
+} from '@/lib/client-portal/resolvePortalContext';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -48,7 +51,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all client IDs where user is executive
-    const clientIds = clientAssociations.map(assoc => assoc.client_id);
+    let clientIds = clientAssociations.map((assoc) => assoc.client_id);
+
+    const clientIdFilter = getOptionalPortalClientIdFromRequest(request);
+    if (clientIdFilter) {
+      if (!clientIds.includes(clientIdFilter)) {
+        return NextResponse.json({ error: 'client_id is not an executive client for this user' }, { status: 403 });
+      }
+      clientIds = [clientIdFilter];
+    }
 
     // Get all orders pending approval for these clients
     const { data: pendingOrders, error: ordersError } = await supabase
