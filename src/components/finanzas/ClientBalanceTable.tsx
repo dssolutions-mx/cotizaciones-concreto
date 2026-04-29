@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
@@ -21,7 +21,9 @@ import {
   InfoIcon,
   DollarSign,
   Eye,
-  Edit3
+  Edit3,
+  User,
+  Phone,
 } from 'lucide-react';
 import { financialService } from '@/lib/supabase/financial';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
@@ -52,11 +54,35 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { Checkbox } from "@/components/ui/checkbox";
-import { User, Phone } from "lucide-react";
+import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
 import { toast } from "sonner";
+import type { ConstructionSite } from '@/types/client';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { paymentNeedsExplicitConstructionSite } from '@/lib/finanzas/paymentConstructionSite';
 
 const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
-import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
+
+/** Matches PaymentForm — Radix Select cannot use empty string as a selectable value for “pick obra”. */
+const SITE_SELECT_PLACEHOLDER = '__none__';
+
+/** Match client_payments row to selected obra / general (aligned with API storage). */
+function paymentMatchesConstructionSelection(
+  paymentSite: string | null | undefined,
+  selected: string
+): boolean {
+  const sel = selected.trim();
+  if (sel === 'general') {
+    const n = (paymentSite ?? '').trim().toLowerCase();
+    return n === '' || n === 'general';
+  }
+  return (paymentSite ?? '').trim() === sel;
+}
 
 interface ClientBalance {
   client_id: string;
@@ -90,6 +116,7 @@ const paymentFormSchema = z.object({
   reference: z.string().optional(),
   notes: z.string().optional(),
   verification_call_confirmed: z.boolean().optional(),
+  construction_site: z.string().optional(),
 }).refine(
   (data) => {
     if (isCashPayment(data.payment_method)) {
@@ -113,6 +140,26 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
   const [isBalanceAdjustmentModalOpen, setIsBalanceAdjustmentModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientSites, setClientSites] = useState<any[]>([]);
+  const [paymentModalSites, setPaymentModalSites] = useState<ConstructionSite[]>([]);
+  const [paymentSitesLoading, setPaymentSitesLoading] = useState(false);
+  const [paymentBalanceGeneral, setPaymentBalanceGeneral] = useState<number | null>(null);
+  const [paymentBalanceBySiteName, setPaymentBalanceBySiteName] = useState<Record<string, number>>({});
+  const [paymentRecentHistory, setPaymentRecentHistory] = useState<
+    {
+      id: string;
+      amount: number;
+      payment_date: string | null;
+      payment_method: string;
+      construction_site: string | null;
+      reference_number?: string | null;
+    }[]
+  >([]);
+
+  const namedPaymentSites = useMemo(
+    () => paymentModalSites.filter((s) => s?.name?.trim()),
+    [paymentModalSites]
+  );
+  const paymentNeedsExplicitObra = paymentNeedsExplicitConstructionSite(paymentModalSites);
 
   const daysSince = (dateStr: string | null) => {
     if (!dateStr) return null;
@@ -130,8 +177,44 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       reference: "",
       notes: "",
       verification_call_confirmed: false,
+      construction_site: 'general',
     },
   });
+
+  const watchedConstructionSite = paymentForm.watch('construction_site');
+
+  const paymentContextForSelection = useMemo(() => {
+    const raw = watchedConstructionSite?.trim() ?? '';
+    if (!raw || (paymentNeedsExplicitObra && !raw)) {
+      return {
+        showPanel: false as const,
+        balance: null as number | null,
+        activity: [] as typeof paymentRecentHistory,
+      };
+    }
+
+    let balance: number | null;
+    if (raw === 'general') {
+      balance = paymentBalanceGeneral;
+    } else {
+      balance =
+        paymentBalanceBySiteName[raw] !== undefined
+          ? paymentBalanceBySiteName[raw]
+          : 0;
+    }
+
+    const activity = paymentRecentHistory
+      .filter((p) => paymentMatchesConstructionSelection(p.construction_site, raw))
+      .slice(0, 6);
+
+    return { showPanel: true as const, balance, activity };
+  }, [
+    watchedConstructionSite,
+    paymentNeedsExplicitObra,
+    paymentBalanceGeneral,
+    paymentBalanceBySiteName,
+    paymentRecentHistory,
+  ]);
 
   // Fetch client balances if not provided
   useEffect(() => {
@@ -209,11 +292,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       <ArrowDown className="ml-1 h-4 w-4" />;
   };
 
-  // Open payment modal for a specific client
-  const openPaymentModal = (client: ClientBalance) => {
-    setSelectedClient(client);
-    setIsPaymentModalOpen(true);
-    // Reset form when opening modal
+  const resetPaymentFormDefaults = useCallback(() => {
     paymentForm.reset({
       amount: "",
       payment_date: new Date().toISOString().split('T')[0],
@@ -221,7 +300,71 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       reference: "",
       notes: "",
       verification_call_confirmed: false,
+      construction_site: 'general',
     });
+  }, [paymentForm]);
+
+  // Open payment modal for a specific client (loads obras — same rules as PaymentForm / POST API)
+  const openPaymentModal = async (client: ClientBalance) => {
+    setSelectedClient(client);
+    setPaymentModalSites([]);
+    setPaymentBalanceGeneral(null);
+    setPaymentBalanceBySiteName({});
+    setPaymentRecentHistory([]);
+    setIsPaymentModalOpen(true);
+    resetPaymentFormDefaults();
+    setPaymentSitesLoading(true);
+    try {
+      const { clientService } = await import('@/lib/supabase/clients');
+      const sites = await clientService.getClientSites(client.client_id);
+      setPaymentModalSites(sites);
+      const named = sites.filter((s) => s?.name?.trim());
+
+      try {
+        const [{ generalBalance, siteBalances }, recentPayments] = await Promise.all([
+          financialService.getAllClientBalances(client.client_id),
+          financialService.getClientPaymentHistory(client.client_id, 40),
+        ]);
+
+        setPaymentBalanceGeneral(
+          generalBalance?.current_balance !== undefined && generalBalance?.current_balance !== null
+            ? Number(generalBalance.current_balance)
+            : null
+        );
+        const byName: Record<string, number> = {};
+        for (const row of siteBalances ?? []) {
+          const name = row.construction_site?.trim();
+          if (name) byName[name] = Number(row.current_balance ?? 0);
+        }
+        setPaymentBalanceBySiteName(byName);
+        setPaymentRecentHistory(
+          (recentPayments ?? []).map((p) => ({
+            id: p.id,
+            amount: p.amount,
+            payment_date: p.payment_date,
+            payment_method: p.payment_method,
+            construction_site: p.construction_site ?? null,
+            reference_number: p.reference_number,
+          }))
+        );
+      } catch (snapshotErr) {
+        console.error('Error loading balance snapshot for payment modal:', snapshotErr);
+      }
+
+      if (named.length === 1) {
+        paymentForm.setValue('construction_site', named[0].name);
+      } else if (named.length > 1) {
+        paymentForm.setValue('construction_site', '');
+      } else {
+        paymentForm.setValue('construction_site', 'general');
+      }
+    } catch (error) {
+      console.error('Error loading client sites for payment:', error);
+      toast.error('No se pudieron cargar las obras del cliente');
+      setPaymentModalSites([]);
+    } finally {
+      setPaymentSitesLoading(false);
+    }
   };
 
   // Handle setting full balance amount
@@ -240,9 +383,28 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
   // Handle payment submission
   const onSubmitPayment = async (values: z.infer<typeof paymentFormSchema>) => {
     if (!selectedClient) return;
-    
+
+    if (paymentNeedsExplicitObra) {
+      const sel = values.construction_site?.trim();
+      if (!sel || sel === 'general') {
+        toast.error(
+          'Seleccione la obra a la que aplica este pago (cliente con varias obras).'
+        );
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
+      let constructionSite: string;
+      if (paymentNeedsExplicitObra) {
+        constructionSite = values.construction_site!.trim();
+      } else {
+        const sel = values.construction_site?.trim();
+        constructionSite =
+          !sel || sel === 'general' ? 'general' : sel;
+      }
+
       // Convert amount string to number
       const paymentData: Record<string, unknown> = {
         client_id: selectedClient.client_id,
@@ -251,7 +413,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
         payment_method: values.payment_method,
         reference_number: values.reference || null,
         notes: values.notes || null,
-        construction_site: null, // Payment applied to general balance
+        construction_site: constructionSite === 'general' ? 'general' : constructionSite,
       };
       if (isCashPayment(values.payment_method)) {
         paymentData.verification_call_confirmed = true;
@@ -594,8 +756,20 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
       </Dialog>
 
       {/* Payment Registration Modal */}
-      <Dialog open={isPaymentModalOpen} onOpenChange={setIsPaymentModalOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog
+        open={isPaymentModalOpen}
+        onOpenChange={(open) => {
+          setIsPaymentModalOpen(open);
+          if (!open) {
+            setPaymentModalSites([]);
+            setPaymentSitesLoading(false);
+            setPaymentBalanceGeneral(null);
+            setPaymentBalanceBySiteName({});
+            setPaymentRecentHistory([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Registrar Pago</DialogTitle>
             <DialogDescription>
@@ -674,6 +848,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                       <select
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                         {...field}
+                        disabled={isSubmitting || paymentSitesLoading}
                       >
                         <option value="Transferencia">Transferencia</option>
                         <option value="Efectivo">Efectivo</option>
@@ -685,6 +860,150 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                   </FormItem>
                 )}
               />
+
+              {paymentSitesLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando obras del cliente…</p>
+              ) : (
+                <FormField
+                  control={paymentForm.control}
+                  name="construction_site"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        {paymentNeedsExplicitObra ? 'Obra (obligatorio)' : 'Obra'}
+                      </FormLabel>
+                      <Select
+                        value={
+                          paymentNeedsExplicitObra
+                            ? !field.value?.trim()
+                              ? SITE_SELECT_PLACEHOLDER
+                              : field.value
+                            : field.value
+                        }
+                        onValueChange={(v) => {
+                          if (v === SITE_SELECT_PLACEHOLDER) return;
+                          field.onChange(v);
+                        }}
+                        onOpenChange={(open) => {
+                          if (!open) field.onBlur();
+                        }}
+                        disabled={isSubmitting}
+                      >
+                        <FormControl>
+                          <SelectTrigger ref={field.ref}>
+                            <SelectValue
+                              placeholder={
+                                paymentNeedsExplicitObra
+                                  ? 'Seleccione la obra…'
+                                  : 'Pago general u obra específica'
+                              }
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {paymentNeedsExplicitObra ? (
+                            <>
+                              <SelectItem
+                                value={SITE_SELECT_PLACEHOLDER}
+                                disabled
+                                className="text-muted-foreground"
+                              >
+                                — Seleccione obra —
+                              </SelectItem>
+                              {namedPaymentSites.map((site) => (
+                                <SelectItem key={site.id} value={site.name}>
+                                  {site.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          ) : namedPaymentSites.length === 1 ? (
+                            namedPaymentSites.map((site) => (
+                              <SelectItem key={site.id} value={site.name}>
+                                {site.name}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <>
+                              <SelectItem value="general">— Pago general —</SelectItem>
+                              {namedPaymentSites.map((site) => (
+                                <SelectItem key={site.id} value={site.name}>
+                                  {site.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      {paymentNeedsExplicitObra && (
+                        <p className="text-xs text-muted-foreground">
+                          Este cliente tiene varias obras: indique a cuál aplica el pago para que el saldo por obra coincida con el saldo general.
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {!paymentSitesLoading && paymentContextForSelection.showPanel && (
+                <div className="rounded-md border border-border bg-muted/30 p-3 space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm text-muted-foreground">Saldo en esta selección</span>
+                    <span
+                      className={`text-base font-semibold tabular-nums ${
+                        paymentContextForSelection.balance !== null &&
+                        paymentContextForSelection.balance > 0
+                          ? 'text-red-600'
+                          : paymentContextForSelection.balance !== null &&
+                              paymentContextForSelection.balance < 0
+                            ? 'text-green-600'
+                            : 'text-foreground'
+                      }`}
+                    >
+                      {paymentContextForSelection.balance === null &&
+                      watchedConstructionSite?.trim() === 'general'
+                        ? '—'
+                        : formatCurrency(paymentContextForSelection.balance ?? 0)}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                      Actividad reciente (pagos en esta obra)
+                    </p>
+                    {paymentContextForSelection.activity.length === 0 ? (
+                      <p className="text-xs text-muted-foreground leading-snug">
+                        No hay pagos recientes atribuidos a esta obra en los últimos movimientos del cliente.
+                      </p>
+                    ) : (
+                      <ul className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                        {paymentContextForSelection.activity.map((p) => (
+                          <li
+                            key={p.id}
+                            className="flex justify-between gap-3 text-xs border-b border-border/60 pb-2 last:border-0 last:pb-0"
+                          >
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="text-muted-foreground">
+                                {p.payment_date
+                                  ? formatDate(p.payment_date)
+                                  : 'Sin fecha'}{' '}
+                                · {p.payment_method}
+                              </div>
+                              {p.reference_number ? (
+                                <div className="truncate text-[11px] text-muted-foreground">
+                                  Ref. {p.reference_number}
+                                </div>
+                              ) : null}
+                            </div>
+                            <span className="font-medium tabular-nums shrink-0">
+                              {formatCurrency(p.amount)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
               
               <FormField
                 control={paymentForm.control}
@@ -752,7 +1071,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances, extr
                 </Button>
                 <Button 
                   type="submit" 
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || paymentSitesLoading}
                 >
                   {isSubmitting ? "Registrando..." : "Registrar Pago"}
                 </Button>

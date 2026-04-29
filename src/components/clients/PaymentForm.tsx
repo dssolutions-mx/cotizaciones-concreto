@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ConstructionSite } from '@/types/client';
 import { formatCurrency } from '@/lib/utils'; // Import formatter
 import { clientService } from '@/lib/supabase/clients';
@@ -20,8 +20,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // 
 import { Badge } from "@/components/ui/badge"; // For confirmation view
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import {
+  paymentNeedsExplicitConstructionSite,
+  countNamedConstructionSites,
+} from '@/lib/finanzas/paymentConstructionSite';
 
 const isCashPayment = (method: string) => method === 'CASH' || method === 'Efectivo';
+
+const SITE_SELECT_PLACEHOLDER = '__none__';
 
 // Define the component props interface
 export interface PaymentFormProps {
@@ -77,27 +83,38 @@ export default function PaymentForm({
     const local = new Date(d.getTime() - off * 60_000);
     return local.toISOString().slice(0, 10);
   };
+  const namedSites = useMemo(
+    () => sites.filter((s) => s?.name?.trim()),
+    [sites]
+  );
+  const needsExplicitSite = paymentNeedsExplicitConstructionSite(sites);
+  const nSites = countNamedConstructionSites(sites);
+
   const [paymentData, setPaymentData] = useState({
     amount: '',
     payment_method: 'TRANSFER',
     reference_number: '',
     notes: '',
     payment_date: toLocalISODate(new Date()),
-    // Initialize with default if provided, otherwise "general" for General Payment
-    construction_site: defaultConstructionSite || 'general', 
+    construction_site: defaultConstructionSite || 'general',
   });
 
-  // Effect to set default site when component mounts or default changes
+  // Align obra selection with API rules: multi-obra → must pick one; single → that obra; none → general
   useEffect(() => {
-    if (defaultConstructionSite) {
-      // Check if the default site name exists in the available sites
-      const siteExists = sites.some(site => site.name === defaultConstructionSite);
-      setPaymentData(prev => ({
-        ...prev,
-        construction_site: siteExists ? defaultConstructionSite : 'general' 
-      }));
-    }
-  }, [defaultConstructionSite, sites]);
+    const named = sites.filter((s) => s?.name?.trim());
+    setPaymentData((prev) => {
+      if (named.length === 1) {
+        return { ...prev, construction_site: named[0].name };
+      }
+      if (named.length === 0) {
+        return { ...prev, construction_site: 'general' };
+      }
+      if (defaultConstructionSite && named.some((s) => s.name === defaultConstructionSite)) {
+        return { ...prev, construction_site: defaultConstructionSite };
+      }
+      return { ...prev, construction_site: '' };
+    });
+  }, [sites, defaultConstructionSite]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -126,6 +143,13 @@ export default function PaymentForm({
       toast.error('La fecha del pago es obligatoria');
       return;
     }
+    if (needsExplicitSite) {
+      const sel = paymentData.construction_site?.trim();
+      if (!sel || sel === 'general') {
+        toast.error('Seleccione la obra a la que aplica este pago (cliente con varias obras).');
+        return;
+      }
+    }
     // Reset verification when entering confirmation (e.g. user changed to cash)
     setVerificationCallConfirmed(false);
     setIsConfirming(true);
@@ -136,13 +160,20 @@ export default function PaymentForm({
     setIsConfirming(false); // Move back from confirmation view immediately
     try {
       const amount = parseFloat(paymentData.amount);
+      const cs =
+        needsExplicitSite
+          ? paymentData.construction_site.trim()
+          : paymentData.construction_site === 'general' || !paymentData.construction_site?.trim()
+            ? 'general'
+            : paymentData.construction_site.trim();
+
       const body: Record<string, unknown> = {
         client_id: clientId,
         amount,
         payment_method: paymentData.payment_method,
         reference_number: paymentData.reference_number || null,
         notes: paymentData.notes || null,
-        construction_site: paymentData.construction_site === 'general' ? 'general' : paymentData.construction_site,
+        construction_site: cs === 'general' ? 'general' : cs,
         payment_date: paymentData.payment_date,
       };
       if (isCashPayment(paymentData.payment_method)) {
@@ -204,9 +235,16 @@ export default function PaymentForm({
 
   // Render confirmation view if isConfirming is true
   if (isConfirming) {
-    const selectedSiteName = paymentData.construction_site === 'general' 
-      ? "Pago General (Distribución Automática)" 
-      : paymentData.construction_site;
+    const selectedSiteName =
+      needsExplicitSite && paymentData.construction_site && paymentData.construction_site !== 'general'
+        ? paymentData.construction_site
+        : paymentData.construction_site === 'general'
+          ? nSites === 0
+            ? 'Pago general (sin obras registradas)'
+            : nSites === 1
+              ? `Obra única: ${namedSites[0]?.name ?? ''}`
+              : 'Pago general (distribución automática)'
+          : paymentData.construction_site || '—';
     return (
       <div className="space-y-6 py-4">
         <ClientInfoCard />
@@ -367,23 +405,66 @@ export default function PaymentForm({
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="construction_site">Obra Específica (opcional)</Label>
+          <Label htmlFor="construction_site">
+            {needsExplicitSite ? 'Obra (obligatorio)' : 'Obra'}
+          </Label>
           <Select
             name="construction_site"
-            value={paymentData.construction_site}
-            onValueChange={(value) => handleChange({ target: { name: 'construction_site', value } } as any)} // Type assertion
+            value={
+              needsExplicitSite
+                ? paymentData.construction_site === '' || !paymentData.construction_site
+                  ? SITE_SELECT_PLACEHOLDER
+                  : paymentData.construction_site
+                : paymentData.construction_site
+            }
+            onValueChange={(value) => {
+              if (value === SITE_SELECT_PLACEHOLDER) return;
+              handleChange({ target: { name: 'construction_site', value } } as React.ChangeEvent<HTMLSelectElement>);
+            }}
             disabled={isSubmitting}
           >
             <SelectTrigger id="construction_site">
-              <SelectValue placeholder="Pago General (Distribución Automática)" />
+              <SelectValue
+                placeholder={
+                  needsExplicitSite ? 'Seleccione la obra…' : 'Pago general u obra específica'
+                }
+              />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="general">-- Pago General (Distribución Automática) --</SelectItem> 
-              {sites.map(site => (
-                <SelectItem key={site.id} value={site.name}>{site.name}</SelectItem> 
-              ))}
+              {needsExplicitSite ? (
+                <>
+                  <SelectItem value={SITE_SELECT_PLACEHOLDER} disabled className="text-muted-foreground">
+                    — Seleccione obra —
+                  </SelectItem>
+                  {namedSites.map((site) => (
+                    <SelectItem key={site.id} value={site.name}>
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </>
+              ) : namedSites.length === 1 ? (
+                namedSites.map((site) => (
+                  <SelectItem key={site.id} value={site.name}>
+                    {site.name}
+                  </SelectItem>
+                ))
+              ) : (
+                <>
+                  <SelectItem value="general">— Pago general —</SelectItem>
+                  {namedSites.map((site) => (
+                    <SelectItem key={site.id} value={site.name}>
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
             </SelectContent>
           </Select>
+          {needsExplicitSite && (
+            <p className="text-xs text-muted-foreground">
+              Este cliente tiene varias obras: indique a cuál aplica el pago para que el saldo por obra coincida con el saldo general.
+            </p>
+          )}
         </div>
         
         <div className="md:col-span-2 space-y-2">

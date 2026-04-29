@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Pencil, Trash2, RefreshCw } from 'lucide-react';
 import type { ConstructionSite } from '@/types/client';
+import { paymentNeedsExplicitConstructionSite } from '@/lib/finanzas/paymentConstructionSite';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -167,6 +168,12 @@ export function ClientPaymentManagerModal({
       toast.error('Método requerido');
       return;
     }
+    if (sites && paymentNeedsExplicitConstructionSite(sites) && editForm.construction_site === 'general') {
+      toast.error(
+        'Seleccione la obra a la que aplica este pago. «General» no está permitido para clientes con varias obras.'
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -226,12 +233,16 @@ export function ClientPaymentManagerModal({
   };
 
   const siteOptions: Array<{ value: string; label: string }> = React.useMemo(() => {
-    const opts: Array<{ value: string; label: string }> = [{ value: 'general', label: 'General (Distribución automática)' }];
+    const opts: Array<{ value: string; label: string }> = [
+      { value: 'general', label: 'General (Distribución automática)' },
+    ];
     (sites || []).forEach((s) => {
-      opts.push({ value: s.name, label: s.name });
+      if (s?.name?.trim()) opts.push({ value: s.name, label: s.name });
     });
     return opts;
   }, [sites]);
+
+  const multiObraClient = sites ? paymentNeedsExplicitConstructionSite(sites) : false;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -387,7 +398,7 @@ export function ClientPaymentManagerModal({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit_site">Obra</Label>
+                <Label htmlFor="edit_site">{multiObraClient ? 'Obra (obligatorio)' : 'Obra'}</Label>
                 {siteOptions.length > 1 ? (
                   <Select
                     value={editForm.construction_site}
@@ -411,6 +422,11 @@ export function ClientPaymentManagerModal({
                     value={editForm.construction_site === 'general' ? '' : editForm.construction_site}
                     onChange={(e) => setEditForm((s) => ({ ...s, construction_site: e.target.value || 'general' }))}
                   />
+                )}
+                {multiObraClient && (
+                  <p className="text-xs text-muted-foreground">
+                    No use «General» si el cliente tiene varias obras: elija la obra para mantener saldos alineados.
+                  </p>
                 )}
               </div>
             </div>

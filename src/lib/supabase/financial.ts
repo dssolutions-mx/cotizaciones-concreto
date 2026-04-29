@@ -197,15 +197,16 @@ export const financialService = {
 
       // Prefer server-controlled API route in the browser for governance/permissions
       if (typeof window !== 'undefined') {
-        const body: Record<string, unknown> = {
-          client_id: paymentData.client_id,
-          amount: paymentData.amount,
-          payment_date: paymentData.payment_date,
-          payment_method: paymentData.payment_method,
-          reference_number: paymentData.reference_number ?? null,
-          notes: paymentData.notes ?? null,
-          construction_site: paymentData.construction_site ?? 'general',
-        };
+      // construction_site: omit or 'general' only when client has 0–1 obra in CRM; multi-obra clients must send the obra name (see PaymentForm / paymentConstructionSite.ts).
+      const body: Record<string, unknown> = {
+        client_id: paymentData.client_id,
+        amount: paymentData.amount,
+        payment_date: paymentData.payment_date,
+        payment_method: paymentData.payment_method,
+        reference_number: paymentData.reference_number ?? null,
+        notes: paymentData.notes ?? null,
+        construction_site: paymentData.construction_site ?? 'general',
+      };
         if (paymentData.verification_call_confirmed === true) {
           body.verification_call_confirmed = true;
         }
