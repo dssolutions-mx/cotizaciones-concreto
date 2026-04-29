@@ -73,27 +73,37 @@ export class FIFOPricingService {
         id,
         remaining: (existingRemainingMap.get(id) ?? 0) + qty,
       }));
-      await supabase.rpc('fn_batch_update_entry_remaining', { updates: restoreUpdates });
+      const { error: restoreErr } = await supabase.rpc('fn_batch_update_entry_remaining', {
+        updates: restoreUpdates,
+      });
+      if (restoreErr) {
+        throw new Error(`FIFO idempotency restore remaining failed: ${restoreErr.message}`);
+      }
 
-      await supabase
+      const { error: deleteAllocErr } = await supabase
         .from('material_consumption_allocations')
         .delete()
         .eq('remision_material_id', remisionMaterialId);
+      if (deleteAllocErr) {
+        throw new Error(`FIFO idempotency delete allocations failed: ${deleteAllocErr.message}`);
+      }
     }
 
     // Fetch available entry layers (oldest first)
     // Include entries where remaining_quantity_kg is NULL (not yet initialized) or > 0
+    // FIFO order: date-first only. entry_time / created_at are unreliable for dosificador captures
+    // (often batched end-of-day; server defaults). Tie-break with entry_number then id — deterministic, not "clock truth".
     const { data: entries, error: entriesError } = await supabase
       .from('material_entries')
-      .select('id, entry_number, entry_date, entry_time, created_at, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received')
+      .select('id, entry_number, entry_date, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received')
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
       .eq('excluded_from_fifo', false)
       .lte('entry_date', consumptionDate) // Only entries received before or on consumption date
       .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gte.0.001') // Include NULL (uninitialized) or > 0
       .order('entry_date', { ascending: true })
-      .order('entry_time', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('entry_number', { ascending: true })
+      .order('id', { ascending: true });
 
     if (entriesError) {
       throw new Error(`Error fetching entry layers: ${entriesError.message}`);
@@ -132,7 +142,19 @@ export class FIFOPricingService {
     
     // Initialize remaining_quantity_kg for entries that need it — single batch RPC call
     if (entriesToInitialize.length > 0) {
-      await supabase.rpc('fn_batch_update_entry_remaining', { updates: entriesToInitialize });
+      const { error: initErr } = await supabase.rpc('fn_batch_update_entry_remaining', {
+        updates: entriesToInitialize,
+      });
+      if (initErr) {
+        throw new Error(`FIFO initialize layer remaining failed: ${initErr.message}`);
+      }
+      const initById = new Map(entriesToInitialize.map((x) => [x.id, x.remaining]));
+      for (const row of entries) {
+        const r = initById.get(row.id);
+        if (r !== undefined) {
+          row.remaining_quantity_kg = r;
+        }
+      }
     }
 
     if (totalAvailable < quantityToConsume) {
@@ -192,13 +214,17 @@ export class FIFOPricingService {
 
       // Calculate quantity to allocate from this layer
       const quantityFromLayer = Math.min(remainingToAllocate, entryRemaining);
-      const cost = quantityFromLayer * unitPrice;
-      const remainingAfter = entryRemaining - quantityFromLayer;
+      let qtyRounded = Number(quantityFromLayer.toFixed(6));
+      if (quantityFromLayer > 0 && qtyRounded <= 0) {
+        qtyRounded = quantityFromLayer;
+      }
+      const cost = qtyRounded * unitPrice;
+      const remainingAfter = entryRemaining - qtyRounded;
 
       allocations.push({
         entryId: entry.id,
         entryNumber: entry.entry_number,
-        quantity: quantityFromLayer,
+        quantity: qtyRounded,
         unitPrice: unitPrice,
         cost: cost,
         remainingAfter: remainingAfter,
@@ -210,7 +236,7 @@ export class FIFOPricingService {
         entry_id: entry.id,
         material_id: materialId,
         plant_id: plantId,
-        quantity_consumed_kg: quantityFromLayer,
+        quantity_consumed_kg: qtyRounded,
         unit_price: unitPrice,
         total_cost: cost,
         consumption_date: consumptionDate,
@@ -218,7 +244,7 @@ export class FIFOPricingService {
         cost_basis: entry.landed_unit_price ? 'landed' : 'material_only',
       });
 
-      remainingToAllocate -= quantityFromLayer;
+      remainingToAllocate -= qtyRounded;
     }
 
     if (remainingToAllocate > 0.001) {
@@ -242,7 +268,9 @@ export class FIFOPricingService {
       const drift = quantityToConsume - sumAllocated;
       if (Number.isFinite(drift) && Math.abs(drift) > 1e-9) {
         const li = allocationRecords.length - 1;
-        const nextQty = Number(allocationRecords[li].quantity_consumed_kg) + drift;
+        const nextQty = Number(
+          (Number(allocationRecords[li].quantity_consumed_kg) + drift).toFixed(6)
+        );
         if (nextQty <= 1e-12) {
           console.warn(
             `[FIFO] Allocation drift would zero last layer row for material ${materialId} (drift ${drift}) — skipping`
@@ -282,6 +310,15 @@ export class FIFOPricingService {
       lot_id: lotMap.get(r.entry_id) || null,
     }));
 
+    for (const rec of recordsWithLots) {
+      const q = Number(rec.quantity_consumed_kg);
+      if (!(q > 0) || Number.isNaN(q)) {
+        throw new Error(
+          `FIFO allocation row non-positive quantity (remision_material ${remisionMaterialId}, entry ${rec.entry_id})`
+        );
+      }
+    }
+
     // Insert allocation records
     const { error: insertError } = await supabase
       .from('material_consumption_allocations')
@@ -295,10 +332,20 @@ export class FIFOPricingService {
     // The fn_sync_lot_from_entry DB trigger automatically propagates to material_lots
     if (allocations.length > 0) {
       const { error: batchUpdateError } = await supabase.rpc('fn_batch_update_entry_remaining', {
-        updates: allocations.map(a => ({ id: a.entryId, remaining: a.remainingAfter })),
+        updates: allocations.map((a) => ({
+          id: a.entryId,
+          remaining: Number(a.remainingAfter.toFixed(6)),
+        })),
       });
       if (batchUpdateError) {
-        console.error('Error batch-updating remaining quantities:', batchUpdateError);
+        const { error: rollbackDel } = await supabase
+          .from('material_consumption_allocations')
+          .delete()
+          .eq('remision_material_id', remisionMaterialId);
+        if (rollbackDel) {
+          console.error('FIFO rollback delete allocations after batch failure:', rollbackDel);
+        }
+        throw new Error(`FIFO batch update remaining failed: ${batchUpdateError.message}`);
       }
     }
 
@@ -347,14 +394,14 @@ export class FIFOPricingService {
     // Include entries where remaining_quantity_kg is NULL (not yet initialized) or > 0
     const { data: entries, error: entriesError } = await supabase
       .from('material_entries')
-      .select('id, entry_number, remaining_quantity_kg, unit_price, received_qty_kg, quantity_received')
+      .select('id, entry_number, entry_date, remaining_quantity_kg, unit_price, received_qty_kg, quantity_received')
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
       .eq('excluded_from_fifo', false)
       .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gt.0')
       .order('entry_date', { ascending: true })
-      .order('entry_time', { ascending: true })
-      .order('created_at', { ascending: true });
+      .order('entry_number', { ascending: true })
+      .order('id', { ascending: true });
 
     if (entriesError) {
       throw new Error(`Error fetching entry layers: ${entriesError.message}`);

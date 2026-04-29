@@ -75,6 +75,11 @@ const GoogleMapWrapper = dynamic(
   { ssr: false }
 );
 
+/** Clients where per-obra saldos must absorb NULL-obra (general) payment distributions FIFO so total = sum(obras). */
+const FIFO_GENERAL_BALANCE_RECALC_CLIENT_IDS = new Set<string>([
+  '7e48e4b5-038f-4733-b482-1f6f6c02d083', // GRUPO VOSCANMAR — validated against payment distributions
+]);
+
 // Dynamically import the LocationSearchBox
 const LocationSearchBox = dynamic(
   () => import('@/components/maps/LocationSearchBox'),
@@ -580,32 +585,47 @@ function ClientBalanceSummary({
   const handleRecalculateBalances = async () => {
     setRecalculatingBalances(true);
     try {
-      for (const b of balances) {
-        if (b.construction_site === null) continue;
-        if (b.construction_site_id) {
-          const { error } = await supabase.rpc('update_client_balance_with_uuid', {
-            p_client_id: clientId,
-            p_site_id: b.construction_site_id,
-            p_site_name: b.construction_site,
-          });
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.rpc('update_client_balance', {
-            p_client_id: clientId,
-            p_site_name: b.construction_site,
-          });
-          if (error) throw error;
+      if (FIFO_GENERAL_BALANCE_RECALC_CLIENT_IDS.has(clientId)) {
+        const { error } = await supabase.rpc('recalculate_client_balances_fifo_general', {
+          p_client_id: clientId,
+        });
+        if (error) {
+          const detail = [error.message, (error as { details?: string }).details, (error as { hint?: string }).hint]
+            .filter(Boolean)
+            .join(' — ');
+          throw new Error(detail || 'RPC recalculate_client_balances_fifo_general falló');
         }
+        toast.success(
+          'Saldos recalculados (FIFO: pagos generales distribuidos por antigüedad de obra).'
+        );
+      } else {
+        for (const b of balances) {
+          if (b.construction_site === null) continue;
+          if (b.construction_site_id) {
+            const { error } = await supabase.rpc('update_client_balance_with_uuid', {
+              p_client_id: clientId,
+              p_site_id: b.construction_site_id,
+              p_site_name: b.construction_site,
+            });
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.rpc('update_client_balance', {
+              p_client_id: clientId,
+              p_site_name: b.construction_site,
+            });
+            if (error) throw error;
+          }
+        }
+        const { error: generalErr } = await supabase.rpc('update_client_balance', {
+          p_client_id: clientId,
+          p_site_name: null,
+        });
+        if (generalErr) throw generalErr;
+        toast.success('Saldos recalculados desde órdenes, pagos y ajustes.');
       }
-      const { error: generalErr } = await supabase.rpc('update_client_balance', {
-        p_client_id: clientId,
-        p_site_name: null,
-      });
-      if (generalErr) throw generalErr;
-      toast.success('Saldos recalculados desde órdenes, pagos y ajustes.');
       await onBalancesRefresh();
     } catch (e) {
-      console.error('Error recalculating client balances:', e);
+      console.error('Error recalculating client balances:', e, e instanceof Error ? e.message : JSON.stringify(e));
       toast.error(
         e instanceof Error ? e.message : 'No se pudieron recalcular los saldos.'
       );

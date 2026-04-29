@@ -13995,6 +13995,10 @@ export type Database = {
         Args: { p_payable_id: string }
         Returns: undefined
       }
+      recalculate_client_balances_fifo_general: {
+        Args: { p_client_id: string }
+        Returns: Json
+      }
       recalculate_order_from_remisiones: {
         Args: { p_order_id: string; p_skip_balance?: boolean }
         Returns: undefined
