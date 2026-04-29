@@ -233,6 +233,42 @@ export class FIFOPricingService {
       };
     }
 
+    // Fix float drift so rows sum to quantityToConsume and DB check quantity_consumed_kg > 0 never sees a non-positive row
+    if (allocationRecords.length > 0) {
+      const sumAllocated = allocationRecords.reduce(
+        (s, r) => s + Number(r.quantity_consumed_kg),
+        0
+      );
+      const drift = quantityToConsume - sumAllocated;
+      if (Number.isFinite(drift) && Math.abs(drift) > 1e-9) {
+        const li = allocationRecords.length - 1;
+        const nextQty = Number(allocationRecords[li].quantity_consumed_kg) + drift;
+        if (nextQty <= 1e-12) {
+          console.warn(
+            `[FIFO] Allocation drift would zero last layer row for material ${materialId} (drift ${drift}) — skipping`
+          );
+          return {
+            totalCost: 0,
+            allocations: [],
+            skipped: true,
+            skipReason: 'ALLOCATION_FAILED',
+          };
+        }
+        const up = Number(allocationRecords[li].unit_price);
+        allocationRecords[li] = {
+          ...allocationRecords[li],
+          quantity_consumed_kg: nextQty,
+          total_cost: nextQty * up,
+        };
+        allocations[li] = {
+          ...allocations[li],
+          quantity: nextQty,
+          remainingAfter: allocations[li].remainingAfter - drift,
+          cost: nextQty * allocations[li].unitPrice,
+        };
+      }
+    }
+
     // Resolve lot_ids for each allocation record (lots are 1:1 with entries)
     const entryIds = [...new Set(allocationRecords.map(r => r.entry_id))];
     const { data: lots } = await supabase

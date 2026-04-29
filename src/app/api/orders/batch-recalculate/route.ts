@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     let ordersQuery = admin
       .from('orders')
-      .select('id, client_id, construction_site, effective_for_balance')
+      .select('id, client_id, construction_site, construction_site_id, effective_for_balance')
       .not('order_status', 'eq', 'cancelled');
 
     if (clientIdFilter) {
@@ -115,24 +115,39 @@ export async function POST(request: NextRequest) {
 
     const balanceErrors: Array<{ clientId: string; message: string }> = [];
     for (const cid of clientIds) {
-      const siteSet = new Set<string>();
+      const siteKeys = new Map<
+        string,
+        { siteName: string | null; siteId: string | null }
+      >();
       for (const o of toRecalc) {
         if (o.client_id !== cid) continue;
-        const s = o.construction_site;
-        if (typeof s === 'string' && s.trim().length > 0) {
-          siteSet.add(s);
+        const sid = (o as { construction_site_id?: string | null }).construction_site_id;
+        const sn = o.construction_site;
+        if (sid) {
+          siteKeys.set(`id:${sid}`, { siteName: typeof sn === 'string' ? sn : null, siteId: sid });
+        } else if (typeof sn === 'string' && sn.trim().length > 0) {
+          siteKeys.set(`name:${sn}`, { siteName: sn, siteId: null });
         }
       }
 
-      for (const site of Array.from(siteSet)) {
-        const { error } = await admin.rpc(
-          'update_client_balance',
-          { p_client_id: cid, p_site_name: site } as never
-        );
+      for (const s of siteKeys.values()) {
+        const { error } = s.siteId
+          ? await admin.rpc(
+              'update_client_balance_with_uuid',
+              {
+                p_client_id: cid,
+                p_site_id: s.siteId,
+                p_site_name: s.siteName,
+              } as never
+            )
+          : await admin.rpc(
+              'update_client_balance',
+              { p_client_id: cid, p_site_name: s.siteName } as never
+            );
         if (error) {
           balanceErrors.push({
             clientId: cid,
-            message: `site "${site}": ${error.message}`,
+            message: `site "${s.siteName ?? s.siteId}": ${error.message}`,
           });
         }
       }

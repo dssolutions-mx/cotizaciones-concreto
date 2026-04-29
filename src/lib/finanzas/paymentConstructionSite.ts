@@ -13,6 +13,8 @@ export function countNamedConstructionSites(sites: ConstructionSite[] | undefine
 /** Per-obra debt snapshot for FIFO ordering (oldest qualifying order date first). */
 export type SiteDebtFifo = {
   name: string;
+  /** When known, stable obra key for distributions and balance RPCs */
+  construction_site_id?: string | null;
   balance: number;
   oldestOrderDate: string | null;
 };
@@ -25,7 +27,11 @@ export function computeFifoAllocation(
   sites: SiteDebtFifo[],
   amount: number
 ): {
-  distributions: { construction_site: string; amount: number }[];
+  distributions: {
+    construction_site: string;
+    amount: number;
+    construction_site_id?: string | null;
+  }[];
   surplusToGeneral: number;
 } {
   if (!(amount > 0)) {
@@ -43,13 +49,21 @@ export function computeFifoAllocation(
   });
 
   let remaining = amount;
-  const distributions: { construction_site: string; amount: number }[] = [];
+  const distributions: {
+    construction_site: string;
+    amount: number;
+    construction_site_id?: string | null;
+  }[] = [];
 
   for (const site of positive) {
     if (remaining <= 0) break;
     const pay = Math.min(remaining, site.balance);
     if (pay > 0) {
-      distributions.push({ construction_site: site.name, amount: pay });
+      distributions.push({
+        construction_site: site.name,
+        amount: pay,
+        construction_site_id: site.construction_site_id ?? null,
+      });
       remaining -= pay;
     }
   }

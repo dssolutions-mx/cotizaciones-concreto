@@ -1665,7 +1665,7 @@ export async function recalculateOrderAmount(
     errorContext.step = 'fetch_order';
     const { data: orderData, error: orderError } = await db
       .from('orders')
-      .select('requires_invoice, client_id, construction_site, plant_id, effective_for_balance')
+      .select('requires_invoice, client_id, construction_site, construction_site_id, plant_id, effective_for_balance')
       .eq('id', orderId)
       .single();
     
@@ -1844,12 +1844,20 @@ export async function recalculateOrderAmount(
       if (clearOrderError) throw clearOrderError;
 
       errorContext.step = 'update_client_balance';
-      const { error: balanceError } = await db.rpc('update_client_balance', {
-        p_client_id: orderData.client_id,
-        p_site_name: orderData.construction_site
-      });
-
-      if (balanceError) throw balanceError;
+      if (orderData.construction_site_id) {
+        const { error: balanceError } = await db.rpc('update_client_balance_with_uuid', {
+          p_client_id: orderData.client_id,
+          p_site_id: orderData.construction_site_id,
+          p_site_name: orderData.construction_site,
+        });
+        if (balanceError) throw balanceError;
+      } else {
+        const { error: balanceError } = await db.rpc('update_client_balance', {
+          p_client_id: orderData.client_id,
+          p_site_name: orderData.construction_site,
+        });
+        if (balanceError) throw balanceError;
+      }
 
       return {
         success: true,
@@ -1941,12 +1949,20 @@ export async function recalculateOrderAmount(
     
     // Update client balance
     errorContext.step = 'update_client_balance';
-    const { error: balanceError } = await db.rpc('update_client_balance', {
-      p_client_id: orderData.client_id,
-      p_site_name: orderData.construction_site
-    });
-    
-    if (balanceError) throw balanceError;
+    if (orderData.construction_site_id) {
+      const { error: balanceError } = await db.rpc('update_client_balance_with_uuid', {
+        p_client_id: orderData.client_id,
+        p_site_id: orderData.construction_site_id,
+        p_site_name: orderData.construction_site,
+      });
+      if (balanceError) throw balanceError;
+    } else {
+      const { error: balanceError } = await db.rpc('update_client_balance', {
+        p_client_id: orderData.client_id,
+        p_site_name: orderData.construction_site,
+      });
+      if (balanceError) throw balanceError;
+    }
     
     const vatPercentage = (vatRate * 100).toFixed(1);
     return { 

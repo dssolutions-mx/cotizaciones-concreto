@@ -41,7 +41,9 @@ export interface ClientPayment {
 
 export interface ClientBalance {
   client_id: string;
-  construction_site: string | null; // Can be name or ID
+  construction_site: string | null;
+  /** FK to construction_sites when obra-specific balance is UUID-keyed */
+  construction_site_id?: string | null;
   current_balance: number;
   last_updated: string;
 } 

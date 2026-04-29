@@ -323,18 +323,16 @@ export async function createOrdersFromSuggestions(
         result.errors.push(...orderResult.errors);
         result.fifoRemisionIds.push(...(orderResult.fifoRemisionIds ?? []));
 
-        // Track this order's client/site for balance calculation
         const firstRemision = suggestion.remisiones[0];
         const constructionSiteName = firstRemision.obra_name || null;
         const constructionSiteId = firstRemision.construction_site_id || null;
-        
-        // Add general balance key
-        affectedBalances.add(`${firstRemision.client_id}||GENERAL`);
-        
-        // Add site-specific balance key if site exists
-        // CRITICAL: Always use constructionSiteName (not ID) because update_client_balance RPC expects site NAME
-        if (constructionSiteName) {
-          affectedBalances.add(`${firstRemision.client_id}|${constructionSiteName}|SITE`);
+
+        // Track client/site for batch balance calculation (JSON keys avoid ambiguous "|" in obra names)
+        affectedBalances.add(JSON.stringify(['GENERAL', firstRemision.client_id] as const));
+        if (constructionSiteId || constructionSiteName) {
+          affectedBalances.add(
+            JSON.stringify(['SITE', firstRemision.client_id, constructionSiteId, constructionSiteName] as const)
+          );
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
@@ -1016,15 +1014,21 @@ async function createSingleOrder(
         console.log('[ArkikOrderCreator] General client balance updated successfully');
       }
 
-      // 2. If we have a construction site, update site-specific balance using UUID (preferred) or name
+      // 2. If we have a construction site, update site-specific balance (UUID-first when available)
       if (constructionSiteId || constructionSiteName) {
         const siteIdentifier = constructionSiteId ? `UUID: ${constructionSiteId}` : `Name: ${constructionSiteName}`;
         console.log('[ArkikOrderCreator] Updating site-specific balance for:', siteIdentifier);
-        
-        const { error: siteBalanceError } = await supabase.rpc('update_client_balance', {
-          p_client_id: firstRemision.client_id,
-          p_site_name: constructionSiteName || null
-        });
+
+        const { error: siteBalanceError } = constructionSiteId
+          ? await supabase.rpc('update_client_balance_with_uuid', {
+              p_client_id: firstRemision.client_id,
+              p_site_id: constructionSiteId,
+              p_site_name: constructionSiteName || null,
+            })
+          : await supabase.rpc('update_client_balance', {
+              p_client_id: firstRemision.client_id,
+              p_site_name: constructionSiteName || null,
+            });
 
         if (siteBalanceError) {
           console.error('[ArkikOrderCreator] Error updating site-specific balance:', siteBalanceError);
@@ -1695,15 +1699,17 @@ async function recalculateAffectedBalances(affectedBalances: Set<string>): Promi
 
   for (const balanceKey of Array.from(affectedBalances)) {
     try {
-      const [clientId, siteKey, balanceType] = balanceKey.split('|');
-      
-      if (balanceType === 'GENERAL') {
-        // General balance calculation - same as the manual button
+      const parsed = JSON.parse(balanceKey) as
+        | ['GENERAL', string]
+        | ['SITE', string, string | null, string | null];
+
+      if (parsed[0] === 'GENERAL') {
+        const clientId = parsed[1];
         console.log('[ArkikOrderCreator] Recalculating general balance for client:', clientId);
-        
+
         const { error } = await supabase.rpc('update_client_balance', {
           p_client_id: clientId,
-          p_site_name: null
+          p_site_name: null,
         });
 
         if (error) {
@@ -1713,22 +1719,27 @@ async function recalculateAffectedBalances(affectedBalances: Set<string>): Promi
           successCount++;
           console.log('[ArkikOrderCreator] ✅ General balance updated for client:', clientId);
         }
-      } else if (balanceType === 'SITE') {
-        // Site-specific balance calculation - use construction site NAME, not ID
-        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey);
-        
-        // Pass the site name (which is stored in siteKey)
-        const { error } = await supabase.rpc('update_client_balance', {
-          p_client_id: clientId,
-          p_site_name: siteKey  // Pass the site name directly
-        });
+      } else if (parsed[0] === 'SITE') {
+        const [, clientId, siteId, siteName] = parsed;
+        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteId || siteName);
+
+        const { error } = siteId
+          ? await supabase.rpc('update_client_balance_with_uuid', {
+              p_client_id: clientId,
+              p_site_id: siteId,
+              p_site_name: siteName,
+            })
+          : await supabase.rpc('update_client_balance', {
+              p_client_id: clientId,
+              p_site_name: siteName,
+            });
 
         if (error) {
           console.error('[ArkikOrderCreator] Error updating site balance:', error);
-          errors.push(`Error actualizando balance de obra "${siteKey}": ${error.message}`);
+          errors.push(`Error actualizando balance de obra "${siteName ?? siteId}": ${error.message}`);
         } else {
           successCount++;
-          console.log('[ArkikOrderCreator] ✅ Site balance updated for client:', clientId, 'site:', siteKey);
+          console.log('[ArkikOrderCreator] ✅ Site balance updated for client:', clientId);
         }
       }
     } catch (error) {

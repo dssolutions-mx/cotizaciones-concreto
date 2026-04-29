@@ -54,17 +54,43 @@ async function requireAllowedRole(supabase: any, userId: string) {
   return { ok: true as const, role };
 }
 
-async function recalcBalancesForSites(
+type SiteRecalcKey = { siteName: string | null; siteId: string | null };
+
+async function resolveConstructionSiteId(
   supabase: any,
   clientId: string,
-  siteNames: Set<string | null | undefined>
-) {
-  const uniqueSites = [...siteNames].filter((s): s is string => typeof s === 'string' && s.length > 0);
-  for (const site of uniqueSites) {
-    await supabase.rpc('update_client_balance', {
-      p_client_id: clientId,
-      p_site_name: site,
-    });
+  siteName: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('construction_sites')
+    .select('id')
+    .eq('client_id', clientId)
+    .eq('is_active', true)
+    .eq('name', siteName.trim())
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return data.id as string;
+}
+
+async function recalcBalancesForSites(supabase: any, clientId: string, sites: SiteRecalcKey[]) {
+  const seen = new Set<string>();
+  for (const s of sites) {
+    const key = s.siteId ?? `name:${s.siteName ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    if (s.siteId) {
+      await supabase.rpc('update_client_balance_with_uuid', {
+        p_client_id: clientId,
+        p_site_id: s.siteId,
+        p_site_name: s.siteName,
+      });
+    } else if (s.siteName && s.siteName.trim().length > 0) {
+      await supabase.rpc('update_client_balance', {
+        p_client_id: clientId,
+        p_site_name: s.siteName,
+      });
+    }
   }
   await supabase.rpc('update_client_balance', {
     p_client_id: clientId,
@@ -178,19 +204,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create payment' }, { status: 500 });
     }
 
-    const sitesToRecalc = new Set<string | null | undefined>();
+    const sitesToRecalc: SiteRecalcKey[] = [];
 
     if (explicitSiteName) {
+      const siteId = await resolveConstructionSiteId(supabase, client_id, explicitSiteName);
       const { error: distError } = await supabase.from('client_payment_distributions').insert({
         payment_id: payment.id,
         construction_site: explicitSiteName,
+        construction_site_id: siteId,
         amount,
       });
 
       if (distError) {
         console.error('Failed to create payment distribution:', distError);
       }
-      sitesToRecalc.add(explicitSiteName);
+      sitesToRecalc.push({ siteName: explicitSiteName, siteId });
     } else {
       const debts = await fetchFifoSiteDebts(supabase, client_id);
 
@@ -206,17 +234,23 @@ export async function POST(request: NextRequest) {
       } else {
         const { distributions, surplusToGeneral } = computeFifoAllocation(debts, amount);
 
-        const rows: { payment_id: string; construction_site: string | null; amount: number }[] =
-          distributions.map((d) => ({
-            payment_id: payment.id,
-            construction_site: d.construction_site,
-            amount: d.amount,
-          }));
+        const rows: {
+          payment_id: string;
+          construction_site: string | null;
+          construction_site_id?: string | null;
+          amount: number;
+        }[] = distributions.map((d) => ({
+          payment_id: payment.id,
+          construction_site: d.construction_site,
+          construction_site_id: d.construction_site_id ?? null,
+          amount: d.amount,
+        }));
 
         if (surplusToGeneral > 0) {
           rows.push({
             payment_id: payment.id,
             construction_site: null,
+            construction_site_id: null,
             amount: surplusToGeneral,
           });
         }
@@ -237,8 +271,12 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        for (const d of distributions) sitesToRecalc.add(d.construction_site);
-        if (surplusToGeneral > 0) sitesToRecalc.add(null);
+        for (const d of distributions) {
+          sitesToRecalc.push({
+            siteName: d.construction_site,
+            siteId: d.construction_site_id ?? null,
+          });
+        }
       }
     }
 

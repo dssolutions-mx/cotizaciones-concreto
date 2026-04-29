@@ -16,6 +16,7 @@ import { es } from 'date-fns/locale';
 interface ClientBalance {
   client_id: string;
   construction_site: string | null;
+  construction_site_id?: string | null;
   current_balance: number;
   last_updated: string | null;
 }
@@ -54,13 +55,22 @@ const fetchClientBalances = async (clientId: string) => {
   }
 };
 
-const recalculateClientBalance = async (clientId: string, constructionSite?: string) => {
+const recalculateClientBalance = async (
+  clientId: string,
+  constructionSite?: string | null,
+  constructionSiteId?: string | null
+) => {
   try {
-    // Use the existing production function
-    const { error } = await supabase.rpc('update_client_balance', {
-      p_client_id: clientId,
-      p_site_name: constructionSite || null
-    });
+    const { error } = constructionSiteId
+      ? await supabase.rpc('update_client_balance_with_uuid', {
+          p_client_id: clientId,
+          p_site_id: constructionSiteId,
+          p_site_name: constructionSite ?? null,
+        })
+      : await supabase.rpc('update_client_balance', {
+          p_client_id: clientId,
+          p_site_name: constructionSite || null,
+        });
 
     if (error) {
       console.error('Error recalculating balance:', error);
@@ -108,7 +118,11 @@ const ClientBalanceSummary: React.FC<{ clientId: string }> = ({ clientId }) => {
       // Recalculate site balances
       for (const site of balances.sites) {
         if (site.construction_site) {
-          await recalculateClientBalance(clientId, site.construction_site);
+          await recalculateClientBalance(
+            clientId,
+            site.construction_site,
+            site.construction_site_id ?? null
+          );
         }
       }
       

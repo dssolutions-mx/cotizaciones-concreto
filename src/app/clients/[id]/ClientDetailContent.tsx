@@ -567,35 +567,35 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 function ClientBalanceSummary({
   clientId,
   balances,
-  sites,
   onBalancesRefresh,
 }: {
   clientId: string;
   balances: ClientBalance[];
-  sites: ConstructionSite[];
   onBalancesRefresh: () => Promise<void>;
 }) {
   const [recalculatingBalances, setRecalculatingBalances] = useState(false);
   const generalBalance = balances.find(balance => balance.construction_site === null);
   const siteBalances = balances.filter(balance => balance.construction_site !== null);
 
-  const siteNamesForRecalc = useMemo(() => {
-    const fromBalances = balances
-      .map((b) => b.construction_site)
-      .filter((s): s is string => s != null && s !== '');
-    const fromSites = sites.map((s) => s.name).filter(Boolean);
-    return Array.from(new Set([...fromBalances, ...fromSites]));
-  }, [balances, sites]);
-
   const handleRecalculateBalances = async () => {
     setRecalculatingBalances(true);
     try {
-      for (const siteName of siteNamesForRecalc) {
-        const { error } = await supabase.rpc('update_client_balance', {
-          p_client_id: clientId,
-          p_site_name: siteName,
-        });
-        if (error) throw error;
+      for (const b of balances) {
+        if (b.construction_site === null) continue;
+        if (b.construction_site_id) {
+          const { error } = await supabase.rpc('update_client_balance_with_uuid', {
+            p_client_id: clientId,
+            p_site_id: b.construction_site_id,
+            p_site_name: b.construction_site,
+          });
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.rpc('update_client_balance', {
+            p_client_id: clientId,
+            p_site_name: b.construction_site,
+          });
+          if (error) throw error;
+        }
       }
       const { error: generalErr } = await supabase.rpc('update_client_balance', {
         p_client_id: clientId,
@@ -2191,7 +2191,6 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           <ClientBalanceSummary
             clientId={clientId}
             balances={balances}
-            sites={sites}
             onBalancesRefresh={refreshBalances}
           />
         </div>
