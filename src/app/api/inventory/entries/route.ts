@@ -1481,8 +1481,26 @@ export async function PUT(request: NextRequest) {
       updatePayload.reviewed_at = new Date().toISOString();
     }
 
-    // Build the update query based on user role
-    // Build the update query based on user role
+    // Mutate payload before .update() — @supabase/postgrest-js snapshots fields at builder call time.
+    const __po_delta_native = (updatePayload as any).__po_delta_native ?? 0;
+    const __po_delta_kg = (updatePayload as any).__po_delta_kg ?? 0;
+    delete (updatePayload as any).__po_delta_native;
+    delete (updatePayload as any).__po_delta_kg;
+    delete (updatePayload as any).__po_native_uom;
+
+    if (
+      typeof updatePayload.received_uom === 'string' &&
+      updatePayload.received_uom.trim() === ''
+    ) {
+      delete updatePayload.received_uom;
+    }
+    if (
+      typeof updatePayload.fleet_uom === 'string' &&
+      updatePayload.fleet_uom.trim() === ''
+    ) {
+      delete updatePayload.fleet_uom;
+    }
+
     let updateQuery = supabase
       .from('material_entries')
       .update(updatePayload)
@@ -1497,28 +1515,6 @@ export async function PUT(request: NextRequest) {
           { status: 403 }
         );
       }
-    }
-
-    // Remove internal helpers before DB update if present (we'll use local copies below)
-    const __po_delta_native = (updatePayload as any).__po_delta_native ?? 0;
-    const __po_delta_kg = (updatePayload as any).__po_delta_kg ?? 0;
-    const __po_native_uom = (updatePayload as any).__po_native_uom ?? null;
-    delete (updatePayload as any).__po_delta_native;
-    delete (updatePayload as any).__po_delta_kg;
-    delete (updatePayload as any).__po_native_uom;
-
-    // Clients sometimes send ""; Postgres rejects empty string for enum material_uom (received_uom).
-    if (
-      typeof updatePayload.received_uom === 'string' &&
-      updatePayload.received_uom.trim() === ''
-    ) {
-      delete updatePayload.received_uom;
-    }
-    if (
-      typeof updatePayload.fleet_uom === 'string' &&
-      updatePayload.fleet_uom.trim() === ''
-    ) {
-      delete updatePayload.fleet_uom;
     }
 
     const { data: result, error: updateError } = await updateQuery.select().single();
