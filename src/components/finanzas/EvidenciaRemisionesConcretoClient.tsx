@@ -27,6 +27,8 @@ import {
   HelpCircle,
   Copy,
   FileText,
+  FileStack,
+  FileType2,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -284,6 +286,8 @@ export default function EvidenciaRemisionesConcretoClient() {
   const [loading, setLoading] = useState(false)
   const [excelBusy, setExcelBusy] = useState(false)
   const [bulkZipBusy, setBulkZipBusy] = useState(false)
+  const [bulkConcretePdfZipBusy, setBulkConcretePdfZipBusy] = useState(false)
+  const [bulkPumpingPdfBusy, setBulkPumpingPdfBusy] = useState(false)
   const [accountingBusy, setAccountingBusy] = useState(false)
   const [reportNavBusy, setReportNavBusy] = useState(false)
   const [zipConfirmOpen, setZipConfirmOpen] = useState(false)
@@ -599,6 +603,45 @@ export default function EvidenciaRemisionesConcretoClient() {
             zip.file(rel, buf)
             fileCount += 1
           }
+
+          if (fileCount < MAX_BULK_ZIP_FILES) {
+            const pumpRes = await fetch(`/api/orders/${orderId}/pumping-evidence`)
+            const pumpJson = (await pumpRes.json()) as {
+              data?: Array<{
+                remision_number: string | number
+                remision_documents?: Array<{
+                  file_path: string
+                  original_name: string
+                  mime_type?: string | null
+                }>
+              }>
+            }
+            if (pumpRes.ok && Array.isArray(pumpJson.data)) {
+              for (const pr of pumpJson.data) {
+                if (fileCount >= MAX_BULK_ZIP_FILES) break
+                const docs = Array.isArray(pr.remision_documents) ? pr.remision_documents : []
+                const remNo = String(pr.remision_number ?? '').trim() || 'REM'
+                for (const d of docs) {
+                  if (fileCount >= MAX_BULK_ZIP_FILES) break
+                  if (!isConcreteEvidenceFileZippable(d.mime_type ?? null, d.original_name || '')) {
+                    continue
+                  }
+                  const buf = await downloadStorageFileArrayBuffer(
+                    REMISION_DOCUMENTS_BUCKET,
+                    d.file_path
+                  )
+                  if (!buf) continue
+                  const baseName = sanitizeZipPathSegment(
+                    `R${remNo}-${d.original_name || 'archivo'}`,
+                    'archivo'
+                  )
+                  const rel = uniqueZipPath(`${folder}/bombeo/${baseName}`, usedPaths)
+                  zip.file(rel, buf)
+                  fileCount += 1
+                }
+              }
+            }
+          }
         } catch {
           continue
         }
@@ -624,6 +667,159 @@ export default function EvidenciaRemisionesConcretoClient() {
     } finally {
       setBulkZipBusy(false)
     }
+  }
+
+  const runBulkConcreteOnePdfPerOrderZip = async (ids: string[]) => {
+    if (ids.length === 0) {
+      toast.error('Seleccione al menos un pedido')
+      return
+    }
+    if (ids.length > MAX_BULK_ZIP_ORDERS) {
+      toast.error(`Máximo ${MAX_BULK_ZIP_ORDERS} pedidos por descarga`)
+      return
+    }
+    setBulkConcretePdfZipBusy(true)
+    try {
+      const { mergeEvidencePartsToPdf } = await import('@/lib/finanzas/mergeEvidenceToPdf')
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      const usedPaths = new Set<string>()
+      let added = 0
+      for (const orderId of ids) {
+        try {
+          const res = await fetch(`/api/orders/${orderId}/concrete-evidence`)
+          const json = await parseJsonResponse<{
+            data?: {
+              evidence?: Array<{ file_path: string; original_name: string; mime_type?: string | null }>
+            }
+            error?: string
+          }>(res)
+          if (!res.ok) continue
+          const evidence = Array.isArray(json.data?.evidence) ? json.data!.evidence! : []
+          const zippable = evidence.filter((e) =>
+            isConcreteEvidenceFileZippable(e.mime_type ?? null, e.original_name || '')
+          )
+          if (zippable.length === 0) continue
+          const parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }> = []
+          for (const ev of zippable) {
+            const buf = await downloadStorageFileArrayBuffer(
+              REMISION_DOCUMENTS_BUCKET,
+              ev.file_path
+            )
+            if (!buf) continue
+            parts.push({
+              buffer: buf,
+              mimeType: ev.mime_type || '',
+              name: ev.original_name || 'archivo',
+            })
+          }
+          if (parts.length === 0) continue
+          const pdfBytes = await mergeEvidencePartsToPdf(parts)
+          const row = rows.find((x) => x.order_id === orderId)
+          const orderNumber = row?.order_number || orderId.slice(0, 8)
+          const folder = `${sanitizeZipPathSegment(String(orderNumber), 'pedido')}_${orderId.slice(0, 8)}`
+          const safe = sanitizeZipPathSegment(String(orderNumber), 'pedido')
+          const rel = uniqueZipPath(`${folder}/evidencia-concreto-${safe}.pdf`, usedPaths)
+          zip.file(rel, pdfBytes)
+          added += 1
+        } catch {
+          continue
+        }
+      }
+      if (added === 0) {
+        toast.error('Ningún pedido tenía PDF o imagen de evidencia concreta para unir')
+        return
+      }
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const stamp = format(new Date(), 'yyyyMMdd-HHmm')
+      downloadBlobInBrowser(
+        blob,
+        `evidencia-concreto-pdf-por-pedido-${from}-${to}-${stamp}.zip`
+      )
+      toast.success(`ZIP con ${added} PDF (1 por pedido, evidencia concreto)`)
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el ZIP de PDFs')
+    } finally {
+      setBulkConcretePdfZipBusy(false)
+    }
+  }
+
+  const runBulkPumpingAllOrdersOnePdf = async (ids: string[]) => {
+    if (ids.length === 0) {
+      toast.error('Seleccione al menos un pedido')
+      return
+    }
+    if (ids.length > MAX_BULK_ZIP_ORDERS) {
+      toast.error(`Máximo ${MAX_BULK_ZIP_ORDERS} pedidos por descarga`)
+      return
+    }
+    setBulkPumpingPdfBusy(true)
+    try {
+      const { buildPumpingMultiOrderPdf } = await import('@/lib/finanzas/bulkOrderEvidencePdfs')
+      const sections: Array<{
+        orderNumber: string
+        parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }>
+      }> = []
+      for (const orderId of ids) {
+        const row = rows.find((x) => x.order_id === orderId)
+        const orderNumber = String(row?.order_number || orderId.slice(0, 8))
+        const pumpRes = await fetch(`/api/orders/${orderId}/pumping-evidence`)
+        const pumpJson = (await pumpRes.json()) as {
+          data?: Array<{
+            remision_number: string | number
+            remision_documents?: Array<{
+              file_path: string
+              original_name: string
+              mime_type?: string | null
+            }>
+          }>
+        }
+        const parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }> = []
+        if (pumpRes.ok && Array.isArray(pumpJson.data)) {
+          for (const pr of pumpJson.data) {
+            const docs = Array.isArray(pr.remision_documents) ? pr.remision_documents : []
+            const remNo = String(pr.remision_number ?? '').trim() || 'REM'
+            for (const d of docs) {
+              if (!isConcreteEvidenceFileZippable(d.mime_type ?? null, d.original_name || '')) {
+                continue
+              }
+              const buf = await downloadStorageFileArrayBuffer(
+                REMISION_DOCUMENTS_BUCKET,
+                d.file_path
+              )
+              if (!buf) continue
+              parts.push({
+                buffer: buf,
+                mimeType: d.mime_type || '',
+                name: `R${remNo}-${d.original_name || 'archivo'}`,
+              })
+            }
+          }
+        }
+        sections.push({ orderNumber, parts })
+      }
+      const pdfBytes = await buildPumpingMultiOrderPdf(sections)
+      const stamp = format(new Date(), 'yyyyMMdd-HHmm')
+      downloadBlobInBrowser(
+        new Blob([pdfBytes], { type: 'application/pdf' }),
+        `evidencia-bombeo-todos-pedidos-${from}-${to}-${stamp}.pdf`
+      )
+      toast.success('PDF de bombeo: un solo archivo, portada por pedido y luego las pruebas')
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el PDF de bombeo')
+    } finally {
+      setBulkPumpingPdfBusy(false)
+    }
+  }
+
+  const downloadBulkConcretePdfPerOrderZip = () => {
+    void runBulkConcreteOnePdfPerOrderZip([...selectedOrderIds])
+  }
+
+  const downloadBulkPumpingOnePdf = () => {
+    void runBulkPumpingAllOrdersOnePdf([...selectedOrderIds])
   }
 
   const exportExcel = async () => {
@@ -1529,7 +1725,13 @@ export default function EvidenciaRemisionesConcretoClient() {
               variant="outline"
               size="lg"
               className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
-              disabled={loading || bulkZipBusy || selectedOrderIds.size === 0}
+              disabled={
+                loading ||
+                bulkZipBusy ||
+                bulkConcretePdfZipBusy ||
+                bulkPumpingPdfBusy ||
+                selectedOrderIds.size === 0
+              }
               onClick={() => void downloadBulkEvidenceZip()}
               title={`Hasta ${MAX_BULK_ZIP_ORDERS} pedidos y ${MAX_BULK_ZIP_FILES} archivos`}
             >
@@ -1541,7 +1743,58 @@ export default function EvidenciaRemisionesConcretoClient() {
               variant="outline"
               size="lg"
               className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
-              disabled={loading || accountingBusy || selectedOrderIds.size === 0}
+              disabled={
+                loading ||
+                bulkZipBusy ||
+                bulkConcretePdfZipBusy ||
+                bulkPumpingPdfBusy ||
+                selectedOrderIds.size === 0
+              }
+              onClick={() => void downloadBulkConcretePdfPerOrderZip()}
+              title={`Un PDF unido por pedido (concreto). Hasta ${MAX_BULK_ZIP_ORDERS} pedidos.`}
+            >
+              {bulkConcretePdfZipBusy ? (
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              ) : (
+                <FileStack className="h-5 w-5 mr-2" />
+              )}
+              PDF concreto (ZIP)
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              disabled={
+                loading ||
+                bulkZipBusy ||
+                bulkConcretePdfZipBusy ||
+                bulkPumpingPdfBusy ||
+                selectedOrderIds.size === 0
+              }
+              onClick={() => void downloadBulkPumpingOnePdf()}
+              title="Un solo PDF: portada por pedido y luego evidencias de bombeo"
+            >
+              {bulkPumpingPdfBusy ? (
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              ) : (
+                <FileType2 className="h-5 w-5 mr-2" />
+              )}
+              PDF bombeo
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className="h-12 text-base border-stone-300 bg-white min-h-[48px] focus-visible:ring-2 focus-visible:ring-stone-900 focus-visible:ring-offset-2"
+              disabled={
+                loading ||
+                accountingBusy ||
+                bulkZipBusy ||
+                bulkConcretePdfZipBusy ||
+                bulkPumpingPdfBusy ||
+                selectedOrderIds.size === 0
+              }
               onClick={() => void handleCopyAccounting()}
             >
               {accountingBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Copy className="h-5 w-5 mr-2" />}
@@ -1552,7 +1805,14 @@ export default function EvidenciaRemisionesConcretoClient() {
               variant="solid"
               size="lg"
               className="h-12 text-base min-h-[48px] focus-visible:ring-2 focus-visible:ring-systemBlue focus-visible:ring-offset-2"
-              disabled={loading || reportNavBusy || selectedOrderIds.size === 0}
+              disabled={
+                loading ||
+                reportNavBusy ||
+                bulkZipBusy ||
+                bulkConcretePdfZipBusy ||
+                bulkPumpingPdfBusy ||
+                selectedOrderIds.size === 0
+              }
               onClick={() => void handleReporteCliente()}
             >
               {reportNavBusy ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <FileText className="h-5 w-5 mr-2" />}

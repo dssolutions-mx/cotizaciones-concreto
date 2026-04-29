@@ -17,9 +17,9 @@
  *         R6696-ticket.jpg
  */
 
-import { PDFDocument } from 'pdf-lib'
 import type { ReportRemisionData } from '@/types/pdf-reports'
 import { supabase } from '@/lib/supabase/client'
+import { mergeEvidencePartsToPdf } from '@/lib/finanzas/mergeEvidenceToPdf'
 import {
   downloadStorageFileArrayBuffer,
   REMISION_DOCUMENTS_BUCKET,
@@ -158,47 +158,24 @@ async function buildMergedConcretePdf(
   signal?: AbortSignal
 ): Promise<Uint8Array | null> {
   if (files.length === 0) return null
-  const merged = await PDFDocument.create()
-  let pagesAdded = 0
-
+  const parts: Array<{ buffer: ArrayBuffer; mimeType: string; name: string }> = []
   for (const ev of files) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, ev.file_path)
     if (!buf) continue
-    const mime = (ev.mime_type ?? '').toLowerCase()
-    const name = (ev.original_name ?? '').toLowerCase()
-
-    try {
-      if (mime === 'application/pdf' || name.endsWith('.pdf')) {
-        const src = await PDFDocument.load(buf, { ignoreEncryption: true })
-        const copied = await merged.copyPages(src, src.getPageIndices())
-        copied.forEach((p) => merged.addPage(p))
-        pagesAdded += copied.length
-      } else if (
-        mime === 'image/jpeg' ||
-        mime === 'image/jpg' ||
-        name.endsWith('.jpg') ||
-        name.endsWith('.jpeg')
-      ) {
-        const img = await merged.embedJpg(buf)
-        const page = merged.addPage([img.width, img.height])
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
-        pagesAdded += 1
-      } else if (mime === 'image/png' || name.endsWith('.png')) {
-        const img = await merged.embedPng(buf)
-        const page = merged.addPage([img.width, img.height])
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height })
-        pagesAdded += 1
-      } else {
-        // skip unsupported (gif, webp, etc)
-      }
-    } catch (e) {
-      console.warn('[evidenceBundle] could not embed', ev.original_name, e)
-    }
+    parts.push({
+      buffer: buf,
+      mimeType: ev.mime_type ?? '',
+      name: ev.original_name ?? 'archivo',
+    })
   }
-
-  if (pagesAdded === 0) return null
-  return await merged.save()
+  if (parts.length === 0) return null
+  try {
+    return await mergeEvidencePartsToPdf(parts)
+  } catch (e) {
+    console.warn('[evidenceBundle] could not merge concrete evidence', e)
+    return null
+  }
 }
 
 export async function buildEvidenceBundle(args: BuildBundleArgs): Promise<BundleResult> {

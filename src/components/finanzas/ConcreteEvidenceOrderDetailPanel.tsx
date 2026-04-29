@@ -188,6 +188,8 @@ export default function ConcreteEvidenceOrderDetailPanel({
   } | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [selectedZipIds, setSelectedZipIds] = useState<Set<string>>(() => new Set())
+  /** When true, ZIP also adds evidencia de bombeo bajo `bombeo/`. */
+  const [includePumpingInZip, setIncludePumpingInZip] = useState(true)
   const [zipBusy, setZipBusy] = useState(false)
   const [mergeBusy, setMergeBusy] = useState(false)
   const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(
@@ -271,6 +273,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
 
   useEffect(() => {
     setSelectedZipIds(new Set())
+    setIncludePumpingInZip(true)
   }, [orderId])
 
   useEffect(() => {
@@ -303,6 +306,16 @@ export default function ConcreteEvidenceOrderDetailPanel({
     () => evidence.filter((e) => isConcreteEvidenceFileZippable(e.mime_type, e.original_name)),
     [evidence]
   )
+  const pumpingZippableForZip = useMemo(() => {
+    let n = 0
+    for (const r of pumpingRemisionEvidence) {
+      const docs = Array.isArray(r.remision_documents) ? r.remision_documents : []
+      for (const d of docs) {
+        if (isConcreteEvidenceFileZippable(d.mime_type, d.original_name)) n += 1
+      }
+    }
+    return n
+  }, [pumpingRemisionEvidence])
   const selectedZipCount = useMemo(
     () => zippableEvidenceList.filter((e) => selectedZipIds.has(e.id)).length,
     [zippableEvidenceList, selectedZipIds]
@@ -462,8 +475,13 @@ export default function ConcreteEvidenceOrderDetailPanel({
   const downloadSelectedZip = async () => {
     if (!summary) return
     const selected = zippableEvidenceList.filter((e) => selectedZipIds.has(e.id))
-    if (selected.length === 0) {
-      toast.error('Seleccione al menos un PDF o imagen')
+    const wantPump = includePumpingInZip && pumpingZippableForZip > 0
+    if (selected.length === 0 && !wantPump) {
+      toast.error(
+        pumpingZippableForZip > 0
+          ? 'Seleccione archivos de concreto o marque «Incluir bombeo en ZIP»'
+          : 'Seleccione al menos un PDF o imagen'
+      )
       return
     }
     setZipBusy(true)
@@ -485,6 +503,28 @@ export default function ConcreteEvidenceOrderDetailPanel({
         )
         zip.file(entry, buf)
         added += 1
+      }
+
+      if (wantPump) {
+        for (const r of pumpingRemisionEvidence) {
+          const docs = Array.isArray(r.remision_documents) ? r.remision_documents : []
+          const remNo = String(r.remision_number ?? '').trim() || 'REM'
+          for (const d of docs) {
+            if (!isConcreteEvidenceFileZippable(d.mime_type, d.original_name)) continue
+            const buf = await downloadStorageFileArrayBuffer(REMISION_DOCUMENTS_BUCKET, d.file_path)
+            if (!buf) {
+              toast.error(`No se pudo leer (bombeo): ${d.original_name}`)
+              continue
+            }
+            const baseName = sanitizeZipPathSegment(
+              `R${remNo}-${d.original_name || 'archivo'}`,
+              'archivo'
+            )
+            const entry = uniqueZipPath(`bombeo/${baseName}`, usedPaths)
+            zip.file(entry, buf)
+            added += 1
+          }
+        }
       }
 
       if (added === 0) {
@@ -898,18 +938,33 @@ export default function ConcreteEvidenceOrderDetailPanel({
                 </Collapsible>
               )}
 
-              {evidence.length > 0 && (
+              {(evidence.length > 0 || pumpingZippableForZip > 0) && (
                 <div className="rounded-lg border border-stone-200/80 bg-stone-50/50">
                   <div className="px-3 py-2 font-medium text-stone-800 border-b border-stone-200/60 flex items-center gap-2">
                     <FileText className="h-4 w-4 text-stone-500" />
-                    Archivos ({evidence.length})
+                    Archivos de evidencia concreto ({evidence.length})
                   </div>
-                  {zippableEvidenceList.length > 0 && (
+                  {(zippableEvidenceList.length > 0 || pumpingZippableForZip > 0) && (
                     <div className="px-3 py-2 border-b border-stone-200/60 bg-stone-100/40 space-y-2">
                       <p className="text-[11px] text-muted-foreground">
                         Marque PDFs o imágenes (PNG, JPG, GIF, WebP). Descargue un ZIP o un solo PDF que
-                        concatena todo lo seleccionado. Otros tipos: descarga individual.
+                        concatena lo seleccionado. En ZIP puede incluirse evidencia de bombeo en la carpeta{' '}
+                        <span className="font-mono">bombeo/</span>. Otros tipos: descarga individual.
                       </p>
+                      {pumpingZippableForZip > 0 && (
+                        <label className="flex items-center gap-2 text-[11px] text-stone-800 cursor-pointer">
+                          <Checkbox
+                            checked={includePumpingInZip}
+                            onCheckedChange={(v) => setIncludePumpingInZip(v === true)}
+                            className="border-stone-400"
+                          />
+                          <span>
+                            Incluir evidencia de bombeo en ZIP ({pumpingZippableForZip} archivo
+                            {pumpingZippableForZip === 1 ? '' : 's'}) en{' '}
+                            <span className="font-mono">bombeo/</span>
+                          </span>
+                        </label>
+                      )}
                       <div className="flex flex-wrap gap-2">
                         <Button
                           type="button"
@@ -936,7 +991,12 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           variant="outline"
                           size="sm"
                           className="h-8 text-xs gap-1 border-stone-300 bg-white"
-                          disabled={selectedZipCount === 0 || zipBusy || mergeBusy}
+                          disabled={
+                            zipBusy ||
+                            mergeBusy ||
+                            (selectedZipCount === 0 &&
+                              (!includePumpingInZip || pumpingZippableForZip === 0))
+                          }
                           onClick={() => void downloadSelectedZip()}
                         >
                           {zipBusy ? (
@@ -944,7 +1004,11 @@ export default function ConcreteEvidenceOrderDetailPanel({
                           ) : (
                             <Archive className="h-3.5 w-3.5" />
                           )}
-                          ZIP ({selectedZipCount})
+                          ZIP
+                          {selectedZipCount > 0 ? ` (${selectedZipCount})` : ''}
+                          {includePumpingInZip && pumpingZippableForZip > 0
+                            ? ` + bombeo`
+                            : ''}
                         </Button>
                         <Button
                           type="button"
@@ -964,6 +1028,12 @@ export default function ConcreteEvidenceOrderDetailPanel({
                       </div>
                     </div>
                   )}
+                  {evidence.length === 0 ? (
+                    <p className="p-3 text-xs text-muted-foreground">
+                      Sin archivos de evidencia concreto en este pedido. Use el ZIP con «Incluir bombeo» para
+                      descargar solo la carpeta <span className="font-mono">bombeo/</span> si aplica.
+                    </p>
+                  ) : (
                   <ul className="p-2 space-y-2">
                     {evidence.map((ev) => {
                       const zippable = isConcreteEvidenceFileZippable(ev.mime_type, ev.original_name)
@@ -1054,6 +1124,7 @@ export default function ConcreteEvidenceOrderDetailPanel({
                       )
                     })}
                   </ul>
+                  )}
                 </div>
               )}
             </>
