@@ -1507,6 +1507,20 @@ export async function PUT(request: NextRequest) {
     delete (updatePayload as any).__po_delta_kg;
     delete (updatePayload as any).__po_native_uom;
 
+    // Clients sometimes send ""; Postgres rejects empty string for enum material_uom (received_uom).
+    if (
+      typeof updatePayload.received_uom === 'string' &&
+      updatePayload.received_uom.trim() === ''
+    ) {
+      delete updatePayload.received_uom;
+    }
+    if (
+      typeof updatePayload.fleet_uom === 'string' &&
+      updatePayload.fleet_uom.trim() === ''
+    ) {
+      delete updatePayload.fleet_uom;
+    }
+
     const { data: result, error: updateError } = await updateQuery.select().single();
 
     if (updateError) {

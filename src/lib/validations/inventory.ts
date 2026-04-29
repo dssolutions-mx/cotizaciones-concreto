@@ -11,6 +11,14 @@ function optionalUuidField(message: string) {
   );
 }
 
+/** Same as empty UUID: "" must not become Postgres enum invalid input for material_uom. */
+function optionalMaterialReceivedUomField() {
+  return z.preprocess(
+    (val) => (val === '' || val === null ? undefined : val),
+    MaterialUomSchema.optional()
+  );
+}
+
 // Base schemas
 const BaseMaterialEntryInputSchema = z.object({
   material_id: z.string().uuid('ID de material debe ser un UUID válido'),
@@ -35,7 +43,7 @@ const BaseMaterialEntryInputSchema = z.object({
   // Optional Purchase Order linkage on create (materials)
   po_id: optionalUuidField('ID de PO debe ser un UUID válido'),
   po_item_id: optionalUuidField('ID de ítem de PO debe ser un UUID válido'),
-  received_uom: MaterialUomSchema.optional(),
+  received_uom: optionalMaterialReceivedUomField(),
   received_qty_entered: z.number().positive('Cantidad ingresada debe ser positiva').optional(),
   /** kg desde báscula (útil en PUT al vincular línea m³) */
   received_qty_kg: z.number().nonnegative().optional(),
@@ -138,9 +146,12 @@ export const GetActivitiesQuerySchema = z.object({
 });
 
 // Update schemas (for PUT requests)
-export const UpdateMaterialEntrySchema = BaseMaterialEntryInputSchema.partial().extend({
-  id: z.string().uuid('ID debe ser un UUID válido'),
-});
+// alert_id is POST-only (closes material_alerts); not a material_entries column — must not reach PATCH.
+export const UpdateMaterialEntrySchema = BaseMaterialEntryInputSchema.partial()
+  .omit({ alert_id: true })
+  .extend({
+    id: z.string().uuid('ID debe ser un UUID válido'),
+  });
 
 export const UpdateMaterialAdjustmentSchema = MaterialAdjustmentInputSchema.partial().extend({
   id: z.string().uuid('ID debe ser un UUID válido'),
