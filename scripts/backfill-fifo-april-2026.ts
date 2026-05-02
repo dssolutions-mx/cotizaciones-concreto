@@ -60,7 +60,9 @@ async function main() {
       .eq('tipo_remision', 'CONCRETO')
       .gte('fecha', dateFrom)
       .lte('fecha', dateTo)
-      .order('fecha', { ascending: true });
+      .order('fecha', { ascending: true })
+      .order('remision_number', { ascending: true, nullsFirst: false })
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('Query remisiones:', error.message);
@@ -76,7 +78,7 @@ async function main() {
   const failures: Array<{ remision_id: string; message: string }> = [];
 
   async function processRemision(rid: string): Promise<void> {
-    const r = await autoAllocateRemisionFIFO(rid, actorId, { supabase });
+    const r = await autoAllocateRemisionFIFO(rid, allocationActorId, { supabase });
     totalAllocLines += r.allocationsCreated;
     if (r.success) {
       ok++;

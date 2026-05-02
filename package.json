@@ -5,7 +5,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "postinstall": "node scripts/sync-pdfjs-worker.mjs",
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "node build.js",
     "start": "next start",
     "lint": "next lint",
@@ -21,7 +21,12 @@
     "check:p004p-bombeo-csv-vs-db": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/check-p004p-bombeo-csv-vs-db.ts",
     "validate:p004p-march-volumes": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"CommonJS\"}' node --env-file=.env.local -r ts-node/register scripts/validate_p004p_march_volumes.ts",
     "recalc:hycsa-pitahaya": "npx tsx --env-file=.env.local scripts/recalculate-hycsa-pitahaya-orders.ts",
-    "hycsa:create-contract-quotes-2026": "npx tsx --env-file=.env.local scripts/create-hycsa-contract-quotes-2026.ts"
+    "hycsa:create-contract-quotes-2026": "npx tsx --env-file=.env.local scripts/create-hycsa-contract-quotes-2026.ts",
+    "fifo:gap-report": "npx tsx --env-file=.env.local scripts/fifo-operational-gap-report.ts",
+    "fifo:verify-layers": "npx tsx --env-file=.env.local scripts/verify-fifo-material-layers.ts",
+    "fifo:month-run": "npx tsx --env-file=.env.local scripts/fifo-month-run.ts",
+    "fifo:diagnose-exhaustion": "npx tsx --env-file=.env.local scripts/diagnose-fifo-exhaustion.ts",
+    "fifo:backfill:april-2026:concreto-all-plants": "npx tsx --env-file=.env.local scripts/backfill-fifo-april-concreto-all-plants.ts"
   },
   "engines": {
     "node": ">=20.19.0",

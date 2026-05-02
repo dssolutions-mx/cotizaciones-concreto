@@ -13542,9 +13542,37 @@ export type Database = {
         Args: { updates: Json }
         Returns: undefined
       }
+      fn_fifo_refresh_remaining_for_entries: {
+        Args: { p_entry_ids: string[] }
+        Returns: undefined
+      }
       fn_fifo_auto_allocate_candidates: {
         Args: { p_limit?: number; p_min_age_hours?: number }
         Returns: string[]
+      }
+      fn_fifo_operational_gaps: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          available_kg_leq_pour: number
+          cantidad_kg: number
+          detail: string
+          fifo_status: string | null
+          first_receipt_ever: string | null
+          is_allocated: boolean
+          kg_received_after_pour: number
+          last_receipt_on_or_before_pour: string | null
+          material_id: string
+          material_name: string
+          next_receipt_after_pour: string | null
+          order_id: string | null
+          plant_code: string
+          plant_id: string
+          reason_code: string
+          remision_fecha: string
+          remision_id: string
+          remision_material_id: string
+          remision_number: string | null
+        }[]
       }
       generate_daily_snapshots: {
         Args: { p_target_date?: string }

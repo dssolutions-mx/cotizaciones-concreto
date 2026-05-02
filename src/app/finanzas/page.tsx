@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { format, subDays } from 'date-fns';
-import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2, Package, Truck, BarChart3, Briefcase } from 'lucide-react';
+import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2, Package, Truck, BarChart3, Briefcase, ListChecks } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { financialService } from '@/lib/supabase/financial';
 import { formatCurrency } from '@/lib/utils';
@@ -73,6 +73,21 @@ export default async function FinancialHubPage() {
                 </div>
               </div>
             </Link>
+            <RoleProtectedSection allowedRoles={['EXECUTIVE']}>
+              <Link href="/finanzas/cierre-costo-fifo">
+                <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg border border-primary/20">
+                  <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                    <ListChecks className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-title-3 text-gray-900">Cierre costo FIFO</h3>
+                    <p className="text-footnote text-muted-foreground mt-1">
+                      Huecos por mes, re-ejecución por día o mes y esquema de cierre para ejecutivos
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            </RoleProtectedSection>
             <Link href="/finanzas/produccion">
               <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">

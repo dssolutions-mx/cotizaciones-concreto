@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+const path = require('path');
 const { withBotId } = require('botid/next/config');
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -9,7 +10,15 @@ try {
   }
 } catch {}
 
+const projectRoot = path.resolve(__dirname);
+
 const nextConfig = {
+  // Pin Turbopack root so resolution never walks to unrelated parent folders
+  // (extra lockfiles up the tree, or a terminal cwd above this repo).
+  turbopack: {
+    root: projectRoot,
+  },
+
   async redirects() {
     return [
       { source: '/quality/modelos', destination: '/quality/conjuntos', permanent: true },

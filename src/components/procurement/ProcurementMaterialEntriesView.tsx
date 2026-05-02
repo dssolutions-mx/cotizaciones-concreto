@@ -289,6 +289,7 @@ export default function ProcurementMaterialEntriesView({
   const searchParams = useSearchParams()
   const poIdFromUrl = searchParams.get('po_id') || undefined
   const entryIdFromUrl = searchParams.get('entry_id') || undefined
+  const materialIdFromUrl = searchParams.get('material_id') || undefined
   const plantIdFromUrl = searchParams.get('plant_id') || undefined
   const entradasViewRaw = searchParams.get('entradas_view')
   // absent, entradas_view=list, or legacy/unknown values → Historial (list)
@@ -372,6 +373,7 @@ export default function ProcurementMaterialEntriesView({
       po_id?: string | null
       entry_id?: string | null
       plant_id?: string | null
+      material_id?: string | null
       entradas_view?: 'list' | 'precios' | 'revisadas' | null
     }) => {
       const p = new URLSearchParams(
@@ -389,6 +391,10 @@ export default function ProcurementMaterialEntriesView({
       if (next.entry_id !== undefined) {
         if (next.entry_id) p.set('entry_id', next.entry_id)
         else p.delete('entry_id')
+      }
+      if (next.material_id !== undefined) {
+        if (next.material_id) p.set('material_id', next.material_id)
+        else p.delete('material_id')
       }
       if (next.entradas_view !== undefined) {
         if (next.entradas_view === 'precios') p.set('entradas_view', 'precios')
@@ -1094,8 +1100,37 @@ export default function ProcurementMaterialEntriesView({
     return reviewedSuppliers.find((s) => s.id === reviewedSupplierId)?.name?.trim() || 'Proveedor'
   }, [reviewedSupplierId, reviewedSuppliers])
 
+  const fifoMaterialFilterName = useMemo(() => {
+    if (!materialIdFromUrl) return null
+    const hit = [...pendingEntries, ...entries, ...reviewedEntries].find((e) => e.material_id === materialIdFromUrl)
+    return hit?.material?.material_name?.trim() || null
+  }, [materialIdFromUrl, pendingEntries, entries, reviewedEntries])
+
   return (
     <div className={cn("h-full flex flex-col", isFocused && "p-3 md:p-4 gap-0")}>
+      {materialIdFromUrl ? (
+        <Alert className="border-sky-200 bg-sky-50/90 mb-2 mx-1 shrink-0">
+          <Info className="h-4 w-4 text-sky-800" />
+          <AlertTitle className="text-sky-950">Contexto hueco FIFO</AlertTitle>
+          <AlertDescription className="text-sky-900 flex flex-wrap items-center justify-between gap-2">
+            <span>
+              Enlace desde costeo: material{' '}
+              <strong>{fifoMaterialFilterName || `${materialIdFromUrl.slice(0, 8)}…`}</strong>. Revise{' '}
+              <strong>fecha contable (entry_date)</strong> de recepciones y registros faltantes; luego re-asigne FIFO en
+              la remisión afectada.
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-sky-300 shrink-0"
+              onClick={() => replaceQuery({ material_id: null })}
+            >
+              Quitar filtro
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {/* ─── Compact header: title + sub-tabs ─── */}
       {canReviewPricing ? (
         <Tabs

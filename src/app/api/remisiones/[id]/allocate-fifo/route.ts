@@ -32,7 +32,7 @@ export async function POST(
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 404 });
     }
 
-    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR', 'PLANT_MANAGER'];
+    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'];
     if (!allowed.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }

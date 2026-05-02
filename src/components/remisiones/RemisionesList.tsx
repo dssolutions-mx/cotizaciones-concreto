@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye, ArrowLeftRight, Factory, CheckCircle2, Clock, Building2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye, ArrowLeftRight, Factory, CheckCircle2, Clock } from 'lucide-react';
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
@@ -40,8 +40,20 @@ interface RemisionesListProps {
   onRemisionesLoaded?: (data: any[]) => void;
 }
 
-// Component to display evidence for a single pumping remision
-function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: string; remisionNumber: string }) {
+/** Fetches remisión PDFs/images from API (signed URLs via hook for viewing). */
+function RemisionDocumentsEvidence({
+  remisionId,
+  remisionNumber,
+  documentCategory,
+  emptyLabel,
+  title,
+}: {
+  remisionId: string;
+  remisionNumber: string;
+  documentCategory: 'pumping_remision' | 'concrete_remision';
+  emptyLabel: string;
+  title: string;
+}) {
   const [evidence, setEvidence] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +63,9 @@ function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: s
     const fetchEvidence = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/remisiones/documents?remision_id=${remisionId}&document_category=pumping_remision`);
+        const response = await fetch(
+          `/api/remisiones/documents?remision_id=${remisionId}&document_category=${documentCategory}`
+        );
         
         if (!response.ok) {
           throw new Error('Error al obtener evidencia');
@@ -68,7 +82,7 @@ function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: s
     };
 
     fetchEvidence();
-  }, [remisionId]);
+  }, [remisionId, documentCategory]);
 
   const handleViewEvidence = async (evidenceItem: any) => {
     try {
@@ -134,7 +148,7 @@ function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: s
     return (
       <div className="p-3 bg-gray-50 rounded-lg border">
         <div className="text-sm text-gray-600">
-          Remisión #{remisionNumber}: Sin documentos de evidencia
+          Remisión #{remisionNumber}: {emptyLabel}
         </div>
       </div>
     );
@@ -144,7 +158,7 @@ function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: s
     <div className="p-3 bg-gray-50 rounded-lg border">
       <div className="flex items-center justify-between mb-2">
         <h5 className="text-sm font-medium text-gray-900">
-          Remisión #{remisionNumber}
+          {title} #{remisionNumber}
         </h5>
         <Badge variant="outline" className="bg-blue-50 text-blue-700">
           {evidence.length} {evidence.length === 1 ? 'documento' : 'documentos'}
@@ -546,6 +560,19 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                                           </div>
                                         );
                                       })()}
+                                      <div className="mb-4">
+                                        <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                                          <FileText className="h-4 w-4" />
+                                          Documentos (PDF / evidencia)
+                                        </h4>
+                                        <RemisionDocumentsEvidence
+                                          remisionId={remision.id}
+                                          remisionNumber={remision.remision_number}
+                                          documentCategory="concrete_remision"
+                                          emptyLabel="Sin documentos archivados para esta remisión"
+                                          title="Remisión"
+                                        />
+                                      </div>
                                       <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
                                       <RemisionProductosAdicionalesList 
                                         remisionId={remision.id} 
@@ -629,7 +656,14 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                 </h4>
                 <div className="space-y-3">
                   {pumpRemisiones.map((remision) => (
-                    <PumpingRemisionEvidence key={remision.id} remisionId={remision.id} remisionNumber={remision.remision_number} />
+                    <RemisionDocumentsEvidence
+                      key={remision.id}
+                      remisionId={remision.id}
+                      remisionNumber={remision.remision_number}
+                      documentCategory="pumping_remision"
+                      emptyLabel="Sin documentos de evidencia"
+                      title="Remisión"
+                    />
                   ))}
                 </div>
               </div>

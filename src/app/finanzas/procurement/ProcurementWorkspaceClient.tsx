@@ -61,6 +61,7 @@ import CreditNotesPanel from '@/components/procurement/CreditNotesPanel'
 import ReconciliationView from '@/components/procurement/ReconciliationView'
 import ProcurementMaterialEntriesView from '@/components/procurement/ProcurementMaterialEntriesView'
 import DailyConsumptionsView from '@/components/procurement/DailyConsumptionsView'
+import FifoCostingGapsView from '@/components/procurement/FifoCostingGapsView'
 import MaterialAccountingCodesReview from '@/components/procurement/MaterialAccountingCodesReview'
 import FleetFreightReconciliation from '@/components/procurement/FleetFreightReconciliation'
 
@@ -85,6 +86,7 @@ const TAB_KEYS = [
   'resumen',
   'inventario',
   'consumos',
+  'huecos_fifo',
   'po',
   'entradas',
   'fletes',
@@ -289,8 +291,8 @@ export default function ProcurementWorkspaceClient() {
                 className={cn(
                   'grid w-full h-auto gap-1 bg-stone-200/60 p-1 rounded-lg',
                   canViewClaves
-                    ? 'min-w-[1000px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
-                    : 'min-w-[900px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4'
+                    ? 'min-w-[1180px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
+                    : 'min-w-[1060px] grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
                 )}
               >
                 <TabsTrigger value="resumen" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
@@ -304,6 +306,10 @@ export default function ProcurementWorkspaceClient() {
                 <TabsTrigger value="consumos" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                   <Activity className="h-4 w-4" />
                   Consumos
+                </TabsTrigger>
+                <TabsTrigger value="huecos_fifo" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
+                  <AlertTriangle className="h-4 w-4" />
+                  Costeo FIFO
                 </TabsTrigger>
                 <TabsTrigger value="po" className="gap-2 data-[state=active]:bg-stone-900 data-[state=active]:text-white">
                   <Package className="h-4 w-4" />
@@ -548,6 +554,10 @@ export default function ProcurementWorkspaceClient() {
 
         <TabsContent value="consumos" className="rounded-lg border border-stone-200 bg-white p-4 md:p-6">
           <DailyConsumptionsView workspacePlantId={workspacePlantId} />
+        </TabsContent>
+
+        <TabsContent value="huecos_fifo" className="rounded-lg border border-stone-200 bg-white p-4 md:p-6">
+          <FifoCostingGapsView workspacePlantId={workspacePlantId} />
         </TabsContent>
 
         <TabsContent value="po" className="mt-0">

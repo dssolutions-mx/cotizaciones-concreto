@@ -163,6 +163,39 @@ function uomLabel(u: string | null | undefined) {
   return map[u] || u
 }
 
+/**
+ * Campo "precio unitario" en UoM de recepción/OC (p. ej. MXN/m³).
+ * En BD `material_entries.unit_price` es siempre MXN/kg para coherencia con landed/FIFO.
+ */
+function initialMaterialUnitPriceField(entry: MaterialEntry): string {
+  if (entry.received_uom === 'm3') {
+    const m3 = Number(entry.received_qty_entered ?? 0)
+    const tc = Number(entry.total_cost ?? 0)
+    if (Number.isFinite(m3) && m3 > 0 && Number.isFinite(tc) && tc > 0) {
+      return String(tc / m3)
+    }
+    const vol = Number(entry.volumetric_weight_kg_per_m3 ?? 0)
+    const upKg = Number(entry.unit_price ?? 0)
+    if (vol > 0 && upKg > 0) {
+      return String(upKg * vol)
+    }
+  }
+  if (entry.unit_price != null && entry.unit_price !== undefined) {
+    return String(entry.unit_price)
+  }
+  return ''
+}
+
+/** Evita sobreescribir con precio OC cuando la entrada ya tiene material cuantificado en UoM nativa */
+function materialPricingLooksComplete(entry: MaterialEntry): boolean {
+  if (entry.received_uom === 'm3') {
+    const m3 = Number(entry.received_qty_entered ?? 0)
+    const tc = Number(entry.total_cost ?? 0)
+    return Number.isFinite(m3) && m3 > 0 && Number.isFinite(tc) && tc > 0
+  }
+  return entry.unit_price != null && entry.unit_price !== undefined
+}
+
 export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO, embedded = false }: EntryPricingFormProps) {
   const { profile } = useAuthSelectors()
   const canEditSupplierPaymentTerms = canCompleteEntryPricingReview(profile?.role)
@@ -205,7 +238,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const [editingSupplier, setEditingSupplier] = useState(false)
 
   const [formData, setFormData] = useState({
-    unit_price: entry.unit_price?.toString() || '',
+    unit_price: initialMaterialUnitPriceField(entry),
     total_cost: entry.total_cost?.toString() || '',
     fleet_supplier_id: entry.fleet_supplier_id || '',
     fleet_cost: entry.fleet_cost?.toString() || '',
@@ -611,7 +644,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       setFormData((prev) => (prev.unit_price === next ? prev : { ...prev, unit_price: next }))
       return
     }
-    if (entry.unit_price != null && entry.unit_price !== undefined) return
+    if (materialPricingLooksComplete(entry)) return
     setFormData((prev) => {
       if (prev.unit_price !== '') return prev
       const next = String(agreedMaterialUnit)
@@ -627,6 +660,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     selectedMaterialSearchItem,
     entry.id,
     entry.po_item_id,
+    entry.received_uom,
+    entry.total_cost,
+    entry.received_qty_entered,
   ])
 
   // Flota: total alineado a la línea de OC (primera vinculación o cambio de OC en re-vinculación)

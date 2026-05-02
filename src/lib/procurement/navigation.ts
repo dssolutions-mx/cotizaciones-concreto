@@ -61,6 +61,8 @@ export function procurementEntriesUrl(opts: {
   plantId?: string | null
   poId?: string | null
   entryId?: string | null
+  /** Deep-link desde Costeo FIFO: resaltar contexto de material en recepciones */
+  materialId?: string | null
   /** Resumen + review=pricing (cola compacta en dashboard) */
   pricingReview?: boolean
   /** Entradas → sub-vista Revisión de precios (flujo principal de revisión en compras) */
@@ -80,8 +82,18 @@ export function procurementEntriesUrl(opts: {
   if (opts.plantId) params.set('plant_id', opts.plantId)
   if (opts.poId) params.set('po_id', opts.poId)
   if (opts.entryId) params.set('entry_id', opts.entryId)
+  if (opts.materialId) params.set('material_id', opts.materialId)
   const q = params.toString()
   return `/finanzas/procurement?${q}`
+}
+
+/** Tab Consumos con fecha y planta (p. ej. desde hueco FIFO por día). */
+export function procurementConsumosUrl(opts: { plantId?: string | null; date: string }) {
+  const params = new URLSearchParams()
+  params.set('tab', 'consumos')
+  params.set('consumos_date', opts.date)
+  if (opts.plantId) params.set('plant_id', opts.plantId)
+  return `/finanzas/procurement?${params.toString()}`
 }
 
 export function productionAlertsUrl(plantId?: string | null) {

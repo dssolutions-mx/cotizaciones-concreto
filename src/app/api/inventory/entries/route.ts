@@ -63,6 +63,21 @@ async function profileCanAccessMaterialEntryPlant(
   return false;
 }
 
+/**
+ * `material_entries.unit_price` is always MXN per kg — `landed_unit_price` is generated as unit_price + fleet/kg.
+ * PO lines in m³ quote MXN/m³; convert using agreed kg/m³ so FIFO and landed cost match physical kg.
+ */
+function materialUnitPriceMxPerKgFromPoLine(
+  poUnitPriceMxPerNative: number,
+  poUom: string | null,
+  kgPerM3: number
+): number {
+  if (poUom === 'm3' && kgPerM3 > 0) {
+    return poUnitPriceMxPerNative / kgPerM3;
+  }
+  return poUnitPriceMxPerNative;
+}
+
 /** Quantities this entry contributes to a PO line (native UoM + kg for m³). Used on POST create. */
 function nativeKgFromEntryForPoItem(
   entry: {
@@ -1267,13 +1282,34 @@ export async function PUT(request: NextRequest) {
       // Enforce price lock by default for materials (services handled elsewhere)
       if (!poItem.is_service) {
         const elevated = canCompleteEntryPricingReview(profile.role);
-        if (!elevated || updateData.unit_price === undefined) {
-          updatePayload.unit_price = Number(poItem.unit_price);
-        }
-        if (updatePayload.unit_price !== undefined && updateData.total_cost === undefined) {
-          // Precio OC en UoM nativa (m³, kg, L)
-          const qtyForCost = newReceivedNative;
-          updatePayload.total_cost = Number(updatePayload.unit_price) * qtyForCost;
+        const poMx = Number(poItem.unit_price);
+        if (poItem.uom === 'm3') {
+          const volW = Number(updatePayload.volumetric_weight_kg_per_m3 ?? 0);
+          if (!(volW > 0)) {
+            return NextResponse.json(
+              {
+                success: false,
+                error:
+                  'Falta peso volumétrico kg/m³ para guardar precio material en base a kg (entrada m³).',
+              },
+              { status: 400 }
+            );
+          }
+          const editedNative =
+            elevated && updateData.unit_price !== undefined ? Number(updateData.unit_price) : poMx;
+          updatePayload.unit_price = materialUnitPriceMxPerKgFromPoLine(editedNative, 'm3', volW);
+          if (updateData.total_cost === undefined) {
+            // Total material = OC MXN/m³ × m³ recibidos (nativo)
+            updatePayload.total_cost = poMx * newReceivedNative;
+          }
+        } else {
+          if (!elevated || updateData.unit_price === undefined) {
+            updatePayload.unit_price = poMx;
+          }
+          if (updatePayload.unit_price !== undefined && updateData.total_cost === undefined) {
+            const qtyForCost = newReceivedNative;
+            updatePayload.total_cost = Number(updatePayload.unit_price) * qtyForCost;
+          }
         }
       }
 
@@ -1287,6 +1323,20 @@ export async function PUT(request: NextRequest) {
           : Number(currentEntry.received_qty_kg || 0);
       const deltaKg = Math.max(newReceivedKg - previousKg, 0);
       updatePayload.__po_delta_kg = deltaKg;
+    }
+
+    // Solo revisión de precios: el formulario envía MXN/m³; la columna unit_price es MXN/kg
+    if (
+      updateData.unit_price !== undefined &&
+      !updateData.po_item_id &&
+      (currentEntry.received_uom === 'm3' || updatePayload.received_uom === 'm3')
+    ) {
+      const volW = Number(
+        updatePayload.volumetric_weight_kg_per_m3 ?? currentEntry.volumetric_weight_kg_per_m3 ?? 0
+      );
+      if (volW > 0) {
+        updatePayload.unit_price = Number(updateData.unit_price) / volW;
+      }
     }
 
     // Fleet PO: validate new link (pricing review) or rebind to another fleet line
@@ -1665,8 +1715,18 @@ export async function PUT(request: NextRequest) {
       };
 
       // Upsert material payable item (payable_items schema: payable_id, entry_id, amount, cost_category, po_item_id)
-      const nativeQty = result.received_qty_entered ?? result.quantity_received ?? 0;
-      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * Number(nativeQty)));
+      const amountMaterial =
+        result.total_cost != null && result.total_cost !== ''
+          ? Number(result.total_cost)
+          : (() => {
+              const up = Number(result.unit_price || 0);
+              if (result.received_uom === 'm3') {
+                const kg = Number(result.received_qty_kg ?? result.quantity_received ?? 0);
+                return up * kg;
+              }
+              const nativeQty = result.received_qty_entered ?? result.quantity_received ?? 0;
+              return up * Number(nativeQty);
+            })();
       let materialPayableId: string | null = null;
       if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
         materialPayableId = await upsertPayable(result.supplier_id, result.plant_id, result.supplier_invoice, result.ap_due_date_material, result.id);

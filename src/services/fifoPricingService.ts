@@ -89,27 +89,83 @@ export class FIFOPricingService {
       }
     }
 
-    // Fetch available entry layers (oldest first)
+    // Fetch available entry layers (oldest first). Layers live only on material_entries (not on
+    // material_adjustments). Opening balances from `initial_count` or correction + `reference_type`
+    // ending in `_opening` (sheet TN in notes) must create an OPEN-* entry
+    // (see insertOpeningFifoLayerForInitialCount). If every layer dated ≤ pour has remaining=0, the
+    // filtered fetch is empty but that is exhaustion, not missing receipts (see empty-handling below).
+    // OPEN layers default to entry_date = first day of the adjustment month (see insertOpeningFifoLayerForInitialCount);
+    // entry_number uses prefix 0OPEN- so OPEN sorts before ENT- on the same day. Layer qty resolves from
+    // inventory_after / quantity_adjusted or override from sheet TN (see insertOpeningFifoLayerForInitialCount).
     // Include entries where remaining_quantity_kg is NULL (not yet initialized) or > 0
     // FIFO order: date-first only. entry_time / created_at are unreliable for dosificador captures
     // (often batched end-of-day; server defaults). Tie-break with entry_number then id — deterministic, not "clock truth".
-    const { data: entries, error: entriesError } = await supabase
-      .from('material_entries')
-      .select('id, entry_number, entry_date, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received')
-      .eq('material_id', materialId)
-      .eq('plant_id', plantId)
-      .eq('excluded_from_fifo', false)
-      .lte('entry_date', consumptionDate) // Only entries received before or on consumption date
-      .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gte.0.001') // Include NULL (uninitialized) or > 0
-      .order('entry_date', { ascending: true })
-      .order('entry_number', { ascending: true })
-      .order('id', { ascending: true });
+    // Fetch available entry layers (oldest first). Paginate: PostgREST caps rows per request (~1000).
+    const MATERIAL_ENTRIES_FIFO_PAGE = 1000;
+    type EntryLayerRow = {
+      id: string;
+      entry_number: string | null;
+      entry_date: string | null;
+      remaining_quantity_kg: number | null;
+      unit_price: number | null;
+      landed_unit_price: number | null;
+      received_qty_kg: number | null;
+      quantity_received: number | string | null;
+    };
+    const entries: EntryLayerRow[] = [];
+    let layerOffset = 0;
+    for (;;) {
+      const { data: batch, error: entriesError } = await supabase
+        .from('material_entries')
+        .select(
+          'id, entry_number, entry_date, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received'
+        )
+        .eq('material_id', materialId)
+        .eq('plant_id', plantId)
+        .eq('excluded_from_fifo', false)
+        .lte('entry_date', consumptionDate)
+        .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gte.0.001')
+        .order('entry_date', { ascending: true })
+        .order('entry_number', { ascending: true })
+        .order('id', { ascending: true })
+        .range(layerOffset, layerOffset + MATERIAL_ENTRIES_FIFO_PAGE - 1);
 
-    if (entriesError) {
-      throw new Error(`Error fetching entry layers: ${entriesError.message}`);
+      if (entriesError) {
+        throw new Error(`Error fetching entry layers: ${entriesError.message}`);
+      }
+      const rows = (batch ?? []) as EntryLayerRow[];
+      entries.push(...rows);
+      if (rows.length < MATERIAL_ENTRIES_FIFO_PAGE) {
+        break;
+      }
+      layerOffset += MATERIAL_ENTRIES_FIFO_PAGE;
     }
 
     if (!entries || entries.length === 0) {
+      const { count: historicLayerCount, error: historicErr } = await supabase
+        .from('material_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('material_id', materialId)
+        .eq('plant_id', plantId)
+        .eq('excluded_from_fifo', false)
+        .lte('entry_date', consumptionDate);
+
+      if (historicErr) {
+        throw new Error(`FIFO historic layer check failed: ${historicErr.message}`);
+      }
+
+      if ((historicLayerCount ?? 0) > 0) {
+        console.warn(
+          `[FIFO] All cost layers exhausted (remaining=0) for material ${materialId} plant ${plantId} as of ${consumptionDate}; historic layers exist but none have assignable quantity left at this pour date (prior pours may have depleted stock). If stock should exist, reconcile opening layers, receipt entry_date, excluded_from_fifo, and cumulative consumption vs layers; when re-running allocations, existing consumption rows are restored first (idempotent).`
+        );
+        return {
+          totalCost: 0,
+          allocations: [],
+          skipped: true,
+          skipReason: 'INSUFFICIENT_INVENTORY',
+        };
+      }
+
       console.warn(
         `[FIFO] No cost layers for material ${materialId} plant ${plantId} as of ${consumptionDate} — skipping allocation`
       );
@@ -193,15 +249,18 @@ export class FIFOPricingService {
     }> = [];
     const allocationRecords: Array<Omit<MaterialConsumptionAllocation, 'id' | 'created_at'>> = [];
 
+    /** Matches DB `quantity_consumed_kg` scale (numeric 18,6): reject float drift tails that round to 0 in Postgres. */
+    const QTY_EPS_KG = 1e-6;
+
     for (const entry of entries) {
-      if (remainingToAllocate <= 0) break;
+      if (remainingToAllocate <= QTY_EPS_KG) break;
 
       // Get remaining quantity (should be initialized by now)
       const entryRemaining = entry.remaining_quantity_kg !== null && entry.remaining_quantity_kg !== undefined
         ? Number(entry.remaining_quantity_kg)
         : (entry.received_qty_kg ? Number(entry.received_qty_kg) : Number(entry.quantity_received));
 
-      if (entryRemaining <= 0) continue;
+      if (entryRemaining <= QTY_EPS_KG) continue;
 
       // Use landed_unit_price (material + fleet cost per kg) when available, fallback to unit_price
       let unitPrice = entry.landed_unit_price ? Number(entry.landed_unit_price) :
@@ -218,12 +277,17 @@ export class FIFOPricingService {
       if (quantityFromLayer > 0 && qtyRounded <= 0) {
         qtyRounded = quantityFromLayer;
       }
+      if (qtyRounded < QTY_EPS_KG) {
+        // Sub-microgram slice from IEEE drift, or negligible layer — never insert (CHECK > 0 / PG rounds to 0)
+        if (remainingToAllocate <= QTY_EPS_KG) break;
+        continue;
+      }
       const cost = qtyRounded * unitPrice;
       const remainingAfter = entryRemaining - qtyRounded;
 
       allocations.push({
         entryId: entry.id,
-        entryNumber: entry.entry_number,
+        entryNumber: entry.entry_number ?? '',
         quantity: qtyRounded,
         unitPrice: unitPrice,
         cost: cost,
@@ -247,7 +311,7 @@ export class FIFOPricingService {
       remainingToAllocate -= qtyRounded;
     }
 
-    if (remainingToAllocate > 0.001) {
+    if (remainingToAllocate > QTY_EPS_KG) {
       console.warn(
         `[FIFO] Partial layer math for material ${materialId}: ${remainingToAllocate.toFixed(3)}kg unallocated — skipping`
       );
@@ -266,12 +330,12 @@ export class FIFOPricingService {
         0
       );
       const drift = quantityToConsume - sumAllocated;
-      if (Number.isFinite(drift) && Math.abs(drift) > 1e-9) {
+      if (Number.isFinite(drift) && Math.abs(drift) > QTY_EPS_KG) {
         const li = allocationRecords.length - 1;
         const nextQty = Number(
           (Number(allocationRecords[li].quantity_consumed_kg) + drift).toFixed(6)
         );
-        if (nextQty <= 1e-12) {
+        if (nextQty < QTY_EPS_KG) {
           console.warn(
             `[FIFO] Allocation drift would zero last layer row for material ${materialId} (drift ${drift}) — skipping`
           );
@@ -527,13 +591,17 @@ export async function autoAllocateRemisionFIFO(
   if (remisionError || !remision) {
     throw new Error(`Remisión ${remisionId} no encontrada`);
   }
+  if (!remision.plant_id) {
+    throw new Error(`Remisión ${remisionId} sin plant_id`);
+  }
 
   const { data: remisionMaterials, error: materialsError } = await supabase
     .from('remision_materiales')
     .select('id, material_id, cantidad_real')
     .eq('remision_id', remisionId)
     .not('material_id', 'is', null)
-    .gt('cantidad_real', 0);
+    .gt('cantidad_real', 0)
+    .order('id', { ascending: true });
 
   if (materialsError) {
     throw new Error(`Error al obtener materiales: ${materialsError.message}`);

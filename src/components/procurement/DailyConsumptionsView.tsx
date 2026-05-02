@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -349,16 +350,30 @@ type Props = {
 }
 
 export default function DailyConsumptionsView({ workspacePlantId }: Props) {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const searchParams = useSearchParams()
+  const consumosDateFromUrl = searchParams.get('consumos_date')
+  const plantIdFromUrl = searchParams.get('plant_id') || ''
+  const [date, setDate] = useState(() => {
+    const fromUrl = consumosDateFromUrl
+    if (fromUrl && /^\d{4}-\d{2}-\d{2}$/.test(fromUrl)) return fromUrl
+    return new Date().toISOString().slice(0, 10)
+  })
+
+  useEffect(() => {
+    if (consumosDateFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(consumosDateFromUrl)) {
+      setDate((d) => (d === consumosDateFromUrl ? d : consumosDateFromUrl))
+    }
+  }, [consumosDateFromUrl])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [payload, setPayload] = useState<SinglePayload | AllPayload | null>(null)
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ date })
-    if (workspacePlantId) p.set('plant_id', workspacePlantId)
+    const plant = workspacePlantId || plantIdFromUrl
+    if (plant) p.set('plant_id', plant)
     return p.toString()
-  }, [date, workspacePlantId])
+  }, [date, workspacePlantId, plantIdFromUrl])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -396,9 +411,10 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
       date_from: start.toISOString().slice(0, 10),
       date_to: d.toISOString().slice(0, 10),
     })
-    if (workspacePlantId) params.set('plant_id', workspacePlantId)
+    const plant = workspacePlantId || plantIdFromUrl
+    if (plant) params.set('plant_id', plant)
     return `/finanzas/procurement/consumos-periodo?${params.toString()}`
-  }, [workspacePlantId])
+  }, [workspacePlantId, plantIdFromUrl])
 
   return (
     <div className="space-y-6">

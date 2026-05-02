@@ -6,6 +6,10 @@ import {
   UpdateMaterialAdjustmentSchema 
 } from '@/lib/validations/inventory';
 import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
+import {
+  insertOpeningFifoLayerForInitialCount,
+  parseOpeningSheetLayerQtyFromNotes,
+} from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
 import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
@@ -69,6 +73,9 @@ export async function GET(request: NextRequest) {
         query = query.eq('plant_id', queryPlantId);
       }
     } else {
+      if (!profile.plant_id) {
+        return NextResponse.json({ error: 'Usuario sin planta asignada' }, { status: 400 });
+      }
       query = query.eq('plant_id', profile.plant_id);
     }
 
@@ -242,10 +249,47 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear ajuste: ${adjustmentError.message}`);
     }
 
+    let fifoOpeningEntryId: string | undefined;
+    let fifoOpeningLayerWarning: string | undefined;
+    let fifoOpeningLayerSkipped: string | undefined;
+    const refType = validatedData.reference_type?.trim() ?? '';
+    const isOpeningCorrection =
+      validatedData.adjustment_type === 'correction' && refType.endsWith('_opening');
+    const shouldInsertFifoOpeningLayer =
+      validatedData.adjustment_type === 'initial_count' || isOpeningCorrection;
+
+    if (shouldInsertFifoOpeningLayer) {
+      const sheetQty = isOpeningCorrection
+        ? parseOpeningSheetLayerQtyFromNotes(validatedData.reference_notes)
+        : null;
+      const fifoLayer = await insertOpeningFifoLayerForInitialCount(supabase, {
+        adjustmentId: result.id,
+        adjustmentNumber,
+        plantId,
+        materialId: validatedData.material_id,
+        adjustmentDate,
+        inventoryAfterFromAdjustment: Number(result.inventory_after),
+        quantityAdjusted: Number(result.quantity_adjusted),
+        enteredBy: user.id,
+        ...(sheetQty != null ? { openingLayerQtyKgOverride: sheetQty } : {}),
+      });
+      if (!fifoLayer.ok) {
+        fifoOpeningLayerWarning = fifoLayer.error;
+        console.error('[adjustments POST] FIFO opening layer:', fifoLayer.error);
+      } else if ('skipped' in fifoLayer && fifoLayer.skipped) {
+        fifoOpeningLayerSkipped = fifoLayer.skipReason;
+      } else if ('entryId' in fifoLayer) {
+        fifoOpeningEntryId = fifoLayer.entryId;
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: result,
       message: 'Ajuste de material creado exitosamente',
+      ...(fifoOpeningEntryId ? { fifo_opening_entry_id: fifoOpeningEntryId } : {}),
+      ...(fifoOpeningLayerWarning ? { fifo_opening_layer_warning: fifoOpeningLayerWarning } : {}),
+      ...(fifoOpeningLayerSkipped ? { fifo_opening_layer_skipped: fifoOpeningLayerSkipped } : {}),
     }, { status: 201 });
 
   } catch (error) {
