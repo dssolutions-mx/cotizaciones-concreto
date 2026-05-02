@@ -1,4 +1,5 @@
-@import 'tailwindcss';
+/* Tailwind v4: stylesheet is under src/app — use source("..") so the whole src/ tree is scanned for classes. */
+@import "tailwindcss" source("..");
 
 @plugin 'tailwindcss-animate';
 
