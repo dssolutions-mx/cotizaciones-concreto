@@ -9,7 +9,7 @@ import type { DateRange } from 'react-day-picker';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
-import { isQualityTeamInRestrictedPlant } from '@/app/layout';
+import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
 import {
   fetchResistenciaReporteDataFixed,
   fetchEficienciaReporteDataFixed,

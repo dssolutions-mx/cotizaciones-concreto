@@ -5,7 +5,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "postinstall": "node scripts/sync-pdfjs-worker.mjs",
-    "dev": "next dev --webpack",
+    "dev": "next dev",
     "build": "node build.js",
     "start": "next start",
     "lint": "next lint",

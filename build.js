@@ -62,7 +62,9 @@ const preBuildManifests = () => {
 
 preBuildManifests();
 
-// Run the Next.js build with linting disabled
+// Production build uses the default bundler (Turbopack in Next 16+).
+// Global CSS must load from the server root `app/layout.tsx`, not a client-only root layout,
+// so Tailwind v4 / PostCSS output stays correct.
 console.log('Running Next.js production build...');
 try {
   execSync('npx next build', {

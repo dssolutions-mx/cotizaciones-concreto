@@ -13,7 +13,7 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useToast } from '@/components/ui/use-toast';
 import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
-import { isQualityTeamInRestrictedPlant } from '@/app/layout';
+import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
 
 export default function SuppliersPage() {
   const { availablePlants, currentPlant } = usePlantContext();

@@ -52,7 +52,7 @@ import { AddRecipeModalV2 } from '@/components/recipes/AddRecipeModalV2';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleIndicator from '@/components/ui/RoleIndicator';
 import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
-import { isQualityTeamInRestrictedPlant } from '@/app/layout';
+import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 
 type MasterRecipeWithStats = {
