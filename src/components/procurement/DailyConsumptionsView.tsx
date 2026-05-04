@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Activity, Factory, FileSpreadsheet, Package, Scale } from 'lucide-react'
+import { Activity, Factory, FileSpreadsheet, Package, Scale, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -64,7 +64,7 @@ function PlantSection({
         <h2 className="text-lg font-semibold">{plantName}</h2>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
         <Card className="border-stone-200 bg-white">
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
@@ -75,6 +75,32 @@ function PlantSection({
           <CardContent className="px-4 pb-3">
             <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
               {fmtKg(summary.total_consumption_kg)} kg
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-stone-200 bg-white">
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" />
+              Desperdicio Arkik
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
+              {fmtKg(summary.total_waste_arkik_kg)} kg
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-stone-200 bg-white">
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
+              <Trash2 className="h-3.5 w-3.5 opacity-70" />
+              Merma inventario
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
+              {fmtKg(summary.total_merma_inventario_kg)} kg
             </p>
           </CardContent>
         </Card>
@@ -98,10 +124,11 @@ function PlantSection({
               Ajustes (abs.)
             </CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-3">
+          <CardContent className="px-4 pb-3 space-y-0.5">
             <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
               {fmtKg(summary.total_adjustments_kg)} kg
             </p>
+            <p className="text-[10px] text-stone-500 leading-tight">Incluye merma y demás tipos</p>
           </CardContent>
         </Card>
         <Card className="border-stone-200 bg-white">
@@ -139,6 +166,18 @@ function PlantSection({
                       <span className="text-stone-500">
                         {' '}
                         · Entradas: {m.entries.length}
+                      </span>
+                    )}
+                    {m.total_waste_arkik_kg > 1e-9 && (
+                      <span className="text-stone-500">
+                        {' '}
+                        · Arkik: {fmtKg(m.total_waste_arkik_kg)} kg
+                      </span>
+                    )}
+                    {m.total_merma_inventario_kg > 1e-9 && (
+                      <span className="text-stone-500">
+                        {' '}
+                        · Merma: {fmtKg(m.total_merma_inventario_kg)} kg
                       </span>
                     )}
                     {m.adjustments.length > 0 && (
@@ -229,6 +268,40 @@ function PlantSection({
                                 {fmtKg(e.quantity_received)}
                               </TableCell>
                               <TableCell className="font-mono text-sm">{e.entry_time || '—'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                )}
+
+                {m.waste_arkik.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-stone-800 mb-2">
+                      Desperdicio Arkik (waste_materials)
+                    </h4>
+                    <div className="rounded-md border border-stone-200 overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-stone-50">
+                            <TableHead className="whitespace-nowrap">Remisión / ticket</TableHead>
+                            <TableHead className="whitespace-nowrap">Código material</TableHead>
+                            <TableHead className="text-right whitespace-nowrap">Cantidad (kg)</TableHead>
+                            <TableHead>Motivo</TableHead>
+                            <TableHead>Notas</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {m.waste_arkik.map((w) => (
+                            <TableRow key={w.id}>
+                              <TableCell className="font-mono text-sm">{w.remision_number}</TableCell>
+                              <TableCell className="font-mono text-sm">{w.material_code || '—'}</TableCell>
+                              <TableCell className="text-right font-mono tabular-nums">{fmtKg(w.waste_amount)}</TableCell>
+                              <TableCell className="text-sm">{w.waste_reason}</TableCell>
+                              <TableCell className="text-sm max-w-[220px] truncate" title={w.notes || ''}>
+                                {w.notes || '—'}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -435,7 +508,7 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
       {loading ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[...Array(4)].map((_, i) => (
+            {[...Array(6)].map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-lg" />
             ))}
           </div>

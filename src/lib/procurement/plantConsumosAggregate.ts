@@ -53,7 +53,33 @@ export type AdjustmentRow = {
   materials: { material_name: string | null; accounting_code: string | null } | null
 }
 
+/** Filas de `waste_materials` (desperdicio Arkik / tickets sin consumo en remision_materiales). */
+export type WasteMaterialRow = {
+  id: string
+  plant_id: string
+  fecha: string
+  remision_number: string
+  material_code: string
+  material_id: string | null
+  material_name?: string | null
+  waste_amount: number | string | null
+  waste_reason: string
+  notes: string | null
+  materials: { material_name: string | null; accounting_code: string | null } | null
+}
+
 export type MaterialAgg = ConsumosAccountingMaterialBlock
+
+const MERMA_ADJUSTMENT_TYPE = 'waste' as const
+
+function wasteMaterialLabel(row: WasteMaterialRow): string {
+  const joined = row.materials?.material_name?.trim()
+  if (joined) return joined
+  const n = row.material_name?.trim()
+  if (n) return n
+  if (row.material_code) return row.material_code
+  return 'Material sin identificar'
+}
 
 function num(v: unknown): number {
   const n = Number(v)
@@ -86,7 +112,8 @@ export function aggregatePlantConsumosFromRows(
   plantAccounting: { accounting_concept: string | null; warehouse_number: number | null },
   rmRows: RemisionMaterialRow[],
   entryRows: EntryRow[],
-  adjRows: AdjustmentRow[]
+  adjRows: AdjustmentRow[],
+  wasteRows: WasteMaterialRow[] = [],
 ): {
   plant_id: string
   plant_name: string
@@ -101,10 +128,33 @@ export function aggregatePlantConsumosFromRows(
     consumptions: MaterialAgg['consumptions']
     entries: MaterialAgg['entries']
     adjustments: MaterialAgg['adjustments']
+    waste_arkik: MaterialAgg['waste_arkik']
+    total_waste_arkik_kg: number
+    total_merma_inventario_kg: number
   }
 
   const byMaterial = new Map<string, InnerAgg>()
   const remisionIdSet = new Set<string>()
+
+  function ensureMaterial(mid: string, init: Omit<InnerAgg, 'consumptions' | 'entries' | 'adjustments' | 'waste_arkik' | 'total_waste_arkik_kg' | 'total_merma_inventario_kg'> & Partial<Pick<InnerAgg, 'total_consumed_kg'>>): InnerAgg {
+    let agg = byMaterial.get(mid)
+    if (!agg) {
+      agg = {
+        material_id: init.material_id,
+        material_name: init.material_name,
+        material_accounting_code: init.material_accounting_code,
+        total_consumed_kg: init.total_consumed_kg ?? 0,
+        consumptions: [],
+        entries: [],
+        adjustments: [],
+        waste_arkik: [],
+        total_waste_arkik_kg: 0,
+        total_merma_inventario_kg: 0,
+      }
+      byMaterial.set(mid, agg)
+    }
+    return agg
+  }
 
   for (const row of rmRows) {
     const rem = row.remisiones
@@ -113,18 +163,12 @@ export function aggregatePlantConsumosFromRows(
     const mid = row.material_id || `type:${row.material_type || 'unknown'}`
     const name = materialLabel(row.material_id, row.materials, row.material_type)
     const accCode = materialAccountingCode(row.materials)
-    if (!byMaterial.has(mid)) {
-      byMaterial.set(mid, {
-        material_id: row.material_id || mid,
-        material_name: name,
-        material_accounting_code: accCode,
-        total_consumed_kg: 0,
-        consumptions: [],
-        entries: [],
-        adjustments: [],
-      })
-    }
-    const agg = byMaterial.get(mid)!
+    const agg = ensureMaterial(mid, {
+      material_id: row.material_id || mid,
+      material_name: name,
+      material_accounting_code: accCode,
+      total_consumed_kg: 0,
+    })
     if (!agg.material_accounting_code && accCode) {
       agg.material_accounting_code = accCode
     }
@@ -154,18 +198,12 @@ export function aggregatePlantConsumosFromRows(
     const mid = row.material_id
     const name = materialLabel(mid, row.materials, null)
     const accCode = materialAccountingCode(row.materials)
-    if (!byMaterial.has(mid)) {
-      byMaterial.set(mid, {
-        material_id: mid,
-        material_name: name,
-        material_accounting_code: accCode,
-        total_consumed_kg: 0,
-        consumptions: [],
-        entries: [],
-        adjustments: [],
-      })
-    }
-    const agg = byMaterial.get(mid)!
+    const agg = ensureMaterial(mid, {
+      material_id: mid,
+      material_name: name,
+      material_accounting_code: accCode,
+      total_consumed_kg: 0,
+    })
     if (!agg.material_accounting_code && accCode) {
       agg.material_accounting_code = accCode
     }
@@ -187,35 +225,65 @@ export function aggregatePlantConsumosFromRows(
     const mid = row.material_id
     const name = materialLabel(mid, row.materials, null)
     const accCode = materialAccountingCode(row.materials)
-    if (!byMaterial.has(mid)) {
-      byMaterial.set(mid, {
-        material_id: mid,
-        material_name: name,
-        material_accounting_code: accCode,
-        total_consumed_kg: 0,
-        consumptions: [],
-        entries: [],
-        adjustments: [],
-      })
-    }
-    const agg = byMaterial.get(mid)!
+    const agg = ensureMaterial(mid, {
+      material_id: mid,
+      material_name: name,
+      material_accounting_code: accCode,
+      total_consumed_kg: 0,
+    })
     if (!agg.material_accounting_code && accCode) {
       agg.material_accounting_code = accCode
     }
     if (agg.material_name === name || agg.material_name.length < name.length) {
       agg.material_name = name
     }
+    const qtyAdj = num(row.quantity_adjusted)
     agg.adjustments.push({
       id: row.id,
       adjustment_type: row.adjustment_type,
-      quantity_adjusted: num(row.quantity_adjusted),
+      quantity_adjusted: qtyAdj,
       reference_notes: row.reference_notes,
       adjustment_time: row.adjustment_time,
     })
+    if (row.adjustment_type === MERMA_ADJUSTMENT_TYPE) {
+      agg.total_merma_inventario_kg += Math.abs(qtyAdj)
+    }
+  }
+
+  for (const row of wasteRows) {
+    const mid = row.material_id || `code:${row.material_code}`
+    const name = wasteMaterialLabel(row)
+    const accCode = materialAccountingCode(row.materials)
+    const agg = ensureMaterial(mid, {
+      material_id: row.material_id || mid,
+      material_name: name,
+      material_accounting_code: accCode,
+      total_consumed_kg: 0,
+    })
+    if (!agg.material_accounting_code && accCode) {
+      agg.material_accounting_code = accCode
+    }
+    if (agg.material_name === name || agg.material_name.length < name.length) {
+      agg.material_name = name
+    }
+    const wa = num(row.waste_amount)
+    agg.waste_arkik.push({
+      id: row.id,
+      remision_number: row.remision_number,
+      waste_amount: wa,
+      waste_reason: row.waste_reason,
+      notes: row.notes,
+      material_code: row.material_code,
+    })
+    agg.total_waste_arkik_kg += wa
   }
 
   const materials = Array.from(byMaterial.values()).filter(
-    (m) => m.consumptions.length > 0 || m.entries.length > 0 || m.adjustments.length > 0
+    (m) =>
+      m.consumptions.length > 0 ||
+      m.entries.length > 0 ||
+      m.adjustments.length > 0 ||
+      m.waste_arkik.length > 0
   )
   materials.sort((a, b) => a.material_name.localeCompare(b.material_name, 'es'))
 
@@ -228,6 +296,21 @@ export function aggregatePlantConsumosFromRows(
     (s, m) => s + m.adjustments.reduce((t, a) => t + Math.abs(a.quantity_adjusted), 0),
     0
   )
+  const total_waste_arkik_kg = materials.reduce((s, m) => s + m.total_waste_arkik_kg, 0)
+  const total_merma_inventario_kg = materials.reduce((s, m) => s + m.total_merma_inventario_kg, 0)
+
+  const materialsOut: MaterialAgg[] = materials.map((m) => ({
+    material_id: m.material_id,
+    material_name: m.material_name,
+    material_accounting_code: m.material_accounting_code,
+    total_consumed_kg: m.total_consumed_kg,
+    consumptions: m.consumptions,
+    entries: m.entries,
+    adjustments: m.adjustments,
+    waste_arkik: m.waste_arkik,
+    total_waste_arkik_kg: m.total_waste_arkik_kg,
+    total_merma_inventario_kg: m.total_merma_inventario_kg,
+  }))
 
   return {
     plant_id: plantId,
@@ -236,13 +319,15 @@ export function aggregatePlantConsumosFromRows(
       date,
       plant_name: plantName,
       total_consumption_kg,
+      total_waste_arkik_kg,
+      total_merma_inventario_kg,
       total_entries_kg,
       total_adjustments_kg,
       remision_count: remisionIdSet.size,
       accounting_concept: plantAccounting.accounting_concept,
       warehouse_number: plantAccounting.warehouse_number,
     },
-    materials,
+    materials: materialsOut,
   }
 }
 
@@ -266,6 +351,7 @@ type DayBucket = {
   rm: RemisionMaterialRow[]
   entries: EntryRow[]
   adj: AdjustmentRow[]
+  waste: WasteMaterialRow[]
 }
 
 /**
@@ -296,7 +382,7 @@ export async function fetchPlantConsumosRangeDays(
 
   const remisionIds = (remisionRows || []).map((r) => r.id)
 
-  const [rmRes, entriesRes, adjRes] = await Promise.all([
+  const [rmRes, entriesRes, adjRes, wasteRes] = await Promise.all([
     remisionIds.length === 0
       ? Promise.resolve({ data: [] as RemisionMaterialRow[], error: null })
       : supabase
@@ -360,21 +446,43 @@ export async function fetchPlantConsumosRangeDays(
       .eq('plant_id', plantId)
       .gte('adjustment_date', dateFrom)
       .lte('adjustment_date', dateTo),
+    supabase
+      .from('waste_materials')
+      .select(
+        `
+        id,
+        plant_id,
+        fecha,
+        remision_number,
+        material_code,
+        material_id,
+        material_name,
+        waste_amount,
+        waste_reason,
+        notes,
+        materials (material_name, accounting_code)
+      `
+      )
+      .eq('plant_id', plantId)
+      .gte('fecha', dateFrom)
+      .lte('fecha', dateTo),
   ])
 
   if (rmRes.error) throw new Error(rmRes.error.message)
   if (entriesRes.error) throw new Error(entriesRes.error.message)
   if (adjRes.error) throw new Error(adjRes.error.message)
+  if (wasteRes.error) throw new Error(wasteRes.error.message)
 
   const rmRowsAll = (rmRes.data || []) as RemisionMaterialRow[]
-  const entryRowsAll = (entriesRes.data || []) as EntryRow[]
-  const adjRowsAll = (adjRes.data || []) as AdjustmentRow[]
+  const entryRowsAll = (entriesRes.data || []) as unknown as EntryRow[]
+  const adjRowsAll = (adjRes.data || []) as unknown as AdjustmentRow[]
+  const wasteRowsAll = (wasteRes.data || []) as unknown as WasteMaterialRow[]
 
   const byDate = new Map<string, DayBucket>()
   const ensure = (d: string): DayBucket => {
     let b = byDate.get(d)
     if (!b) {
-      b = { rm: [], entries: [], adj: [] }
+      b = { rm: [], entries: [], adj: [], waste: [] }
       byDate.set(d, b)
     }
     return b
@@ -399,6 +507,12 @@ export async function fetchPlantConsumosRangeDays(
     ensure(d).adj.push(row)
   }
 
+  for (const row of wasteRowsAll) {
+    const d = ymdFromDbDate(row.fecha ?? null)
+    if (!d) continue
+    ensure(d).waste.push(row)
+  }
+
   const daysOut: Array<{ date: string; summary: ConsumosAccountingSummary; materials: MaterialAgg[] }> = []
 
   for (const date of iterateDatesInclusive(dateFrom, dateTo)) {
@@ -411,7 +525,8 @@ export async function fetchPlantConsumosRangeDays(
       plantAccounting,
       b.rm,
       b.entries,
-      b.adj
+      b.adj,
+      b.waste,
     )
     if (materials.length === 0) continue
     daysOut.push({ date, summary, materials })

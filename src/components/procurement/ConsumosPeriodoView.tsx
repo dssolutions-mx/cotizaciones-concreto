@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Activity, ArrowLeft, Factory, FileSpreadsheet, Package, Scale } from 'lucide-react'
+import { Activity, ArrowLeft, Factory, FileSpreadsheet, Package, Scale, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   consumosAccountingExcelFilename,
@@ -60,7 +60,11 @@ type MaterialRow = {
   material_id: string | null
   material_name: string
   consumption_kg: number
+  waste_arkik_kg: number
+  merma_inventario_kg: number
+  otros_ajustes_kg: number
   entries_kg: number
+  /** Magnitud absoluta total de ajustes (incluye merma). */
   adjustments_kg: number
 }
 
@@ -74,6 +78,10 @@ type ApiPayload = {
   max_range_days: number
   summary: {
     total_consumption_kg: number
+    total_waste_arkik_kg: number
+    total_merma_inventario_kg: number
+    total_otros_ajustes_kg: number
+    total_egresos_kg: number
     total_entries_kg: number
     total_adjustments_kg: number
     remision_count: number
@@ -330,8 +338,8 @@ export default function ConsumosPeriodoView() {
 
       {loading ? (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[...Array(4)].map((_, i) => (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            {[...Array(6)].map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-lg" />
             ))}
           </div>
@@ -343,7 +351,7 @@ export default function ConsumosPeriodoView() {
         </Card>
       ) : data ? (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             <Card className="border-stone-200 bg-white">
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
@@ -354,6 +362,32 @@ export default function ConsumosPeriodoView() {
               <CardContent className="px-4 pb-3">
                 <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
                   {fmtKg(data.summary.total_consumption_kg)} kg
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-stone-200 bg-white">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Desperdicio Arkik
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
+                  {fmtKg(data.summary.total_waste_arkik_kg)} kg
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="border-stone-200 bg-white">
+              <CardHeader className="pb-1 pt-3 px-4">
+                <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
+                  <Trash2 className="h-3.5 w-3.5 opacity-70" />
+                  Merma inventario
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-3">
+                <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
+                  {fmtKg(data.summary.total_merma_inventario_kg)} kg
                 </p>
               </CardContent>
             </Card>
@@ -374,12 +408,15 @@ export default function ConsumosPeriodoView() {
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
                   <Activity className="h-3.5 w-3.5" />
-                  Ajustes (abs.)
+                  Otros ajustes (abs.)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-4 pb-3">
+              <CardContent className="px-4 pb-3 space-y-0.5">
                 <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
-                  {fmtKg(data.summary.total_adjustments_kg)} kg
+                  {fmtKg(data.summary.total_otros_ajustes_kg)} kg
+                </p>
+                <p className="text-[10px] text-stone-500 leading-tight">
+                  Total ajustes: {fmtKg(data.summary.total_adjustments_kg)} kg (incl. merma)
                 </p>
               </CardContent>
             </Card>
@@ -387,16 +424,21 @@ export default function ConsumosPeriodoView() {
               <CardHeader className="pb-1 pt-3 px-4">
                 <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
                   <Factory className="h-3.5 w-3.5" />
-                  Remisiones
+                  Total egresos
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-4 pb-3">
+              <CardContent className="px-4 pb-3 space-y-0.5">
                 <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
-                  {data.summary.remision_count}
+                  {fmtKg(data.summary.total_egresos_kg)} kg
                 </p>
+                <p className="text-[10px] text-stone-500 leading-tight">Remisiones + Arkik + ajustes</p>
               </CardContent>
             </Card>
           </div>
+          <p className="text-xs text-stone-600 px-1">
+            Remisiones en el período:{' '}
+            <span className="font-mono tabular-nums font-medium text-stone-900">{data.summary.remision_count}</span>
+          </p>
 
           <div className="rounded-lg border border-stone-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-stone-800 mb-3">
@@ -425,7 +467,7 @@ export default function ConsumosPeriodoView() {
             )}
           </div>
 
-          <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
+          <div className="rounded-lg border border-stone-200 bg-white overflow-hidden overflow-x-auto">
             <div className="px-4 py-3 border-b border-stone-100">
               <h2 className="text-sm font-semibold text-stone-800">Totales por material (período)</h2>
               <p className="text-xs text-stone-500 mt-0.5">
@@ -436,15 +478,18 @@ export default function ConsumosPeriodoView() {
               <TableHeader>
                 <TableRow className="bg-stone-50">
                   <TableHead>Material</TableHead>
-                  <TableHead className="text-right">Consumo remisiones (kg)</TableHead>
-                  <TableHead className="text-right">Entradas (kg)</TableHead>
-                  <TableHead className="text-right">Ajustes (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Consumo remisiones (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Desperdicio Arkik (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Merma inventario (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Otros ajustes |abs| (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Entradas (kg)</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Total egresos (kg)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.materials.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-stone-500 py-8">
+                    <TableCell colSpan={7} className="text-center text-stone-500 py-8">
                       Sin movimientos en el rango seleccionado.
                     </TableCell>
                   </TableRow>
@@ -456,10 +501,24 @@ export default function ConsumosPeriodoView() {
                         {fmtKg(m.consumption_kg)}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
-                        {fmtKg(m.entries_kg)}
+                        {fmtKg(m.waste_arkik_kg)}
                       </TableCell>
                       <TableCell className="text-right font-mono tabular-nums">
-                        {fmtKg(m.adjustments_kg)}
+                        {fmtKg(m.merma_inventario_kg)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {fmtKg(m.otros_ajustes_kg)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {fmtKg(m.entries_kg)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums font-medium">
+                        {fmtKg(
+                          m.consumption_kg +
+                            m.waste_arkik_kg +
+                            m.merma_inventario_kg +
+                            m.otros_ajustes_kg,
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -467,8 +526,9 @@ export default function ConsumosPeriodoView() {
               </TableBody>
             </Table>
             <p className="px-4 py-2 text-[11px] text-stone-500 border-t border-stone-100 bg-stone-50/50">
-              Si el mismo nombre aparece en dos filas, suele haber dos registros distintos en el catálogo de
-              materiales (IDs distintos). El consumo se agrupa por ID de material.
+              «Total egresos» coincide con el Excel contable: consumo por remisiones más desperdicio Arkik más la
+              magnitud absoluta de todos los ajustes de inventario. Si el mismo nombre aparece en dos filas, suele
+              haber dos registros distintos en el catálogo de materiales (IDs distintos).
             </p>
           </div>
         </>

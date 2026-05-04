@@ -38,7 +38,12 @@ export type ConsumosAccountingSummary = {
   date: string
   plant_name: string
   total_consumption_kg: number
+  /** Desperdicios registrados en tabla waste_materials (Arkik / tickets sin remisión persistida). */
+  total_waste_arkik_kg: number
+  /** Ajustes de inventario con tipo «merma» (material_adjustments.adjustment_type = waste). */
+  total_merma_inventario_kg: number
   total_entries_kg: number
+  /** Magnitud absoluta de todos los ajustes (incluye merma). */
   total_adjustments_kg: number
   remision_count: number
   accounting_concept?: string | null
@@ -78,6 +83,18 @@ export type ConsumosAccountingMaterialBlock = {
     reference_notes?: string | null
     adjustment_time?: string | null
   }>
+  /** Líneas de waste_materials (no pasan por remision_materiales). */
+  waste_arkik: Array<{
+    id: string
+    remision_number: string
+    waste_amount: number
+    waste_reason: string
+    notes?: string | null
+    material_code?: string
+  }>
+  total_waste_arkik_kg: number
+  /** Suma de cantidades en ajustes tipo merma (waste) para este material. */
+  total_merma_inventario_kg: number
 }
 
 export function* eachPlantScope(payload: ConsumosAccountingExcelPayload): Generator<{

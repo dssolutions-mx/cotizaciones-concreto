@@ -137,8 +137,12 @@ type PlantMaterialTotalRow = {
   material_name: string
   clave: string
   consumptionKg: number
+  wasteArkikKg: number
+  mermaInventarioKg: number
+  otrosAjustesAbsKg: number
   entriesKg: number
-  adjustmentsAbsKg: number
+  /** Consumo remisiones + desperdicio Arkik + merma + otros ajustes (|abs|). */
+  totalEgresosKg: number
 }
 
 /** Una fila por combinación planta + material, sumando todos los días / plantas del payload. */
@@ -157,19 +161,30 @@ function computePlantMaterialTotals(payload: ConsumosAccountingExcelPayload): Pl
           material_name: m.material_name,
           clave: (m.material_accounting_code ?? '').trim(),
           consumptionKg: 0,
+          wasteArkikKg: 0,
+          mermaInventarioKg: 0,
+          otrosAjustesAbsKg: 0,
           entriesKg: 0,
-          adjustmentsAbsKg: 0,
+          totalEgresosKg: 0,
         }
         map.set(key, agg)
       }
 
       agg.consumptionKg += m.total_consumed_kg
+      agg.wasteArkikKg += m.total_waste_arkik_kg
+      agg.mermaInventarioKg += m.total_merma_inventario_kg
+      for (const a of m.adjustments) {
+        const mag = Math.abs(a.quantity_adjusted)
+        if (a.adjustment_type !== 'waste') {
+          agg.otrosAjustesAbsKg += mag
+        }
+      }
       for (const e of m.entries) {
         agg.entriesKg += e.quantity_received
       }
-      for (const a of m.adjustments) {
-        agg.adjustmentsAbsKg += Math.abs(a.quantity_adjusted)
-      }
+
+      agg.totalEgresosKg =
+        agg.consumptionKg + agg.wasteArkikKg + agg.mermaInventarioKg + agg.otrosAjustesAbsKg
 
       const code = (m.material_accounting_code ?? '').trim()
       if (code && !agg.clave) agg.clave = code
@@ -180,7 +195,12 @@ function computePlantMaterialTotals(payload: ConsumosAccountingExcelPayload): Pl
   }
 
   const rows = [...map.values()].filter(
-    (r) => r.consumptionKg > 1e-9 || r.entriesKg > 1e-9 || r.adjustmentsAbsKg > 1e-9
+    (r) =>
+      r.consumptionKg > 1e-9 ||
+      r.entriesKg > 1e-9 ||
+      r.wasteArkikKg > 1e-9 ||
+      r.mermaInventarioKg > 1e-9 ||
+      r.otrosAjustesAbsKg > 1e-9,
   )
 
   rows.sort((a, b) => {
@@ -198,8 +218,11 @@ type ResumenMaterialDisplayRow =
       kind: 'plant_subtotal'
       plant_name: string
       sumC: number
+      sumW: number
+      sumM: number
+      sumO: number
       sumE: number
-      sumA: number
+      sumT: number
     }
 
 /** Agrupa filas por planta e inserta subtotal por planta (ej. total cemento + agua en esa planta). */
@@ -209,16 +232,22 @@ function expandPlantMaterialRowsWithSubtotals(rows: PlantMaterialTotalRow[]): Re
   while (i < rows.length) {
     const plant = rows[i].plant_name
     let sumC = 0
+    let sumW = 0
+    let sumM = 0
+    let sumO = 0
     let sumE = 0
-    let sumA = 0
+    let sumT = 0
     while (i < rows.length && rows[i].plant_name === plant) {
       out.push({ kind: 'material', pm: rows[i] })
       sumC += rows[i].consumptionKg
+      sumW += rows[i].wasteArkikKg
+      sumM += rows[i].mermaInventarioKg
+      sumO += rows[i].otrosAjustesAbsKg
       sumE += rows[i].entriesKg
-      sumA += rows[i].adjustmentsAbsKg
+      sumT += rows[i].totalEgresosKg
       i += 1
     }
-    out.push({ kind: 'plant_subtotal', plant_name: plant, sumC, sumE, sumA })
+    out.push({ kind: 'plant_subtotal', plant_name: plant, sumC, sumW, sumM, sumO, sumE, sumT })
   }
   return out
 }
@@ -243,25 +272,37 @@ function excelDate(ymd: string): Date {
 
 type Aggregates = {
   totalConsumoKg: number
+  totalWasteArkikKg: number
+  totalMermaInventarioKg: number
+  totalOtrosAjustesAbsKg: number
   totalEntradasKg: number
+  totalEgresosKg: number
   totalAjustesAbsKg: number
   remisionesCount: number
   consumoLines: number
   entradaLines: number
   ajusteLines: number
+  wasteArkikLines: number
+  mermaLines: number
 }
 
 function computeAggregates(payload: ConsumosAccountingExcelPayload): Aggregates {
   let totalConsumoKg = 0
+  let totalWasteArkikKg = 0
+  let totalMermaInventarioKg = 0
   let totalEntradasKg = 0
   let totalAjustesAbsKg = 0
   let remisionesCount = 0
   let consumoLines = 0
   let entradaLines = 0
   let ajusteLines = 0
+  let wasteArkikLines = 0
+  let mermaLines = 0
 
   for (const scope of eachPlantScope(payload)) {
     totalConsumoKg += scope.summary.total_consumption_kg
+    totalWasteArkikKg += scope.summary.total_waste_arkik_kg
+    totalMermaInventarioKg += scope.summary.total_merma_inventario_kg
     totalEntradasKg += scope.summary.total_entries_kg
     totalAjustesAbsKg += scope.summary.total_adjustments_kg
     remisionesCount += scope.summary.remision_count
@@ -269,17 +310,30 @@ function computeAggregates(payload: ConsumosAccountingExcelPayload): Aggregates 
       consumoLines += m.consumptions.length
       entradaLines += m.entries.length
       ajusteLines += m.adjustments.length
+      wasteArkikLines += m.waste_arkik.length
+      for (const a of m.adjustments) {
+        if (a.adjustment_type === 'waste') mermaLines += 1
+      }
     }
   }
 
+  const totalOtrosAjustesAbsKg = Math.max(0, totalAjustesAbsKg - totalMermaInventarioKg)
+  const totalEgresosKg = totalConsumoKg + totalWasteArkikKg + totalMermaInventarioKg + totalOtrosAjustesAbsKg
+
   return {
     totalConsumoKg,
+    totalWasteArkikKg,
+    totalMermaInventarioKg,
+    totalOtrosAjustesAbsKg,
     totalEntradasKg,
+    totalEgresosKg,
     totalAjustesAbsKg,
     remisionesCount,
     consumoLines,
     entradaLines,
     ajusteLines,
+    wasteArkikLines,
+    mermaLines,
   }
 }
 
@@ -290,8 +344,18 @@ function buildResumenSheet(
   generatedAt: Date,
 ): void {
   const contact = getDocumentContact()
-  const cols = 6
-  ws.columns = [{ width: 22 }, { width: 14 }, { width: 34 }, { width: 22 }, { width: 18 }, { width: 22 }]
+  const cols = 9
+  ws.columns = [
+    { width: 22 },
+    { width: 14 },
+    { width: 30 },
+    { width: 18 },
+    { width: 18 },
+    { width: 18 },
+    { width: 18 },
+    { width: 16 },
+    { width: 20 },
+  ]
 
   ws.mergeCells(1, 1, 1, cols)
   const r1 = ws.getCell(1, 1)
@@ -340,13 +404,15 @@ function buildResumenSheet(
   ws.mergeCells(row, 1, row, cols)
   const note = ws.getCell(row, 1)
   note.value =
-    'La tabla «Totales por planta y material» es el resumen que suele solicitar contabilidad: kilogramos ' +
-    'consumidos en producción (remisiones) por cada insumo y por planta en el periodo. Las columnas de entradas ' +
-    'y ajustes permiten contrastar compras/recepciones y movimientos de inventario en el mismo periodo. ' +
-    'La clave de producto corresponde al catálogo de materiales en el sistema.'
+    'La tabla resume salidas e ingresos por planta y material en el periodo. «Consumo remisiones» son kilogramos ' +
+    'teórico/real aplicados a producción vía remisiones. «Desperdicio Arkik» proviene de la tabla waste_materials ' +
+    '(tickets / cargas sin consumo detallado en remision_materiales). «Merma inventario» son ajustes con tipo ' +
+    '«merma / mal estado». «Otros ajustes» es la magnitud absoluta del resto de movimientos de inventario. ' +
+    '«Total egresos» suma consumo remisiones + desperdicio Arkik + todos los ajustes en valor absoluto (coherente ' +
+    'con registrar salidas totales por material en sistemas externos). Las entradas se muestran aparte para conciliar compras/recepciones.'
   Object.assign(note, metaLabelStyle())
   note.alignment = { ...note.alignment, wrapText: true, vertical: 'top', horizontal: 'left' }
-  ws.getRow(row).height = 56
+  ws.getRow(row).height = 64
   row += 2
 
   ws.mergeCells(row, 1, row, cols)
@@ -358,12 +424,17 @@ function buildResumenSheet(
 
   const kpis: [string, number | string, string][] = [
     ['Consumo total remisiones (kg)', agg.totalConsumoKg, FMT.currencyNoSign],
+    ['Desperdicio Arkik / waste_materials (kg)', agg.totalWasteArkikKg, FMT.currencyNoSign],
+    ['Merma inventario — ajustes tipo merma (kg)', agg.totalMermaInventarioKg, FMT.currencyNoSign],
+    ['Otros ajustes — magnitud absoluta (kg)', agg.totalOtrosAjustesAbsKg, FMT.currencyNoSign],
+    ['Total egresos estimados (kg)', agg.totalEgresosKg, FMT.currencyNoSign],
     ['Entradas total inventario (kg)', agg.totalEntradasKg, FMT.currencyNoSign],
     ['Ajustes — magnitud absoluta total (kg)', agg.totalAjustesAbsKg, FMT.currencyNoSign],
     ['Remisiones consideradas', agg.remisionesCount, FMT.integer],
-    ['Renglones detalle — Consumos', agg.consumoLines, FMT.integer],
+    ['Renglones detalle — Consumos por remisión', agg.consumoLines, FMT.integer],
+    ['Renglones detalle — Desperdicios (tabla)', agg.wasteArkikLines, FMT.integer],
+    ['Renglones detalle — Ajustes (incl. merma)', agg.ajusteLines, FMT.integer],
     ['Renglones detalle — Entradas', agg.entradaLines, FMT.integer],
-    ['Renglones detalle — Ajustes', agg.ajusteLines, FMT.integer],
   ]
 
   const kpiStartRow = row
@@ -388,7 +459,7 @@ function buildResumenSheet(
   ws.mergeCells(row, 1, row, cols)
   const secBanner = ws.getCell(row, 1)
   secBanner.value =
-    'Totales por planta y material — «¿Cuánto se consumió de cada insumo en cada planta?»'
+    'Totales por planta y material — consumos de remisión, desperdicios y salidas de inventario'
   Object.assign(secBanner, sectionBannerStyle())
   ws.getRow(row).height = 22
   row += 1
@@ -396,11 +467,11 @@ function buildResumenSheet(
   ws.mergeCells(row, 1, row, cols)
   const secHint = ws.getCell(row, 1)
   secHint.value =
-    'Cada material aparece en una fila con su planta. Al final de cada planta verá un «Subtotal planta» ' +
-    '(suma de consumos, entradas y ajustes de esa planta). La columna «Consumo remisiones» son kilogramos aplicados a producción.'
+    'Cada insumo aparece por planta. «Subtotal planta» acumula las columnas numéricas de esa planta. ' +
+    'Use la hoja «Desperdicios y merma» para el detalle línea por línea de waste_materials y de ajustes tipo merma.'
   Object.assign(secHint, metaLabelStyle())
   secHint.alignment = { ...secHint.alignment, wrapText: true, vertical: 'middle', horizontal: 'left' }
-  ws.getRow(row).height = 28
+  ws.getRow(row).height = 32
   row += 1
 
   const plantMaterialRows = computePlantMaterialTotals(payload)
@@ -411,8 +482,11 @@ function buildResumenSheet(
     'Clave de producto',
     'Material',
     'Consumo remisiones (kg)',
+    'Desperdicio Arkik (kg)',
+    'Merma inventario (kg)',
+    'Otros ajustes |abs| (kg)',
     'Entradas (kg)',
-    'Ajustes (valor absoluto, kg)',
+    'Total egresos (kg)',
   ]
   headers.forEach((h, ci) => {
     const cell = hdr.getCell(ci + 1)
@@ -431,8 +505,11 @@ function buildResumenSheet(
     row += 2
   } else {
     const sumGrandC = plantMaterialRows.reduce((s, pm) => s + pm.consumptionKg, 0)
+    const sumGrandW = plantMaterialRows.reduce((s, pm) => s + pm.wasteArkikKg, 0)
+    const sumGrandM = plantMaterialRows.reduce((s, pm) => s + pm.mermaInventarioKg, 0)
+    const sumGrandO = plantMaterialRows.reduce((s, pm) => s + pm.otrosAjustesAbsKg, 0)
     const sumGrandE = plantMaterialRows.reduce((s, pm) => s + pm.entriesKg, 0)
-    const sumGrandA = plantMaterialRows.reduce((s, pm) => s + pm.adjustmentsAbsKg, 0)
+    const sumGrandT = plantMaterialRows.reduce((s, pm) => s + pm.totalEgresosKg, 0)
     const displayRows = expandPlantMaterialRowsWithSubtotals(plantMaterialRows)
 
     let dataZebra = 0
@@ -443,7 +520,17 @@ function buildResumenSheet(
       if (entry.kind === 'plant_subtotal') {
         const pst = plantSubtotalStyle()
         const label = `Subtotal planta — ${entry.plant_name}`
-        const cells: (string | number)[] = [label, '', '', entry.sumC, entry.sumE, entry.sumA]
+        const cells: (string | number)[] = [
+          label,
+          '',
+          '',
+          entry.sumC,
+          entry.sumW,
+          entry.sumM,
+          entry.sumO,
+          entry.sumE,
+          entry.sumT,
+        ]
         cells.forEach((v, ci) => {
           const cell = dr.getCell(ci + 1)
           cell.value = v
@@ -467,8 +554,11 @@ function buildResumenSheet(
         pm.clave || '—',
         pm.material_name,
         pm.consumptionKg,
+        pm.wasteArkikKg,
+        pm.mermaInventarioKg,
+        pm.otrosAjustesAbsKg,
         pm.entriesKg,
-        pm.adjustmentsAbsKg,
+        pm.totalEgresosKg,
       ]
       vals.forEach((v, ci) => {
         const cell = dr.getCell(ci + 1)
@@ -490,8 +580,11 @@ function buildResumenSheet(
       ['', 1],
       ['', 2],
       [sumGrandC, 3],
-      [sumGrandE, 4],
-      [sumGrandA, 5],
+      [sumGrandW, 4],
+      [sumGrandM, 5],
+      [sumGrandO, 6],
+      [sumGrandE, 7],
+      [sumGrandT, 8],
     ]
     totalCells.forEach(([val, ci]) => {
       const cell = tr.getCell(ci + 1)
@@ -896,6 +989,161 @@ function buildAjustesSheet(wb: ExcelJS.Workbook, payload: ConsumosAccountingExce
   }
 }
 
+function buildDesperdiciosSheet(
+  wb: ExcelJS.Workbook,
+  payload: ConsumosAccountingExcelPayload,
+  generatedAt: Date,
+): void {
+  const headers = [
+    'Fecha',
+    'Planta',
+    'Concepto contable (planta)',
+    'Almacén',
+    'Origen del registro',
+    'Clave de producto',
+    'Material',
+    'Referencia remisión / ticket',
+    'Código material (Arkik)',
+    'Cantidad (kg)',
+    'Motivo / tipo',
+    'Notas',
+    'ID sistema',
+  ]
+  const colCount = headers.length
+  const ws = wb.addWorksheet('Desperdicios y merma', {
+    pageSetup: { fitToPage: true, orientation: 'landscape' },
+  })
+  ws.columns = [
+    { width: 11 },
+    { width: 22 },
+    { width: 28 },
+    { width: 10 },
+    { width: 26 },
+    { width: 14 },
+    { width: 28 },
+    { width: 18 },
+    { width: 14 },
+    { width: 14 },
+    { width: 28 },
+    { width: 36 },
+    { width: 36 },
+  ]
+
+  const headerRow = applyDetailSheetBanner(
+    ws,
+    colCount,
+    {
+      sheetTitle: 'Detalle — Desperdicios (Arkik) y merma de inventario',
+      periodLabel: periodLabelForPayload(payload),
+      scopeLabel: scopeDescription(payload),
+    },
+    getDocumentContact(),
+    generatedAt,
+  )
+
+  const hr = ws.getRow(headerRow)
+  hr.height = 26
+  headers.forEach((h, i) => {
+    const cell = hr.getCell(i + 1)
+    cell.value = h
+    Object.assign(cell, columnHeaderStyle())
+  })
+
+  let ri = 0
+  for (const scope of eachPlantScope(payload)) {
+    const concepto = (scope.summary.accounting_concept ?? '').trim() || '—'
+    const almacen =
+      scope.summary.warehouse_number != null ? String(scope.summary.warehouse_number) : '—'
+
+    for (const m of scope.materials) {
+      const clave = (m.material_accounting_code ?? '').trim() || '—'
+
+      for (const w of m.waste_arkik) {
+        const row = ws.getRow(headerRow + 1 + ri)
+        row.height = 15
+        const st = dataStyle(ri % 2 === 1)
+        const vals: ExcelJS.CellValue[] = [
+          excelDate(scope.summary.date),
+          scope.plant_name,
+          concepto,
+          almacen,
+          'Arkik — waste_materials',
+          clave,
+          m.material_name,
+          w.remision_number,
+          w.material_code ?? '—',
+          w.waste_amount,
+          w.waste_reason,
+          w.notes ?? '—',
+          w.id,
+        ]
+        vals.forEach((v, ci) => {
+          const cell = row.getCell(ci + 1)
+          cell.value = v
+          Object.assign(cell, st)
+          if (ci === 0) cell.numFmt = FMT.date
+          if (ci === 9) {
+            cell.numFmt = FMT.currencyNoSign
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          }
+        })
+        ri += 1
+      }
+
+      for (const a of m.adjustments) {
+        if (a.adjustment_type !== 'waste') continue
+        const row = ws.getRow(headerRow + 1 + ri)
+        row.height = 15
+        const st = dataStyle(ri % 2 === 1)
+        const qty = Math.abs(Number(a.quantity_adjusted))
+        const vals: ExcelJS.CellValue[] = [
+          excelDate(scope.summary.date),
+          scope.plant_name,
+          concepto,
+          almacen,
+          'Ajuste — merma inventario',
+          clave,
+          m.material_name,
+          '—',
+          '—',
+          qty,
+          adjustmentTypeLabelEs(a.adjustment_type),
+          a.reference_notes ?? '—',
+          a.id,
+        ]
+        vals.forEach((v, ci) => {
+          const cell = row.getCell(ci + 1)
+          cell.value = v
+          Object.assign(cell, st)
+          if (ci === 0) cell.numFmt = FMT.date
+          if (ci === 9) {
+            cell.numFmt = FMT.currencyNoSign
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          }
+        })
+        ri += 1
+      }
+    }
+  }
+
+  ws.autoFilter = {
+    from: { row: headerRow, column: 1 },
+    to: { row: headerRow, column: colCount },
+  }
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: headerRow, activeCell: `A${headerRow + 1}` }]
+  ws.properties.tabColor = { argb: argb(C.navy) }
+
+  if (ri === 0) {
+    ws.mergeCells(headerRow + 1, 1, headerRow + 1, colCount)
+    const ec = ws.getCell(headerRow + 1, 1)
+    ec.value =
+      'Sin registros de desperdicio en waste_materials ni ajustes tipo merma en el periodo seleccionado.'
+    Object.assign(ec, metaLabelStyle())
+    ec.alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getRow(headerRow + 1).height = 22
+  }
+}
+
 export async function buildConsumosMaterialesExcel(
   payload: ConsumosAccountingExcelPayload,
   opts?: { generatedAt?: Date },
@@ -913,6 +1161,7 @@ export async function buildConsumosMaterialesExcel(
   buildResumenSheet(wsResumen, payload, agg, generatedAt)
 
   buildConsumosDetailSheet(wb, payload, generatedAt)
+  buildDesperdiciosSheet(wb, payload, generatedAt)
   buildEntradasSheet(wb, payload, generatedAt)
   buildAjustesSheet(wb, payload, generatedAt)
 

@@ -6,6 +6,7 @@ import {
   type EntryRow,
   type RemisionMaterialRow,
   type AdjustmentRow,
+  type WasteMaterialRow,
 } from '@/lib/procurement/plantConsumosAggregate'
 
 const FINANZAS_PROCUREMENT_ROLES = [
@@ -31,7 +32,7 @@ async function fetchPlantDay(
 
   const remisionIds = (remisionRows || []).map((r) => r.id)
 
-  const [rmRes, entriesRes, adjRes] = await Promise.all([
+  const [rmRes, entriesRes, adjRes, wasteRes] = await Promise.all([
     remisionIds.length === 0
       ? Promise.resolve({ data: [] as RemisionMaterialRow[], error: null })
       : supabase
@@ -91,17 +92,47 @@ async function fetchPlantDay(
       )
       .eq('plant_id', plantId)
       .eq('adjustment_date', date),
+    supabase
+      .from('waste_materials')
+      .select(
+        `
+        id,
+        plant_id,
+        fecha,
+        remision_number,
+        material_code,
+        material_id,
+        material_name,
+        waste_amount,
+        waste_reason,
+        notes,
+        materials (material_name, accounting_code)
+      `
+      )
+      .eq('plant_id', plantId)
+      .eq('fecha', date),
   ])
 
   if (rmRes.error) throw new Error(rmRes.error.message)
   if (entriesRes.error) throw new Error(entriesRes.error.message)
   if (adjRes.error) throw new Error(adjRes.error.message)
+  if (wasteRes.error) throw new Error(wasteRes.error.message)
 
   const rmRows = (rmRes.data || []) as RemisionMaterialRow[]
   const entryRows = (entriesRes.data || []) as EntryRow[]
   const adjRows = (adjRes.data || []) as AdjustmentRow[]
+  const wasteRows = (wasteRes.data || []) as WasteMaterialRow[]
 
-  return aggregatePlantConsumosFromRows(plantId, plantName, date, plantAccounting, rmRows, entryRows, adjRows)
+  return aggregatePlantConsumosFromRows(
+    plantId,
+    plantName,
+    date,
+    plantAccounting,
+    rmRows,
+    entryRows,
+    adjRows,
+    wasteRows,
+  )
 }
 
 /**
