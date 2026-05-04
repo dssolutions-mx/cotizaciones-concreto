@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { passFailRuleSchema, toleranciaTipoSchema } from '@/lib/ema/passFailRuleSchema';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
 
@@ -16,7 +17,7 @@ const PatchItemSchema = z.object({
   punto: z.string().min(1).optional(),
   valor_esperado: z.number().nullable().optional(),
   tolerancia: z.number().nullable().optional(),
-  tolerancia_tipo: z.enum(['absoluta', 'porcentual', 'rango']).optional(),
+  tolerancia_tipo: toleranciaTipoSchema.optional(),
   tolerancia_min: z.number().nullable().optional(),
   tolerancia_max: z.number().nullable().optional(),
   unidad: z.string().nullable().optional(),
@@ -37,7 +38,7 @@ const PatchItemSchema = z.object({
     ])
     .optional(),
   variable_name: z.string().nullable().optional(),
-  pass_fail_rule: z.any().optional(),
+  pass_fail_rule: passFailRuleSchema.optional(),
   contributes_to_cumple: z.boolean().optional(),
   depends_on: z.array(z.string()).optional(),
 });

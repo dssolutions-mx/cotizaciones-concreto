@@ -286,7 +286,7 @@ export type TipoItemVerificacion =
   /** @deprecated En plantillas nuevas no usar: la trazabilidad de patrón en verificación tipo C es solo por `completed_verificacion_maestros` → `instrumentos`. Sigue existiendo en snapshots/publicaciones ya emitidas. */
   | 'referencia_equipo';
 
-export type ToleranciaTipo = 'absoluta' | 'porcentual' | 'rango';
+export type ToleranciaTipo = 'absoluta' | 'porcentual' | 'rango' | 'formula_bound';
 
 /** Section layout (v2 plantillas). Legacy snapshots may omit `layout`. */
 export type SectionLayout = 'linear' | 'instrument_grid' | 'reference_series';

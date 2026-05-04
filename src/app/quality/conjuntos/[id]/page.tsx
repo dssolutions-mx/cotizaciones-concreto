@@ -103,7 +103,7 @@ function PlantillaTab({ conjuntoId }: { conjuntoId: string }) {
             <span className="text-xs text-stone-400">· {plantillas.length}</span>
           </div>
           <Link
-            href={`/quality/conjuntos/${conjuntoId}/plantilla`}
+            href={`/quality/conjuntos/${conjuntoId}/plantilla?new=1`}
             className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 font-medium"
           >
             <ExternalLink className="h-3 w-3" />

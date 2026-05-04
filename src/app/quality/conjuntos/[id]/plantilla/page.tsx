@@ -264,6 +264,69 @@ function itemFormToPayload(f: ItemFormState) {
   }
 }
 
+/** Tipos cuyo `variable_name` puede ser referenciado por fórmulas en la misma sección. */
+const TIPOS_CON_VARIABLE: TipoItemVerificacion[] = ['medicion', 'numero', 'booleano', 'calculado']
+
+/** Pre-flight de cliente: replica las restricciones que el API ya valida, con mensajes accionables.
+ *  Devuelve `null` si todo OK, o un mensaje listo para mostrar inline. */
+function validateItemForm(
+  form: ItemFormState,
+  opts: { takenVariableNames: string[]; knownFormulaVars: string[] },
+): string | null {
+  if (!form.punto.trim()) return 'El punto es requerido.'
+
+  const variable = form.variable_name.trim()
+  if (TIPOS_CON_VARIABLE.includes(form.tipo)) {
+    if (!variable) return 'El nombre de variable es requerido para que el punto pueda ser referenciado en fórmulas.'
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(variable))
+      return 'El nombre de variable debe empezar con letra o «_» y contener solo letras, números o «_».'
+    if (opts.takenVariableNames.includes(variable))
+      return `«${variable}» ya se usa en esta plantilla. Elija otro nombre de variable.`
+  }
+
+  if (form.tipo === 'calculado') {
+    if (!form.formula.trim()) return 'La fórmula es requerida en un punto calculado.'
+    try {
+      const used = extractVariables(parseFormula(form.formula))
+      const known = new Set([...opts.knownFormulaVars, variable].filter(Boolean))
+      const unknown = Array.from(used).filter(v => !known.has(v))
+      if (unknown.length) return `La fórmula referencia variables no definidas: ${unknown.join(', ')}.`
+    } catch (e) {
+      return `La fórmula tiene un error de sintaxis: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+
+  if ((form.tipo === 'medicion' || form.tipo === 'calculado') && form.tolerancia_tipo === 'formula_bound') {
+    if (!form.formula_bound_min.trim() && !form.formula_bound_max.trim())
+      return 'Indique al menos un límite (inferior o superior) para «Límites por fórmula».'
+    for (const [label, expr] of [
+      ['inferior', form.formula_bound_min] as const,
+      ['superior', form.formula_bound_max] as const,
+    ]) {
+      if (!expr.trim()) continue
+      try {
+        parseFormula(expr)
+      } catch (e) {
+        return `Límite ${label}: error de sintaxis (${e instanceof Error ? e.message : String(e)}).`
+      }
+    }
+  }
+
+  return null
+}
+
+/** Convierte el `details.fieldErrors` de Zod a un mensaje legible. */
+function formatApiFieldErrors(details: unknown): string | null {
+  if (!details || typeof details !== 'object') return null
+  const fe = (details as { fieldErrors?: Record<string, string[]> }).fieldErrors
+  if (!fe) return null
+  const parts: string[] = []
+  for (const [k, msgs] of Object.entries(fe)) {
+    if (Array.isArray(msgs) && msgs.length) parts.push(`${k}: ${msgs.join(', ')}`)
+  }
+  return parts.length ? parts.join(' · ') : null
+}
+
 function itemToForm(item: VerificacionTemplateItem): ItemFormState {
   const pr = item.pass_fail_rule as { kind?: string; value?: boolean; decision_note?: string | null } | undefined
   const decision_rule_text =
@@ -383,8 +446,18 @@ function FormulaAuthoringPlayground({
   rule: PassFailRule | Record<string, unknown> | null
   variableNames: string[]
 }) {
+  const parseError = useMemo(() => {
+    if (!formula.trim()) return null
+    try {
+      parseFormula(formula)
+      return null
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
+  }, [formula])
+
   const varsInFormula = useMemo(() => {
-    if (!formula.trim()) return variableNames
+    if (!formula.trim() || parseError) return variableNames
     try {
       const used = extractVariables(parseFormula(formula))
       const ordered = variableNames.filter(v => used.has(v))
@@ -392,7 +465,7 @@ function FormulaAuthoringPlayground({
     } catch {
       return variableNames
     }
-  }, [formula, variableNames])
+  }, [formula, parseError, variableNames])
 
   const [vals, setVals] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -438,6 +511,11 @@ function FormulaAuthoringPlayground({
       <p className="text-[11px] text-stone-500 leading-snug">
         Opcional: compruebe el resultado y el cumplimiento antes de guardar.
       </p>
+      {parseError && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-mono text-red-700">
+          Error de sintaxis en la fórmula: {parseError}
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {varsInFormula.map(v => (
           <div key={v} className="space-y-0.5">
@@ -825,10 +903,12 @@ function ItemForm({
 // ─── Section Card ──────────────────────────────────────────────────────────────
 
 function SectionCard({
-  section, templateId, onUpdated, onDeleted,
+  section, templateId, reservedVariableNames = [], onUpdated, onDeleted,
 }: {
   section: VerificacionTemplateSection & { items: VerificacionTemplateItem[] }
   templateId: string
+  /** Variable names already taken elsewhere in the template (header field keys + variables in other sections). */
+  reservedVariableNames?: string[]
   onUpdated: (s: VerificacionTemplateSection & { items: VerificacionTemplateItem[] }) => void
   onDeleted: (id: string) => void
 }) {
@@ -866,8 +946,27 @@ function SectionCard({
   const [editingItem, setEditingItem] = useState<string | null>(null)
   const [editForm, setEditForm] = useState<ItemFormState>(emptyItemForm())
 
+  function takenNamesExcluding(currentItemId: string | null): string[] {
+    const sectionNames = section.items
+      .filter(i => i.id !== currentItemId)
+      .map(i => i.variable_name?.trim())
+      .filter((v): v is string => !!v)
+    return [...reservedVariableNames, ...sectionNames]
+  }
+
+  function knownFormulaVarsExcluding(currentItemId: string | null): string[] {
+    const sectionNames = section.items
+      .filter(i => i.id !== currentItemId && i.variable_name?.trim())
+      .map(i => i.variable_name!.trim())
+    return [...reservedVariableNames, ...sectionNames]
+  }
+
   async function handleAddItem() {
-    if (!itemForm.punto.trim()) { setItemErr('El punto es requerido'); return }
+    const validationErr = validateItemForm(itemForm, {
+      takenVariableNames: takenNamesExcluding(null),
+      knownFormulaVars: knownFormulaVarsExcluding(null),
+    })
+    if (validationErr) { setItemErr(validationErr); return }
     setSavingItem(true)
     setItemErr(null)
     try {
@@ -876,7 +975,11 @@ function SectionCard({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(itemFormToPayload(itemForm)),
       })
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error) }
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        const fieldMsg = formatApiFieldErrors(j.details)
+        throw new Error(fieldMsg ? `${j.error}: ${fieldMsg}` : (j.error || 'Error al guardar el ítem'))
+      }
       const j = await res.json()
       onUpdated({ ...section, items: [...section.items, j.data] })
       setItemForm(emptyItemForm())
@@ -895,14 +998,23 @@ function SectionCard({
   }
 
   async function handleSaveItem(itemId: string) {
-    if (!editForm.punto.trim()) return
+    const validationErr = validateItemForm(editForm, {
+      takenVariableNames: takenNamesExcluding(itemId),
+      knownFormulaVars: knownFormulaVarsExcluding(itemId),
+    })
+    if (validationErr) { setItemErr(validationErr); return }
     setSavingItem(true)
+    setItemErr(null)
     try {
       const res = await fetch(
         `/api/ema/templates/${templateId}/sections/${section.id}/items/${itemId}`,
         { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(itemFormToPayload(editForm)) }
       )
-      if (!res.ok) throw new Error((await res.json()).error)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        const fieldMsg = formatApiFieldErrors(j.details)
+        throw new Error(fieldMsg ? `${j.error}: ${fieldMsg}` : (j.error || 'Error al guardar el ítem'))
+      }
       const j = await res.json()
       onUpdated({ ...section, items: section.items.map(i => i.id === itemId ? j.data : i) })
       setEditingItem(null)
@@ -1192,6 +1304,7 @@ export default function PlantillaPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const templateParamId = searchParams.get('template')
+  const wantsNewTemplate = searchParams.get('new') === '1'
 
   const [template, setTemplate] = useState<VerificacionTemplateDetalle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1201,8 +1314,7 @@ export default function PlantillaPage() {
   // Multi-template chooser (when ?template= absent and >1 exist)
   const [chooserList, setChooserList] = useState<PlantillaSummary[]>([])
 
-  // Create template form (when none exists)
-  const [creating, setCreating] = useState(false)
+  // Create template form (none yet, or explicit ?new=1)
   const [createForm, setCreateForm] = useState({ codigo: '', nombre: '', norma_referencia: '' })
   const [createErr, setCreateErr] = useState<string | null>(null)
   const [createSaving, setCreateSaving] = useState(false)
@@ -1255,13 +1367,14 @@ export default function PlantillaPage() {
       const tj = await tRes.json()
       const list: PlantillaSummary[] = Array.isArray(tj.data) ? tj.data : (tj.data ? [tj.data] : [])
 
-      if (list.length === 0) {
-        // No templates yet → show create form with auto-generated code
+      // No ?template= and (no plantillas yet, or explicit alta nueva) → formulario crear
+      if (!templateParamId && (list.length === 0 || wantsNewTemplate)) {
         const allRes = await fetch('/api/ema/templates/count')
         const total = (await allRes.json().catch(() => ({ count: 6 }))).count ?? 6
         const nextNum = String(total + 1).padStart(2, '0')
         setCreateForm(f => ({ ...f, codigo: `DC-LC-6.4-${nextNum}`, nombre: cj?.nombre_conjunto ?? '' }))
         setTemplate(null)
+        setChooserList([])
         setReadiness(null)
         setLoading(false)
         return
@@ -1310,7 +1423,7 @@ export default function PlantillaPage() {
     } finally {
       setLoading(false)
     }
-  }, [conjuntoId, templateParamId])
+  }, [conjuntoId, templateParamId, wantsNewTemplate])
 
   const refreshReadiness = useCallback(async (templateId: string) => {
     setReadinessBusy(true)
@@ -1349,8 +1462,11 @@ export default function PlantillaPage() {
           norma_referencia: createForm.norma_referencia.trim() || null,
         }),
       })
-      if (!res.ok) throw new Error((await res.json()).error)
-      await load()
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error ?? 'Error al crear')
+      const newId = j.data?.id as string | undefined
+      if (!newId) throw new Error('Respuesta sin id de plantilla')
+      router.replace(`/quality/conjuntos/${conjuntoId}/plantilla?template=${newId}`)
     } catch (e: any) { setCreateErr(e.message) }
     finally { setCreateSaving(false) }
   }
@@ -1519,44 +1635,11 @@ export default function PlantillaPage() {
           <Button
             size="sm"
             className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5"
-            onClick={() => setCreating(true)}
+            onClick={() => router.push(`/quality/conjuntos/${conjuntoId}/plantilla?new=1`)}
           >
             <Plus className="h-4 w-4" /> Nueva plantilla
           </Button>
         </div>
-
-        {creating && (
-          <div className="rounded-lg border border-stone-200 bg-white p-5">
-            <form onSubmit={handleCreate} className="flex flex-col gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-stone-600">Código</Label>
-                <Input value={createForm.codigo}
-                  onChange={e => setCreateForm(f => ({ ...f, codigo: e.target.value }))}
-                  placeholder="DC-LC-6.4-NN" className="border-stone-200 text-sm font-mono" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-stone-600">Nombre *</Label>
-                <Input value={createForm.nombre}
-                  onChange={e => setCreateForm(f => ({ ...f, nombre: e.target.value }))}
-                  className="border-stone-200 text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-stone-600">Norma de referencia</Label>
-                <Input value={createForm.norma_referencia}
-                  onChange={e => setCreateForm(f => ({ ...f, norma_referencia: e.target.value }))}
-                  className="border-stone-200 text-sm" />
-              </div>
-              {createErr && <p className="text-xs text-red-600">{createErr}</p>}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => setCreating(false)}>Cancelar</Button>
-                <Button type="submit" size="sm" disabled={createSaving}
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white">
-                  {createSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Crear'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        )}
 
         <div className="flex flex-col gap-3">
           {chooserList.map(p => (
@@ -1611,6 +1694,17 @@ export default function PlantillaPage() {
           </Link>
           <h1 className="text-lg font-semibold tracking-tight text-stone-900">Crear plantilla de verificación</h1>
         </div>
+
+        {wantsNewTemplate && (
+          <p className="text-xs text-stone-500 -mt-2">
+            <Link
+              href={`/quality/conjuntos/${conjuntoId}/plantilla`}
+              className="text-emerald-700 hover:text-emerald-800 font-medium underline-offset-2 hover:underline"
+            >
+              Ver plantillas existentes de este conjunto
+            </Link>
+          </p>
+        )}
 
         <div className="rounded-lg border border-stone-200 bg-white p-5">
           <form onSubmit={handleCreate} className="flex flex-col gap-4">
@@ -1837,11 +1931,19 @@ export default function PlantillaPage() {
 
           {/* Sections */}
           <div className="flex flex-col gap-3">
-        {template.sections.map(section => (
+        {template.sections.map(section => {
+          const reservedVariableNames = [
+            ...(template.header_fields ?? []).map(h => h.field_key).filter(Boolean),
+            ...template.sections
+              .filter(s => s.id !== section.id)
+              .flatMap(s => (s.items ?? []).map(i => i.variable_name?.trim()).filter((v): v is string => !!v)),
+          ]
+          return (
           <SectionCard
             key={section.id}
             section={section}
             templateId={template.id}
+            reservedVariableNames={reservedVariableNames}
             onUpdated={updated => {
               setTemplate(t => t ? {
                 ...t, sections: t.sections.map(s => s.id === updated.id ? updated : s)
@@ -1855,7 +1957,8 @@ export default function PlantillaPage() {
               void refreshReadiness(template.id)
             }}
           />
-        ))}
+          )
+        })}
 
         {/* Add section */}
         {addingSection ? (

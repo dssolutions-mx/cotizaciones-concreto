@@ -19,7 +19,7 @@ This document maps the end-to-end lifecycle for **plantillas de verificación** 
 | Step | Route | Role |
 |------|-------|------|
 | Índice global | `src/app/quality/plantillas/page.tsx` | Lists plantillas (`GET /api/ema/plantillas`). |
-| Conjunto → plantilla | `src/app/quality/conjuntos/[id]/plantilla/page.tsx` | Builder: cabecera, secciones, puntos, preview (`TemplateFicha`), validate, publish. Query `?template=` when multiple templates. |
+| Conjunto → plantilla | `src/app/quality/conjuntos/[id]/plantilla/page.tsx` | Builder: cabecera, secciones, puntos, preview (`TemplateFicha`), validate, publish. Query `?template=<uuid>` abre esa plantilla. Query `?new=1` fuerza el formulario de **alta** aunque el conjunto ya tenga una sola plantilla (sin `?new=1`, una sola plantilla se abre sola para edición rápida). Con varias plantillas y sin query, se muestra el selector. |
 | Conjunto tab | `src/app/quality/conjuntos/[id]/page.tsx` | Links into plantilla editor. |
 | Ejecutar verificación | `src/app/quality/instrumentos/[id]/verificar/page.tsx` | Loads snapshot; datos de cabecera; steps; saves measurements + optional `header_values`. |
 | Verificación cerrada | `src/app/quality/instrumentos/[id]/verificaciones/[verifId]/page.tsx` | Read-only view of saved measurements. |
