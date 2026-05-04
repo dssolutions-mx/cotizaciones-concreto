@@ -21,7 +21,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Activity, Factory, Package, Scale } from 'lucide-react'
+import { Activity, Factory, FileSpreadsheet, Package, Scale } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import {
+  consumosAccountingExcelFilename,
+  type ConsumosAccountingExcelPayload,
+  type ConsumosAccountingMaterialBlock,
+  type ConsumosAccountingSummary,
+} from '@/lib/procurement/consumosAccountingExcelExport'
+import { buildConsumosMaterialesExcel } from '@/lib/reports/consumosMaterialesExcel'
 import {
   adjustmentTypeLabelEs,
   formatSignedKg,
@@ -30,74 +39,11 @@ import {
 } from '@/lib/inventory/adjustmentModel'
 import { cn } from '@/lib/utils'
 
-type ConsumptionLine = {
-  remision_id: string
-  remision_number: string
-  cantidad_teorica: number
-  cantidad_real: number
-  ajuste: number
-  hora_carga: string | null
-  client_name?: string
-  construction_site?: string
-  recipe_code?: string
-  strength_fc?: number | null
-}
+type MaterialBlock = ConsumosAccountingMaterialBlock
 
-type EntryLine = {
-  id: string
-  entry_number: string
-  quantity_received: number
-  supplier_name?: string
-  supplier_invoice?: string
-  entry_time?: string | null
-}
+type Summary = ConsumosAccountingSummary
 
-type AdjustmentLine = {
-  id: string
-  adjustment_type: string
-  quantity_adjusted: number
-  reference_notes?: string | null
-  adjustment_time?: string | null
-}
-
-type MaterialBlock = {
-  material_id: string
-  material_name: string
-  total_consumed_kg: number
-  consumptions: ConsumptionLine[]
-  entries: EntryLine[]
-  adjustments: AdjustmentLine[]
-}
-
-type Summary = {
-  date: string
-  plant_name: string
-  total_consumption_kg: number
-  total_entries_kg: number
-  total_adjustments_kg: number
-  remision_count: number
-}
-
-type SinglePayload = {
-  mode: 'single'
-  plant_id: string
-  plant_name: string
-  summary: Summary
-  materials: MaterialBlock[]
-}
-
-type AllPayload = {
-  mode: 'all'
-  date: string
-  plants: Array<{
-    plant_id: string
-    plant_name: string
-    summary: Summary
-    materials: MaterialBlock[]
-  }>
-}
-
-type ApiResponse = { success: boolean; data?: SinglePayload | AllPayload; error?: string }
+type ApiResponse = { success: boolean; data?: ConsumosAccountingExcelPayload; error?: string }
 
 const fmtKg = (n: number) =>
   new Intl.NumberFormat('es-MX', { maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n)
@@ -366,7 +312,8 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
   }, [consumosDateFromUrl])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [payload, setPayload] = useState<SinglePayload | AllPayload | null>(null)
+  const [payload, setPayload] = useState<ConsumosAccountingExcelPayload | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const params = useMemo(() => {
     const p = new URLSearchParams({ date })
@@ -416,6 +363,33 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
     return `/finanzas/procurement/consumos-periodo?${params.toString()}`
   }, [workspacePlantId, plantIdFromUrl])
 
+  const exportAccountingExcel = useCallback(async () => {
+    if (!payload) {
+      toast.error('No hay datos cargados para exportar')
+      return
+    }
+    setExporting(true)
+    try {
+      const buf = await buildConsumosMaterialesExcel(payload)
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = consumosAccountingExcelFilename(payload)
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success('Reporte Excel generado (Resumen + detalle por hoja)')
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el Excel')
+    } finally {
+      setExporting(false)
+    }
+  }, [payload])
+
+  const canExport = Boolean(payload && !loading && !error)
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
@@ -426,24 +400,36 @@ export default function DailyConsumptionsView({ workspacePlantId }: Props) {
           Consumo por período (rango / mes)
         </Link>
       </div>
-      <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="consumos-date" className="text-stone-700">
-            Fecha
-          </Label>
-          <Input
-            id="consumos-date"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-[200px] border-stone-300 bg-white"
-          />
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-4 flex-1">
+          <div className="space-y-2">
+            <Label htmlFor="consumos-date" className="text-stone-700">
+              Fecha
+            </Label>
+            <Input
+              id="consumos-date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-[200px] border-stone-300 bg-white"
+            />
+          </div>
+          <p className="text-sm text-stone-600 pb-1">
+            {workspacePlantId
+              ? 'Datos de la planta seleccionada en el encabezado.'
+              : 'Todas las plantas activas (resumen por planta).'}
+          </p>
         </div>
-        <p className="text-sm text-stone-600 pb-1">
-          {workspacePlantId
-            ? 'Datos de la planta seleccionada en el encabezado.'
-            : 'Todas las plantas activas (resumen por planta).'}
-        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-stone-300 bg-white shrink-0 gap-2"
+          disabled={!canExport || exporting}
+          onClick={() => void exportAccountingExcel()}
+        >
+          <FileSpreadsheet className="h-4 w-4" aria-hidden />
+          {exporting ? 'Generando…' : 'Excel (formato contabilidad)'}
+        </Button>
       </div>
 
       {loading ? (

@@ -23,7 +23,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Activity, ArrowLeft, Factory, Package, Scale } from 'lucide-react'
+import { Activity, ArrowLeft, Factory, FileSpreadsheet, Package, Scale } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  consumosAccountingExcelFilename,
+  type ConsumosAccountingExcelPayload,
+} from '@/lib/procurement/consumosAccountingExcelExport'
+import { buildConsumosMaterialesExcel } from '@/lib/reports/consumosMaterialesExcel'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 
@@ -110,6 +116,7 @@ export default function ConsumosPeriodoView() {
   })
 
   const [loading, setLoading] = useState(false)
+  const [exportingExcel, setExportingExcel] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ApiPayload | null>(null)
 
@@ -172,6 +179,50 @@ export default function ConsumosPeriodoView() {
     () => (data?.daily_series?.length ? Math.max(...data.daily_series.map((d) => d.consumption_kg), 1e-6) : 1),
     [data]
   )
+
+  const exportAccountingExcel = useCallback(async () => {
+    if (!plantId) {
+      toast.error('Seleccione una planta')
+      return
+    }
+    if (!dateFrom || !dateTo) return
+    setExportingExcel(true)
+    try {
+      const p = new URLSearchParams({
+        plant_id: plantId,
+        date_from: dateFrom,
+        date_to: dateTo,
+      })
+      const res = await fetch(`/api/procurement/consumos/rango/contable?${p}`)
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error || 'No se pudo generar el detalle contable')
+      }
+      const payload = json.data as ConsumosAccountingExcelPayload | undefined
+      if (!payload || payload.mode !== 'range') {
+        throw new Error('Respuesta inválida del servidor')
+      }
+      const buf = await buildConsumosMaterialesExcel(payload)
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = consumosAccountingExcelFilename(payload)
+      a.click()
+      URL.revokeObjectURL(a.href)
+      toast.success(
+        payload.days.length === 0
+          ? 'Reporte Excel generado (sin movimientos en el período)'
+          : `Reporte Excel generado (${payload.days.length} día(s) con movimiento)`
+      )
+    } catch (e) {
+      console.error(e)
+      toast.error(e instanceof Error ? e.message : 'Error al exportar')
+    } finally {
+      setExportingExcel(false)
+    }
+  }, [plantId, dateFrom, dateTo])
 
   return (
     <div className="space-y-6">
@@ -240,7 +291,18 @@ export default function ConsumosPeriodoView() {
             className="w-[160px] border-stone-300 bg-white"
           />
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-stone-300 gap-1.5"
+            disabled={!plantId || exportingExcel || loading}
+            onClick={() => void exportAccountingExcel()}
+          >
+            <FileSpreadsheet className="h-4 w-4 shrink-0" aria-hidden />
+            {exportingExcel ? 'Generando…' : 'Excel (formato contabilidad)'}
+          </Button>
           <Button type="button" variant="outline" size="sm" className="border-stone-300" onClick={() => {
             const b = monthBounds(new Date())
             setDateFrom(b.from)
