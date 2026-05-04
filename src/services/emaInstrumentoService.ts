@@ -518,6 +518,26 @@ export async function applyInstrumentoUpdate(
   if (!detail) throw new Error('No encontrado');
   const v = validateInstrumentPatchForUpdate(detail, patch);
   if (!v.ok) throw new Error(v.error);
+
+  // Protect cert-derived next-event: if the patch would null-out fecha_proximo_evento
+  // but an active calibration certificate exists, restore it from that cert.
+  // This prevents the instrument edit form from accidentally overwriting the date
+  // that the trg_after_certificado trigger set when the certificate was uploaded.
+  if (v.merged.fecha_proximo_evento === null || v.merged.fecha_proximo_evento === undefined) {
+    const supabase = await createServerSupabaseClient();
+    const { data: activeCert } = await supabase
+      .from('certificados_calibracion')
+      .select('fecha_vencimiento')
+      .eq('instrumento_id', id)
+      .eq('is_vigente', true)
+      .order('fecha_emision', { ascending: false })
+      .limit(1)
+      .single();
+    if (activeCert?.fecha_vencimiento && 'fecha_proximo_evento' in v.merged) {
+      v.merged.fecha_proximo_evento = activeCert.fecha_vencimiento;
+    }
+  }
+
   const updated = await updateInstrumento(id, v.merged);
   if (v.replaceMaestroIds !== undefined) {
     await replaceInstrumentoMaestroVinculos(id, v.replaceMaestroIds);
