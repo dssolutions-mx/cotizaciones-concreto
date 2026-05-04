@@ -139,6 +139,20 @@ export async function createConjunto(
   return data;
 }
 
+function throwConjuntoUpdateUserMessage(err: { code?: string; message?: string }): never {
+  const msg = err.message ?? '';
+  if (
+    err.code === 'PGRST116' ||
+    msg.includes('JSON object requested') ||
+    msg.includes('multiple (or no) rows')
+  ) {
+    throw new Error(
+      'No se pudo guardar el conjunto: no hubo filas actualizadas o la base de datos no devolvió el registro. Compruebe permisos o recargue la página.',
+    );
+  }
+  throw new Error(msg || 'Error al guardar el conjunto');
+}
+
 export async function updateConjunto(
   id: string,
   input: UpdateConjuntoInput,
@@ -149,8 +163,13 @@ export async function updateConjunto(
     .update(input)
     .eq('id', id)
     .select()
-    .single();
-  if (error) throw error;
+    .maybeSingle();
+  if (error) throwConjuntoUpdateUserMessage(error);
+  if (!data) {
+    throw new Error(
+      'No se pudo guardar el conjunto: no se aplicó ningún cambio (permisos en base de datos o el conjunto ya no existe).',
+    );
+  }
   return data;
 }
 
