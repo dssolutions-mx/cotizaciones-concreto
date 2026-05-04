@@ -270,6 +270,7 @@ export async function POST(request: NextRequest) {
         adjustmentDate,
         inventoryAfterFromAdjustment: Number(result.inventory_after),
         quantityAdjusted: Number(result.quantity_adjusted),
+        inventoryBeforeFromAdjustment: Number(result.inventory_before),
         enteredBy: user.id,
         ...(sheetQty != null ? { openingLayerQtyKgOverride: sheetQty } : {}),
       });

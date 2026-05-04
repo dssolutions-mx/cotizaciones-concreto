@@ -470,6 +470,12 @@ export interface InventoryMovement {
   unit: string;
   reference: string;
   notes?: string;
+  /** Ledger / audit: optional row metadata */
+  entry_id?: string;
+  unit_price_mxn?: number | null;
+  total_cost_mxn?: number | null;
+  landed_unit_price_mxn?: number | null;
+  waste_id?: string;
 }
 
 export interface InventoryDashboardData {

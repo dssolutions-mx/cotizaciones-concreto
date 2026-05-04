@@ -151,6 +151,8 @@ export const UpdateMaterialEntrySchema = BaseMaterialEntryInputSchema.partial()
   .omit({ alert_id: true })
   .extend({
     id: z.string().uuid('ID debe ser un UUID válido'),
+    /** FIFO costing: exclude this receipt layer from allocation (elevated roles). */
+    excluded_from_fifo: z.boolean().optional(),
   });
 
 export const UpdateMaterialAdjustmentSchema = MaterialAdjustmentInputSchema.partial().extend({

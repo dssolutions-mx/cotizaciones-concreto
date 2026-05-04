@@ -18,6 +18,14 @@ It does **not** replace procurement review of real invoices; it establishes a **
 
 **Authoritative quantity** = `inventory_after` from the **same plant opening batch** in `material_adjustments` (`reference_type` = e.g. `P004P_opening`). That matches the signed-off opening workbook, not necessarily today’s `material_inventory` (which can drift).
 
+### Gross cutover vs net “catch-up” (P005 / April 2026)
+
+Prefer posting **gross physical counts as of the cutover date** (e.g. 2026-04-01) in `inventory_after`, with notes citing the sheet line. Use **net** adjustments (physical minus consumption already in the ledger before opening is posted) only when April production rows exist **before** the opening batch and you cannot reorder history: there were **18** `remisiones` for P005 on 2026-04-01–03, so late posting without replay legitimately used net math; correcting the **recorded** opening to gross for audit requires updating rows **without** firing `trigger_update_inventory_adjustment` so live `material_inventory` is not overwritten (see migration `p005_gross_opening_adjustments_2026_04`).
+
+**FIFO OPEN layer size:** size synthetic `0OPEN-*` layers from **on-hand opening** (`inventory_after` / sheet TN or L), not from `max(inventory_after, quantity_adjusted)` when the delta is larger than stock — otherwise materials with negative `inventory_before` get an overstated layer (e.g. GCM).
+
+**Diesel:** Planta 5 has no `materials` / `material_inventory` row for diesel in the hosted catalog (diesel compliance uses `diesel_warehouses` / `diesel_transactions`). Opening corrections here apply only to **inventory-tracked** materials (cement, aggregates, additives, water, etc.).
+
 The apply script **sets** `material_inventory.current_stock` to `inventory_after` via the existing `update_inventory_from_entry` trigger (`inventory_after` on insert). Only run when:
 
 - You intend to **snap** live inventory to the opening targets, **or**

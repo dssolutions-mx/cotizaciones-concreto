@@ -15,6 +15,7 @@ import {
 import { resolveVolumetricWeightKgPerM3 } from '@/lib/inventory/volumetricWeight';
 import { kgToMetricTons, KG_PER_METRIC_TON } from '@/lib/inventory/massUnits';
 import { recalculateFifoBeforeDeletingEntry } from '@/services/materialEntryFifoRecalcService';
+import { computeMaterialAmountFromEntryRow } from '@/lib/inventory/materialEntryAmount';
 
 /** Merge document_count per entry from inventory_documents (type entry). */
 async function attachEntryDocumentCounts(
@@ -1110,20 +1111,30 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Entrada no encontrada' }, { status: 404 });
     }
 
-    if (currentEntry.pricing_status === 'reviewed') {
-      if (!canCompleteEntryPricingReview(profile.role)) {
+    if (currentEntry.pricing_status === 'reviewed' && !canCompleteEntryPricingReview(profile.role)) {
+      const keys = Object.keys(rest).filter((k) => (rest as Record<string, unknown>)[k] !== undefined)
+      const allowedForPlantOps = ['quantity_received', 'received_qty_entered', 'received_qty_kg', 'notes']
+      const forbidden = keys.some((k) => !allowedForPlantOps.includes(k))
+      if (forbidden) {
         return NextResponse.json(
           {
             success: false,
             error:
-              'Esta entrada ya fue revisada por administración y no puede modificarse.',
+              'Esta entrada ya fue revisada por administración. Solo se pueden ajustar cantidades recibidas o notas.',
           },
           { status: 403 }
-        );
+        )
       }
     }
 
     const updateData: Record<string, any> = { ...rest };
+    if (updateData.excluded_from_fifo !== undefined && !canCompleteEntryPricingReview(profile.role)) {
+      return NextResponse.json(
+        { success: false, error: 'Solo administración puede marcar exclusión FIFO.' },
+        { status: 403 }
+      );
+    }
+
     const userSentPoItemId = updateData.po_item_id !== undefined;
     if (
       typeof updateData.entry_time === 'string' &&
@@ -1486,9 +1497,36 @@ export async function PUT(request: NextRequest) {
         delete o.updated_at;
         return o;
       };
+      const mergedForQty = stripInternalForMerge({ ...currentEntry, ...updatePayload });
+
+      // FIFO: cannot shrink below allocated consumption (kg layers only)
+      if ((currentEntry as { received_uom?: string }).received_uom !== 'l') {
+        const newKgx =
+          Number(
+            mergedForQty.received_qty_kg ?? mergedForQty.quantity_received
+          ) || 0;
+        const { data: allocRows } = await supabase
+          .from('material_consumption_allocations')
+          .select('quantity_consumed_kg')
+          .eq('entry_id', id);
+        const consumed = (allocRows || []).reduce(
+          (s, r: { quantity_consumed_kg?: number }) =>
+            s + Number(r.quantity_consumed_kg ?? 0),
+          0
+        );
+        if (newKgx < consumed - 1e-6) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `La cantidad no puede ser menor que el consumo FIFO ya asignado (${consumed.toFixed(2)} kg).`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       const oldContrib =
         Number(currentEntry.inventory_after) - Number(currentEntry.inventory_before);
-      const mergedForQty = stripInternalForMerge({ ...currentEntry, ...updatePayload });
       const newContrib = inventoryContributionFromEntryRow(mergedForQty);
       if (Math.abs(newContrib - oldContrib) > 1e-6) {
         const { data: invRow } = await supabase
@@ -1511,8 +1549,20 @@ export async function PUT(request: NextRequest) {
           oldRemRaw !== null && oldRemRaw !== undefined && oldRemRaw !== ''
             ? Number(oldRemRaw)
             : NaN;
-        const consumed = Number.isFinite(oldRem) ? Math.max(0, oldKg - oldRem) : 0;
-        updatePayload.remaining_quantity_kg = Math.max(0, newKg - consumed);
+        const consumedFifo = Number.isFinite(oldRem) ? Math.max(0, oldKg - oldRem) : 0;
+        updatePayload.remaining_quantity_kg = Math.max(0, newKg - consumedFifo);
+      }
+
+      if (canCompleteEntryPricingReview(profile.role)) {
+        const tc = computeMaterialAmountFromEntryRow(mergedForQty as Record<string, unknown>);
+        updatePayload.total_cost = Number(tc.toFixed(2));
+      } else if (currentEntry.pricing_status === 'reviewed') {
+        updatePayload.pricing_status = 'pending';
+        const noteExtra = '[Recepción ajustada — requiere revisión de precios / CXP]';
+        const prev = (currentEntry.notes as string) || '';
+        if (!prev.includes('requiere revisión de precios')) {
+          updatePayload.notes = [prev, noteExtra].filter(Boolean).join('\n');
+        }
       }
     }
 
@@ -1716,17 +1766,11 @@ export async function PUT(request: NextRequest) {
 
       // Upsert material payable item (payable_items schema: payable_id, entry_id, amount, cost_category, po_item_id)
       const amountMaterial =
-        result.total_cost != null && result.total_cost !== ''
-          ? Number(result.total_cost)
-          : (() => {
-              const up = Number(result.unit_price || 0);
-              if (result.received_uom === 'm3') {
-                const kg = Number(result.received_qty_kg ?? result.quantity_received ?? 0);
-                return up * kg;
-              }
-              const nativeQty = result.received_qty_entered ?? result.quantity_received ?? 0;
-              return up * Number(nativeQty);
-            })();
+        result.pricing_status === 'pending'
+          ? computeMaterialAmountFromEntryRow(result as Record<string, unknown>)
+          : result.total_cost != null && result.total_cost !== ''
+            ? Number(result.total_cost)
+            : computeMaterialAmountFromEntryRow(result as Record<string, unknown>);
       let materialPayableId: string | null = null;
       if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
         materialPayableId = await upsertPayable(result.supplier_id, result.plant_id, result.supplier_invoice, result.ap_due_date_material, result.id);

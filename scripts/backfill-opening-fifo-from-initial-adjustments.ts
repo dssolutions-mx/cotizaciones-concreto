@@ -13,7 +13,9 @@
  * entry_number prefix **0OPEN-** so March 31 pours do not consume April openings, and OPEN sorts before
  * ENT- on the same day. Layer size = inventory_after when positive (unless quantity_adjusted is larger),
  * else quantity_adjusted. Corrections with reference_type ending in `_opening` use sheet qty from
- * "hoja … TN" / "hoja … L" when present, else resolver.
+ * "hoja … TN" / "hoja … L" when present, else resolver. When `inventory_before < 0` and
+ * `quantity_adjusted` exceeds `inventory_after`, the OPEN layer is capped at `inventory_after` (on-hand
+ * after opening) so the layer is not larger than physical stock.
  */
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../src/types/supabase';
@@ -46,7 +48,7 @@ async function main() {
   const { data: rows, error } = await supabase
     .from('material_adjustments')
     .select(
-      'id, adjustment_number, plant_id, material_id, adjustment_date, quantity_adjusted, inventory_after, adjusted_by, adjustment_type, reference_type, reference_notes'
+      'id, adjustment_number, plant_id, material_id, adjustment_date, quantity_adjusted, inventory_before, inventory_after, adjusted_by, adjustment_type, reference_type, reference_notes'
     )
     .in('adjustment_type', ['initial_count', 'correction'])
     .order('adjustment_date', { ascending: true });
@@ -89,6 +91,7 @@ async function main() {
       adjustmentDate: r.adjustment_date,
       inventoryAfterFromAdjustment: Number(r.inventory_after),
       quantityAdjusted: Number(r.quantity_adjusted),
+      inventoryBeforeFromAdjustment: Number(r.inventory_before),
       enteredBy,
       ...(sheetQty != null ? { openingLayerQtyKgOverride: sheetQty } : {}),
     });

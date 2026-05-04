@@ -557,11 +557,24 @@ export async function applyInstrumentoUpdate(
     }
   }
 
-  const updated = await updateInstrumento(id, v.merged);
-  if (v.replaceMaestroIds !== undefined) {
+  const mergedKeys = Object.keys(v.merged);
+  const onlyMaestroVinculos =
+    mergedKeys.length === 0 && v.replaceMaestroIds !== undefined;
+
+  let updated: Instrumento;
+  if (onlyMaestroVinculos) {
     await replaceInstrumentoMaestroVinculos(id, v.replaceMaestroIds);
+    await refreshEmaComplianceAndPrograma(id);
+    const after = await getInstrumentoById(id);
+    if (!after) throw new Error('No encontrado');
+    updated = after;
+  } else {
+    updated = await updateInstrumento(id, v.merged);
+    if (v.replaceMaestroIds !== undefined) {
+      await replaceInstrumentoMaestroVinculos(id, v.replaceMaestroIds);
+    }
+    await refreshEmaComplianceAndPrograma(id);
   }
-  await refreshEmaComplianceAndPrograma(id);
   return updated;
 }
 

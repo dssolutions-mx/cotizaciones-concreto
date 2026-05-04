@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
 import { 
   InventoryDashboardData, 
   InventoryDashboardFilters, 
@@ -716,9 +717,11 @@ export class InventoryDashboardService {
         throw new Error('Usuario no encontrado');
       }
 
-      // Determine plant ID to use
-      const plantId = filters.plant_id && profile.role === 'EXECUTIVE' ? 
-        filters.plant_id : profile.plant_id;
+      // Determine plant ID — align with GET /api/inventory/dashboard (global inventory roles may pass plant_id)
+      const plantId =
+        filters.plant_id && isGlobalInventoryRole(profile.role)
+          ? filters.plant_id
+          : profile.plant_id;
 
       if (!plantId) {
         throw new Error('Planta no especificada o sin acceso');
@@ -834,7 +837,7 @@ export class InventoryDashboardService {
         const [entriesResult, adjustmentsResult, remisionMaterialsResult] = await Promise.all([
           this.supabase
             .from('material_entries')
-            .select('material_id, quantity_received, entry_date, entry_number, notes')
+            .select('id, material_id, quantity_received, entry_date, entry_number, notes, unit_price, total_cost, landed_unit_price')
             .eq('plant_id', plantId)
             .in('material_id', materialIds)
             .gte('entry_date', filters.start_date)
@@ -860,12 +863,41 @@ export class InventoryDashboardService {
         // Get materials map for building movements
         const { data: materialsData } = await this.supabase
           .from('materials')
-          .select('id, material_name, unit_of_measure')
+          .select('id, material_name, unit_of_measure, material_code')
           .in('id', materialIds);
 
         const materialsMap = new Map(
           materialsData?.map(m => [m.id, m]) || []
         );
+
+        const materialCodesList = (materialsData || [])
+          .map((m) => m.material_code)
+          .filter((c): c is string => Boolean(c));
+
+        const [wasteByIdRes, wasteLegacyRes] = await Promise.all([
+          materialIds.length > 0
+            ? this.supabase
+                .from('waste_materials')
+                .select('id, material_id, material_code, waste_amount, fecha, remision_number, notes, waste_reason')
+                .eq('plant_id', plantId)
+                .in('material_id', materialIds)
+                .gte('fecha', filters.start_date)
+                .lte('fecha', filters.end_date)
+            : Promise.resolve({ data: [] as any[] }),
+          materialCodesList.length > 0
+            ? this.supabase
+                .from('waste_materials')
+                .select('id, material_id, material_code, waste_amount, fecha, remision_number, notes, waste_reason')
+                .eq('plant_id', plantId)
+                .is('material_id', null)
+                .in('material_code', materialCodesList)
+                .gte('fecha', filters.start_date)
+                .lte('fecha', filters.end_date)
+            : Promise.resolve({ data: [] as any[] }),
+        ]);
+
+        const allPeriodWasteRows = [...(wasteByIdRes.data || []), ...(wasteLegacyRes.data || [])];
+        const periodWasteMaps = this.buildWasteLookupMaps(allPeriodWasteRows);
 
         // Build movements and consumption details for each material
         materialFlows.forEach(flow => {
@@ -875,6 +907,11 @@ export class InventoryDashboardService {
           const materialEntries = (entriesResult.data || []).filter(e => e.material_id === flow.material_id);
           const materialAdjustments = (adjustmentsResult.data || []).filter(a => a.material_id === flow.material_id);
           const materialRemisionMaterials = (remisionMaterialsResult.data || []).filter(rm => rm.material_id === flow.material_id);
+          const materialWaste = this.wasteRowsForMaterial(
+            material,
+            periodWasteMaps.byMaterialId,
+            periodWasteMaps.byCodeLegacy
+          );
 
           // Build movements
           const materialMovements = this.buildMovementsOptimized(
@@ -882,7 +919,8 @@ export class InventoryDashboardService {
             materialRemisionMaterials,
             materialEntries,
             materialAdjustments,
-            periodRemisionesFull || []
+            periodRemisionesFull || [],
+            materialWaste
           );
           movements.push(...materialMovements);
 
@@ -928,9 +966,11 @@ export class InventoryDashboardService {
         throw new Error('Usuario no encontrado');
       }
 
-      // Determine plant ID to use
-      const plantId = filters.plant_id && profile.role === 'EXECUTIVE' ? 
-        filters.plant_id : profile.plant_id;
+      // Determine plant ID — align with GET /api/inventory/dashboard
+      const plantId =
+        filters.plant_id && isGlobalInventoryRole(profile.role)
+          ? filters.plant_id
+          : profile.plant_id;
 
       if (!plantId) {
         throw new Error('Planta no especificada o sin acceso');
@@ -1189,7 +1229,8 @@ export class InventoryDashboardService {
         materialRemisionData,
         materialEntries,
         materialAdjustments,
-        plantRemisiones
+        plantRemisiones,
+        materialWaste
       );
       movements.push(...materialMovements);
 
@@ -1419,12 +1460,34 @@ export class InventoryDashboardService {
   /**
    * OPTIMIZED: Build movements with pre-fetched data
    */
+  /**
+   * Public wrapper for material ledger / audit UI — includes ENTRY pricing metadata and WASTE rows.
+   */
+  buildLedgerMovements(
+    material: { id: string; material_name: string; unit_of_measure: string; material_code?: string },
+    remisionMaterials: any[],
+    entries: any[],
+    adjustments: any[],
+    plantRemisiones: any[],
+    wasteRows: any[]
+  ): InventoryMovement[] {
+    return this.buildMovementsOptimized(material, remisionMaterials, entries, adjustments, plantRemisiones, wasteRows);
+  }
+
   private buildMovementsOptimized(
     material: any,
     remisionMaterials: any[],
     entries: any[],
     adjustments: any[],
-    plantRemisiones: any[]
+    plantRemisiones: any[],
+    wasteRows?: Array<{
+      id?: string;
+      fecha: string;
+      waste_amount: unknown;
+      remision_number: string;
+      notes?: string | null;
+      waste_reason?: string;
+    }>
   ): InventoryMovement[] {
     const movements: InventoryMovement[] = [];
 
@@ -1438,7 +1501,11 @@ export class InventoryDashboardService {
         quantity: Number(entry.quantity_received),
         unit: material.unit_of_measure,
         reference: entry.entry_number,
-        notes: entry.notes
+        notes: entry.notes,
+        entry_id: entry.id,
+        unit_price_mxn: entry.unit_price != null ? Number(entry.unit_price) : null,
+        total_cost_mxn: entry.total_cost != null ? Number(entry.total_cost) : null,
+        landed_unit_price_mxn: entry.landed_unit_price != null ? Number(entry.landed_unit_price) : null,
       });
     });
 
@@ -1471,6 +1538,23 @@ export class InventoryDashboardService {
           notes: 'Consumo por remisión'
         });
       }
+    });
+
+    // Waste (negative quantity — reduces stock like remisión consumption)
+    (wasteRows || []).forEach((w) => {
+      const amt = Number(w.waste_amount || 0);
+      if (!Number.isFinite(amt) || amt === 0) return;
+      movements.push({
+        movement_type: 'WASTE',
+        movement_date: w.fecha,
+        material_id: material.id,
+        material_name: material.material_name,
+        quantity: -Math.abs(amt),
+        unit: material.unit_of_measure,
+        reference: w.remision_number || 'waste',
+        notes: [w.waste_reason, w.notes].filter(Boolean).join(' · ') || 'Desperdicio',
+        waste_id: w.id,
+      });
     });
 
     return movements;

@@ -80,9 +80,13 @@ export type InsertOpeningFifoLayerParams = {
    * When both `inventory_after` and `quantity_adjusted` are positive but **quantity_adjusted is
    * larger**, the sheet / tranche being booked is usually the physical opening (e.g. 34.4 t) while
    * `inventory_after` is only the reconciled ledger target (e.g. 600 kg). FIFO must size the OPEN
-   * layer from the **larger** of the two so same-day pours can be costed.
+   * layer from the **larger** of the two so same-day pours can be costed — **unless**
+   * `inventory_before` was negative (ledger debt): then the delta exceeds on-hand stock for purely
+   * arithmetic reasons; cap the layer at {@link inventoryAfterFromAdjustment}.
    */
   quantityAdjusted?: number;
+  /** Snapshot before this adjustment; used with {@link quantityAdjusted} to avoid oversized OPEN layers when `inventory_before < 0`. */
+  inventoryBeforeFromAdjustment?: number;
   /** material_entries.entry_date; default = first day of adjustment month (YYYY-MM-01). */
   fifoEntryDate?: string;
   enteredBy: string;
@@ -99,9 +103,17 @@ function resolveOpeningLayerQuantityKg(params: InsertOpeningFifoLayerParams): nu
     params.quantityAdjusted != null && Number.isFinite(Number(params.quantityAdjusted))
       ? Number(params.quantityAdjusted)
       : NaN;
+  const invBefore =
+    params.inventoryBeforeFromAdjustment != null &&
+    Number.isFinite(Number(params.inventoryBeforeFromAdjustment))
+      ? Number(params.inventoryBeforeFromAdjustment)
+      : NaN;
   const invOk = Number.isFinite(invAfter) && invAfter > 0;
   const qtyOk = Number.isFinite(qtyAdj) && qtyAdj > 0;
   if (invOk && qtyOk && qtyAdj > invAfter + 0.000_001) {
+    if (Number.isFinite(invBefore) && invBefore < 0) {
+      return invAfter;
+    }
     return qtyAdj;
   }
   if (invOk) {

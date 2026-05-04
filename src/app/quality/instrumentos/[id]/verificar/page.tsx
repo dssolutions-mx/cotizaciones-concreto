@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle,
-  ClipboardList, ChevronRight, RefreshCw,
+  ClipboardList, ChevronRight,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -53,6 +53,16 @@ interface MeasurementValue {
   valor_texto?: string | null
   observacion?: string | null
   instance_code?: string | null
+}
+
+type MaestroRow = {
+  id: string
+  codigo: string
+  nombre: string
+  estado: string
+  incertidumbre_expandida?: number | null
+  incertidumbre_k?: number | null
+  incertidumbre_unidad?: string | null
 }
 
 type EmaApiErrorPayload = {
@@ -357,16 +367,9 @@ export default function VerificarPage() {
   /** Captured at Inicio for templates with `header_fields` (e.g. prensa compresión). */
   const [headerValues, setHeaderValues] = useState<Record<string, string>>({})
 
-  // Master instrument picker (for Tipo C)
-  const [maestros, setMaestros] = useState<Array<{
-    id: string
-    codigo: string
-    nombre: string
-    estado: string
-    incertidumbre_expandida?: number | null
-    incertidumbre_k?: number | null
-    incertidumbre_unidad?: string | null
-  }>>([])
+  // Master instrument picker (for Tipo C): `maestros` = solo vínculos en ficha; `patronCandidatos` = vigentes planta cuando aún no hay vínculos
+  const [maestros, setMaestros] = useState<MaestroRow[]>([])
+  const [patronCandidatos, setPatronCandidatos] = useState<MaestroRow[]>([])
   const [selectedMaestroIds, setSelectedMaestroIds] = useState<string[]>([])
 
   // Inicio form
@@ -394,18 +397,38 @@ export default function VerificarPage() {
       const configured = inst.instrumento_maestro_ids ?? []
       setSelectedMaestroIds([...configured])
 
-      // Fetch Tipo A instruments (same plant); limit to patrones configurados cuando existan
+      // Tipo C: patrones ya vinculados → lista acotada; sin vínculos → candidatos vigentes (misma planta), no toda la planta como si fueran válidos sin persistir
       if (inst.tipo === 'C') {
-        const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
-        if (inst.plant_id) qs.set('plant_id', inst.plant_id)
-        fetch(`/api/ema/instrumentos?${qs}`)
-          .then((r) => r.json())
-          .then((j) => {
-            const all = Array.isArray(j.data) ? j.data : []
-            const allow = new Set(configured)
-            setMaestros(allow.size ? all.filter((m: { id: string }) => allow.has(m.id)) : all)
-          })
-          .catch(() => setMaestros([]))
+        const allow = new Set(configured)
+        if (allow.size) {
+          const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
+          if (inst.plant_id) qs.set('plant_id', inst.plant_id)
+          fetch(`/api/ema/instrumentos?${qs}`)
+            .then((r) => r.json())
+            .then((j) => {
+              const all = Array.isArray(j.data) ? j.data : []
+              setMaestros(all.filter((m: { id: string }) => allow.has(m.id)))
+              setPatronCandidatos([])
+            })
+            .catch(() => {
+              setMaestros([])
+              setPatronCandidatos([])
+            })
+        } else {
+          const qs = new URLSearchParams({ tipo: 'A', estado: 'vigente', limit: '200' })
+          if (inst.plant_id) qs.set('plant_id', inst.plant_id)
+          fetch(`/api/ema/instrumentos?${qs}`)
+            .then((r) => r.json())
+            .then((j) => {
+              const all = Array.isArray(j.data) ? j.data : []
+              setPatronCandidatos(all)
+              setMaestros([])
+            })
+            .catch(() => {
+              setPatronCandidatos([])
+              setMaestros([])
+            })
+        }
       }
 
       // Load templates for this conjunto (now returns an array)
@@ -509,18 +532,32 @@ export default function VerificarPage() {
     setMeasurements(prev => ({ ...prev, [key]: val }))
   }, [])
 
+  const maestroById = useMemo(() => {
+    const m = new Map<string, MaestroRow>()
+    for (const row of maestros) m.set(row.id, row)
+    for (const row of patronCandidatos) {
+      if (!m.has(row.id)) m.set(row.id, row)
+    }
+    return m
+  }, [maestros, patronCandidatos])
+
+  const patronRowsParaInicio = useMemo(() => {
+    if (instrumento?.tipo !== 'C') return [] as MaestroRow[]
+    if ((instrumento.instrumento_maestro_ids?.length ?? 0) > 0) return maestros
+    return patronCandidatos
+  }, [instrumento?.tipo, instrumento?.instrumento_maestro_ids, maestros, patronCandidatos])
+
   const referenciaEquipoPatronesReadonly = useMemo(() => {
     if (instrumento?.tipo !== 'C') return undefined as
       | Array<{ id: string; codigo: string; nombre: string }>
       | undefined
-    const byId = new Map(maestros.map(m => [m.id, m]))
     return selectedMaestroIds.map(mid => {
-      const m = byId.get(mid)
+      const m = maestroById.get(mid)
       return m
         ? { id: m.id, codigo: m.codigo, nombre: m.nombre }
         : { id: mid, codigo: '—', nombre: 'Instrumento patrón' }
     })
-  }, [instrumento?.tipo, maestros, selectedMaestroIds])
+  }, [instrumento?.tipo, maestroById, selectedMaestroIds])
 
   // Plantilla picker → load selected plantilla snapshot
   const handlePickPlantilla = useCallback(async (candidate: typeof plantillaCandidates[number]) => {
@@ -568,6 +605,28 @@ export default function VerificarPage() {
     setSaving(true)
     setError(null)
     try {
+      if (
+        instrumento?.tipo === 'C'
+        && !(instrumento.instrumento_maestro_ids?.length)
+        && selectedMaestroIds.length > 0
+      ) {
+        const putRes = await fetch(`/api/ema/instrumentos/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instrumento_maestro_ids: selectedMaestroIds }),
+        })
+        if (!putRes.ok) {
+          const j = (await putRes.json().catch(() => ({}))) as EmaApiErrorPayload
+          throw new Error(formatEmaApiError(j) || j.error || 'Error guardando patrones en la ficha')
+        }
+        const nextIds = [...selectedMaestroIds]
+        setMaestros(patronCandidatos.filter(m => nextIds.includes(m.id)))
+        setPatronCandidatos([])
+        setInstrumento(prev =>
+          prev ? { ...prev, instrumento_maestro_ids: nextIds } : prev,
+        )
+      }
+
       const res = await fetch(`/api/ema/instrumentos/${id}/verificaciones`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -959,14 +1018,46 @@ export default function VerificarPage() {
                 <Label className="text-xs text-stone-600">
                   Instrumentos patrón (Tipo A) <span className="text-red-500">*</span>
                 </Label>
+                {(instrumento.instrumento_maestro_ids?.length ?? 0) === 0 && (
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    Elija al menos un instrumento tipo A vigente de esta planta. La selección se guardará en la ficha de
+                    este instrumento al continuar, antes de crear la verificación.
+                  </p>
+                )}
                 <div className="rounded-md border border-stone-200 bg-white p-3 max-h-[200px] overflow-y-auto space-y-2">
-                  {maestros.length === 0 ? (
-                    <p className="text-xs text-amber-700">
-                      No hay instrumentos patrón configurados para este instrumento. Configúrelos en la ficha antes de
-                      verificar.
-                    </p>
+                  {patronRowsParaInicio.length === 0 ? (
+                    (instrumento.instrumento_maestro_ids?.length ?? 0) === 0 ? (
+                      <div className="space-y-2 text-xs text-amber-800">
+                        <p>
+                          No hay instrumentos tipo A en estado vigente en esta planta para enlazar. Registre un patrón
+                          o complete la ficha del instrumento.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href="/quality/instrumentos/nuevo"
+                            className="inline-flex items-center rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-800 hover:bg-stone-50"
+                          >
+                            Alta de instrumento tipo A
+                          </Link>
+                          <Link
+                            href={`/quality/instrumentos/${id}/editar`}
+                            className="inline-flex items-center rounded-md border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-medium text-stone-800 hover:bg-stone-50"
+                          >
+                            Editar ficha
+                          </Link>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-700">
+                        No se pudieron cargar los patrones vinculados. Vuelva a intentar o abra{' '}
+                        <Link className="underline text-sky-800" href={`/quality/instrumentos/${id}/editar`}>
+                          Editar
+                        </Link>
+                        .
+                      </p>
+                    )
                   ) : (
-                    maestros.map((m) => (
+                    patronRowsParaInicio.map((m) => (
                       <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer">
                         <Checkbox
                           checked={selectedMaestroIds.includes(m.id)}
@@ -988,14 +1079,27 @@ export default function VerificarPage() {
                     ))
                   )}
                 </div>
+                {(instrumento.instrumento_maestro_ids?.length ?? 0) === 0 && patronRowsParaInicio.length > 0 && (
+                  <p className="text-xs text-stone-500">
+                    <Link className="text-sky-800 underline font-medium" href="/quality/instrumentos/nuevo">
+                      Registrar nuevo instrumento tipo A
+                    </Link>
+                    {' · '}
+                    <Link className="text-sky-800 underline font-medium" href={`/quality/instrumentos/${id}/editar`}>
+                      Editar ficha del instrumento
+                    </Link>
+                  </p>
+                )}
                 <p className="text-xs text-stone-500 leading-relaxed">
-                  Patrones Tipo A definidos para este instrumento (trazabilidad NMX-EC-17025-IMNC). Puede usar uno o
-                  varios en esta corrida. La incertidumbre U del patrón proviene de la ficha (sincronizada con el
-                  certificado vigente) o del certificado si la ficha aún no la tiene.
+                  {(instrumento.instrumento_maestro_ids?.length ?? 0) > 0
+                    ? 'Patrones definidos en la ficha de este instrumento (trazabilidad NMX-EC-17025-IMNC). Puede usar uno o varios en esta corrida. La incertidumbre U del patrón proviene de la ficha (sincronizada con el certificado vigente) o del certificado si la ficha aún no la tiene.'
+                    : 'Solo se listan instrumentos tipo A vigentes de la misma planta. Para ampliar o cambiar la lista permanente de patrones, use Editar ficha.'}
                 </p>
                 {snapshot && (() => {
                   const band = firstToleranceBandFromSnapshot(snapshot)
-                  const selected = maestros.filter(m => selectedMaestroIds.includes(m.id))
+                  const selected = selectedMaestroIds
+                    .map(mid => maestroById.get(mid))
+                    .filter((x): x is MaestroRow => x != null)
                   const lowTur = selected.filter(m => {
                     const u = m.incertidumbre_expandida
                     if (u == null || u <= 0 || band == null || band <= 0) return false
