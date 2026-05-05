@@ -78,6 +78,14 @@ function initialWeekRange(): DateRange {
   return { from, to };
 }
 
+/** Resumen corto para badges cuando hay varios valores en un filtro multi. */
+function summarizeFilterList(items: string[], maxShown = 2): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0]!;
+  const head = items.slice(0, maxShown).join(', ');
+  return items.length > maxShown ? `${head} (+${items.length - maxShown})` : head;
+}
+
 function downloadCsv(filename: string, csv: string) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -181,6 +189,17 @@ export default function WeeklyRemisionesReport() {
   useEffect(() => {
     runFetch();
   }, [runFetch]);
+
+  /** Día seleccionado debe existir en `facets.days` (compatible con conductor/unidad); si no, se limpia. */
+  useEffect(() => {
+    if (!data) return;
+    const dayChoices = data.facets.days ?? [];
+    setFilters((prev) => {
+      if (!prev.day) return prev;
+      if (dayChoices.some((d) => d.date === prev.day)) return prev;
+      return { ...prev, day: null };
+    });
+  }, [data]);
 
   const weekLabel = useMemo(() => {
     if (!dateRange.from || !dateRange.to) return 'Selecciona un período';
@@ -448,7 +467,7 @@ export default function WeeklyRemisionesReport() {
             drivers={data?.facets.drivers ?? []}
             trucks={data?.facets.trucks ?? []}
             plants={data?.facets.plants ?? []}
-            days={data?.byDay ?? []}
+            days={data?.facets.days ?? []}
           />
         </CardContent>
       </Card>
@@ -497,10 +516,18 @@ export default function WeeklyRemisionesReport() {
                   {filters.day && <Badge variant="secondary">Día: {filters.day}</Badge>}
                   {filters.drivers.length > 0 && (
                     <Badge variant="secondary" className="cursor-pointer" onClick={() => setActiveTab('conductores')}>
-                      Conductor: {filters.drivers[0]}
+                      {filters.drivers.length === 1
+                        ? `Conductor: ${filters.drivers[0]}`
+                        : `Conductores (${filters.drivers.length}): ${summarizeFilterList(filters.drivers)}`}
                     </Badge>
                   )}
-                  {filters.trucks.length > 0 && <Badge variant="secondary">Unidad: {filters.trucks[0]}</Badge>}
+                  {filters.trucks.length > 0 && (
+                    <Badge variant="secondary">
+                      {filters.trucks.length === 1
+                        ? `Unidad: ${filters.trucks[0]}`
+                        : `Unidades (${filters.trucks.length}): ${summarizeFilterList(filters.trucks)}`}
+                    </Badge>
+                  )}
                   {debouncedSearch && <Badge variant="secondary">Búsqueda: “{debouncedSearch}”</Badge>}
                   {complianceRemisionCount > 0 && (
                     <Badge

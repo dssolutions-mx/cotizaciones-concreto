@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       _backup_client_balances_20260427: {
@@ -4254,6 +4229,13 @@ export type Database = {
             foreignKeyName: "inventory_documents_entry_id_fkey"
             columns: ["entry_id"]
             isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
+          {
+            foreignKeyName: "inventory_documents_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
             referencedRelation: "material_entries"
             referencedColumns: ["id"]
           },
@@ -5027,6 +5009,13 @@ export type Database = {
             foreignKeyName: "material_alerts_resolved_entry_id_fkey"
             columns: ["resolved_entry_id"]
             isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
+          {
+            foreignKeyName: "material_alerts_resolved_entry_id_fkey"
+            columns: ["resolved_entry_id"]
+            isOneToOne: false
             referencedRelation: "material_entries"
             referencedColumns: ["id"]
           },
@@ -5170,6 +5159,20 @@ export type Database = {
           unit_price?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "material_consumption_allocations_adjustment_id_fkey"
+            columns: ["adjustment_id"]
+            isOneToOne: false
+            referencedRelation: "material_adjustments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_consumption_allocations_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
           {
             foreignKeyName: "material_consumption_allocations_entry_id_fkey"
             columns: ["entry_id"]
@@ -5686,6 +5689,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "material_lots_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: true
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
           {
             foreignKeyName: "material_lots_entry_id_fkey"
             columns: ["entry_id"]
@@ -7833,6 +7843,13 @@ export type Database = {
             foreignKeyName: "payable_items_entry_id_fkey"
             columns: ["entry_id"]
             isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
+          {
+            foreignKeyName: "payable_items_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
             referencedRelation: "material_entries"
             referencedColumns: ["id"]
           },
@@ -7905,6 +7922,13 @@ export type Database = {
           vat_rate?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "payables_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
           {
             foreignKeyName: "payables_entry_id_fkey"
             columns: ["entry_id"]
@@ -11656,6 +11680,57 @@ export type Database = {
           },
         ]
       }
+      fifo_layer_integrity_violations: {
+        Row: {
+          allocated_sum_kg: number | null
+          discrepancy_kg: number | null
+          entry_id: string | null
+          entry_number: string | null
+          excluded_from_fifo: boolean | null
+          layer_received_kg: number | null
+          material_id: string | null
+          plant_id: string | null
+          remaining_kg: number | null
+          rolled_forward_kg: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_entries_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_entries_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_entries_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_entries_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_entries_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
       inventory_system_health: {
         Row: {
           adjustable_snapshots: number | null
@@ -12604,16 +12679,6 @@ export type Database = {
           },
         ]
       }
-      v_material_inventory_reconciled: {
-        Row: {
-          delta_vs_reconciled: number | null
-          dosificador_stock: number | null
-          material_id: string | null
-          plant_id: string | null
-          reconciled_stock: number | null
-        }
-        Relationships: []
-      }
       v_master_recipe_summary: {
         Row: {
           age_days: number | null
@@ -12658,6 +12723,66 @@ export type Database = {
           },
           {
             foreignKeyName: "master_recipes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
+      v_material_inventory_reconciled: {
+        Row: {
+          delta_vs_reconciled: number | null
+          dosificador_stock: number | null
+          material_id: string | null
+          plant_id: string | null
+          reconciled_stock: number | null
+        }
+        Insert: {
+          delta_vs_reconciled?: never
+          dosificador_stock?: never
+          material_id?: string | null
+          plant_id?: string | null
+          reconciled_stock?: never
+        }
+        Update: {
+          delta_vs_reconciled?: never
+          dosificador_stock?: never
+          material_id?: string | null
+          plant_id?: string | null
+          reconciled_stock?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_inventory_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_inventory_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_inventory_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_inventory_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_inventory_plant_id_fkey"
             columns: ["plant_id"]
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
@@ -13412,6 +13537,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      fifo_reconcile_allocations_for_entry: {
+        Args: { p_entry_id: string }
+        Returns: Json
+      }
       find_potential_duplicate_clients: {
         Args: { p_business_name: string; p_client_code?: string }
         Returns: {
@@ -13555,10 +13684,6 @@ export type Database = {
         Args: { updates: Json }
         Returns: undefined
       }
-      fn_fifo_refresh_remaining_for_entries: {
-        Args: { p_entry_ids: string[] }
-        Returns: undefined
-      }
       fn_fifo_auto_allocate_candidates: {
         Args: { p_limit?: number; p_min_age_hours?: number }
         Returns: string[]
@@ -13569,23 +13694,27 @@ export type Database = {
           available_kg_leq_pour: number
           cantidad_kg: number
           detail: string
-          fifo_status: string | null
-          first_receipt_ever: string | null
+          fifo_status: string
+          first_receipt_ever: string
           is_allocated: boolean
           kg_received_after_pour: number
-          last_receipt_on_or_before_pour: string | null
+          last_receipt_on_or_before_pour: string
           material_id: string
           material_name: string
-          next_receipt_after_pour: string | null
-          order_id: string | null
+          next_receipt_after_pour: string
+          order_id: string
           plant_code: string
           plant_id: string
           reason_code: string
           remision_fecha: string
           remision_id: string
           remision_material_id: string
-          remision_number: string | null
+          remision_number: string
         }[]
+      }
+      fn_fifo_refresh_remaining_for_entries: {
+        Args: { p_entry_ids: string[] }
+        Returns: undefined
       }
       fn_reconciled_stock_since_cutover: {
         Args: {
@@ -13593,7 +13722,7 @@ export type Database = {
           p_material_id: string
           p_plant_id: string
         }
-        Returns: number | null
+        Returns: number
       }
       fn_sync_plant_inventory_from_cutover: {
         Args: { p_cutover_date?: string; p_plant_id: string }
@@ -14376,9 +14505,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       billing_type_enum: ["PER_M3", "PER_ORDER_FIXED", "PER_UNIT"],

@@ -8,6 +8,7 @@ import {
   type HrComplianceFinding,
 } from '@/lib/hr/complianceFromRuns';
 import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
+import { normalizeRemisionFilterKey as normalizeKey } from '@/lib/hr/remisionFilterKeys';
 
 type RemisionRow = {
   id: string;
@@ -35,12 +36,24 @@ type RemisionRow = {
   } | null;
 };
 
-function normalizeKey(input: string | null | undefined): string {
-  const raw = (input ?? '').trim();
-  if (!raw) return '';
-  // Normalize unicode + remove diacritics to reduce duplicates like “Pérez” vs “Perez”
-  const noDiacritics = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  return noDiacritics.replace(/\s+/g, ' ').toLowerCase();
+type ClientFacetCtx = {
+  day: string | null;
+  driverKeys: string[];
+  truckKeys: string[];
+};
+
+/** Faceted filters: each dimension lists options compatible with the *other* client filters (standard e‑commerce pattern). */
+function rowMatchesClientFacets(
+  r: RemisionRow,
+  ctx: ClientFacetCtx,
+  skip: { day?: boolean; drivers?: boolean; trucks?: boolean },
+): boolean {
+  const driverKey = normalizeKey(r.conductor);
+  const truckKey = normalizeKey(r.unidad);
+  if (!skip.day && ctx.day && r.fecha !== ctx.day) return false;
+  if (!skip.drivers && ctx.driverKeys.length > 0 && !ctx.driverKeys.includes(driverKey)) return false;
+  if (!skip.trucks && ctx.truckKeys.length > 0 && !ctx.truckKeys.includes(truckKey)) return false;
+  return true;
 }
 
 /** From compliance day matrix (date -> flagged trip count that day); streak ends at last flagged day. */
@@ -309,20 +322,60 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    const all = (allRemisiones as RemisionRow[]).filter(r => {
-      const driverKey = normalizeKey(r.conductor);
-      const truckKey = normalizeKey(r.unidad);
+    const facetCtx: ClientFacetCtx = {
+      day,
+      driverKeys: driverFilters,
+      truckKeys: truckFilters,
+    };
 
-      if (day && r.fecha !== day) return false;
-      if (driverFilters.length > 0 && !driverFilters.includes(driverKey)) return false;
-      if (truckFilters.length > 0 && !truckFilters.includes(truckKey)) return false;
-      return true;
-    });
+    // Orthogonal facets: options for each control respect the *other* client filters (not itself).
+    const rowsForDriverFacet = allRemisiones.filter((r) =>
+      rowMatchesClientFacets(r, facetCtx, { drivers: true }),
+    );
+    const rowsForTruckFacet = allRemisiones.filter((r) =>
+      rowMatchesClientFacets(r, facetCtx, { trucks: true }),
+    );
+    const rowsForDayFacet = allRemisiones.filter((r) => rowMatchesClientFacets(r, facetCtx, { day: true }));
 
-    // Aggregates + facets
-    const driverCounts = new Map<string, { display: string; count: number }>();
-    const truckCounts = new Map<string, { display: string; count: number }>();
-    const plantCounts = new Map<string, { plant_id: string; code: string; name: string; count: number }>();
+    const facetDriverCounts = new Map<string, { display: string; count: number }>();
+    for (const r of rowsForDriverFacet) {
+      const dKey = normalizeKey(r.conductor);
+      const dDisplay = (r.conductor ?? '').trim() || 'Sin conductor';
+      if (!facetDriverCounts.has(dKey)) facetDriverCounts.set(dKey, { display: dDisplay, count: 0 });
+      facetDriverCounts.get(dKey)!.count += 1;
+    }
+
+    const facetTruckCounts = new Map<string, { display: string; count: number }>();
+    for (const r of rowsForTruckFacet) {
+      const tKey = normalizeKey(r.unidad);
+      const tDisplay = (r.unidad ?? '').trim() || 'Sin unidad';
+      if (!facetTruckCounts.has(tKey)) facetTruckCounts.set(tKey, { display: tDisplay, count: 0 });
+      facetTruckCounts.get(tKey)!.count += 1;
+    }
+
+    const facetDayByDate = new Map<string, { date: string; trips: number; volume: number }>();
+    for (const r of rowsForDayFacet) {
+      const volume = Number(r.volumen_fabricado) || 0;
+      const date = r.fecha;
+      const entry = facetDayByDate.get(date) ?? { date, trips: 0, volume: 0 };
+      entry.trips += 1;
+      entry.volume += volume;
+      facetDayByDate.set(date, entry);
+    }
+
+    // Plantas: only narrowed by fecha / planta (servidor) / búsqueda / tipos — no filtros cliente de conductor o unidad.
+    const facetPlantCounts = new Map<string, { plant_id: string; code: string; name: string; count: number }>();
+    for (const r of allRemisiones as RemisionRow[]) {
+      const pid = r.plant_id ?? 'unknown';
+      const pName = r.plant?.name ?? 'Sin planta';
+      const pCode = r.plant?.code ?? '—';
+      if (!facetPlantCounts.has(pid)) facetPlantCounts.set(pid, { plant_id: pid, name: pName, code: pCode, count: 0 });
+      facetPlantCounts.get(pid)!.count += 1;
+    }
+
+    const all = (allRemisiones as RemisionRow[]).filter((r) => rowMatchesClientFacets(r, facetCtx, {}));
+
+    // Aggregates for filtered rows (detail tabs, pagination, summaries)
     const byDay = new Map<string, { date: string; trips: number; volume: number }>();
     const byDriver = new Map<
       string,
@@ -362,19 +415,10 @@ export async function POST(request: NextRequest) {
 
       const dKey = normalizeKey(r.conductor);
       const dDisplay = (r.conductor ?? '').trim() || 'Sin conductor';
-      if (!driverCounts.has(dKey)) driverCounts.set(dKey, { display: dDisplay, count: 0 });
-      driverCounts.get(dKey)!.count += 1;
-
       const tKey = normalizeKey(r.unidad);
       const tDisplay = (r.unidad ?? '').trim() || 'Sin unidad';
-      if (!truckCounts.has(tKey)) truckCounts.set(tKey, { display: tDisplay, count: 0 });
-      truckCounts.get(tKey)!.count += 1;
-
-      const pid = r.plant_id ?? 'unknown';
       const pName = r.plant?.name ?? 'Sin planta';
       const pCode = r.plant?.code ?? '—';
-      if (!plantCounts.has(pid)) plantCounts.set(pid, { plant_id: pid, name: pName, code: pCode, count: 0 });
-      plantCounts.get(pid)!.count += 1;
 
       // Driver summary
       const driverKey = dKey || 'unknown_driver';
@@ -421,8 +465,8 @@ export async function POST(request: NextRequest) {
     }
 
     const totalTrips = all.length;
-    const uniqueDrivers = Array.from(driverCounts.keys()).filter(Boolean).length;
-    const uniqueTrucks = Array.from(truckCounts.keys()).filter(Boolean).length;
+    const uniqueDrivers = new Set(all.map((r) => normalizeKey(r.conductor)).filter(Boolean)).size;
+    const uniqueTrucks = new Set(all.map((r) => normalizeKey(r.unidad)).filter(Boolean)).size;
 
     // Pagination (in-memory since we compute facets/aggregates)
     const total = all.length;
@@ -432,9 +476,16 @@ export async function POST(request: NextRequest) {
     const rows = isExport ? all : all.slice(startIdx, endIdx);
 
     const facets = {
-      drivers: Array.from(driverCounts.values()).sort((a, b) => b.count - a.count || a.display.localeCompare(b.display)),
-      trucks: Array.from(truckCounts.values()).sort((a, b) => b.count - a.count || a.display.localeCompare(b.display)),
-      plants: Array.from(plantCounts.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      drivers: Array.from(facetDriverCounts.values()).sort(
+        (a, b) => b.count - a.count || a.display.localeCompare(b.display),
+      ),
+      trucks: Array.from(facetTruckCounts.values()).sort(
+        (a, b) => b.count - a.count || a.display.localeCompare(b.display),
+      ),
+      plants: Array.from(facetPlantCounts.values()).sort(
+        (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+      ),
+      days: Array.from(facetDayByDate.values()).sort((a, b) => a.date.localeCompare(b.date)),
       types: includeTypes,
     };
 

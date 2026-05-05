@@ -341,7 +341,7 @@ export function EmaInstrumentosWorkspaceClient() {
       <p className="text-xs text-stone-600 leading-relaxed">
         En la columna <strong className="font-medium text-stone-800">Próx. evento</strong> aparece la fecha del
         siguiente vencimiento o cita del <strong className="font-medium text-stone-800">programa EMA</strong>
-        (próxima calibración externa en tipos A/B, o próxima verificación interna en tipo C). Editarla aquí
+        (próxima calibración externa en tipos A/B, o próxima verificación interna en tipos C y D). Editarla aquí
         actualiza el catálogo; <strong className="font-medium text-stone-800">no sustituye</strong> registrar el
         certificado PDF ni la verificación en la ficha del instrumento.
       </p>
@@ -840,7 +840,7 @@ export function EmaInstrumentosWorkspaceClient() {
             <DialogDescription className="text-left">
               Se actualiza el campo <span className="font-mono">fecha_proximo_evento</span>: la fecha en que vence o
               está programada la próxima <strong>calibración externa</strong> (instrumentos A/B) o la próxima{' '}
-              <strong>verificación interna</strong> (tipo C). No registra certificado ni hoja de verificación; use la
+              <strong>verificación interna</strong> (tipos C y D). No registra certificado ni hoja de verificación; use la
               ficha del instrumento para el trámite formal.
             </DialogDescription>
           </DialogHeader>

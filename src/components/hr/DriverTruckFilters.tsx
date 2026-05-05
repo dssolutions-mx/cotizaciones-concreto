@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { normalizeRemisionFilterKey } from '@/lib/hr/remisionFilterKeys';
 import { ChevronDown, Search, X } from 'lucide-react';
 
 type Option = { id: string; label: string; secondary?: string; count?: number };
@@ -31,16 +32,20 @@ function MultiSelectPopover({
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = normalizeRemisionFilterKey(query);
     if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q) || (o.secondary ?? '').toLowerCase().includes(q));
+    return options.filter((o) => {
+      const label = normalizeRemisionFilterKey(o.label);
+      const secondary = normalizeRemisionFilterKey(o.secondary ?? '');
+      return label.includes(q) || secondary.includes(q);
+    });
   }, [options, query]);
 
   const selectedLabel = useMemo(() => {
     if (selected.length === 0) return placeholder;
     if (selected.length === 1) {
       const o = options.find((x) => x.id === selected[0]);
-      return o?.label ?? '1 seleccionado';
+      return o?.label ?? selected[0];
     }
     return `${selected.length} seleccionados`;
   }, [selected, options, placeholder]);
@@ -48,7 +53,13 @@ function MultiSelectPopover({
   return (
     <div className={cn('space-y-2', className)}>
       <Label className="text-sm font-medium">{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setQuery('');
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -99,8 +110,12 @@ function MultiSelectPopover({
                         checked={checked}
                         onCheckedChange={(next) => {
                           const isChecked = next === true;
-                          if (isChecked) onChange([...selected, o.id]);
-                          else onChange(selected.filter((id) => id !== o.id));
+                          if (isChecked) {
+                            if (selected.includes(o.id)) return;
+                            onChange([...selected, o.id]);
+                          } else {
+                            onChange(selected.filter((id) => id !== o.id));
+                          }
                         }}
                       />
                       <div className="flex-1 min-w-0">
