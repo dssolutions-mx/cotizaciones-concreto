@@ -1345,14 +1345,113 @@ export async function validateInstrumentos(
   };
 }
 
+/** One row per instrument id (first occurrence wins). */
+export function dedupeSeleccionadosPorInstrumento(
+  seleccionados: InstrumentoSeleccionado[],
+): InstrumentoSeleccionado[] {
+  const seen = new Set<string>();
+  const out: InstrumentoSeleccionado[] = [];
+  for (const s of seleccionados) {
+    const id = s.instrumento.id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(s);
+  }
+  return out;
+}
+
+export async function getInstrumentoIdsLinkedToMuestreo(muestreo_id: string): Promise<Set<string>> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('muestreo_instrumentos')
+    .select('instrumento_id')
+    .eq('muestreo_id', muestreo_id);
+  if (error) throw error;
+  return new Set((data ?? []).map((r: { instrumento_id: string }) => r.instrumento_id));
+}
+
+/** Split selection using an existing validation result (same rules as validateInstrumentos). */
+export function partitionSeleccionadosByValidation(
+  seleccionados: InstrumentoSeleccionado[],
+  validation: InstrumentosValidationResult,
+): {
+  valid: InstrumentoSeleccionado[];
+  rejected: Array<{
+    instrumento_id: string;
+    codigo: string;
+    nombre: string;
+    reason: 'vencido' | 'sin_programacion';
+  }>;
+} {
+  const vencidoIds = new Set(validation.vencidos.map((v) => v.id));
+  const sinProgIds = new Set(validation.sin_programacion.map((v) => v.id));
+  const rejected: Array<{
+    instrumento_id: string;
+    codigo: string;
+    nombre: string;
+    reason: 'vencido' | 'sin_programacion';
+  }> = [];
+  const valid: InstrumentoSeleccionado[] = [];
+  const deduped = dedupeSeleccionadosPorInstrumento(seleccionados);
+
+  for (const s of deduped) {
+    const id = s.instrumento.id;
+    if (sinProgIds.has(id)) {
+      rejected.push({
+        instrumento_id: id,
+        codigo: s.instrumento.codigo,
+        nombre: s.instrumento.nombre,
+        reason: 'sin_programacion',
+      });
+      continue;
+    }
+    if (validation.bloquear_vencidos && vencidoIds.has(id)) {
+      rejected.push({
+        instrumento_id: id,
+        codigo: s.instrumento.codigo,
+        nombre: s.instrumento.nombre,
+        reason: 'vencido',
+      });
+      continue;
+    }
+    valid.push(s);
+  }
+  return { valid, rejected };
+}
+
+/** Refresh cards from DB and apply schedule-derived estado for snapshot columns. */
+export async function refreshSeleccionadosEstadoForSnapshot(
+  seleccionados: InstrumentoSeleccionado[],
+): Promise<InstrumentoSeleccionado[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data: config } = await supabase
+    .from('ema_configuracion')
+    .select('dias_alerta_proximo_vencer')
+    .single();
+  const dias = config?.dias_alerta_proximo_vencer ?? 7;
+  const ids = [...new Set(seleccionados.map((s) => s.instrumento.id))];
+  const byId = await getInstrumentosCardsByIds(ids);
+  return seleccionados.map((s) => {
+    const card = byId.get(s.instrumento.id) ?? s.instrumento;
+    const computed = computeInstrumentoEstadoFromSchedule(
+      card.fecha_proximo_evento ?? null,
+      card.estado,
+      dias,
+    );
+    return { ...s, instrumento: { ...card, estado: computed } };
+  });
+}
+
 export async function saveMuestreoInstrumentos(
   muestreo_id: string,
   seleccionados: InstrumentoSeleccionado[],
 ): Promise<MuestreoInstrumento[]> {
   if (seleccionados.length === 0) return [];
+  const deduped = dedupeSeleccionadosPorInstrumento(seleccionados);
+  const refreshed = await refreshSeleccionadosEstadoForSnapshot(deduped);
   const supabase = await createServerSupabaseClient();
 
-  const uniqueIds = [...new Set(seleccionados.map((s) => s.instrumento.id))];
+  const uniqueIds = [...new Set(refreshed.map((s) => s.instrumento.id))];
   const verifByInstrument = new Map<string, string | null>();
   await Promise.all(
     uniqueIds.map(async (iid) => {
@@ -1360,7 +1459,7 @@ export async function saveMuestreoInstrumentos(
     }),
   );
 
-  const rows = seleccionados.map((s) => ({
+  const rows = refreshed.map((s) => ({
     muestreo_id,
     instrumento_id: s.instrumento.id,
     paquete_id: s.paquete_id ?? null,

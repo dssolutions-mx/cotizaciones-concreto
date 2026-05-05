@@ -27,6 +27,7 @@ import CrossPlantProductionCard, {
   type ProductionRemision,
 } from '@/components/quality/muestreos/detail/CrossPlantProductionCard'
 import MuestreoEquipmentCard from '@/components/quality/muestreos/detail/MuestreoEquipmentCard'
+import MuestreoAddEquipmentDialog from '@/components/quality/muestreos/detail/MuestreoAddEquipmentDialog'
 import MuestreoSpecimenGrid from '@/components/quality/muestreos/detail/MuestreoSpecimenGrid'
 import MuestreoDeleteDialogs from '@/components/quality/muestreos/detail/MuestreoDeleteDialogs'
 import MuestreoDetailSkeleton from '@/components/quality/muestreos/detail/MuestreoDetailSkeleton'
@@ -68,6 +69,7 @@ export default function MuestreoDetailPage() {
   const [productionRemision, setProductionRemision] = useState<ProductionRemision | null>(null)
   const [emaInstrumentos, setEmaInstrumentos] = useState<MuestreoInstrumentoRow[]>([])
   const [emaInstrumentosLoading, setEmaInstrumentosLoading] = useState(false)
+  const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
 
   const fetchMuestreoDetails = useCallback(async () => {
     if (!params.id) return
@@ -318,6 +320,10 @@ export default function MuestreoDetailPage() {
 
   const remisionLabel = String(muestreo.remision?.remision_number || muestreo.manual_reference || 'Sin remisión')
 
+  const canEditMuestreoEquipment =
+    !!profile?.role &&
+    ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'].includes(profile.role)
+
   return (
     <div className="w-full">
       <QualityBreadcrumb
@@ -389,7 +395,12 @@ export default function MuestreoDetailPage() {
             )}
           </div>
 
-          <MuestreoEquipmentCard rows={emaInstrumentos} loading={emaInstrumentosLoading} moldeRows={moldeRows} />
+          <MuestreoEquipmentCard
+            rows={emaInstrumentos}
+            loading={emaInstrumentosLoading}
+            moldeRows={moldeRows}
+            onAddEquipment={canEditMuestreoEquipment ? () => setShowAddEquipmentDialog(true) : undefined}
+          />
 
           <MuestreoSpecimenGrid
             muestrasOrdenadas={muestrasOrdenadas}
@@ -430,6 +441,14 @@ export default function MuestreoDetailPage() {
         muestreoId={muestreo.id}
         muestreoDate={muestreo.fecha_muestreo}
         onSampleAdded={() => void fetchMuestreoDetails()}
+      />
+
+      <MuestreoAddEquipmentDialog
+        open={showAddEquipmentDialog}
+        onOpenChange={setShowAddEquipmentDialog}
+        muestreoId={muestreo.id}
+        plantId={muestreo.plant_id}
+        onSaved={() => void fetchMuestreoDetails()}
       />
 
       <MuestreoDeleteDialogs

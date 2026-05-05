@@ -591,7 +591,47 @@ export default function NuevoMuestreoPage() {
         });
       }
       
-      // Create muestreo and associated samples
+      const selectedInstrumentos = equipoPickerRef.current?.getSelected() ?? [];
+
+      if (selectedInstrumentos.length > 0) {
+        const valRes = await fetch('/api/ema/instrumentos/validate-selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instrumentos: selectedInstrumentos.map((s) => ({
+              instrumento_id: s.instrumento_id,
+              paquete_id: s.paquete_id ?? null,
+            })),
+          }),
+        });
+        const valJson = await valRes.json().catch(() => ({}));
+        if (!valRes.ok) {
+          setSubmitError(
+            typeof valJson.error === 'string'
+              ? valJson.error
+              : 'No se pudo validar el equipo seleccionado. Revisa la selección e intenta de nuevo.',
+          );
+          return;
+        }
+        if (!valJson.valid) {
+          const parts: string[] = [];
+          if (Array.isArray(valJson.sin_programacion) && valJson.sin_programacion.length > 0) {
+            parts.push(
+              `Sin programación de verificación/calibración: ${valJson.sin_programacion.map((x: { codigo: string }) => x.codigo).join(', ')}`,
+            );
+          }
+          if (Array.isArray(valJson.vencidos) && valJson.vencidos.length > 0) {
+            parts.push(`Instrumentos vencidos: ${valJson.vencidos.map((x: { codigo: string }) => x.codigo).join(', ')}`);
+          }
+          setSubmitError(
+            parts.join(' · ') ||
+              'La selección de instrumentos no cumple las reglas EMA. Corrige el equipo antes de guardar.',
+          );
+          return;
+        }
+      }
+
+      // Create muestreo and associated samples (solo después de validar equipo)
       const muestreoId = await createMuestreoWithSamples(
         {
           ...finalData,
@@ -609,49 +649,40 @@ export default function NuevoMuestreoPage() {
         },
         plannedSamples
       );
-      
-      // Save EMA instrument snapshots (fire-and-forget if no instruments selected)
-      const selectedInstrumentos = equipoPickerRef.current?.getSelected() ?? [];
+
       if (selectedInstrumentos.length > 0) {
-        try {
-          const payload = {
-            instrumentos: selectedInstrumentos.map((s) => ({
-              instrumento_id: s.instrumento_id,
-              paquete_id: s.paquete_id ?? null,
-              observaciones: null as string | null,
-            })),
-          };
-          const snapRes = await fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!snapRes.ok) {
-            const snapJson = await snapRes.json().catch(() => ({}));
-            const msg =
-              typeof snapJson.error === 'string'
-                ? snapJson.error
-                : 'No se pudo guardar el equipo utilizado (EMA)';
-            if (snapRes.status === 422) {
-              throw new Error(msg);
-            }
-            toast({
-              title: 'Equipo utilizado (EMA)',
-              description: msg,
-              variant: 'destructive',
-            });
-          }
-        } catch (snapErr: any) {
-          if (snapErr.message?.includes('vencidos')) throw snapErr;
+        const payload = {
+          instrumentos: selectedInstrumentos.map((s) => ({
+            instrumento_id: s.instrumento_id,
+            paquete_id: s.paquete_id ?? null,
+            observaciones: null as string | null,
+          })),
+          mode: 'strict' as const,
+        };
+        const snapRes = await fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const snapJson = await snapRes.json().catch(() => ({}));
+        if (!snapRes.ok) {
+          const msg =
+            typeof snapJson.error === 'string'
+              ? snapJson.error
+              : 'No se pudo guardar el equipo utilizado (EMA)';
+          setSubmitError(
+            `El muestreo se registró, pero el equipo no se guardó: ${msg}. Usa «Agregar equipo» en el detalle del muestreo para completar la trazabilidad.`,
+          );
           toast({
-            title: 'Equipo utilizado (EMA)',
-            description: snapErr?.message ?? 'Error al guardar instrumentos',
+            title: 'Equipo no guardado',
+            description: msg,
             variant: 'destructive',
           });
+          router.push(`/quality/muestreos/${muestreoId}`);
+          return;
         }
       }
 
-      // Redirect to the created muestreo page
       router.push(`/quality/muestreos/${muestreoId}`);
     } catch (error) {
       console.error('Error creating muestreo:', error);

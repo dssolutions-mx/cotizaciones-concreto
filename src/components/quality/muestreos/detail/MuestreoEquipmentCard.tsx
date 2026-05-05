@@ -8,6 +8,7 @@ import type { EstadoInstrumento, InstrumentoCard, MuestreoInstrumento } from '@/
 import { formatDate } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 
 export type MuestreoInstrumentoRow = MuestreoInstrumento & { instrumento: InstrumentoCard }
 
@@ -38,9 +39,16 @@ type Props = {
   rows: MuestreoInstrumentoRow[]
   loading: boolean
   moldeRows?: MoldeRow[]
+  /** When set, shows an action to link more instruments (EMA) after the muestreo exists */
+  onAddEquipment?: () => void
 }
 
-export default function MuestreoEquipmentCard({ rows, loading, moldeRows = [] }: Props) {
+export default function MuestreoEquipmentCard({
+  rows,
+  loading,
+  moldeRows = [],
+  onAddEquipment,
+}: Props) {
   const hasMoldes = moldeRows.length > 0
   const hasGeneral = rows.length > 0
   const isEmpty = !loading && !hasGeneral && !hasMoldes
@@ -48,11 +56,20 @@ export default function MuestreoEquipmentCard({ rows, loading, moldeRows = [] }:
   return (
     <Card className="mb-6 border border-stone-200/90 bg-white shadow-sm ring-1 ring-stone-950/[0.02]">
       <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Wrench className="h-5 w-5 text-stone-600" />
-          Equipo utilizado
-        </CardTitle>
-        <CardDescription>Instrumentos asociados a este muestreo (trazabilidad EMA)</CardDescription>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Wrench className="h-5 w-5 text-stone-600" />
+              Equipo utilizado
+            </CardTitle>
+            <CardDescription>Instrumentos asociados a este muestreo (trazabilidad EMA)</CardDescription>
+          </div>
+          {onAddEquipment && (
+            <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onAddEquipment}>
+              Agregar equipo
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-5">
         {loading ? (

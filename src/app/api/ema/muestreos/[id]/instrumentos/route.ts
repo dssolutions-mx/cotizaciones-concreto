@@ -5,6 +5,9 @@ import {
   getInstrumentosByMuestreo,
   validateInstrumentos,
   getInstrumentosCardsByIds,
+  getInstrumentoIdsLinkedToMuestreo,
+  dedupeSeleccionadosPorInstrumento,
+  partitionSeleccionadosByValidation,
 } from '@/services/emaInstrumentoService';
 import type { InstrumentoSeleccionado } from '@/types/ema';
 import { z } from 'zod';
@@ -19,6 +22,8 @@ const InstrumentoSnapshotSchema = z.object({
 
 const RequestSchema = z.object({
   instrumentos: z.array(InstrumentoSnapshotSchema),
+  /** strict: all new instruments must pass validation (default). partial: save only valid ones, report skipped */
+  mode: z.enum(['strict', 'partial']).optional().default('strict'),
 });
 
 /** GET — list instruments used in a muestreo */
@@ -59,9 +64,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!parsed.success)
       return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 });
 
-    const { instrumentos } = parsed.data;
+    const { instrumentos, mode } = parsed.data;
     if (instrumentos.length === 0) {
-      return NextResponse.json({ data: { saved: 0 } }, { status: 201 });
+      return NextResponse.json({ data: { saved: 0, skipped: [] } }, { status: 201 });
     }
 
     const uniqueIds = [...new Set(instrumentos.map((i) => i.instrumento_id))];
@@ -74,36 +79,89 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
 
-    const seleccionados: InstrumentoSeleccionado[] = instrumentos.map((row) => ({
+    let seleccionados: InstrumentoSeleccionado[] = instrumentos.map((row) => ({
       instrumento: byId.get(row.instrumento_id)!,
       paquete_id: row.paquete_id ?? undefined,
       observaciones: row.observaciones ?? undefined,
     }));
 
-    const validation = await validateInstrumentos(seleccionados);
-    if (!validation.valid) {
-      const parts: string[] = [];
-      if (validation.sin_programacion.length > 0) {
-        parts.push(
-          `Sin programación de verificación/calibración: ${validation.sin_programacion.map((v) => v.codigo).join(', ')}`,
+    seleccionados = dedupeSeleccionadosPorInstrumento(seleccionados);
+
+    const alreadyLinked = await getInstrumentoIdsLinkedToMuestreo(muestreoId);
+    const nuevos = seleccionados.filter((s) => !alreadyLinked.has(s.instrumento.id));
+
+    if (nuevos.length === 0) {
+      return NextResponse.json(
+        {
+          data: {
+            saved: 0,
+            skipped: [],
+            message: 'Los instrumentos seleccionados ya estaban vinculados a este muestreo.',
+          },
+        },
+        { status: 200 },
+      );
+    }
+
+    const validation = await validateInstrumentos(nuevos);
+
+    if (mode === 'strict') {
+      if (!validation.valid) {
+        const parts: string[] = [];
+        if (validation.sin_programacion.length > 0) {
+          parts.push(
+            `Sin programación de verificación/calibración: ${validation.sin_programacion.map((v) => v.codigo).join(', ')}`,
+          );
+        }
+        if (validation.bloquear_vencidos && validation.vencidos.length > 0) {
+          parts.push(`Vencidos: ${validation.vencidos.map((v) => v.codigo).join(', ')}`);
+        }
+        return NextResponse.json(
+          {
+            error: parts.join(' · ') || 'Validación EMA de instrumentos no superada',
+            vencidos: validation.vencidos,
+            sin_programacion: validation.sin_programacion,
+            bloquear_vencidos: validation.bloquear_vencidos,
+          },
+          { status: 422 },
         );
       }
-      if (validation.bloquear_vencidos && validation.vencidos.length > 0) {
-        parts.push(`Vencidos: ${validation.vencidos.map((v) => v.codigo).join(', ')}`);
+
+      const savedRows = await saveMuestreoInstrumentos(muestreoId, nuevos);
+      return NextResponse.json({ data: { saved: savedRows.length, skipped: [] } }, { status: 201 });
+    }
+
+    const { valid, rejected } = partitionSeleccionadosByValidation(nuevos, validation);
+
+    if (valid.length === 0) {
+      const parts: string[] = [];
+      if (rejected.some((r) => r.reason === 'sin_programacion')) {
+        parts.push(
+          `Sin programación: ${rejected.filter((r) => r.reason === 'sin_programacion').map((r) => r.codigo).join(', ')}`,
+        );
+      }
+      if (rejected.some((r) => r.reason === 'vencido')) {
+        parts.push(`Vencidos: ${rejected.filter((r) => r.reason === 'vencido').map((r) => r.codigo).join(', ')}`);
       }
       return NextResponse.json(
         {
-          error: parts.join(' · ') || 'Validación EMA de instrumentos no superada',
-          vencidos: validation.vencidos,
-          sin_programacion: validation.sin_programacion,
-          bloquear_vencidos: validation.bloquear_vencidos,
+          error: parts.join(' · ') || 'Ningún instrumento cumple la validación EMA',
+          skipped: rejected,
         },
         { status: 422 },
       );
     }
 
-    const savedRows = await saveMuestreoInstrumentos(muestreoId, seleccionados);
-    return NextResponse.json({ data: { saved: savedRows.length } }, { status: 201 });
+    const savedRows = await saveMuestreoInstrumentos(muestreoId, valid);
+    return NextResponse.json(
+      {
+        data: {
+          saved: savedRows.length,
+          skipped: rejected,
+        },
+      },
+      { status: 201 },
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
