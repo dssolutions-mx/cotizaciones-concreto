@@ -1,6 +1,12 @@
 import { createSafeDate } from '@/lib/utils'
 import type { Ensayo, MuestraWithRelations, MuestreoWithRelations } from '@/types/quality'
 
+function normalizeTipo(raw: string | null | undefined): 'CILINDRO' | 'VIGA' | 'CUBO' | null {
+  const t = String(raw ?? '').trim().toUpperCase()
+  if (t === 'CILINDRO' || t === 'VIGA' || t === 'CUBO') return t
+  return null
+}
+
 export function getOrderInfo(muestreo: MuestreoWithRelations) {
   if (!muestreo.remision?.order?.id) return null
   return muestreo.remision.order
@@ -21,7 +27,7 @@ export function getDateForSort(m: MuestraWithRelations): Date {
 }
 
 function prefixFor(m: MuestraWithRelations) {
-  const tipo = m.tipo_muestra
+  const tipo = normalizeTipo(m.tipo_muestra)
   if (tipo === 'CUBO') {
     const side = (m as { cube_side_cm?: number }).cube_side_cm ?? 15
     return `CUBO-${String(side)}X${String(side)}`
@@ -30,7 +36,8 @@ function prefixFor(m: MuestraWithRelations) {
     const dia = (m as { diameter_cm?: number }).diameter_cm ?? 15
     return `CILINDRO-${String(dia)}`
   }
-  return 'VIGA'
+  if (tipo === 'VIGA') return 'VIGA'
+  return 'ESP'
 }
 
 export function buildOrderedMuestrasWithDisplayNames(muestreo: MuestreoWithRelations) {

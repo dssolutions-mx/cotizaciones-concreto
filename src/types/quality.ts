@@ -263,10 +263,18 @@ export interface MuestreoWithRelations extends Muestreo {
   };
 }
 
+export interface MoldeSummary {
+  id: string;
+  codigo: string;
+  nombre: string;
+}
+
 export interface MuestraWithRelations extends Muestra {
   muestreo?: MuestreoWithRelations;
   ensayos?: Ensayo[];
   alertas?: Alerta[];
+  /** Molde físico vinculado a esta muestra (EMA trazabilidad) */
+  molde_instrumento?: MoldeSummary | null;
 }
 
 export interface EnsayoWithRelations extends Ensayo {

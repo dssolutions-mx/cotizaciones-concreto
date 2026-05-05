@@ -2,7 +2,7 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { Beaker, Plus, Trash2 } from 'lucide-react'
+import { Beaker, Plus, Trash2, FlaskConical } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -123,6 +123,14 @@ export default function MuestreoSpecimenGrid({
                   <h3 className="font-semibold text-stone-900 mb-1">
                     {displayNameById.get(muestra.id) || muestra.identificacion}
                   </h3>
+
+                  {muestra.molde_instrumento && (
+                    <div className="flex items-center gap-1 mb-2 text-xs text-sky-800 bg-sky-50 border border-sky-200 rounded px-2 py-0.5">
+                      <FlaskConical className="h-3 w-3 shrink-0" />
+                      <span className="font-mono">{muestra.molde_instrumento.codigo}</span>
+                      <span className="text-sky-600 truncate">{muestra.molde_instrumento.nombre}</span>
+                    </div>
+                  )}
 
                   {(() => {
                     const ensayo =

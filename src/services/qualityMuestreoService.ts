@@ -238,7 +238,8 @@ export async function fetchMuestreoById(id: string) {
         muestras(
           *,
           ensayos(*),
-          alertas_ensayos(*)
+          alertas_ensayos(*),
+          molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(id, codigo, nombre)
         )
       `)
       .eq('id', id)

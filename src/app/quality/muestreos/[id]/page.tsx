@@ -18,7 +18,7 @@ import { supabase } from '@/lib/supabase'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { qualityHubOutlineNeutralClass } from '@/components/quality/qualityHubUi'
-import type { MuestreoInstrumentoRow } from '@/components/quality/muestreos/detail/MuestreoEquipmentCard'
+import type { MoldeRow, MuestreoInstrumentoRow } from '@/components/quality/muestreos/detail/MuestreoEquipmentCard'
 import MuestreoDetailHeader from '@/components/quality/muestreos/detail/MuestreoDetailHeader'
 import MuestreoMainCard from '@/components/quality/muestreos/detail/MuestreoMainCard'
 import MuestreoEnvironmentalCard from '@/components/quality/muestreos/detail/MuestreoEnvironmentalCard'
@@ -295,6 +295,23 @@ export default function MuestreoDetailPage() {
   const firstEnsayoId = getFirstEnsayoId(muestreo)
   const pageStatus = getMuestreoPageStatus(muestreo)
 
+  // Derive unique mold instruments from per-sample links for the equipment card
+  const moldeRows: MoldeRow[] = (() => {
+    const map = new Map<string, MoldeRow>()
+    for (const m of muestreo.muestras ?? []) {
+      const instr = (m as { molde_instrumento?: { id: string; codigo: string; nombre: string } | null }).molde_instrumento
+      if (!instr) continue
+      const label = displayNameById.get(m.id) ?? m.identificacion ?? m.id
+      const existing = map.get(instr.id)
+      if (existing) {
+        existing.usadoEn.push(label)
+      } else {
+        map.set(instr.id, { id: instr.id, codigo: instr.codigo, nombre: instr.nombre, usadoEn: [label] })
+      }
+    }
+    return Array.from(map.values())
+  })()
+
   const cilindros = muestreo.muestras?.filter((m) => m.tipo_muestra === 'CILINDRO') || []
   const vigas = muestreo.muestras?.filter((m) => m.tipo_muestra === 'VIGA') || []
   const cubos = muestreo.muestras?.filter((m) => m.tipo_muestra === 'CUBO') || []
@@ -372,7 +389,7 @@ export default function MuestreoDetailPage() {
             )}
           </div>
 
-          <MuestreoEquipmentCard rows={emaInstrumentos} loading={emaInstrumentosLoading} />
+          <MuestreoEquipmentCard rows={emaInstrumentos} loading={emaInstrumentosLoading} moldeRows={moldeRows} />
 
           <MuestreoSpecimenGrid
             muestrasOrdenadas={muestrasOrdenadas}
