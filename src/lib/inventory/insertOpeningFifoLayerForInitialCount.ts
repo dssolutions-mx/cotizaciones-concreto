@@ -91,8 +91,8 @@ export type InsertOpeningFifoLayerParams = {
   fifoEntryDate?: string;
   enteredBy: string;
   /**
-   * When set, used as OPEN layer size instead of {@link resolveOpeningLayerQuantityKg}
-   * (e.g. from {@link parseOpeningSheetLayerQtyFromNotes} for correction + *_opening rows).
+   * Physical opening tranche from notes (`hoja … TN` / L). When set, OPEN layer size uses this even if
+   * `quantity_adjusted` stores the **stock delta** (`target − inventory_before`).
    */
   openingLayerQtyKgOverride?: number;
 };
@@ -154,13 +154,30 @@ export async function insertOpeningFifoLayerForInitialCount(
     return { ok: true, entryId: existing.id };
   }
 
+  const qtyAdjNum =
+    params.quantityAdjusted != null && Number.isFinite(Number(params.quantityAdjusted))
+      ? Number(params.quantityAdjusted)
+      : NaN;
+
   const override =
     params.openingLayerQtyKgOverride != null &&
     Number.isFinite(Number(params.openingLayerQtyKgOverride)) &&
     Number(params.openingLayerQtyKgOverride) > 0
       ? Number(params.openingLayerQtyKgOverride)
       : null;
-  const layerQty = override ?? resolveOpeningLayerQuantityKg(params);
+
+  /**
+   * OPEN layer size = physical opening tranche from notes (`openingLayerQtyKgOverride`) when present.
+   * Otherwise falls back to adjustment quantity / resolver (adjustment may store **delta**, not tranche).
+   */
+  let layerQty: number;
+  if (override != null && override > 0) {
+    layerQty = override;
+  } else if (Number.isFinite(qtyAdjNum) && qtyAdjNum > 0) {
+    layerQty = qtyAdjNum;
+  } else {
+    layerQty = resolveOpeningLayerQuantityKg(params);
+  }
   if (layerQty <= 0) {
     return {
       ok: true,

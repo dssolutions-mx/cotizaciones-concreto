@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ConsumosAccountingMaterialBlock, ConsumosAccountingSummary } from '@/lib/procurement/consumosAccountingExcelExport'
+import {
+  adjustmentDisplayForConsumos,
+  isSyntheticFifoOpeningEntry,
+} from '@/lib/procurement/openingConsumosMerge'
 
 export type RemisionesEmbed = {
   id: string
@@ -45,6 +49,9 @@ export type AdjustmentRow = {
   id: string
   material_id: string
   quantity_adjusted: number | string | null
+  inventory_before?: number | string | null
+  inventory_after?: number | string | null
+  reference_type?: string | null
   adjustment_type: string
   adjustment_time: string | null
   reference_notes: string | null
@@ -195,6 +202,9 @@ export function aggregatePlantConsumosFromRows(
   }
 
   for (const row of entryRows) {
+    if (isSyntheticFifoOpeningEntry(row.entry_number)) {
+      continue
+    }
     const mid = row.material_id
     const name = materialLabel(mid, row.materials, null)
     const accCode = materialAccountingCode(row.materials)
@@ -242,6 +252,11 @@ export function aggregatePlantConsumosFromRows(
       id: row.id,
       adjustment_type: row.adjustment_type,
       quantity_adjusted: qtyAdj,
+      inventory_before:
+        row.inventory_before != null && row.inventory_before !== '' ? num(row.inventory_before) : null,
+      inventory_after:
+        row.inventory_after != null && row.inventory_after !== '' ? num(row.inventory_after) : null,
+      reference_type: row.reference_type ?? null,
       reference_notes: row.reference_notes,
       adjustment_time: row.adjustment_time,
     })
@@ -293,7 +308,12 @@ export function aggregatePlantConsumosFromRows(
     0
   )
   const total_adjustments_kg = materials.reduce(
-    (s, m) => s + m.adjustments.reduce((t, a) => t + Math.abs(a.quantity_adjusted), 0),
+    (s, m) =>
+      s +
+      m.adjustments.reduce((t, a) => {
+        const d = adjustmentDisplayForConsumos(a)
+        return t + Math.abs(d.effectSignedKg)
+      }, 0),
     0
   )
   const total_waste_arkik_kg = materials.reduce((s, m) => s + m.total_waste_arkik_kg, 0)
@@ -436,6 +456,9 @@ export async function fetchPlantConsumosRangeDays(
         id,
         material_id,
         quantity_adjusted,
+        inventory_before,
+        inventory_after,
+        reference_type,
         adjustment_type,
         adjustment_time,
         reference_notes,

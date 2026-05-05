@@ -12,6 +12,7 @@
 |---------------|-----|---------|
 | [`useInventoryDashboard`](src/hooks/useInventoryDashboard.ts) → [`InventoryDashboardPage`](src/components/inventory/InventoryDashboardPage.tsx) (e.g. production-control advanced dashboard) | `GET /api/inventory/dashboard` | Dated analytics (movements, consumption, remisiones tie-in) — requires `start_date`, `end_date`, `plant_id` for global users without a home plant |
 | [`CrossPlantInventorySummary`](src/components/procurement/CrossPlantInventorySummary.tsx), [`ProcurementInventoryDetail`](src/components/procurement/ProcurementInventoryDetail.tsx), [`DosificadorDashboard`](src/components/inventory/DosificadorDashboard.tsx) | `GET /api/inventory/dashboard-summary` | Per-plant KPIs / stock summary for procurement and dosificador |
+| [`MaterialAuditSheet`](src/components/procurement/MaterialAuditSheet.tsx) (opened from [`ProcurementInventoryDetail`](src/components/procurement/ProcurementInventoryDetail.tsx)) | `GET /api/inventory/material-ledger`, `GET /api/inventory/material-ledger/variances`, `POST /api/inventory/entries/[id]/resync-accounting`, reuse `PUT /api/inventory/entries`, `POST /api/inventory/adjustments` | Material audit / correction console: movements + WASTE, opening baseline, three-way reconciliation, variance drill-down |
 
 Both now allow **`ADMIN_OPERATIONS`** alongside **`EXECUTIVE`** for cross-plant reads where applicable (see [`inventoryRoles`](src/lib/auth/inventoryRoles.ts)).
 
@@ -48,6 +49,9 @@ Updated to use the shared helper:
 - [`inventory/documents`](../src/app/api/inventory/documents/route.ts) — document upload access uses `isGlobalInventoryRole` for cross-plant
 - [`inventory/arkik-upload`](../src/app/api/inventory/arkik-upload/route.ts)
 - [`inventory/entries`](../src/app/api/inventory/entries/route.ts)
+- [`inventory/material-ledger`](../src/app/api/inventory/material-ledger/route.ts) — single-material ledger + reconciliation; `since_cutover=true` removes 90-day cap; otherwise max **90 days**
+- [`inventory/material-ledger/variances`](../src/app/api/inventory/material-ledger/variances/route.ts) — plant variance worklist (same 90-day window)
+- [`inventory/entries/[id]/resync-accounting`](../src/app/api/inventory/entries/[id]/resync-accounting/route.ts) — **POST** — finance roles; recomputes `total_cost` + CXP `payable_items`
 
 ### Materials catalog
 

@@ -1,29 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { canAccessAllInventoryPlants, canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
-
-/**
- * Re-derive material line amount (MXN) from unit_price and received quantities (same as PUT payables).
- */
-function computeMaterialAmountFromEntryRow(result: Record<string, unknown>): number {
-  if (result.total_cost != null && result.total_cost !== '') {
-    return Number(result.total_cost)
-  }
-  const up = Number(result.unit_price || 0)
-  if (result.received_uom === 'm3') {
-    const kg = Number(result.received_qty_kg ?? result.quantity_received ?? 0)
-    return up * kg
-  }
-  const nativeQty = result.received_qty_entered ?? result.quantity_received ?? 0
-  return up * Number(nativeQty)
-}
+import { computeMaterialAmountFromEntryRow } from '@/lib/inventory/materialEntryAmount'
 
 export async function POST(
   _request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id: entryId } = await context.params
+    const { id: entryId } = await params
     const supabase = await createServerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
     if (authError || !user) {
@@ -140,8 +125,9 @@ export async function POST(
 
       const amountMaterial = computeMaterialAmountFromEntryRow(result)
 
+      let materialPayableId: string | null = null
       if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
-        const materialPayableId = await upsertPayable(
+        materialPayableId = await upsertPayable(
           result.supplier_id as string,
           result.plant_id as string,
           result.supplier_invoice as string,
@@ -186,8 +172,17 @@ export async function POST(
         if (fleetItemErr) throw new Error(fleetItemErr.message)
       }
 
-      for (const pid of []) {
-        void pid
+      for (const pid of [materialPayableId].filter(Boolean) as string[]) {
+        const { data: w } = await supabase.rpc('validate_payable_vs_po', { p_payable_id: pid })
+        if (Array.isArray(w) && w.length > 0) {
+          for (const x of w) {
+            if (x && typeof x === 'object' && 'amount' in x && 'expected' in x) {
+              threeWayWarnings.push(
+                `Factura excede valor recibido: monto ${(x as { amount: unknown }).amount} vs esperado ${(x as { expected: unknown }).expected}`
+              )
+            }
+          }
+        }
       }
     } catch (apErr) {
       console.error('resync-accounting AP:', apErr)
@@ -211,7 +206,7 @@ export async function POST(
         total_cost_before: totalCostBefore,
         total_cost_after: totalCostAfter,
       },
-      warnings: threeWayWarnings.length ? threeWayWarnings : undefined,
+      ...(threeWayWarnings.length > 0 ? { warnings: threeWayWarnings } : {}),
     })
   } catch (e) {
     console.error('POST resync-accounting', e)

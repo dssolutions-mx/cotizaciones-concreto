@@ -1,7 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { mergeLedgerSyntheticFifoPairs } from '@/lib/inventory/mergeLedgerOpeningMovement';
 import { FIFO_OPENING_FROM_INITIAL_COUNT_PREFIX } from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
 import { InventoryDashboardService } from '@/services/inventoryDashboardService';
-import type { MaterialFlowSummary } from '@/types/inventory';
+import type { MaterialFlowSummary, InventoryMovement } from '@/types/inventory';
+import { isFifoOrphanBucketEntry } from '@/lib/inventory/fifoSyntheticLayers';
 import type {
   MaterialLedgerEntryRow,
   MaterialLedgerOpening,
@@ -9,18 +11,59 @@ import type {
   MaterialLedgerResponse,
   MaterialLedgerVarianceRow,
 } from '@/types/materialLedger';
-
-export const MATERIAL_LEDGER_DEFAULT_CUTOVER = '2026-04-01';
-export const MATERIAL_LEDGER_MAX_RANGE_DAYS = 90;
-export const MATERIAL_LEDGER_EPSILON_KG = 0.5;
+import {
+  MATERIAL_LEDGER_EPSILON_KG,
+  MATERIAL_LEDGER_DEFAULT_CUTOVER,
+  MATERIAL_LEDGER_MAX_RANGE_DAYS,
+} from '@/types/materialLedger';
 
 export type FetchMaterialLedgerParams = {
   plantId: string;
   materialId: string;
-  startDate: string;
-  endDate: string;
+  startDate: string | null;
+  endDate: string | null;
   sinceCutover: boolean;
 };
+
+async function enrichRemisionMovementsWithFifoPendingKg(
+  supabase: SupabaseClient,
+  movements: InventoryMovement[],
+  rmLines: Array<{ id: string; cantidad_real: unknown }>,
+  openingFifoEntryId: string | null,
+): Promise<InventoryMovement[]> {
+  if (!openingFifoEntryId || rmLines.length === 0) return movements;
+
+  const rmIds = rmLines.map((r) => r.id);
+  const { data: allocs } = await supabase
+    .from('material_consumption_allocations')
+    .select('remision_material_id, quantity_consumed_kg')
+    .eq('entry_id', openingFifoEntryId)
+    .in('remision_material_id', rmIds);
+
+  const fifoFromOpen = new Map<string, number>();
+  for (const a of allocs || []) {
+    const id = a.remision_material_id as string;
+    fifoFromOpen.set(id, (fifoFromOpen.get(id) || 0) + Number(a.quantity_consumed_kg));
+  }
+
+  const qtyByRm = new Map(rmLines.map((r) => [r.id, Number(r.cantidad_real) || 0]));
+
+  return movements.map((m) => {
+    if (m.movement_type !== 'REMISION' || !m.remision_material_id) return m;
+    const qty = qtyByRm.get(m.remision_material_id) ?? 0;
+    const fifo = fifoFromOpen.get(m.remision_material_id) ?? 0;
+    const pending = qty - fifo;
+    if (pending <= MATERIAL_LEDGER_EPSILON_KG) return m;
+    const tag = `Sin asignación FIFO de lote (pendiente operaciones / ingreso): ${pending.toLocaleString('es-MX', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 3,
+    })} kg`;
+    return {
+      ...m,
+      notes: m.notes ? `${m.notes} · ${tag}` : tag,
+    };
+  });
+}
 
 function daysBetween(start: string, end: string): number {
   const a = new Date(`${start}T12:00:00`);
@@ -250,7 +293,7 @@ export async function fetchMaterialLedger(
       ? supabase
           .from('remision_materiales')
           .select(
-            'material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at'
+            'id, material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at'
           )
           .eq('material_id', raw.materialId)
           .in('remision_id', remisionIds)
@@ -289,13 +332,24 @@ export async function fetchMaterialLedger(
     material_code: matRow.material_code,
   };
 
-  const movements = dash.buildLedgerMovements(
+  const entriesForLedger = (entriesRes.data || []).filter(
+    (e: { entry_number?: string }) => !isFifoOrphanBucketEntry(e.entry_number),
+  );
+
+  let movements = dash.buildLedgerMovements(
     material,
     rmRes.data || [],
-    entriesRes.data || [],
+    entriesForLedger,
     adjRes.data || [],
     periodRemisiones || [],
     wasteRows
+  );
+  movements = mergeLedgerSyntheticFifoPairs(movements);
+  movements = await enrichRemisionMovementsWithFifoPendingKg(
+    supabase,
+    movements,
+    rmRes.data || [],
+    opening.opening_fifo_entry_id,
   );
 
   const consumptionDetails = (rmRes.data || []).map((rm: any) => {
@@ -314,7 +368,7 @@ export async function fetchMaterialLedger(
     };
   }).filter((c) => c.remision_date);
 
-  const periodEntryIds = (entriesRes.data || []).map((e: { id: string }) => e.id);
+  const periodEntryIds = entriesForLedger.map((e: { id: string }) => e.id);
   let payableByEntry = new Map<
     string,
     { id: string; amount: number; payable_id: string }
@@ -345,7 +399,7 @@ export async function fetchMaterialLedger(
     }
   }
 
-  const entry_rows: MaterialLedgerEntryRow[] = (entriesRes.data || []).map((e: any) => {
+  const entry_rows: MaterialLedgerEntryRow[] = entriesForLedger.map((e: any) => {
     const uom = e.received_uom as string | null;
     const kg =
       uom === 'l'

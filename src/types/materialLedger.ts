@@ -1,5 +1,10 @@
 import type { MaterialFlowSummary, RemisionMaterialConsumption, InventoryMovement } from '@/types/inventory'
 
+/** kg tolerance for reconciliation highlights + variance worklist */
+export const MATERIAL_LEDGER_EPSILON_KG = 0.5
+export const MATERIAL_LEDGER_DEFAULT_CUTOVER = '2026-04-01'
+export const MATERIAL_LEDGER_MAX_RANGE_DAYS = 90
+
 export type MaterialLedgerOpening = {
   cutover_date: string | null
   initial_count_adjustment_id: string | null

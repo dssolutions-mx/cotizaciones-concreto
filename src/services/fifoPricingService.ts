@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { startOfMonthDate } from '@/lib/materialPricePeriod';
 import type { Database } from '@/types/supabase';
+import { FIFO_LAYER_INTEGRITY_EPS_KG } from '@/lib/inventory/fifoLayerIntegrity';
 import { FIFOAllocationResult, FIFOAllocationRequest, MaterialConsumptionAllocation } from '@/types/fifo';
 
 type DbClient = SupabaseClient<Database>;
@@ -246,6 +247,8 @@ export class FIFOPricingService {
       unitPrice: number;
       cost: number;
       remainingAfter: number;
+      /** Remaining kg on this layer before we take this slice — drift correction cannot exceed this. */
+      layerStartRemainingKg: number;
     }> = [];
     const allocationRecords: Array<Omit<MaterialConsumptionAllocation, 'id' | 'created_at'>> = [];
 
@@ -292,6 +295,7 @@ export class FIFOPricingService {
         unitPrice: unitPrice,
         cost: cost,
         remainingAfter: remainingAfter,
+        layerStartRemainingKg: entryRemaining,
       });
 
       allocationRecords.push({
@@ -332,9 +336,21 @@ export class FIFOPricingService {
       const drift = quantityToConsume - sumAllocated;
       if (Number.isFinite(drift) && Math.abs(drift) > QTY_EPS_KG) {
         const li = allocationRecords.length - 1;
-        const nextQty = Number(
+        const layerStart = allocations[li].layerStartRemainingKg;
+        let nextQty = Number(
           (Number(allocationRecords[li].quantity_consumed_kg) + drift).toFixed(6)
         );
+        if (nextQty > layerStart + FIFO_LAYER_INTEGRITY_EPS_KG) {
+          console.warn(
+            `[FIFO] Drift correction would consume ${nextQty.toFixed(6)} kg from a layer capped at ${layerStart.toFixed(6)} kg (material ${materialId}, entry ${allocations[li].entryId}) — refusing allocation`
+          );
+          return {
+            totalCost: 0,
+            allocations: [],
+            skipped: true,
+            skipReason: 'ALLOCATION_FAILED',
+          };
+        }
         if (nextQty < QTY_EPS_KG) {
           console.warn(
             `[FIFO] Allocation drift would zero last layer row for material ${materialId} (drift ${drift}) — skipping`
@@ -355,7 +371,7 @@ export class FIFOPricingService {
         allocations[li] = {
           ...allocations[li],
           quantity: nextQty,
-          remainingAfter: allocations[li].remainingAfter - drift,
+          remainingAfter: layerStart - nextQty,
           cost: nextQty * allocations[li].unitPrice,
         };
       }

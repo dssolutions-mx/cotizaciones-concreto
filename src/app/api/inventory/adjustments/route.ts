@@ -5,11 +5,10 @@ import {
   MaterialAdjustmentInputSchema,
   UpdateMaterialAdjustmentSchema 
 } from '@/lib/validations/inventory';
-import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
-import {
-  insertOpeningFifoLayerForInitialCount,
-  parseOpeningSheetLayerQtyFromNotes,
-} from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
+import { computeInventoryAfter, isPositiveAdjustmentType } from '@/lib/inventory/adjustmentModel';
+import { insertAdjustmentFifoLayer } from '@/lib/inventory/insertAdjustmentFifoLayer';
+import { consumeFifoForAdjustment } from '@/lib/inventory/consumeFifoForAdjustment';
+import { parseOpeningSheetLayerQtyFromNotes } from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
 import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
 
 export async function GET(request: NextRequest) {
@@ -218,10 +217,31 @@ export async function POST(request: NextRequest) {
       .single();
 
     const inventoryBefore = currentInventory?.current_stock || 0;
+
+    const refTypeForOpening = validatedData.reference_type?.trim() ?? '';
+    const isOpeningBalanceAdjustment =
+      validatedData.adjustment_type === 'initial_count' ||
+      (validatedData.adjustment_type === 'correction' &&
+        refTypeForOpening.endsWith('_opening'));
+
+    const sheetOpeningKg = parseOpeningSheetLayerQtyFromNotes(
+      validatedData.reference_notes ?? null,
+    );
+    /**
+     * Opening notes (`hoja … TN` / L) encode **target inventory** after posting (same kg as FIFO OPEN tranche).
+     * Adjustment magnitude = delta `target − inventory_before` so `inventory_after` equals the sheet target.
+     */
+    const quantityForStock =
+      isOpeningBalanceAdjustment &&
+      sheetOpeningKg != null &&
+      sheetOpeningKg > 0
+        ? sheetOpeningKg - inventoryBefore
+        : validatedData.quantity_adjusted;
+
     const inventoryAfter = computeInventoryAfter(
       inventoryBefore,
-      validatedData.quantity_adjusted,
-      validatedData.adjustment_type
+      quantityForStock,
+      validatedData.adjustment_type,
     );
 
     // Create adjustment
@@ -234,7 +254,7 @@ export async function POST(request: NextRequest) {
         adjustment_date: adjustmentDate,
         adjustment_time: new Date().toTimeString().split(' ')[0],
         adjustment_type: validatedData.adjustment_type,
-        quantity_adjusted: validatedData.quantity_adjusted,
+        quantity_adjusted: quantityForStock,
         inventory_before: inventoryBefore,
         inventory_after: inventoryAfter,
         reference_type: validatedData.reference_type,
@@ -249,38 +269,82 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear ajuste: ${adjustmentError.message}`);
     }
 
-    let fifoOpeningEntryId: string | undefined;
-    let fifoOpeningLayerWarning: string | undefined;
-    let fifoOpeningLayerSkipped: string | undefined;
     const refType = validatedData.reference_type?.trim() ?? '';
     const isOpeningCorrection =
       validatedData.adjustment_type === 'correction' && refType.endsWith('_opening');
-    const shouldInsertFifoOpeningLayer =
-      validatedData.adjustment_type === 'initial_count' || isOpeningCorrection;
+    const shouldCreatePositiveFifoLayer =
+      isPositiveAdjustmentType(validatedData.adjustment_type) || isOpeningCorrection;
 
-    if (shouldInsertFifoOpeningLayer) {
-      const sheetQty = isOpeningCorrection
-        ? parseOpeningSheetLayerQtyFromNotes(validatedData.reference_notes)
-        : null;
-      const fifoLayer = await insertOpeningFifoLayerForInitialCount(supabase, {
+    let fifoLayerEntryId: string | undefined;
+    let fifoLayerWarning: string | undefined;
+    let fifoLayerSkipped: string | undefined;
+    let fifoAdjustmentConsumeError: string | undefined;
+
+    const rollbackAdjustmentAndInventory = async () => {
+      await supabase.from('material_adjustments').delete().eq('id', result.id);
+      await supabase
+        .from('material_inventory')
+        .update({
+          current_stock: inventoryBefore,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('plant_id', plantId)
+        .eq('material_id', validatedData.material_id);
+    };
+
+    if (shouldCreatePositiveFifoLayer) {
+      const fifoLayer = await insertAdjustmentFifoLayer(supabase, {
         adjustmentId: result.id,
         adjustmentNumber,
+        adjustmentType: validatedData.adjustment_type,
+        referenceType: validatedData.reference_type,
+        referenceNotes: validatedData.reference_notes,
         plantId,
         materialId: validatedData.material_id,
         adjustmentDate,
-        inventoryAfterFromAdjustment: Number(result.inventory_after),
+        inventoryBefore: Number(result.inventory_before),
+        inventoryAfter: Number(result.inventory_after),
         quantityAdjusted: Number(result.quantity_adjusted),
-        inventoryBeforeFromAdjustment: Number(result.inventory_before),
         enteredBy: user.id,
-        ...(sheetQty != null ? { openingLayerQtyKgOverride: sheetQty } : {}),
       });
       if (!fifoLayer.ok) {
-        fifoOpeningLayerWarning = fifoLayer.error;
-        console.error('[adjustments POST] FIFO opening layer:', fifoLayer.error);
-      } else if ('skipped' in fifoLayer && fifoLayer.skipped) {
-        fifoOpeningLayerSkipped = fifoLayer.skipReason;
+        fifoLayerWarning = fifoLayer.error;
+        console.error('[adjustments POST] FIFO positive layer:', fifoLayer.error);
+        await rollbackAdjustmentAndInventory();
+        return NextResponse.json(
+          {
+            success: false,
+            error: fifoLayer.error ?? 'No se pudo crear la capa FIFO del ajuste',
+          },
+          { status: 422 }
+        );
+      }
+      if ('skipped' in fifoLayer && fifoLayer.skipped) {
+        fifoLayerSkipped = fifoLayer.skipReason;
       } else if ('entryId' in fifoLayer) {
-        fifoOpeningEntryId = fifoLayer.entryId;
+        fifoLayerEntryId = fifoLayer.entryId;
+      }
+    } else {
+      const cons = await consumeFifoForAdjustment(supabase, {
+        adjustmentId: result.id,
+        plantId,
+        materialId: validatedData.material_id,
+        quantityKg: Number(quantityForStock),
+        consumptionDate: adjustmentDate,
+        userId: user.id,
+      });
+      if (!cons.ok) {
+        fifoAdjustmentConsumeError = cons.error;
+        console.error('[adjustments POST] FIFO consume for adjustment:', cons.error);
+        await rollbackAdjustmentAndInventory();
+        return NextResponse.json(
+          {
+            success: false,
+            error: cons.error,
+            code: cons.code,
+          },
+          { status: 422 }
+        );
       }
     }
 
@@ -288,9 +352,11 @@ export async function POST(request: NextRequest) {
       success: true,
       data: result,
       message: 'Ajuste de material creado exitosamente',
-      ...(fifoOpeningEntryId ? { fifo_opening_entry_id: fifoOpeningEntryId } : {}),
-      ...(fifoOpeningLayerWarning ? { fifo_opening_layer_warning: fifoOpeningLayerWarning } : {}),
-      ...(fifoOpeningLayerSkipped ? { fifo_opening_layer_skipped: fifoOpeningLayerSkipped } : {}),
+      ...(fifoLayerEntryId ? { fifo_layer_entry_id: fifoLayerEntryId } : {}),
+      ...(fifoLayerEntryId ? { fifo_opening_entry_id: fifoLayerEntryId } : {}),
+      ...(fifoLayerWarning ? { fifo_opening_layer_warning: fifoLayerWarning } : {}),
+      ...(fifoLayerSkipped ? { fifo_opening_layer_skipped: fifoLayerSkipped } : {}),
+      ...(fifoAdjustmentConsumeError ? { fifo_adjustment_consume_error: fifoAdjustmentConsumeError } : {}),
     }, { status: 201 });
 
   } catch (error) {

@@ -1,5 +1,13 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
+import { isSyntheticFifoOpeningEntry } from '@/lib/procurement/openingConsumosMerge';
+import {
+  isAdjpFreeAdjustmentLayerEntry,
+  isFifoOrphanBucketEntry,
+  isSyntheticFifoCostLayerEntry,
+} from '@/lib/inventory/fifoSyntheticLayers';
+import { isPositiveAdjustmentType, signedQuantityForStockEffect } from '@/lib/inventory/adjustmentModel';
+import { mergeLedgerSyntheticFifoPairs } from '@/lib/inventory/mergeLedgerOpeningMovement';
 import { 
   InventoryDashboardData, 
   InventoryDashboardFilters, 
@@ -47,6 +55,54 @@ export class InventoryDashboardService {
     byCodeLegacy: Map<string, Array<{ material_id?: string | null; material_code: string; waste_amount: unknown }>>
   ) {
     return [...(byMaterialId.get(material.id) || []), ...(byCodeLegacy.get(material.material_code) || [])];
+  }
+
+  /** PostgREST returns at most ~1000 rows per response unless `.range()` paginates. */
+  private static readonly SUPABASE_PAGE_ROWS = 1000;
+
+  /**
+   * Paginate until no rows remain. `buildOrderedQuery` must return a fresh builder each call
+   * with a stable `.order(...)` so ranges are deterministic.
+   */
+  private async fetchAllPages<T>(buildOrderedQuery: () => any): Promise<T[]> {
+    const rows: T[] = [];
+    let offset = 0;
+    for (let guard = 0; guard < 5000; guard++) {
+      const { data, error } = await buildOrderedQuery().range(
+        offset,
+        offset + InventoryDashboardService.SUPABASE_PAGE_ROWS - 1
+      );
+      if (error) throw error;
+      const chunk = (data || []) as T[];
+      rows.push(...chunk);
+      if (chunk.length < InventoryDashboardService.SUPABASE_PAGE_ROWS) break;
+      offset += InventoryDashboardService.SUPABASE_PAGE_ROWS;
+    }
+    return rows;
+  }
+
+  /** `.in(remision_id, …)` — chunk IDs to avoid huge URLs; paginate rows within each chunk. */
+  private async fetchRemisionMaterialesBatched(
+    remisionIds: string[],
+    selectColumns: string,
+    extraFilter?: (q: any) => any
+  ): Promise<any[]> {
+    const ID_CHUNK = 100;
+    const out: any[] = [];
+    for (let i = 0; i < remisionIds.length; i += ID_CHUNK) {
+      const idSlice = remisionIds.slice(i, i + ID_CHUNK);
+      const batch = await this.fetchAllPages(() => {
+        let q = this.supabase
+          .from('remision_materiales')
+          .select(selectColumns)
+          .in('remision_id', idSlice)
+          .order('id', { ascending: true });
+        q = extraFilter ? extraFilter(q) : q;
+        return q;
+      });
+      out.push(...batch);
+    }
+    return out;
   }
 
   /**
@@ -315,89 +371,78 @@ export class InventoryDashboardService {
       console.log('📊 Fetching historical aggregations (optimized)...');
       
       const [
-        historicalEntriesAgg,
-        historicalAdjustmentsAgg,
-        historicalConsumptionAgg,
-        historicalWasteByMaterialIdAgg,
-        historicalWasteLegacyAgg
+        historicalEntriesAggRows,
+        historicalAdjustmentsAggRows,
+        historicalConsumptionAggRows,
+        historicalWasteByMaterialIdAggRows,
+        historicalWasteLegacyAggRows
       ] = await Promise.all([
-        // Aggregate historical entries: SUM by material_id
-        this.supabase
-          .from('material_entries')
-          .select('material_id, quantity_received')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .lt('entry_date', startDate),
-        
-        // Aggregate historical adjustments: SUM by material_id and type
-        this.supabase
-          .from('material_adjustments')
-          .select('material_id, quantity_adjusted, adjustment_type')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .lt('adjustment_date', startDate),
-        
-        // OPTIMIZED: Aggregate historical consumption using direct query
-        // Get remisiones before startDate, then aggregate their materials
-        // Note: Using direct query since RPC doesn't exist - this is still optimized vs fetching all records
-        (async () => {
-          // Get remisiones before startDate
-          const remisionesResult = await this.supabase
-            .from('remisiones')
-            .select('id')
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('material_entries')
+            .select('material_id, quantity_received, entry_number, entry_date')
             .eq('plant_id', plantId)
-            .lt('fecha', startDate);
-          
-          const remisionIds = remisionesResult.data?.map(r => r.id) || [];
-          if (remisionIds.length === 0) return { data: [], error: null };
-          
-          // Aggregate remision materials by material_id (only fetch what we need)
-          return await this.supabase
-            .from('remision_materiales')
-            .select('material_id, cantidad_real')
-            .in('remision_id', remisionIds)
-            .in('material_id', materialIdsList);
+            .in('material_id', materialIdsList)
+            .lt('entry_date', startDate)
+            .order('entry_date', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('material_adjustments')
+            .select('material_id, quantity_adjusted, adjustment_type')
+            .eq('plant_id', plantId)
+            .in('material_id', materialIdsList)
+            .lt('adjustment_date', startDate)
+            .order('adjustment_date', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        (async () => {
+          const remisionesBefore = await this.fetchAllPages(() =>
+            this.supabase
+              .from('remisiones')
+              .select('id')
+              .eq('plant_id', plantId)
+              .lt('fecha', startDate)
+              .order('fecha', { ascending: true })
+              .order('id', { ascending: true })
+          );
+          const remisionIds = remisionesBefore.map((r) => r.id);
+          if (remisionIds.length === 0) return [];
+          return this.fetchRemisionMaterialesBatched(
+            remisionIds,
+            'material_id, cantidad_real',
+            (q) => q.in('material_id', materialIdsList)
+          );
         })(),
-        
-        // Historical waste: by material_id (new rows) + legacy rows (null material_id) by code
-        this.supabase
-          .from('waste_materials')
-          .select('material_id, material_code, waste_amount')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .lt('fecha', startDate),
-        this.supabase
-          .from('waste_materials')
-          .select('material_id, material_code, waste_amount')
-          .eq('plant_id', plantId)
-          .is('material_id', null)
-          .in('material_code', materialCodesList)
-          .lt('fecha', startDate)
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('waste_materials')
+            .select('material_id, material_code, waste_amount')
+            .eq('plant_id', plantId)
+            .in('material_id', materialIdsList)
+            .lt('fecha', startDate)
+            .order('fecha', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('waste_materials')
+            .select('material_id, material_code, waste_amount')
+            .eq('plant_id', plantId)
+            .is('material_id', null)
+            .in('material_code', materialCodesList)
+            .lt('fecha', startDate)
+            .order('fecha', { ascending: true })
+            .order('id', { ascending: true })
+        ),
       ]);
 
-      // Process aggregated historical entries
-      const historicalEntriesByMaterial = new Map<string, number>();
-      (historicalEntriesAgg.data || []).forEach(e => {
-        const current = historicalEntriesByMaterial.get(e.material_id) || 0;
-        historicalEntriesByMaterial.set(e.material_id, current + Number(e.quantity_received || 0));
-      });
-
-      // Process aggregated historical adjustments
-      const historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>();
-      (historicalAdjustmentsAgg.data || []).forEach(adj => {
-        const qty = Number(adj.quantity_adjusted || 0);
-        const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');
-        
-        if (!historicalAdjustmentsByMaterial.has(adj.material_id)) {
-          historicalAdjustmentsByMaterial.set(adj.material_id, { additions: 0, withdrawals: 0 });
-        }
-        const current = historicalAdjustmentsByMaterial.get(adj.material_id)!;
-        if (isWithdrawal) {
-          current.withdrawals += Math.abs(qty);
-        } else {
-          current.additions += qty;
-        }
-      });
+      const historicalEntriesAgg = { data: historicalEntriesAggRows, error: null as Error | null };
+      const historicalAdjustmentsAgg = { data: historicalAdjustmentsAggRows, error: null as Error | null };
+      const historicalConsumptionAgg = { data: historicalConsumptionAggRows, error: null as Error | null };
+      const historicalWasteByMaterialIdAgg = { data: historicalWasteByMaterialIdAggRows, error: null as Error | null };
+      const historicalWasteLegacyAgg = { data: historicalWasteLegacyAggRows, error: null as Error | null };
 
       // Process aggregated historical consumption
       const historicalConsumptionByMaterial = new Map<string, number>();
@@ -414,71 +459,128 @@ export class InventoryDashboardService {
       ];
       const historicalWasteMaps = this.buildWasteLookupMaps(historicalWasteRows);
 
-      console.log('✅ Historical aggregations complete:', {
-        entriesMaterials: historicalEntriesByMaterial.size,
-        adjustmentsMaterials: historicalAdjustmentsByMaterial.size,
+      console.log('✅ Historical waste/consumption aggregations complete:', {
         consumptionMaterials: historicalConsumptionByMaterial.size,
         wasteMaterialRows: historicalWasteRows.length,
         wasteTrackedMaterials: historicalWasteMaps.byMaterialId.size + historicalWasteMaps.byCodeLegacy.size
       });
 
       // OPTIMIZED: Fetch all period data in parallel, including remision materials in same batch
-      const [
-        periodEntriesResult,
-        periodAdjustmentsResult,
-        periodRemisionesResult,
-        periodWasteByMaterialIdResult,
-        periodWasteLegacyResult
-      ] = await Promise.all([
-        // Batch fetch ALL period entries (between startDate and endDate)
-        this.supabase
-          .from('material_entries')
-          .select('material_id, quantity_received')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .gte('entry_date', startDate)
-          .lte('entry_date', endDate),
-        
-        // Batch fetch ALL period adjustments (between startDate and endDate)
-        this.supabase
-          .from('material_adjustments')
-          .select('material_id, quantity_adjusted, adjustment_type')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .gte('adjustment_date', startDate)
-          .lte('adjustment_date', endDate),
-        
-        // Get period remisiones (between startDate and endDate)
-        this.supabase
-          .from('remisiones')
-          .select('id, fecha')
-          .eq('plant_id', plantId)
-          .gte('fecha', startDate)
-          .lte('fecha', endDate),
-        
-        this.supabase
-          .from('waste_materials')
-          .select('material_id, material_code, waste_amount')
-          .eq('plant_id', plantId)
-          .in('material_id', materialIdsList)
-          .gte('fecha', startDate)
-          .lte('fecha', endDate),
-        this.supabase
-          .from('waste_materials')
-          .select('material_id, material_code, waste_amount')
-          .eq('plant_id', plantId)
-          .is('material_id', null)
-          .in('material_code', materialCodesList)
-          .gte('fecha', startDate)
-          .lte('fecha', endDate)
+      const periodBatch = await Promise.all([
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('material_entries')
+            .select('material_id, quantity_received, entry_number, entry_date')
+            .eq('plant_id', plantId)
+            .in('material_id', materialIdsList)
+            .gte('entry_date', startDate)
+            .lte('entry_date', endDate)
+            .order('entry_date', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('material_adjustments')
+            .select('material_id, quantity_adjusted, adjustment_type')
+            .eq('plant_id', plantId)
+            .in('material_id', materialIdsList)
+            .gte('adjustment_date', startDate)
+            .lte('adjustment_date', endDate)
+            .order('adjustment_date', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('remisiones')
+            .select('id, fecha')
+            .eq('plant_id', plantId)
+            .gte('fecha', startDate)
+            .lte('fecha', endDate)
+            .order('fecha', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('waste_materials')
+            .select('material_id, material_code, waste_amount')
+            .eq('plant_id', plantId)
+            .in('material_id', materialIdsList)
+            .gte('fecha', startDate)
+            .lte('fecha', endDate)
+            .order('fecha', { ascending: true })
+            .order('id', { ascending: true })
+        ),
+        this.fetchAllPages(() =>
+          this.supabase
+            .from('waste_materials')
+            .select('material_id, material_code, waste_amount')
+            .eq('plant_id', plantId)
+            .is('material_id', null)
+            .in('material_code', materialCodesList)
+            .gte('fecha', startDate)
+            .lte('fecha', endDate)
+            .order('fecha', { ascending: true })
+            .order('id', { ascending: true })
+        ),
       ]);
 
-      const allPeriodEntries = periodEntriesResult.data || [];
-      const allPeriodAdjustments = periodAdjustmentsResult.data || [];
-      const periodRemisiones = periodRemisionesResult.data || [];
+      const allPeriodEntries = periodBatch[0];
+      const allPeriodAdjustments = periodBatch[1];
+      const periodRemisiones = periodBatch[2];
+      const allPeriodWasteByMaterialIdRows = periodBatch[3];
+      const allPeriodWasteLegacyRows = periodBatch[4];
+
+      /** Materials with synthetic FIFO layer rows (0OPEN / ADJP): opening kg is in `ENTRY`; skip paired positive adjustments in adjustment sums. */
+      const openFifoMaterialIds = new Set<string>();
+      /** First synthetic OPEN layer date per material (for ERP cutover: stock inicial = 0 on that day). */
+      const syntheticOpenEntryDateByMaterial = new Map<string, string>();
+      for (const e of [...(historicalEntriesAggRows || []), ...(allPeriodEntries || [])]) {
+        if (e.material_id && isSyntheticFifoCostLayerEntry(e.entry_number)) {
+          openFifoMaterialIds.add(e.material_id);
+          const d =
+            e.entry_date && typeof e.entry_date === 'string'
+              ? e.entry_date.slice(0, 10)
+              : null;
+          if (d && !syntheticOpenEntryDateByMaterial.has(e.material_id)) {
+            syntheticOpenEntryDateByMaterial.set(e.material_id, d);
+          }
+        }
+      }
+
+      const historicalEntriesByMaterial = new Map<string, number>();
+      (historicalEntriesAggRows || []).forEach((e) => {
+        const current = historicalEntriesByMaterial.get(e.material_id) || 0;
+        historicalEntriesByMaterial.set(e.material_id, current + Number(e.quantity_received || 0));
+      });
+
+      const historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>();
+      (historicalAdjustmentsAggRows || []).forEach((adj) => {
+        const qty = Number(adj.quantity_adjusted || 0);
+        if (isPositiveAdjustmentType(adj.adjustment_type || '') && openFifoMaterialIds.has(adj.material_id)) {
+          return;
+        }
+        const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');
+
+        if (!historicalAdjustmentsByMaterial.has(adj.material_id)) {
+          historicalAdjustmentsByMaterial.set(adj.material_id, { additions: 0, withdrawals: 0 });
+        }
+        const current = historicalAdjustmentsByMaterial.get(adj.material_id)!;
+        if (isWithdrawal) {
+          current.withdrawals += Math.abs(qty);
+        } else {
+          current.additions += qty;
+        }
+      });
+
+      console.log('✅ Historical entries/adjustments aggregations complete:', {
+        entriesMaterials: historicalEntriesByMaterial.size,
+        adjustmentsMaterials: historicalAdjustmentsByMaterial.size,
+        openFifoMaterials: openFifoMaterialIds.size,
+      });
+
       const allPeriodWaste = [
-        ...(periodWasteByMaterialIdResult.data || []),
-        ...(periodWasteLegacyResult.data || [])
+        ...(allPeriodWasteByMaterialIdRows || []),
+        ...(allPeriodWasteLegacyRows || []),
       ];
       const periodWasteMaps = this.buildWasteLookupMaps(allPeriodWaste);
 
@@ -492,12 +594,14 @@ export class InventoryDashboardService {
       // OPTIMIZED: Fetch remision materials in parallel with other operations if needed
       // Get ALL materials from period remisiones (including those with NULL material_id)
       // We need to get material_type/code to map to material_id
-      const { data: allPeriodRemisionMaterialsRaw } = periodRemisionIdSet.size > 0 ? await this.supabase
-        .from('remision_materiales')
-        .select('material_id, material_type, cantidad_real, remision_id')
-        .in('remision_id', Array.from(periodRemisionIdSet)) : { data: [] };
-
-      // Map remision materials to material_id if missing, and filter to only tracked materials
+      const periodRemisionIdArray = Array.from(periodRemisionIdSet);
+      const allPeriodRemisionMaterialsRaw =
+        periodRemisionIdArray.length === 0
+          ? []
+          : await this.fetchRemisionMaterialesBatched(
+              periodRemisionIdArray,
+              'material_id, material_type, cantidad_real, remision_id'
+            );
       // Reuse materialCodeToIdMap defined earlier
       const allPeriodRemisionMaterials = (allPeriodRemisionMaterialsRaw || [])
         .map(rm => {
@@ -575,10 +679,13 @@ export class InventoryDashboardService {
         // Calculate period totals from grouped data
         const periodEntriesTotal = (periodEntriesByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
         const periodManualAdditions = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
-          if (!['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
-            return sum + adj.qty;
+          if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+            return sum;
           }
-          return sum;
+          if (isPositiveAdjustmentType(adj.type) && openFifoMaterialIds.has(materialId)) {
+            return sum;
+          }
+          return sum + adj.qty;
         }, 0);
         const periodManualWithdrawals = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
           if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
@@ -601,13 +708,16 @@ export class InventoryDashboardService {
         // Then verify by working backwards: Initial Stock = Current Stock - Period Entries - Period Additions + Period Consumption + Period Withdrawals + Period Waste
         const initialStockFromHistory = historicalEntriesTotal + historicalAdjustments.additions - historicalConsumptionTotal - historicalAdjustments.withdrawals - historicalWasteTotal;
         const initialStockFromCurrent = actualCurrentStock - periodEntriesTotal - periodManualAdditions + periodConsumptionTotal + periodManualWithdrawals + periodWasteTotal;
-        
-        // Use the more accurate calculation (from current stock working backwards)
-        // But ensure it's not negative (data inconsistency protection)
-        const initialStock = Math.max(0, initialStockFromCurrent);
-        
-        // Ensure initial stock is not negative (if it is, it means data inconsistency, but we'll show 0 for clarity)
-        const initialStockAdjusted = Math.max(0, initialStock);
+
+        /** Implied stock at period start from the movement identity (not `material_inventory`).
+         *  `initialStockFromCurrent` = actual − entradas periodo − ajustes c/p + remisiones + ajustes salida + merma.
+         *  Old “cutover = 0” here forced `theoretical` away from `actualCurrentStock` whenever that implied
+         *  balance was > 0 (p. ej. 510MX con OPEN 2026-04-01 y rango que empieza ese día). */
+        const openDay = syntheticOpenEntryDateByMaterial.get(materialId);
+        const isOpenCutoverStart =
+          openFifoMaterialIds.has(materialId) && openDay !== undefined && startDate === openDay;
+
+        const initialStockAdjusted = Math.max(0, initialStockFromCurrent);
         
         // Debug log for first material only to avoid spam
         if (materialId === filteredMaterials[0]?.id) {
@@ -619,9 +729,14 @@ export class InventoryDashboardService {
             periodConsumptionTotal,
             periodManualWithdrawals,
             periodWasteTotal,
-            initialStockCalculated: initialStock,
+            initialStockFromHistory,
+            initialStockFromCurrent,
+            isOpenCutoverStart,
+            openDay,
             initialStockAdjusted,
-            formula: `${actualCurrentStock} - ${periodEntriesTotal} - ${periodManualAdditions} + ${periodConsumptionTotal} + ${periodManualWithdrawals} + ${periodWasteTotal}`
+            formula: isOpenCutoverStart
+              ? `max(0, implied initial) OPEN cutover day ${openDay} === start ${startDate}`
+              : `${actualCurrentStock} - ${periodEntriesTotal} - ${periodManualAdditions} + ${periodConsumptionTotal} + ${periodManualWithdrawals} + ${periodWasteTotal}`
           });
         }
         
@@ -914,13 +1029,15 @@ export class InventoryDashboardService {
           );
 
           // Build movements
-          const materialMovements = this.buildMovementsOptimized(
-            material,
-            materialRemisionMaterials,
-            materialEntries,
-            materialAdjustments,
-            periodRemisionesFull || [],
-            materialWaste
+          const materialMovements = mergeLedgerSyntheticFifoPairs(
+            this.buildMovementsOptimized(
+              material,
+              materialRemisionMaterials,
+              materialEntries,
+              materialAdjustments,
+              periodRemisionesFull || [],
+              materialWaste
+            )
           );
           movements.push(...materialMovements);
 
@@ -1132,7 +1249,9 @@ export class InventoryDashboardService {
       // ALL material entries at once - No artificial limits
       this.supabase
         .from('material_entries')
-        .select('material_id, quantity_received, entry_date, entry_number, notes')
+        .select(
+          'id, material_id, quantity_received, entry_date, entry_number, notes, unit_price, total_cost, landed_unit_price'
+        )
         .eq('plant_id', plantId)
         .in('material_id', materialIds)
         .gte('entry_date', startDate)
@@ -1142,7 +1261,7 @@ export class InventoryDashboardService {
       // ALL material adjustments at once - No artificial limits  
       this.supabase
         .from('material_adjustments')
-        .select('material_id, quantity_adjusted, adjustment_type, adjustment_date, adjustment_number, reference_notes')
+        .select('material_id, quantity_adjusted, adjustment_type, adjustment_date, adjustment_number, reference_notes, reference_type')
         .eq('plant_id', plantId)
         .in('material_id', materialIds)
         .gte('adjustment_date', startDate)
@@ -1224,13 +1343,15 @@ export class InventoryDashboardService {
       materialFlows.push(flow);
 
       // Build movements with pre-fetched data
-      const materialMovements = this.buildMovementsOptimized(
-        material,
-        materialRemisionData,
-        materialEntries,
-        materialAdjustments,
-        plantRemisiones,
-        materialWaste
+      const materialMovements = mergeLedgerSyntheticFifoPairs(
+        this.buildMovementsOptimized(
+          material,
+          materialRemisionData,
+          materialEntries,
+          materialAdjustments,
+          plantRemisiones,
+          materialWaste
+        )
       );
       movements.push(...materialMovements);
 
@@ -1412,20 +1533,44 @@ export class InventoryDashboardService {
     wasteMaterials: any[],
     currentStock: number
   ): MaterialFlowSummary {
-    // Calculate totals from pre-fetched data
-    const totalEntries = entries.reduce((sum, e) => sum + Number(e.quantity_received), 0);
+    // Synthetic FIFO entry rows (`0OPEN-*`, `ADJP-*`) carry kg in `total_entries`; skip paired positive adjustments.
+    const totalEntries = entries.reduce((sum, e) => {
+      return sum + Number(e.quantity_received);
+    }, 0);
     const totalRemisionConsumption = remisionMaterials.reduce((sum, rm) => sum + (Number(rm.cantidad_real) || 0), 0);
     
     let totalManualAdditions = 0;
     let totalManualWithdrawals = 0;
     let totalAdjustments = 0;
 
+    const has0OpenFifoLayer = entries.some((e) => isSyntheticFifoOpeningEntry(e.entry_number));
+    const hasAdjpFifoLayer = entries.some((e) => isAdjpFreeAdjustmentLayerEntry(e.entry_number));
+
     adjustments.forEach(adj => {
       const qty = Number(adj.quantity_adjusted);
       totalAdjustments += Math.abs(qty);
-      
+
+      if (isPositiveAdjustmentType(adj.adjustment_type || '')) {
+        if (adj.adjustment_type === 'initial_count') {
+          if (!has0OpenFifoLayer && qty > 0) {
+            totalManualAdditions += qty;
+          }
+        } else if (
+          adj.adjustment_type === 'physical_count' ||
+          adj.adjustment_type === 'positive_correction'
+        ) {
+          if (!hasAdjpFifoLayer && qty > 0) {
+            totalManualAdditions += qty;
+          }
+        }
+        return;
+      }
       if (adj.adjustment_type === 'correction' && qty > 0) {
-        totalManualAdditions += qty;
+        const refType = String(adj.reference_type ?? '').trim();
+        const isOpeningCorrection = refType.endsWith('_opening');
+        if (!(isOpeningCorrection && has0OpenFifoLayer)) {
+          totalManualAdditions += qty;
+        }
       } else if (['consumption', 'waste', 'loss'].includes(adj.adjustment_type)) {
         totalManualWithdrawals += Math.abs(qty);
       }
@@ -1491,8 +1636,9 @@ export class InventoryDashboardService {
   ): InventoryMovement[] {
     const movements: InventoryMovement[] = [];
 
-    // Add entries
+    // Add entries (omit synthetic orphan buckets — not physical receipts; FIFO gaps go to remisión notes)
     entries.forEach(entry => {
+      if (isFifoOrphanBucketEntry(entry.entry_number)) return;
       movements.push({
         movement_type: 'ENTRY',
         movement_date: entry.entry_date,
@@ -1509,14 +1655,17 @@ export class InventoryDashboardService {
       });
     });
 
-    // Add adjustments
+    // Add adjustments (DB stores magnitude > 0; sign comes from adjustment_type)
     adjustments.forEach(adj => {
       movements.push({
         movement_type: 'ADJUSTMENT',
         movement_date: adj.adjustment_date,
         material_id: material.id,
         material_name: material.material_name,
-        quantity: Number(adj.quantity_adjusted),
+        quantity: signedQuantityForStockEffect(
+          String(adj.adjustment_type ?? ''),
+          Number(adj.quantity_adjusted)
+        ),
         unit: material.unit_of_measure,
         reference: `${adj.adjustment_number} (${adj.adjustment_type})`,
         notes: adj.reference_notes
@@ -1535,7 +1684,9 @@ export class InventoryDashboardService {
           quantity: -Number(rm.cantidad_real),
           unit: material.unit_of_measure,
           reference: remisionInfo.remision_number,
-          notes: 'Consumo por remisión'
+          notes: 'Consumo por remisión',
+          remision_id: remisionInfo.id,
+          remision_material_id: rm.id,
         });
       }
     });
@@ -1586,7 +1737,9 @@ export class InventoryDashboardService {
   }
 
   /**
-   * Calculate comprehensive material flow for a specific material
+   * Calculate comprehensive material flow for a specific material.
+   * Legacy path: if revived, align with `calculateHistoricalInventory` (OPEN + ADJP entry kg + skip paired
+   * positive adjustments when a synthetic FIFO layer exists).
    */
   private async calculateMaterialFlow(
     material: any, 
@@ -1782,7 +1935,10 @@ export class InventoryDashboardService {
         movement_date: adj.adjustment_date,
         material_id: material.id,
         material_name: material.material_name,
-        quantity: Number(adj.quantity_adjusted),
+        quantity: signedQuantityForStockEffect(
+          String(adj.adjustment_type ?? ''),
+          Number(adj.quantity_adjusted)
+        ),
         unit: material.unit_of_measure,
         reference: `${adj.adjustment_number} (${adj.adjustment_type})`,
         notes: adj.reference_notes
@@ -1811,7 +1967,8 @@ export class InventoryDashboardService {
             quantity: -Number(rm.cantidad_real), // Negative because it's consumption
             unit: material.unit_of_measure,
             reference: remisionInfo.remision_number,
-            notes: 'Consumo por remisión'
+            notes: 'Consumo por remisión',
+            remision_id: remisionInfo.id,
           });
         }
       });

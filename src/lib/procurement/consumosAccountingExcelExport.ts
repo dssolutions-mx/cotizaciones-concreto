@@ -80,6 +80,10 @@ export type ConsumosAccountingMaterialBlock = {
     id: string
     adjustment_type: string
     quantity_adjusted: number
+    /** When present, used with `reference_type` / notes for opening-batch display (saldo vs delta). */
+    inventory_before?: number | null
+    inventory_after?: number | null
+    reference_type?: string | null
     reference_notes?: string | null
     adjustment_time?: string | null
   }>

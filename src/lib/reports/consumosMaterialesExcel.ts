@@ -8,12 +8,12 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
   adjustmentTypeLabelEs,
-  signedQuantityForStockEffect,
 } from '@/lib/inventory/adjustmentModel'
 import {
   eachPlantScope,
   type ConsumosAccountingExcelPayload,
 } from '@/lib/procurement/consumosAccountingExcelExport'
+import { adjustmentDisplayForConsumos } from '@/lib/procurement/openingConsumosMerge'
 import {
   DC_DOCUMENT_THEME as C,
   DC_NUMBER_FORMATS as FMT,
@@ -940,7 +940,7 @@ function buildAjustesSheet(wb: ExcelJS.Workbook, payload: ConsumosAccountingExce
     for (const m of scope.materials) {
       const clave = (m.material_accounting_code ?? '').trim() || '—'
       for (const a of m.adjustments) {
-        const efecto = signedQuantityForStockEffect(a.adjustment_type, a.quantity_adjusted)
+        const disp = adjustmentDisplayForConsumos(a)
         const row = ws.getRow(headerRow + 1 + ri)
         row.height = 15
         const st = dataStyle(ri % 2 === 1)
@@ -952,8 +952,8 @@ function buildAjustesSheet(wb: ExcelJS.Workbook, payload: ConsumosAccountingExce
           clave,
           m.material_name,
           adjustmentTypeLabelEs(a.adjustment_type),
-          a.quantity_adjusted,
-          efecto,
+          disp.magnitudeKg,
+          disp.effectSignedKg,
           a.reference_notes ?? '—',
           a.adjustment_time ?? '—',
         ]

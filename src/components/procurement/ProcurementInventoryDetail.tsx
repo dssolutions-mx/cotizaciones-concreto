@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import MaterialAuditSheet from '@/components/procurement/MaterialAuditSheet'
 import type { DashboardMaterialSummary, DashboardSummaryResponse } from '@/types/inventoryDashboard'
 
 function fmtKg(n: number) {
@@ -45,6 +47,9 @@ export default function ProcurementInventoryDetail({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [auditOpen, setAuditOpen] = useState(false)
+  const [auditSeed, setAuditSeed] = useState<{ id: string; name: string } | null>(null)
+  const [auditStartVariances, setAuditStartVariances] = useState(false)
 
   useEffect(() => {
     if (workspacePlantId) {
@@ -156,6 +161,20 @@ export default function ProcurementInventoryDetail({
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm border-stone-300 bg-white"
           />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-stone-300 shrink-0"
+            disabled={!plantId}
+            onClick={() => {
+              setAuditSeed(null)
+              setAuditStartVariances(true)
+              setAuditOpen(true)
+            }}
+          >
+            Materiales con varianza
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -176,7 +195,25 @@ export default function ProcurementInventoryDetail({
               </thead>
               <tbody>
                 {filtered.map((m) => (
-                  <tr key={m.material_id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50/80">
+                  <tr
+                    key={m.material_id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setAuditSeed({ id: m.material_id, name: m.material_name })
+                      setAuditStartVariances(false)
+                      setAuditOpen(true)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setAuditSeed({ id: m.material_id, name: m.material_name })
+                        setAuditStartVariances(false)
+                        setAuditOpen(true)
+                      }
+                    }}
+                    className="border-b border-stone-100 last:border-0 hover:bg-stone-50/80 cursor-pointer"
+                  >
                     <td className="py-2.5 px-3 text-stone-900">
                       <div className="font-medium leading-snug">{m.material_name}</div>
                       {m.category && (
@@ -217,8 +254,17 @@ export default function ProcurementInventoryDetail({
         <p className="text-[11px] text-stone-500 mt-3">
           {filtered.length} de {rows.length} materiales
           {plantId && currentPlantName ? ` · ${currentPlantName}` : ''}
+          {' · '}
+          <span className="text-stone-600">Clic en una fila para auditoría y conciliación.</span>
         </p>
       </CardContent>
+      <MaterialAuditSheet
+        open={auditOpen}
+        onOpenChange={setAuditOpen}
+        plantId={plantId}
+        seedMaterial={auditSeed}
+        startOnVariancesTab={auditStartVariances}
+      />
     </Card>
   )
 }

@@ -21,7 +21,8 @@ import {
   Package,
   Settings,
   FileText,
-  AlertTriangle
+  AlertTriangle,
+  Landmark,
 } from 'lucide-react'
 import { InventoryMovement } from '@/types/inventory'
 import { format, parse } from 'date-fns'
@@ -30,16 +31,33 @@ import { cn } from '@/lib/utils'
 
 interface InventoryMovementsTableProps {
   movements: InventoryMovement[]
+  /** Single-material context: hide the material column */
+  singleMaterial?: boolean
+  /** Show price / cost columns for ENTRY rows (material audit) */
+  ledgerMode?: boolean
+  /** Optional last column (menus, links) */
+  renderRowActions?: (movement: InventoryMovement, index: number) => React.ReactNode
 }
 
 type SortField = keyof InventoryMovement
 type SortDirection = 'asc' | 'desc'
 
-export default function InventoryMovementsTable({ movements }: InventoryMovementsTableProps) {
+export default function InventoryMovementsTable({
+  movements,
+  singleMaterial = false,
+  ledgerMode = false,
+  renderRowActions,
+}: InventoryMovementsTableProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [movementTypeFilter, setMovementTypeFilter] = useState<InventoryMovement['movement_type'] | 'ALL'>('ALL')
   const [sortField, setSortField] = useState<SortField>('movement_date')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+
+  const tableColSpan =
+    7 +
+    (ledgerMode ? 3 : 0) -
+    (singleMaterial ? 1 : 0) +
+    (renderRowActions ? 1 : 0)
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -85,7 +103,18 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
       return 0
     })
 
-  const getMovementTypeInfo = (type: InventoryMovement['movement_type']) => {
+  const getMovementTypeInfo = (
+    type: InventoryMovement['movement_type'],
+    options?: { ledgerOpeningMerged?: boolean },
+  ) => {
+    if (options?.ledgerOpeningMerged && (type === 'ENTRY' || type === 'ADJUSTMENT')) {
+      return {
+        label: 'Apertura',
+        icon: <Landmark className="h-3 w-3" />,
+        variant: 'secondary' as const,
+        color: 'text-violet-700',
+      }
+    }
     switch (type) {
       case 'ENTRY':
         return {
@@ -207,15 +236,17 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
                   Tipo {getSortIcon('movement_type')}
                 </Button>
               </TableHead>
-              <TableHead className="w-[200px]">
-                <Button
-                  variant="ghost"
-                  className="h-auto p-0 font-semibold hover:bg-transparent"
-                  onClick={() => handleSort('material_name')}
-                >
-                  Material {getSortIcon('material_name')}
-                </Button>
-              </TableHead>
+              {!singleMaterial && (
+                <TableHead className="w-[200px]">
+                  <Button
+                    variant="ghost"
+                    className="h-auto p-0 font-semibold hover:bg-transparent"
+                    onClick={() => handleSort('material_name')}
+                  >
+                    Material {getSortIcon('material_name')}
+                  </Button>
+                </TableHead>
+              )}
               <TableHead className="text-right">
                 <Button
                   variant="ghost"
@@ -225,6 +256,13 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
                   Cantidad {getSortIcon('quantity')}
                 </Button>
               </TableHead>
+              {ledgerMode && (
+                <>
+                  <TableHead className="text-right text-xs">Precio / kg</TableHead>
+                  <TableHead className="text-right text-xs">Costo total</TableHead>
+                  <TableHead className="text-right text-xs">Landed / kg</TableHead>
+                </>
+              )}
               <TableHead className="text-center">Unidad</TableHead>
               <TableHead className="w-[180px]">
                 <Button
@@ -236,11 +274,20 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
                 </Button>
               </TableHead>
               <TableHead className="w-[200px]">Notas</TableHead>
+              {renderRowActions && <TableHead className="w-[52px] text-right"> </TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredAndSortedMovements.map((movement, index) => {
-              const typeInfo = getMovementTypeInfo(movement.movement_type)
+              const typeInfo = getMovementTypeInfo(movement.movement_type, {
+                ledgerOpeningMerged: movement.ledger_opening_merged,
+              })
+              const quantityClass =
+                movement.movement_type === 'ADJUSTMENT'
+                  ? movement.quantity >= 0
+                    ? 'text-emerald-700'
+                    : 'text-red-600'
+                  : typeInfo.color
               return (
                 <TableRow key={index} className="hover:bg-gray-50">
                   <TableCell className="font-mono text-sm">
@@ -254,18 +301,39 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
                       </span>
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium">
-                    <div>
-                      <div className="font-medium">{movement.material_name}</div>
-                      <div className="text-xs text-gray-500">ID: {movement.material_id.slice(-8)}</div>
-                    </div>
-                  </TableCell>
+                  {!singleMaterial && (
+                    <TableCell className="font-medium">
+                      <div>
+                        <div className="font-medium">{movement.material_name}</div>
+                        <div className="text-xs text-gray-500">ID: {movement.material_id.slice(-8)}</div>
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className={cn(
                     "text-right font-mono font-medium",
-                    typeInfo.color
+                    quantityClass
                   )}>
                     {movement.quantity > 0 ? "+" : ""}{formatNumber(movement.quantity)}
                   </TableCell>
+                  {ledgerMode && (
+                    <>
+                      <TableCell className="text-right font-mono text-xs text-gray-700">
+                        {movement.unit_price_mxn != null
+                          ? formatNumber(movement.unit_price_mxn, 4)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-gray-700">
+                        {movement.total_cost_mxn != null
+                          ? formatNumber(movement.total_cost_mxn, 2)
+                          : '—'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs text-gray-700">
+                        {movement.landed_unit_price_mxn != null
+                          ? formatNumber(movement.landed_unit_price_mxn, 4)
+                          : '—'}
+                      </TableCell>
+                    </>
+                  )}
                   <TableCell className="text-center font-mono text-sm">
                     {movement.unit}
                   </TableCell>
@@ -275,12 +343,17 @@ export default function InventoryMovementsTable({ movements }: InventoryMovement
                   <TableCell className="text-sm text-gray-600">
                     {movement.notes || '-'}
                   </TableCell>
+                  {renderRowActions && (
+                    <TableCell className="text-right align-middle">
+                      {renderRowActions(movement, index)}
+                    </TableCell>
+                  )}
                 </TableRow>
               )
             })}
             {filteredAndSortedMovements.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={tableColSpan} className="text-center py-8 text-gray-500">
                   {searchTerm || movementTypeFilter !== 'ALL' ? 
                     'No se encontraron movimientos que coincidan con los filtros' : 
                     'No hay movimientos disponibles'

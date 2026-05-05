@@ -4,7 +4,8 @@ import {
   hasInventoryStandardAccess,
   isGlobalInventoryRole,
 } from '@/lib/auth/inventoryRoles'
-import { fetchMaterialLedger, MATERIAL_LEDGER_MAX_RANGE_DAYS } from '@/services/materialLedgerService'
+import { fetchMaterialLedger } from '@/services/materialLedgerService'
+import { MATERIAL_LEDGER_MAX_RANGE_DAYS } from '@/types/materialLedger'
 
 function daysBetween(start: string, end: string): number {
   const a = new Date(`${start}T12:00:00`)

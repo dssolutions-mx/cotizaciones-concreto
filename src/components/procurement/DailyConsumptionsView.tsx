@@ -31,12 +31,8 @@ import {
   type ConsumosAccountingSummary,
 } from '@/lib/procurement/consumosAccountingExcelExport'
 import { buildConsumosMaterialesExcel } from '@/lib/reports/consumosMaterialesExcel'
-import {
-  adjustmentTypeLabelEs,
-  formatSignedKg,
-  signedQuantityForStockEffect,
-  stockDirectionForType,
-} from '@/lib/inventory/adjustmentModel'
+import { adjustmentTypeLabelEs, formatSignedKg } from '@/lib/inventory/adjustmentModel'
+import { adjustmentDisplayForConsumos } from '@/lib/procurement/openingConsumosMerge'
 import { cn } from '@/lib/utils'
 
 type MaterialBlock = ConsumosAccountingMaterialBlock
@@ -325,30 +321,29 @@ function PlantSection({
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {m.adjustments.map((a) => (
+                          {m.adjustments.map((a) => {
+                            const disp = adjustmentDisplayForConsumos(a)
+                            return (
                             <TableRow key={a.id}>
                               <TableCell className="text-sm">{adjustmentTypeLabelEs(a.adjustment_type)}</TableCell>
                               <TableCell className="text-right font-mono tabular-nums text-stone-600">
-                                {fmtKg(a.quantity_adjusted)}
+                                {fmtKg(disp.magnitudeKg)}
                               </TableCell>
                               <TableCell
                                 className={cn(
                                   'text-right font-mono tabular-nums text-sm',
-                                  stockDirectionForType(a.adjustment_type) === 'increase'
-                                    ? 'text-emerald-800'
-                                    : 'text-red-800'
+                                  disp.effectSignedKg >= 0 ? 'text-emerald-800' : 'text-red-800'
                                 )}
                               >
-                                {formatSignedKg(
-                                  signedQuantityForStockEffect(a.adjustment_type, a.quantity_adjusted)
-                                )}
+                                {formatSignedKg(disp.effectSignedKg)}
                               </TableCell>
                               <TableCell className="text-sm max-w-[240px] truncate" title={a.reference_notes || ''}>
                                 {a.reference_notes || '—'}
                               </TableCell>
                               <TableCell className="font-mono text-sm">{a.adjustment_time || '—'}</TableCell>
                             </TableRow>
-                          ))}
+                            )
+                          })}
                         </TableBody>
                       </Table>
                     </div>

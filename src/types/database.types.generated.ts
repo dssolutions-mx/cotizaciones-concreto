@@ -5119,6 +5119,7 @@ export type Database = {
       }
       material_consumption_allocations: {
         Row: {
+          adjustment_id: string | null
           consumption_date: string
           cost_basis: string | null
           created_at: string | null
@@ -5129,12 +5130,13 @@ export type Database = {
           material_id: string
           plant_id: string
           quantity_consumed_kg: number
-          remision_id: string
-          remision_material_id: string
+          remision_id: string | null
+          remision_material_id: string | null
           total_cost: number
           unit_price: number
         }
         Insert: {
+          adjustment_id?: string | null
           consumption_date: string
           cost_basis?: string | null
           created_at?: string | null
@@ -5145,12 +5147,13 @@ export type Database = {
           material_id: string
           plant_id: string
           quantity_consumed_kg: number
-          remision_id: string
-          remision_material_id: string
+          remision_id?: string | null
+          remision_material_id?: string | null
           total_cost: number
           unit_price: number
         }
         Update: {
+          adjustment_id?: string | null
           consumption_date?: string
           cost_basis?: string | null
           created_at?: string | null
@@ -5161,8 +5164,8 @@ export type Database = {
           material_id?: string
           plant_id?: string
           quantity_consumed_kg?: number
-          remision_id?: string
-          remision_material_id?: string
+          remision_id?: string | null
+          remision_material_id?: string | null
           total_cost?: number
           unit_price?: number
         }

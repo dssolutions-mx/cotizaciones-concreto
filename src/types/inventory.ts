@@ -476,6 +476,12 @@ export interface InventoryMovement {
   total_cost_mxn?: number | null;
   landed_unit_price_mxn?: number | null;
   waste_id?: string;
+  /** REMISION rows: link to remisión record */
+  remision_id?: string;
+  /** REMISION rows: línea `remision_materiales` (para conciliar kg FIFO vs cantidad_real) */
+  remision_material_id?: string;
+  /** Material ledger: synthetic `0OPEN-*` merged with `initial_count` adjustment same day */
+  ledger_opening_merged?: boolean;
 }
 
 export interface InventoryDashboardData {
