@@ -154,6 +154,35 @@ export default function NuevoMuestreoPage() {
   const pesoVacio = form.watch('peso_recipiente_vacio');
   const pesoLleno = form.watch('peso_recipiente_lleno');
   const factorRecipiente = form.watch('factor_recipiente');
+  const watchedPlanta = form.watch('planta');
+  const watchedRevenimiento = form.watch('revenimiento_sitio');
+  const watchedTempAmb = form.watch('temperatura_ambiente');
+  const watchedTempConc = form.watch('temperatura_concreto');
+  const watchedContenidoAire = form.watch('contenido_aire');
+
+  const samplePlanPlantId = React.useMemo(() => {
+    if (currentPlant?.id) return currentPlant.id;
+    return plants.find((p) => p.code === watchedPlanta)?.id;
+  }, [currentPlant?.id, plants, watchedPlanta]);
+
+  const equipoMeasurementsHint = React.useMemo(
+    () => ({
+      revenimiento_sitio: watchedRevenimiento,
+      temperatura_ambiente: watchedTempAmb,
+      temperatura_concreto: watchedTempConc,
+      contenido_aire: watchedContenidoAire,
+      peso_recipiente_vacio: pesoVacio,
+      peso_recipiente_lleno: pesoLleno,
+    }),
+    [
+      watchedRevenimiento,
+      watchedTempAmb,
+      watchedTempConc,
+      watchedContenidoAire,
+      pesoVacio,
+      pesoLleno,
+    ],
+  );
 
   // Auto-calculate masa_unitaria when recipient weights or factor change
   useEffect(() => {
@@ -879,6 +908,7 @@ export default function NuevoMuestreoPage() {
                           computeAgeDays={computeAgeDays}
                           addDaysSafe={addDaysSafe}
                           formatAgeSummary={formatAgeSummary as any}
+                          plantId={samplePlanPlantId}
                         />
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
@@ -886,7 +916,9 @@ export default function NuevoMuestreoPage() {
                         {/* EMA — Equipo utilizado */}
                         <EquipoUtilizadoPicker
                           ref={equipoPickerRef}
-                          plantId={currentPlant?.id}
+                          plantId={samplePlanPlantId ?? currentPlant?.id}
+                          plannedSamples={plannedSamples}
+                          measurements={equipoMeasurementsHint}
                         />
 
                         {submitError && (
@@ -1168,6 +1200,7 @@ export default function NuevoMuestreoPage() {
                           computeAgeDays={computeAgeDays}
                           addDaysSafe={addDaysSafe}
                           formatAgeSummary={formatAgeSummary as any}
+                          plantId={samplePlanPlantId}
                         />
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
@@ -1175,7 +1208,9 @@ export default function NuevoMuestreoPage() {
                         {/* EMA — Equipo utilizado */}
                         <EquipoUtilizadoPicker
                           ref={equipoPickerRef}
-                          plantId={currentPlant?.id}
+                          plantId={samplePlanPlantId ?? currentPlant?.id}
+                          plannedSamples={plannedSamples}
+                          measurements={equipoMeasurementsHint}
                         />
 
                         {submitError && (

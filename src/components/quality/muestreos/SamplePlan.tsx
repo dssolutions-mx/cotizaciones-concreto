@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
@@ -12,21 +12,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { FormLabel } from '@/components/ui/form';
 import { Trash2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { PlannedSample } from './dateUtils';
+
+export type { PlannedSample } from './dateUtils';
 
 const outlineSm =
   'h-9 border-stone-300 bg-white text-sm shadow-none hover:bg-stone-50';
 const primarySm =
   'h-9 bg-sky-700 text-sm text-white shadow-none hover:bg-sky-800';
 
-export type PlannedSample = {
+type MoldeInstrumentRow = {
   id: string;
-  tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
-  fecha_programada_ensayo: Date;
-  diameter_cm?: number;
-  cube_side_cm?: number;
-  age_days?: number;
-  age_hours?: number;
+  codigo: string;
+  nombre: string;
+  estado: string;
 };
+
+function moldeCategoriaForTipo(tipo: PlannedSample['tipo_muestra']): string | null {
+  switch (tipo) {
+    case 'CILINDRO':
+      return 'Molde cilíndrico';
+    case 'VIGA':
+      return 'Molde para viga';
+    case 'CUBO':
+      return 'Molde cúbico';
+    default:
+      return null;
+  }
+}
 
 type SamplePlanProps<T extends FieldValues> = {
   plannedSamples: PlannedSample[];
@@ -38,10 +51,71 @@ type SamplePlanProps<T extends FieldValues> = {
   computeAgeDays: (base: Date, target: Date) => number;
   addDaysSafe: (base: Date, days: number) => Date;
   formatAgeSummary?: (samples: PlannedSample[], baseDate?: Date | null) => string;
+  /** Para cargar moldes del catálogo EMA por planta */
+  plantId?: string;
 };
 
 export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps<T>) {
-  const { plannedSamples, setPlannedSamples, form, clasificacion, edadGarantia, agePlanUnit = 'days', computeAgeDays, addDaysSafe, formatAgeSummary } = props;
+  const {
+    plannedSamples,
+    setPlannedSamples,
+    form,
+    clasificacion,
+    edadGarantia,
+    agePlanUnit = 'days',
+    computeAgeDays,
+    addDaysSafe,
+    formatAgeSummary,
+    plantId,
+  } = props;
+
+  const [moldeOptionsByCat, setMoldeOptionsByCat] = useState<Record<string, MoldeInstrumentRow[]>>({});
+  const moldFetchStartedRef = useRef<Set<string>>(new Set());
+
+  const moldCategoriesKey = useMemo(() => {
+    const set = new Set<string>();
+    plannedSamples.forEach((s) => {
+      const c = moldeCategoriaForTipo(s.tipo_muestra);
+      if (c) set.add(c);
+    });
+    return [...set].sort().join('|');
+  }, [plannedSamples]);
+
+  useEffect(() => {
+    moldFetchStartedRef.current.clear();
+    setMoldeOptionsByCat({});
+  }, [plantId]);
+
+  const ensureMoldesForCategory = useCallback(
+    async (categoria: string) => {
+      if (!plantId || !categoria) return;
+      if (moldFetchStartedRef.current.has(categoria)) return;
+      moldFetchStartedRef.current.add(categoria);
+      try {
+        const params = new URLSearchParams({ categoria, plant_id: plantId, limit: '200' });
+        const res = await fetch(`/api/ema/instrumentos?${params}`);
+        const j = await res.json();
+        const rows: MoldeInstrumentRow[] = (j.data ?? []).map((r: any) => ({
+          id: r.id,
+          codigo: r.codigo,
+          nombre: r.nombre,
+          estado: r.estado,
+        }));
+        setMoldeOptionsByCat((prev) => ({ ...prev, [categoria]: rows }));
+      } catch {
+        setMoldeOptionsByCat((prev) => ({ ...prev, [categoria]: [] }));
+      }
+    },
+    [plantId],
+  );
+
+  useEffect(() => {
+    if (!plantId || !moldCategoriesKey) return;
+    const cats = moldCategoriesKey.split('|').filter(Boolean);
+    cats.forEach((c) => {
+      void ensureMoldesForCategory(c);
+    });
+  }, [plantId, moldCategoriesKey, ensureMoldesForCategory]);
 
   // Helper function to get the base date safely
   const getBaseDate = (): Date | null => {
@@ -167,7 +241,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   <FormLabel className="text-xs">Tipo</FormLabel>
                   <Select value={s.tipo_muestra} onValueChange={(val) => {
                     const v = val as 'CILINDRO' | 'VIGA' | 'CUBO';
-                    setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, tipo_muestra: v } : p)));
+                    setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, tipo_muestra: v, molde_instrumento_id: undefined } : p)));
                   }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Tipo de muestra" />
@@ -350,6 +424,55 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   <Button type="button" variant="outline" size="icon" className="border-stone-300 hover:bg-stone-50" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
+                </div>
+
+                {/* Molde EMA por muestra */}
+                <div className="md:col-span-12 border-t border-stone-100 pt-2 mt-1 space-y-1">
+                  <FormLabel className="text-xs">Molde utilizado (EMA)</FormLabel>
+                  {!plantId ? (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1.5">
+                      Configura la planta del muestreo para listar moldes del catálogo.
+                    </p>
+                  ) : (
+                    <Select
+                      value={s.molde_instrumento_id ?? 'none'}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          const cat = moldeCategoriaForTipo(s.tipo_muestra);
+                          if (cat) void ensureMoldesForCategory(cat);
+                        }
+                      }}
+                      onValueChange={(val) => {
+                        setPlannedSamples((prev) =>
+                          prev.map((p) =>
+                            p.id === s.id ? { ...p, molde_instrumento_id: val === 'none' ? undefined : val } : p,
+                          ),
+                        );
+                      }}
+                    >
+                      <SelectTrigger className="max-w-lg h-9 text-sm bg-white border-stone-300">
+                        <SelectValue placeholder="Seleccionar molde…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— Sin seleccionar —</SelectItem>
+                        {(() => {
+                          const cat = moldeCategoriaForTipo(s.tipo_muestra);
+                          const list = cat ? moldeOptionsByCat[cat] ?? [] : [];
+                          return list.map((inst) => (
+                            <SelectItem
+                              key={inst.id}
+                              value={inst.id}
+                              disabled={inst.estado === 'vencido' || inst.estado === 'inactivo'}
+                              textValue={`${inst.codigo} ${inst.nombre}`}
+                            >
+                              {inst.codigo} · {inst.nombre}{' '}
+                              <span className="text-stone-400">({inst.estado})</span>
+                            </SelectItem>
+                          ));
+                        })()}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 {/* Second row for time and test date summary */}

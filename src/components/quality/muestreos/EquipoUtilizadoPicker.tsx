@@ -1,6 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from 'react';
 import Link from 'next/link';
 import {
   Package,
@@ -13,6 +21,7 @@ import {
   ChevronDown,
   Loader2,
   Info,
+  ChevronRight,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -29,6 +38,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { PlannedSample } from '@/components/quality/muestreos/dateUtils';
 
 export interface SelectedInstrumento {
   instrumento_id: string;
@@ -43,9 +53,75 @@ export interface EquipoUtilizadoPickerHandle {
   getSelected: () => SelectedInstrumento[];
 }
 
+/** Campos de medición del formulario de muestreo — para sugerir categorías de equipo */
+export type MuestreoMeasurementsHint = {
+  revenimiento_sitio?: number | null;
+  temperatura_ambiente?: number | null;
+  temperatura_concreto?: number | null;
+  contenido_aire?: number | null;
+  peso_recipiente_vacio?: number | null;
+  peso_recipiente_lleno?: number | null;
+};
+
+type CategorySuggestion = {
+  key: string;
+  label: string;
+  categoria: string;
+};
+
+function deriveSuggestedCategories(
+  plannedSamples: PlannedSample[] | undefined,
+  m: MuestreoMeasurementsHint | undefined,
+): CategorySuggestion[] {
+  const out: CategorySuggestion[] = [];
+  const push = (key: string, label: string, categoria: string) => {
+    if (out.some((x) => x.key === key)) return;
+    out.push({ key, label, categoria });
+  };
+
+  const samples = plannedSamples ?? [];
+  if (samples.some((s) => s.tipo_muestra === 'CILINDRO')) {
+    push('molde_cil', 'Molde cilíndrico', 'Molde cilíndrico');
+  }
+  if (samples.some((s) => s.tipo_muestra === 'VIGA')) {
+    push('molde_viga', 'Molde para viga', 'Molde para viga');
+  }
+  if (samples.some((s) => s.tipo_muestra === 'CUBO')) {
+    push('molde_cubo', 'Molde cúbico', 'Molde cúbico');
+  }
+
+  if (m?.revenimiento_sitio != null && Number.isFinite(Number(m.revenimiento_sitio))) {
+    push('rev', 'Equipo de revenimiento', 'Equipo de revenimiento');
+  }
+  if (
+    (m?.temperatura_ambiente != null && Number.isFinite(Number(m.temperatura_ambiente))) ||
+    (m?.temperatura_concreto != null && Number.isFinite(Number(m.temperatura_concreto)))
+  ) {
+    push('term', 'Termómetro', 'Termómetro');
+  }
+  if (m?.contenido_aire != null && Number.isFinite(Number(m.contenido_aire))) {
+    push('aire', 'Equipo contenido de aire', 'Equipo contenido de aire');
+  }
+  if (
+    (m?.peso_recipiente_vacio != null && Number.isFinite(Number(m.peso_recipiente_vacio))) ||
+    (m?.peso_recipiente_lleno != null && Number.isFinite(Number(m.peso_recipiente_lleno)))
+  ) {
+    push('rec_pv', 'Recipiente PV', 'Recipiente PV');
+    push('balanza', 'Balanza', 'Balanza');
+  }
+
+  push('varilla', 'Varilla p/compactar', 'Varilla p/compactar');
+  push('charola', 'Charola de acero', 'Charola de acero');
+  push('cucharon', 'Cucharón', 'Cucharón');
+
+  return out;
+}
+
 interface Props {
   plantId?: string;
   onChange?: (instruments: SelectedInstrumento[]) => void;
+  plannedSamples?: PlannedSample[];
+  measurements?: MuestreoMeasurementsHint;
 }
 
 const ESTADO_BADGE: Record<string, string> = {
@@ -70,7 +146,7 @@ const ROLES_CAN_REGISTER_INSTRUMENT = [
 ];
 
 export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Props>(
-  ({ plantId, onChange }, ref) => {
+  ({ plantId, onChange, plannedSamples, measurements }, ref) => {
     const { profile } = useAuthBridge();
     const [selected, setSelected] = useState<SelectedInstrumento[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
@@ -83,12 +159,28 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
     const [open, setOpen] = useState(true);
     const [noSearchMatch, setNoSearchMatch] = useState(false);
 
+    const [expandedSuggestionKey, setExpandedSuggestionKey] = useState<string | null>(null);
+    const [instrumentsByCat, setInstrumentsByCat] = useState<Record<string, any[]>>({});
+    const [loadingSuggestionCat, setLoadingSuggestionCat] = useState<string | null>(null);
+    const suggestionFetchStartedRef = useRef<Set<string>>(new Set());
+
+    const suggestedCategories = useMemo(
+      () => deriveSuggestedCategories(plannedSamples, measurements),
+      [plannedSamples, measurements],
+    );
+
     const canLinkToAlta =
       profile?.role && ROLES_CAN_REGISTER_INSTRUMENT.includes(profile.role);
 
     useImperativeHandle(ref, () => ({
       getSelected: () => selected,
     }));
+
+    useEffect(() => {
+      setInstrumentsByCat({});
+      setExpandedSuggestionKey(null);
+      suggestionFetchStartedRef.current.clear();
+    }, [plantId]);
 
     useEffect(() => {
       const fetchPaquetes = async () => {
@@ -173,6 +265,29 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
       return () => clearTimeout(timer);
     }, [searchQuery, plantId]);
 
+    const ensureCategoryInstruments = useCallback(
+      async (categoria: string) => {
+        if (!plantId || !categoria) return;
+        if (suggestionFetchStartedRef.current.has(categoria)) return;
+        suggestionFetchStartedRef.current.add(categoria);
+        setLoadingSuggestionCat(categoria);
+        try {
+          const params = new URLSearchParams({ categoria, limit: '200' });
+          params.set('plant_id', plantId);
+          const res = await fetch(`/api/ema/instrumentos?${params}`);
+          const j = await res.json();
+          const list = (j.data ?? []).filter((i: any) => i.estado !== 'inactivo');
+          setInstrumentsByCat((prev) => ({ ...prev, [categoria]: list }));
+        } catch {
+          suggestionFetchStartedRef.current.delete(categoria);
+          setInstrumentsByCat((prev) => ({ ...prev, [categoria]: [] }));
+        } finally {
+          setLoadingSuggestionCat(null);
+        }
+      },
+      [plantId],
+    );
+
     const addInstrumento = useCallback((inst: any, paqueteId?: string) => {
       if (selected.some((s) => s.instrumento_id === inst.id)) return;
 
@@ -248,6 +363,15 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
         }
       },
       [onChange],
+    );
+
+    const toggleSuggestion = useCallback(
+      async (row: CategorySuggestion) => {
+        const next = expandedSuggestionKey === row.key ? null : row.key;
+        setExpandedSuggestionKey(next);
+        if (next) await ensureCategoryInstruments(row.categoria);
+      },
+      [expandedSuggestionKey, ensureCategoryInstruments],
     );
 
     const hasVencidos = selected.some((s) => s.estado_al_momento === 'vencido');
@@ -338,46 +462,163 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
             </div>
           )}
 
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400" />
-            <Input
-              placeholder="Buscar instrumento por código o nombre (mín. 2 caracteres)…"
-              className="pl-8 h-8 text-sm bg-white border-stone-300"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              disabled={catalogEmpty}
-            />
-            {loadingSearch && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600" />
-              </div>
-            )}
-            {searchResults.length > 0 && (
-              <div className="absolute z-20 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                {searchResults.map((inst: any) => (
-                  <div
-                    key={inst.id}
-                    className="px-3 py-2 cursor-pointer hover:bg-stone-50 text-xs flex items-center justify-between"
-                    onClick={() => addInstrumento(inst)}
-                  >
-                    <span>
-                      <span className="font-mono text-stone-500 mr-2">{inst.codigo}</span>
-                      {inst.nombre}
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[inst.estado] ?? 'bg-stone-100 text-stone-600'}`}
-                    >
-                      {ESTADO_ICON[inst.estado]} {inst.estado}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {noSearchMatch && searchQuery.length >= 2 && !loadingSearch && (
-              <p className="text-xs text-stone-500 mt-1.5 px-0.5">
-                No se encontraron instrumentos. Verifica el código o registra el equipo en el catálogo.
+          {plantId && !catalogEmpty && suggestedCategories.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-stone-800">Sugeridos para este muestreo</p>
+              <p className="text-[11px] text-stone-500 -mt-1">
+                Según el plan de muestras y las mediciones capturadas. Expande una categoría y elige el instrumento.
               </p>
-            )}
+              <div className="flex flex-col gap-1.5">
+                {suggestedCategories.map((row) => {
+                  const list = instrumentsByCat[row.categoria] ?? [];
+                  const ids = new Set(list.map((i: any) => i.id));
+                  const pickedCount = selected.filter((s) => ids.has(s.instrumento_id)).length;
+                  const vigenteCount = list.filter((i: any) => i.estado === 'vigente').length;
+                  const expanded = expandedSuggestionKey === row.key;
+                  const loading = loadingSuggestionCat === row.categoria;
+
+                  return (
+                    <div
+                      key={row.key}
+                      className={cn(
+                        'rounded-md border bg-white text-xs overflow-hidden',
+                        pickedCount > 0 ? 'border-emerald-300 ring-1 ring-emerald-100/80' : 'border-stone-200',
+                      )}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-2.5 py-2 text-left hover:bg-stone-50/80"
+                        onClick={() => void toggleSuggestion(row)}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            'h-3.5 w-3.5 text-stone-400 shrink-0 transition-transform',
+                            expanded && 'rotate-90',
+                          )}
+                        />
+                        <span className="font-medium text-stone-800 flex-1">{row.label}</span>
+                        {loading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600 shrink-0" />
+                        ) : list.length > 0 ? (
+                          <span className="text-[10px] text-stone-500 shrink-0">
+                            {pickedCount > 0 ? (
+                              <span className="text-emerald-700 font-medium">{pickedCount} elegido(s)</span>
+                            ) : (
+                              <span>
+                                {vigenteCount} vigente(s) · {list.length} total
+                              </span>
+                            )}
+                          </span>
+                        ) : expanded ? (
+                          <span className="text-[10px] text-stone-400">Sin datos</span>
+                        ) : null}
+                      </button>
+                      {expanded && (
+                        <div className="border-t border-stone-100 max-h-40 overflow-y-auto">
+                          {loading ? (
+                            <div className="flex items-center gap-2 px-3 py-2 text-xs text-stone-500">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600" />
+                              Cargando instrumentos…
+                            </div>
+                          ) : list.length === 0 ? (
+                            <p className="px-3 py-2 text-stone-500">
+                              No hay instrumentos en esta categoría para la planta.
+                            </p>
+                          ) : (
+                            list.map((inst: any) => {
+                              const isSel = selected.some((s) => s.instrumento_id === inst.id);
+                              const disabled = inst.estado === 'vencido';
+                              return (
+                                <div
+                                  key={inst.id}
+                                  className={cn(
+                                    'px-3 py-1.5 flex items-center justify-between gap-2 border-b border-stone-50 last:border-0',
+                                    disabled ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer hover:bg-stone-50',
+                                    isSel && 'bg-emerald-50/50',
+                                  )}
+                                  onClick={() => !disabled && addInstrumento(inst)}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => {
+                                    if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
+                                      e.preventDefault();
+                                      addInstrumento(inst);
+                                    }
+                                  }}
+                                >
+                                  <span>
+                                    <span className="font-mono text-stone-500 mr-1.5">{inst.codigo}</span>
+                                    {inst.nombre}
+                                  </span>
+                                  <span className="flex items-center gap-1 shrink-0">
+                                    {isSel && (
+                                      <CheckCircle className="h-3.5 w-3.5 text-emerald-600" aria-label="Agregado" />
+                                    )}
+                                    <span
+                                      className={cn(
+                                        'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-medium',
+                                        ESTADO_BADGE[inst.estado] ?? 'bg-stone-100 text-stone-600',
+                                      )}
+                                    >
+                                      {ESTADO_ICON[inst.estado]} {inst.estado}
+                                    </span>
+                                  </span>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-stone-700">Buscar otro instrumento</p>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400" />
+              <Input
+                placeholder="Código o nombre (mín. 2 caracteres)…"
+                className="pl-8 h-8 text-sm bg-white border-stone-300"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                disabled={catalogEmpty}
+              />
+              {loadingSearch && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-600" />
+                </div>
+              )}
+              {searchResults.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {searchResults.map((inst: any) => (
+                    <div
+                      key={inst.id}
+                      className="px-3 py-2 cursor-pointer hover:bg-stone-50 text-xs flex items-center justify-between"
+                      onClick={() => addInstrumento(inst)}
+                    >
+                      <span>
+                        <span className="font-mono text-stone-500 mr-2">{inst.codigo}</span>
+                        {inst.nombre}
+                      </span>
+                      <span
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[inst.estado] ?? 'bg-stone-100 text-stone-600'}`}
+                      >
+                        {ESTADO_ICON[inst.estado]} {inst.estado}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {noSearchMatch && searchQuery.length >= 2 && !loadingSearch && (
+                <p className="text-xs text-stone-500 mt-1.5 px-0.5">
+                  No se encontraron instrumentos. Verifica el código o registra el equipo en el catálogo.
+                </p>
+              )}
+            </div>
           </div>
 
           {selected.length === 0 ? (

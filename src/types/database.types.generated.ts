@@ -6176,6 +6176,7 @@ export type Database = {
           id: string
           identificacion: string
           is_edad_garantia: boolean | null
+          molde_instrumento_id: string | null
           muestreo_id: string
           plant_id: string | null
           tipo_muestra: string
@@ -6195,6 +6196,7 @@ export type Database = {
           id?: string
           identificacion: string
           is_edad_garantia?: boolean | null
+          molde_instrumento_id?: string | null
           muestreo_id: string
           plant_id?: string | null
           tipo_muestra: string
@@ -6214,12 +6216,20 @@ export type Database = {
           id?: string
           identificacion?: string
           is_edad_garantia?: boolean | null
+          molde_instrumento_id?: string | null
           muestreo_id?: string
           plant_id?: string | null
           tipo_muestra?: string
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "muestras_molde_instrumento_id_fkey"
+            columns: ["molde_instrumento_id"]
+            isOneToOne: false
+            referencedRelation: "instrumentos"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "muestras_muestreo_id_fkey"
             columns: ["muestreo_id"]

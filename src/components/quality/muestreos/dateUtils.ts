@@ -32,6 +32,8 @@ export type PlannedSample = {
   cube_side_cm?: number;
   age_days?: number;
   age_hours?: number;
+  /** Instrumento molde usado para esta muestra (FK instrumentos) */
+  molde_instrumento_id?: string;
 };
 
 export const formatAgeSummary = (samples: PlannedSample[], baseDate?: Date | null) => {

@@ -29,6 +29,7 @@ export type PlannedSample = {
   beam_span_cm?: number; // only for beams
   age_days?: number; // days
   age_hours?: number; // optional precise age in hours
+  molde_instrumento_id?: string;
 };
 
 // Function to map planta codes to plant_id
@@ -443,6 +444,7 @@ export async function createMuestreoWithSamples(
           created_at: new Date().toISOString(),
           diameter_cm: s.tipo_muestra === 'CILINDRO' ? (s.diameter_cm ?? null) : null,
           cube_side_cm: s.tipo_muestra === 'CUBO' ? (s.cube_side_cm ?? null) : null,
+          molde_instrumento_id: s.molde_instrumento_id ?? null,
         } as any;
       });
 

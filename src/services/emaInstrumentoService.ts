@@ -275,20 +275,29 @@ export async function getInstrumentos(
   const tipoFilter =
     tipoNorm === 'A' || tipoNorm === 'B' || tipoNorm === 'C' || tipoNorm === 'D' ? tipoNorm : undefined;
 
-  // Left-embed conjunto so instruments still list if the conjunto row is missing or not visible under RLS
-  // (inner join previously hid entire rows, emptying Tipo A pickers for some users).
+  const conjuntoEmbed = categoria
+    ? `conjuntos_herramientas!inner(
+        id,
+        categoria,
+        codigo_conjunto,
+        nombre_conjunto
+      )`
+    : `conjuntos_herramientas(
+        id,
+        categoria,
+        codigo_conjunto,
+        nombre_conjunto
+      )`;
+
+  // Left-embed conjunto by default so instruments still list if conjunto is missing under RLS.
+  // When filtering by categoria, use !inner so PostgREST applies the nested filter correctly.
   let query = supabase
     .from('instrumentos')
     .select(`
       id, codigo, nombre, tipo, estado, fecha_proximo_evento, conjunto_id,
       plant_id, marca, modelo_comercial,
       incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
-      conjuntos_herramientas(
-        id,
-        categoria,
-        codigo_conjunto,
-        nombre_conjunto
-      )
+      ${conjuntoEmbed}
     `)
     .order('codigo');
 

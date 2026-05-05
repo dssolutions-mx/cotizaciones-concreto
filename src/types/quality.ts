@@ -101,6 +101,8 @@ export interface Muestra {
   event_timezone?: string; // Timezone information
   // Guarantee age metrics
   is_edad_garantia?: boolean; // Indicates if the sample was scheduled for testing at guarantee age
+  /** Molde / instrumento físico usado para elaborar la muestra (EMA) */
+  molde_instrumento_id?: string | null;
   created_at?: string;
   updated_at?: string;
 }
