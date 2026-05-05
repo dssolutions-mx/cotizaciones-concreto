@@ -160,10 +160,18 @@ async function fetchOpeningBaseline(
     }
   }
 
+  const after = initialAdj?.inventory_after != null ? Number(initialAdj.inventory_after) : null
+  const qtyOpening =
+    after != null && Number.isFinite(after)
+      ? after
+      : initialAdj?.quantity_adjusted != null
+        ? Number(initialAdj.quantity_adjusted)
+        : null
+
   return {
     cutover_date: initialAdj?.adjustment_date?.slice?.(0, 10) ?? null,
     initial_count_adjustment_id: initialAdj?.id ?? null,
-    initial_count_qty_kg: initialAdj?.quantity_adjusted != null ? Number(initialAdj.quantity_adjusted) : null,
+    initial_count_qty_kg: qtyOpening,
     opening_fifo_entry_id: openingFifoEntryId,
     opening_unit_price: openingUnitPrice,
     opening_total_cost: openingTotalCost,

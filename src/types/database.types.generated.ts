@@ -13832,6 +13832,10 @@ export type Database = {
         Args: { p_entry_ids: string[] }
         Returns: undefined
       }
+      fn_fifo_refresh_remaining_for_remission_scope: {
+        Args: { p_remision_ids: string[] }
+        Returns: undefined
+      }
       fn_reconciled_stock_since_cutover: {
         Args: {
           p_cutover_date?: string

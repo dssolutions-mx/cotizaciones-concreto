@@ -313,6 +313,13 @@ export default function FifoCostingGapsView({ workspacePlantId }: { workspacePla
           <RefreshCw className={cn('h-4 w-4 mr-1.5', loading && 'animate-spin')} />
           Actualizar
         </Button>
+        <p className="text-xs text-stone-600 max-w-xl leading-snug">
+          Las cifras son solo del <strong className="font-medium text-stone-800">mes</strong> elegido y de la{' '}
+          <strong className="font-medium text-stone-800">planta</strong> del espacio de trabajo (o filtro global).
+          Para ver el retrabajo de cutover use <span className="font-mono">2026-04</span>; el mes por defecto es el
+          calendario actual (p. ej. mayo con muchas menos líneas que abril). &quot;Sin costeo&quot; = sin filas en{' '}
+          <span className="font-mono">material_consumption_allocations</span> para esa línea.
+        </p>
       </div>
 
       {loading && (

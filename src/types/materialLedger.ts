@@ -8,6 +8,7 @@ export const MATERIAL_LEDGER_MAX_RANGE_DAYS = 90
 export type MaterialLedgerOpening = {
   cutover_date: string | null
   initial_count_adjustment_id: string | null
+  /** Saldo tras conteo (`inventory_after` del `initial_count` de apertura), misma unidad que el material — no confundir con `quantity_adjusted` (delta). */
   initial_count_qty_kg: number | null
   opening_fifo_entry_id: string | null
   opening_unit_price: number | null

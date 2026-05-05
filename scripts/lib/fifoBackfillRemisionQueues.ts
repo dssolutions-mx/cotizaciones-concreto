@@ -153,7 +153,7 @@ export async function runFifoBackfillQueues(params: {
       remRows.map((r) => r.id)
     );
     console.log(
-      `  FIFO reset: deleted ${cleared.deletedAllocationRows} allocation row(s); refreshed remaining on ${cleared.distinctEntryIds} cost layer(s)`
+      `  FIFO reset: deleted ${cleared.deletedAllocationRows} allocation row(s); recomputed remaining for all cost layers on each plant/material touched by those remisiones`
     );
   }
 

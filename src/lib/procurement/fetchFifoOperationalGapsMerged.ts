@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../../src/types/supabase';
-import type { GapRow } from './fifoGapInsufficientTriage';
+import type { Database } from '@/types/supabase';
+
+export type FifoOperationalGapRow =
+  Database['public']['Functions']['fn_fifo_operational_gaps']['Returns'][number];
 
 /** PostgREST commonly caps RPC row sets at this size — bisect date range until under cap. */
 export const FIFO_OPERATIONAL_GAPS_RPC_SOFT_CAP = 1000;
@@ -28,7 +30,7 @@ export async function fetchFifoOperationalGapsMerged(
   supabase: SupabaseClient<Database>,
   from: string,
   to: string
-): Promise<GapRow[]> {
+): Promise<FifoOperationalGapRow[]> {
   const { data, error } = await supabase.rpc('fn_fifo_operational_gaps', {
     p_from: from,
     p_to: to,
@@ -36,7 +38,7 @@ export async function fetchFifoOperationalGapsMerged(
   if (error) {
     throw new Error(`fn_fifo_operational_gaps(${from}, ${to}): ${error.message}`);
   }
-  const rows = (data ?? []) as GapRow[];
+  const rows = (data ?? []) as FifoOperationalGapRow[];
   if (rows.length < FIFO_OPERATIONAL_GAPS_RPC_SOFT_CAP) {
     return rows;
   }

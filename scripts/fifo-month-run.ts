@@ -40,7 +40,7 @@ import {
   insufficientStockAggToCsv,
   type GapRow,
 } from './lib/fifoGapInsufficientTriage';
-import { fetchFifoOperationalGapsMerged } from './lib/fifoOperationalGapsMerged';
+import { fetchFifoOperationalGapsMerged } from '@/lib/procurement/fetchFifoOperationalGapsMerged';
 
 function parseArgs(): {
   from: string;

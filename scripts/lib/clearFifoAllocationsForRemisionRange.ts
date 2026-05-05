@@ -3,12 +3,11 @@ import type { Database } from '../../src/types/supabase';
 
 /** PostgREST URL length / bind limits — keep `in()` batches small. */
 const REMISION_ID_CHUNK = 250;
-/** Postgres array parameter comfort bound for RPC. */
-const ENTRY_ID_RPC_CHUNK = 800;
-
 /**
  * Deletes all `material_consumption_allocations` rows for the given remisión IDs, then sets
- * `material_entries.remaining_quantity_kg` from receipts minus surviving allocations.
+ * `material_entries.remaining_quantity_kg` from receipts minus surviving allocations for every
+ * FIFO layer on each (plant_id, material_id) that appears on those remisiones — including
+ * opening layers that had no rows in the deleted allocation set (avoids remaining=0 with zero allocs).
  *
  * Use before a chronological FIFO replay when existing allocations from **later** pour dates
  * would otherwise leave layers at `remaining = 0` while earlier remisiones are reprocessed.
@@ -16,12 +15,11 @@ const ENTRY_ID_RPC_CHUNK = 800;
 export async function clearFifoAllocationsForRemisionIds(
   supabase: SupabaseClient<Database>,
   remisionIds: string[]
-): Promise<{ deletedAllocationRows: number; distinctEntryIds: number }> {
+): Promise<{ deletedAllocationRows: number }> {
   if (remisionIds.length === 0) {
-    return { deletedAllocationRows: 0, distinctEntryIds: 0 };
+    return { deletedAllocationRows: 0 };
   }
 
-  const entryIdSet = new Set<string>();
   let deletedAllocationRows = 0;
 
   for (let i = 0; i < remisionIds.length; i += REMISION_ID_CHUNK) {
@@ -34,9 +32,6 @@ export async function clearFifoAllocationsForRemisionIds(
       throw new Error(`clearFifoAllocationsForRemisionIds: list allocations — ${selErr.message}`);
     }
     const n = allocRefs?.length ?? 0;
-    for (const row of allocRefs ?? []) {
-      if (row.entry_id) entryIdSet.add(row.entry_id);
-    }
     deletedAllocationRows += n;
 
     const { error: delErr } = await supabase
@@ -46,18 +41,14 @@ export async function clearFifoAllocationsForRemisionIds(
     if (delErr) {
       throw new Error(`clearFifoAllocationsForRemisionIds: delete — ${delErr.message}`);
     }
-  }
 
-  const entryIds = [...entryIdSet];
-  for (let i = 0; i < entryIds.length; i += ENTRY_ID_RPC_CHUNK) {
-    const slice = entryIds.slice(i, i + ENTRY_ID_RPC_CHUNK);
-    const { error: rpcErr } = await supabase.rpc('fn_fifo_refresh_remaining_for_entries', {
-      p_entry_ids: slice,
+    const { error: scopeErr } = await supabase.rpc('fn_fifo_refresh_remaining_for_remission_scope', {
+      p_remision_ids: chunk,
     });
-    if (rpcErr) {
-      throw new Error(`clearFifoAllocationsForRemisionIds: refresh remaining — ${rpcErr.message}`);
+    if (scopeErr) {
+      throw new Error(`clearFifoAllocationsForRemisionIds: refresh remaining (scope) — ${scopeErr.message}`);
     }
   }
 
-  return { deletedAllocationRows, distinctEntryIds: entryIds.length };
+  return { deletedAllocationRows };
 }

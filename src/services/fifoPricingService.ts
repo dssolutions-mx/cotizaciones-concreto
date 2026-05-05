@@ -90,6 +90,17 @@ export class FIFOPricingService {
       }
     }
 
+    // After wipe / idempotent delete, clear cost fields so skipped lines do not keep stale
+    // fifo_allocated_at (UI "Pendiente FIFO" vs reality).
+    await supabase
+      .from('remision_materiales')
+      .update({
+        fifo_allocated_at: null,
+        unit_cost_weighted: null,
+        total_cost_fifo: null,
+      })
+      .eq('id', remisionMaterialId);
+
     // Fetch available entry layers (oldest first). Layers live only on material_entries (not on
     // material_adjustments). Opening balances from `initial_count` or correction + `reference_type`
     // ending in `_opening` (sheet TN in notes) must create an OPEN-* entry
@@ -683,16 +694,28 @@ export async function autoAllocateRemisionFIFO(
     }
   }
 
-  const linesAttempted = lines.length;
+  const lineIds = lines.map((l) => l.id);
+  const { data: allocMarkRows, error: allocMarkErr } = await supabase
+    .from('material_consumption_allocations')
+    .select('remision_material_id')
+    .in('remision_material_id', lineIds);
+
+  if (allocMarkErr) {
+    throw new Error(`Error al verificar asignaciones FIFO: ${allocMarkErr.message}`);
+  }
+
+  const linesWithAllocCount = new Set(
+    (allocMarkRows ?? []).map((r) => r.remision_material_id)
+  ).size;
+  const nLines = lineIds.length;
+
   let fifoStatus: 'pending' | 'allocated' | 'partial' | 'error' = 'pending';
-  if (allocationResults.length === linesAttempted && errors.length === 0 && skipped.length === 0) {
-    fifoStatus = 'allocated';
-  } else if (allocationResults.length > 0 && (errors.length > 0 || skipped.length > 0)) {
-    fifoStatus = 'partial';
-  } else if (allocationResults.length === 0 && linesAttempted > 0) {
+  if (linesWithAllocCount === 0) {
     fifoStatus = 'error';
-  } else {
+  } else if (linesWithAllocCount === nLines && skipped.length === 0 && errors.length === 0) {
     fifoStatus = 'allocated';
+  } else {
+    fifoStatus = 'partial';
   }
 
   await supabase.rpc('set_arkik_bulk_mode', { enabled: true });

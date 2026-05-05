@@ -535,6 +535,14 @@ export async function deleteMuestreo(id: string) {
       }
     }
 
+    // Instrument rows use ON DELETE RESTRICT — remove them before deleting the muestreo
+    const { error: instrumentosError } = await supabase
+      .from('muestreo_instrumentos')
+      .delete()
+      .eq('muestreo_id', id);
+
+    if (instrumentosError) throw instrumentosError;
+
     // Delete muestreo (cascades to muestras via DB constraint)
     const { error } = await supabase
       .from('muestreos')

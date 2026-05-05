@@ -409,7 +409,9 @@ export default function MaterialAuditSheet({
                     <span className="font-medium">{ledger.opening.cutover_date ?? '—'}</span>
                   </div>
                   <div>
-                    <span className="text-stone-500">Cantidad inicial (kg):</span>{' '}
+                    <span className="text-stone-500">
+                      Cantidad conteo inicial ({ledger.material.unit_of_measure?.trim() || 'u'}):
+                    </span>{' '}
                     <span className="font-mono">{fmtKg(ledger.opening.initial_count_qty_kg ?? 0)}</span>
                   </div>
                   <div>

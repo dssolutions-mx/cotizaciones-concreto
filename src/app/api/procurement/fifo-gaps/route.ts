@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
 import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles'
+import { fetchFifoOperationalGapsMerged } from '@/lib/procurement/fetchFifoOperationalGapsMerged'
 
 const FINANZAS_PROCUREMENT_ROLES = [
   'EXECUTIVE',
@@ -85,17 +86,26 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { data: rows, error: rpcError } = await supabase.rpc('fn_fifo_operational_gaps', {
-      p_from: range.from,
-      p_to: range.to,
-    })
+    /**
+     * `fn_fifo_operational_gaps` is SECURITY INVOKER: RLS on remisiones/materials/etc. can hide most
+     * rows even for "EXECUTIVE" if `user_profiles.plant_id` / `business_unit_id` are set (global
+     * bypass in `user_can_access_plant` requires both NULL). PostgREST may also cap large RPC sets.
+     * Use service role for cross-plant finance roles (after authz); keep user JWT for SALES_AGENT
+     * and PLANT_MANAGER so RLS still applies.
+     */
+    const gapSupabase =
+      isGlobalInventoryRole(profile.role) && profile.role !== 'SALES_AGENT'
+        ? createServiceClient()
+        : supabase
 
-    if (rpcError) {
-      console.error('[procurement/fifo-gaps]', rpcError)
-      return NextResponse.json({ error: rpcError.message }, { status: 500 })
+    let list: Awaited<ReturnType<typeof fetchFifoOperationalGapsMerged>>
+    try {
+      list = await fetchFifoOperationalGapsMerged(gapSupabase, range.from, range.to)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'RPC error'
+      console.error('[procurement/fifo-gaps]', e)
+      return NextResponse.json({ error: message }, { status: 500 })
     }
-
-    let list = rows ?? []
     if (requestedPlantId) {
       list = list.filter((r) => r.plant_id === requestedPlantId)
     }
