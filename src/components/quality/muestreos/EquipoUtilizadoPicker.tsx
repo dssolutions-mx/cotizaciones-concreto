@@ -39,6 +39,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import type { PlannedSample } from '@/components/quality/muestreos/dateUtils';
+import { deriveSuggestedMuestreoEquipoCategories } from '@/lib/quality/muestreoEquipoSugerido';
+import type { MuestreoMeasurementsHint } from '@/lib/quality/muestreoEquipoSugerido';
+
+export type { MuestreoMeasurementsHint } from '@/lib/quality/muestreoEquipoSugerido';
 
 export interface SelectedInstrumento {
   instrumento_id: string;
@@ -51,70 +55,6 @@ export interface SelectedInstrumento {
 
 export interface EquipoUtilizadoPickerHandle {
   getSelected: () => SelectedInstrumento[];
-}
-
-/** Campos de medición del formulario de muestreo — para sugerir categorías de equipo */
-export type MuestreoMeasurementsHint = {
-  revenimiento_sitio?: number | null;
-  temperatura_ambiente?: number | null;
-  temperatura_concreto?: number | null;
-  contenido_aire?: number | null;
-  peso_recipiente_vacio?: number | null;
-  peso_recipiente_lleno?: number | null;
-};
-
-type CategorySuggestion = {
-  key: string;
-  label: string;
-  categoria: string;
-};
-
-function deriveSuggestedCategories(
-  plannedSamples: PlannedSample[] | undefined,
-  m: MuestreoMeasurementsHint | undefined,
-): CategorySuggestion[] {
-  const out: CategorySuggestion[] = [];
-  const push = (key: string, label: string, categoria: string) => {
-    if (out.some((x) => x.key === key)) return;
-    out.push({ key, label, categoria });
-  };
-
-  const samples = plannedSamples ?? [];
-  if (samples.some((s) => s.tipo_muestra === 'CILINDRO')) {
-    push('molde_cil', 'Molde cilíndrico', 'Molde cilíndrico');
-  }
-  if (samples.some((s) => s.tipo_muestra === 'VIGA')) {
-    push('molde_viga', 'Molde para viga', 'Molde para viga');
-  }
-  if (samples.some((s) => s.tipo_muestra === 'CUBO')) {
-    push('molde_cubo', 'Molde cúbico', 'Molde cúbico');
-  }
-
-  if (m?.revenimiento_sitio != null && Number.isFinite(Number(m.revenimiento_sitio))) {
-    push('rev', 'Equipo de revenimiento', 'Equipo de revenimiento');
-  }
-  if (
-    (m?.temperatura_ambiente != null && Number.isFinite(Number(m.temperatura_ambiente))) ||
-    (m?.temperatura_concreto != null && Number.isFinite(Number(m.temperatura_concreto)))
-  ) {
-    push('term', 'Termómetro', 'Termómetro');
-  }
-  if (m?.contenido_aire != null && Number.isFinite(Number(m.contenido_aire))) {
-    push('aire', 'Equipo contenido de aire', 'Equipo contenido de aire');
-  }
-  if (
-    (m?.peso_recipiente_vacio != null && Number.isFinite(Number(m.peso_recipiente_vacio))) ||
-    (m?.peso_recipiente_lleno != null && Number.isFinite(Number(m.peso_recipiente_lleno)))
-  ) {
-    push('rec_pv', 'Recipiente PV', 'Recipiente PV');
-    push('balanza', 'Balanza', 'Balanza');
-  }
-
-  push('varilla', 'Varilla p/compactar', 'Varilla p/compactar');
-  push('charola', 'Charola de acero', 'Charola de acero');
-  push('cucharon', 'Cucharón', 'Cucharón');
-
-  return out;
 }
 
 interface Props {
@@ -165,7 +105,7 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
     const suggestionFetchStartedRef = useRef<Set<string>>(new Set());
 
     const suggestedCategories = useMemo(
-      () => deriveSuggestedCategories(plannedSamples, measurements),
+      () => deriveSuggestedMuestreoEquipoCategories(plannedSamples, measurements),
       [plannedSamples, measurements],
     );
 
@@ -466,7 +406,8 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
             <div className="space-y-2">
               <p className="text-xs font-semibold text-stone-800">Sugeridos para este muestreo</p>
               <p className="text-[11px] text-stone-500 -mt-1">
-                Según el plan de muestras y las mediciones capturadas. Expande una categoría y elige el instrumento.
+                Conjunto habitual de campo (categorías EMA). Moldes según el plan de muestras; balanza y equipo de
+                aire si aplica. Expande y elige el instrumento.
               </p>
               <div className="flex flex-col gap-1.5">
                 {suggestedCategories.map((row) => {

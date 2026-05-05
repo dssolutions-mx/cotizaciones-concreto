@@ -262,6 +262,16 @@ export async function replaceCompletedVerificacionMaestros(
   if (iErr) throw iErr;
 }
 
+/** DB/catalog may use accented or ASCII spelling for the same conjunto label (e.g. Flexómetro vs Flexometro). */
+function categoriaFilterMatchValues(categoria: string): string[] {
+  const t = categoria.trim();
+  const ascii = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (ascii.toLowerCase() === 'flexometro') {
+    return ['Flexómetro', 'Flexometro'];
+  }
+  return [t];
+}
+
 export async function getInstrumentos(
   params: InstrumentosListParams = {},
 ): Promise<InstrumentoCard[]> {
@@ -304,7 +314,13 @@ export async function getInstrumentos(
   if (plant_id)    query = query.eq('plant_id', plant_id);
   if (tipoFilter)  query = query.eq('tipo', tipoFilter);
   if (estado)      query = query.eq('estado', estado);
-  if (categoria)   query = query.eq('conjuntos_herramientas.categoria', categoria);
+  if (categoria) {
+    const catVals = categoriaFilterMatchValues(categoria);
+    query =
+      catVals.length === 1
+        ? query.eq('conjuntos_herramientas.categoria', catVals[0])
+        : query.in('conjuntos_herramientas.categoria', catVals);
+  }
   if (conjunto_id) query = query.eq('conjunto_id', conjunto_id);
   if (search)      query = query.or(`nombre.ilike.%${search}%,codigo.ilike.%${search}%`);
 
