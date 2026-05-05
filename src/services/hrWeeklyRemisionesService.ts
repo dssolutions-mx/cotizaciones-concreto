@@ -47,6 +47,7 @@ export type HrWeeklyRemisionRow = {
 export type HrWeeklyFacets = {
   drivers: Array<{ display: string; count: number }>;
   trucks: Array<{ display: string; count: number }>;
+  /** Plantas con viajes compatibles con día / conductor / unidad (la selección de planta sigue en la query). */
   plants: Array<{ plant_id: string; code: string; name: string; count: number }>;
   /** Días con viajes compatibles con los filtros de conductor/unidad (no el filtro de día). */
   days: Array<{ date: string; trips: number; volume: number }>;

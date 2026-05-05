@@ -8088,6 +8088,53 @@ export type Database = {
           },
         ]
       }
+      plant_cutover_dates: {
+        Row: {
+          cutover_date: string
+          notes: string | null
+          plant_id: string
+        }
+        Insert: {
+          cutover_date: string
+          notes?: string | null
+          plant_id: string
+        }
+        Update: {
+          cutover_date?: string
+          notes?: string | null
+          plant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_cutover_dates_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: true
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "plant_cutover_dates_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: true
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plant_cutover_dates_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: true
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "plant_cutover_dates_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: true
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
       plant_dossiers: {
         Row: {
           created_at: string | null
@@ -9728,6 +9775,75 @@ export type Database = {
           },
           {
             foreignKeyName: "quotes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
+      reconciliation_alerts: {
+        Row: {
+          check_date: string
+          created_at: string
+          current_stock: number | null
+          deviation: number | null
+          id: string
+          material_id: string
+          plant_id: string
+          theoretical_stock: number | null
+        }
+        Insert: {
+          check_date: string
+          created_at?: string
+          current_stock?: number | null
+          deviation?: number | null
+          id?: string
+          material_id: string
+          plant_id: string
+          theoretical_stock?: number | null
+        }
+        Update: {
+          check_date?: string
+          created_at?: string
+          current_stock?: number | null
+          deviation?: number | null
+          id?: string
+          material_id?: string
+          plant_id?: string
+          theoretical_stock?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_alerts_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
             columns: ["plant_id"]
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
@@ -14220,6 +14336,7 @@ export type Database = {
           spec_id: string
         }[]
       }
+      run_inventory_reconciliation: { Args: never; Returns: number }
       set_arkik_bulk_mode: { Args: { enabled: boolean }; Returns: undefined }
       set_flexible_initial_inventory: {
         Args: {

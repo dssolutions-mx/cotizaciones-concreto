@@ -26,14 +26,16 @@ export function isPlantOpeningInitialCountRow(row: OpeningInitialCountRow): bool
 }
 
 /**
- * Base en unidades de inventario **antes** de los movimientos del periodo que empieza en el corte:
- * para saldos negativos previos al conteo, el offset es |inventory_before|; si es ≥ 0, es el propio valor.
+ * Saldo físico de apertura (conteo): `inventory_after` del `initial_count` *_opening`.
+ * Debe coincidir con el 0OPEN y con el CSV de conteo; no usar `inventory_before` (puede ser negativo o legacy).
  */
 export function openingBaselineQuantity(row: OpeningInitialCountRow): number | null {
   if (!isPlantOpeningInitialCountRow(row)) return null
-  const ib = Number(row.inventory_before ?? 0)
-  if (!Number.isFinite(ib)) return null
-  return Math.abs(ib)
+  const after = row.inventory_after
+  if (after == null) return null
+  const v = Number(after)
+  if (!Number.isFinite(v)) return null
+  return v
 }
 
 export type RollforwardPeriodTotals = {

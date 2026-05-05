@@ -201,6 +201,23 @@ export default function WeeklyRemisionesReport() {
     });
   }, [data]);
 
+  /**
+   * Quitar plantas seleccionadas que ya no figuran en `facets.plants` tras otros filtros.
+   * Si no hay filas (facets.plants vacío), no tocar plantIds para evitar pelear con el prefill de DOSIFICADOR.
+   */
+  useEffect(() => {
+    if (!data) return;
+    const plantChoices = data.facets.plants ?? [];
+    if (plantChoices.length === 0) return;
+    const allowed = new Set(plantChoices.map((p) => p.plant_id));
+    setFilters((prev) => {
+      if (!prev.plantIds.length) return prev;
+      const next = prev.plantIds.filter((id) => allowed.has(id));
+      if (next.length === prev.plantIds.length) return prev;
+      return { ...prev, plantIds: next };
+    });
+  }, [data]);
+
   const weekLabel = useMemo(() => {
     if (!dateRange.from || !dateRange.to) return 'Selecciona un período';
     return `${format(dateRange.from, "d 'de' MMM", { locale: es })} — ${format(dateRange.to, "d 'de' MMM", { locale: es })}`;

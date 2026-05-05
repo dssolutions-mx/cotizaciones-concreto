@@ -329,12 +329,8 @@ export async function POST(request: NextRequest) {
     };
 
     // Orthogonal facets: options for each control respect the *other* client filters (not itself).
-    const rowsForDriverFacet = allRemisiones.filter((r) =>
-      rowMatchesClientFacets(r, facetCtx, { drivers: true }),
-    );
-    const rowsForTruckFacet = allRemisiones.filter((r) =>
-      rowMatchesClientFacets(r, facetCtx, { trucks: true }),
-    );
+    const rowsForDriverFacet = allRemisiones.filter((r) => rowMatchesClientFacets(r, facetCtx, { drivers: true }));
+    const rowsForTruckFacet = allRemisiones.filter((r) => rowMatchesClientFacets(r, facetCtx, { trucks: true }));
     const rowsForDayFacet = allRemisiones.filter((r) => rowMatchesClientFacets(r, facetCtx, { day: true }));
 
     const facetDriverCounts = new Map<string, { display: string; count: number }>();
@@ -363,9 +359,12 @@ export async function POST(request: NextRequest) {
       facetDayByDate.set(date, entry);
     }
 
-    // Plantas: only narrowed by fecha / planta (servidor) / búsqueda / tipos — no filtros cliente de conductor o unidad.
+    const rowsMatchingDayDriverTruck = (allRemisiones as RemisionRow[]).filter((r) => rowMatchesClientFacets(r, facetCtx, {}));
+
+    // Plantas: opciones acotadas por los mismos filtros cliente que el detalle (día / conductor / unidad),
+    // sin “auto-filtrar” por planta (la selección de planta sigue aplicándose en Supabase).
     const facetPlantCounts = new Map<string, { plant_id: string; code: string; name: string; count: number }>();
-    for (const r of allRemisiones as RemisionRow[]) {
+    for (const r of rowsMatchingDayDriverTruck) {
       const pid = r.plant_id ?? 'unknown';
       const pName = r.plant?.name ?? 'Sin planta';
       const pCode = r.plant?.code ?? '—';
@@ -373,7 +372,7 @@ export async function POST(request: NextRequest) {
       facetPlantCounts.get(pid)!.count += 1;
     }
 
-    const all = (allRemisiones as RemisionRow[]).filter((r) => rowMatchesClientFacets(r, facetCtx, {}));
+    const all = rowsMatchingDayDriverTruck;
 
     // Aggregates for filtered rows (detail tabs, pagination, summaries)
     const byDay = new Map<string, { date: string; trips: number; volume: number }>();
