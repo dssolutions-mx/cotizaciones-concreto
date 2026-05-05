@@ -16,7 +16,7 @@ import { InstrumentoCatalogDeleteSection } from '@/components/ema/InstrumentoCat
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
-import type { InstrumentoDetalle } from '@/types/ema'
+import type { InstrumentoDetalle, TipoInstrumento } from '@/types/ema'
 
 const MESES = [
   { v: 1, label: 'Enero' }, { v: 2, label: 'Febrero' }, { v: 3, label: 'Marzo' },
@@ -54,7 +54,7 @@ export default function EditarInstrumentoPage() {
   // Form state — only editable fields
   const [form, setForm] = useState({
     nombre: '',
-    tipo: '' as 'A' | 'B' | 'C' | '',
+    tipo: '' as TipoInstrumento | '',
     instrumento_maestro_ids: [] as string[],
     numero_serie: '',
     marca: '',
@@ -282,7 +282,7 @@ export default function EditarInstrumentoPage() {
               <Select
                 value={form.tipo}
                 onValueChange={(v) => {
-                  const t = v as 'A' | 'B' | 'C'
+                  const t = v as TipoInstrumento
                   setForm((prev) => ({
                     ...prev,
                     tipo: t,
@@ -310,6 +310,12 @@ export default function EditarInstrumentoPage() {
                     <div className="flex items-center gap-2">
                       <EmaTipoBadge tipo="C" />
                       <span className="text-xs text-stone-500">Trabajo — verificación interna</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="D">
+                    <div className="flex items-center gap-2">
+                      <EmaTipoBadge tipo="D" />
+                      <span className="text-xs text-stone-500">Auxiliar — sin certificado ni patrón</span>
                     </div>
                   </SelectItem>
                 </SelectContent>

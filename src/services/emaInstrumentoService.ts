@@ -273,7 +273,7 @@ export async function getInstrumentos(
       ? String(tipo).trim().toUpperCase().slice(0, 1)
       : undefined;
   const tipoFilter =
-    tipoNorm === 'A' || tipoNorm === 'B' || tipoNorm === 'C' ? tipoNorm : undefined;
+    tipoNorm === 'A' || tipoNorm === 'B' || tipoNorm === 'C' || tipoNorm === 'D' ? tipoNorm : undefined;
 
   // Left-embed conjunto so instruments still list if the conjunto row is missing or not visible under RLS
   // (inner join previously hid entire rows, emptying Tipo A pickers for some users).
@@ -489,9 +489,12 @@ export function validateInstrumentPatchForUpdate(
   const explicitMaestros = patch.instrumento_maestro_ids;
   const patchIds = explicitMaestros === null ? undefined : explicitMaestros;
 
-  if (newTipo === 'A' || newTipo === 'B') {
+  if (newTipo === 'A' || newTipo === 'B' || newTipo === 'D') {
     if (patchIds !== undefined && patchIds.length > 0) {
-      return { ok: false, error: 'Los instrumentos tipo A y B no admiten patrones vinculados.' };
+      return {
+        ok: false,
+        error: 'Los instrumentos tipo A, B y D no admiten patrones vinculados.',
+      };
     }
     return { ok: true, merged, replaceMaestroIds: [] };
   }

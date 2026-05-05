@@ -171,7 +171,8 @@ export default function InstrumentoDetailPage() {
     [load],
   )
 
-  const defaultTab: EmaDetailTab = instrumento?.tipo === 'C' ? 'verificaciones' : 'certificados'
+  const defaultTab: EmaDetailTab =
+    instrumento?.tipo === 'C' || instrumento?.tipo === 'D' ? 'verificaciones' : 'certificados'
   const [activeTab, setActiveTab] = useState<EmaDetailTab>('certificados')
 
   useEffect(() => {
@@ -233,7 +234,7 @@ export default function InstrumentoDetailPage() {
 
           {/* Actions */}
           <div className="flex items-center gap-2 pl-9 sm:pl-0 flex-wrap">
-            {instrumento.tipo !== 'C' && certificadoVigente && (
+            {(instrumento.tipo === 'A' || instrumento.tipo === 'B') && certificadoVigente && (
               <Button
                 type="button"
                 size="sm"
@@ -245,7 +246,7 @@ export default function InstrumentoDetailPage() {
                 Ver ficha del certificado vigente
               </Button>
             )}
-            {isUrgent && instrumento.tipo !== 'C' && (
+            {isUrgent && (instrumento.tipo === 'A' || instrumento.tipo === 'B') && (
               <Button size="sm" className="bg-sky-700 hover:bg-sky-800 text-white gap-1.5" asChild>
                 <Link href={`/quality/instrumentos/${id}/certificar`}>
                   <Award className="h-3.5 w-3.5" />
@@ -253,11 +254,11 @@ export default function InstrumentoDetailPage() {
                 </Link>
               </Button>
             )}
-            {isUrgent && instrumento.tipo === 'C' && (
+            {isUrgent && (instrumento.tipo === 'C' || instrumento.tipo === 'D') && (
               <Button size="sm" className="bg-emerald-700 hover:bg-emerald-800 text-white gap-1.5" asChild>
                 <Link href={`/quality/instrumentos/${id}/verificar`}>
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Registrar verificación
+                  {instrumento.tipo === 'D' ? 'Registrar inspección' : 'Registrar verificación'}
                 </Link>
               </Button>
             )}
@@ -513,6 +514,19 @@ function TraceabilityCard({
           </>
         )}
 
+        {tipo === 'D' && (
+          <>
+            <TraceNode
+              title="Equipo auxiliar (Tipo D)"
+              subtitle="No forma parte de la cadena de trazabilidad metrológica A → C."
+              detail="Sin certificado EMA obligatorio ni instrumento patrón. Inspección opcional por plantilla del conjunto."
+              status={instrumento.estado === 'vigente' ? 'vigente' : instrumento.estado === 'proximo_vencer' ? 'warning' : 'vencido'}
+              accent="emerald"
+            />
+            <TraceConnector />
+          </>
+        )}
+
         {/* Node 2: Pattern instruments (for Type C) */}
         {tipo === 'C' &&
           (instrumento.instrumentos_maestro ?? []).map((m) => (
@@ -552,7 +566,7 @@ function TraceabilityCard({
           subtitle={instrumento.nombre}
           detail={instrumento.codigo}
           status={instrumento.estado === 'vigente' ? 'vigente' : instrumento.estado === 'proximo_vencer' ? 'warning' : 'vencido'}
-          accent={tipo === 'A' ? 'sky' : tipo === 'C' ? 'stone' : 'violet'}
+          accent={tipo === 'A' ? 'sky' : tipo === 'C' ? 'stone' : tipo === 'D' ? 'emerald' : 'violet'}
           isHighlighted
         />
         <TraceConnector />
@@ -565,7 +579,9 @@ function TraceabilityCard({
             instrumento.estado === 'vigente'
               ? tipo === 'C'
                 ? 'Habilitado · al guardar equipo se registra la última verificación interna cerrada (trazabilidad)'
-                : 'Habilitado'
+                : tipo === 'D'
+                  ? 'Habilitado · auxiliar sin enlace de verificación en resultados de ensayo'
+                  : 'Habilitado'
               : 'Bloqueado si vencido'
           }
           status={instrumento.estado === 'vigente' ? 'vigente' : 'warning'}
@@ -694,12 +710,16 @@ function CertificadosSection({
   canAttachDocument?: boolean
 }) {
   const [certs, setCerts] = useState<CertificadoCalibracionConPdf[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => instrumentoTipo !== 'D')
   const [refreshing, setRefreshing] = useState(false)
   const [syncingUncertainty, setSyncingUncertainty] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
 
   const loadCerts = useCallback(async () => {
+    if (instrumentoTipo === 'D') {
+      setCerts([])
+      return
+    }
     setListError(null)
     const res = await fetch(`/api/ema/instrumentos/${instrumentoId}/certificados`)
     const j = await res.json().catch(() => ({}))
@@ -709,16 +729,21 @@ function CertificadosSection({
       return
     }
     setCerts((j as { data?: CertificadoCalibracionConPdf[] }).data ?? [])
-  }, [instrumentoId])
+  }, [instrumentoId, instrumentoTipo])
 
   useEffect(() => {
+    if (instrumentoTipo === 'D') {
+      setCerts([])
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
     loadCerts().finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [loadCerts])
+  }, [loadCerts, instrumentoTipo])
 
   const handleRefreshList = async () => {
     setRefreshing(true)
@@ -751,6 +776,18 @@ function CertificadosSection({
 
   const usesExternalCert = instrumentoTipo === 'A' || instrumentoTipo === 'B'
   const hasVigenteCert = certs.some((c) => c.is_vigente)
+
+  if (instrumentoTipo === 'D') {
+    return (
+      <div className="p-6 text-sm text-stone-600 space-y-2">
+        <p className="font-medium text-stone-800">Certificados no aplican a tipo D</p>
+        <p>
+          Los equipos auxiliares (tipo D) no registran calibración por laboratorio EMA en este módulo.
+          Use la pestaña <strong>Verificaciones</strong> si su conjunto tiene plantilla de inspección.
+        </p>
+      </div>
+    )
+  }
 
   if (loading) return <div className="py-10 text-center text-sm text-stone-400 animate-pulse">Cargando…</div>
 

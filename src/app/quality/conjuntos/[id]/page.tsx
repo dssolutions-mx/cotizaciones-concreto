@@ -30,7 +30,7 @@ import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { cn } from '@/lib/utils'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { EMA_CATALOG_DELETE_ROLES } from '@/lib/ema/catalogDeleteRoles'
-import type { ConjuntoHerramientas, InstrumentoCard, EmaDeleteBlocker } from '@/types/ema'
+import type { ConjuntoHerramientas, InstrumentoCard, EmaDeleteBlocker, TipoInstrumento } from '@/types/ema'
 
 const MESES = [
   { v: 1, label: 'Enero' }, { v: 2, label: 'Febrero' }, { v: 3, label: 'Marzo' },
@@ -314,7 +314,7 @@ export default function ConjuntoDetailPage() {
   const [form, setForm] = useState({
     nombre_conjunto: '',
     categoria: '',
-    tipo_defecto: '' as 'A' | 'B' | 'C',
+    tipo_defecto: '' as TipoInstrumento | '',
     tipo_servicio: '' as 'calibracion' | 'verificacion' | 'ninguno',
     mes_inicio_servicio: '' as string | number,
     mes_fin_servicio: '' as string | number,
@@ -542,12 +542,13 @@ export default function ConjuntoDetailPage() {
                   <Input value={form.nombre_conjunto} onChange={e => update('nombre_conjunto', e.target.value)} required placeholder="Ej. Molde cilíndrico" />
                 </Field>
                 <Field label="Tipo por defecto para nuevos instrumentos">
-                  <Select value={form.tipo_defecto} onValueChange={v => update('tipo_defecto', v as 'A' | 'B' | 'C')}>
+                  <Select value={form.tipo_defecto} onValueChange={v => update('tipo_defecto', v as TipoInstrumento)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="A"><EmaTipoBadge tipo="A" /> <span className="ml-2 text-xs text-stone-500">Maestro</span></SelectItem>
                       <SelectItem value="B"><EmaTipoBadge tipo="B" /> <span className="ml-2 text-xs text-stone-500">Referencia</span></SelectItem>
                       <SelectItem value="C"><EmaTipoBadge tipo="C" /> <span className="ml-2 text-xs text-stone-500">Trabajo</span></SelectItem>
+                      <SelectItem value="D"><EmaTipoBadge tipo="D" /> <span className="ml-2 text-xs text-stone-500">Auxiliar</span></SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>

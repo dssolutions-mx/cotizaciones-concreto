@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import type { TipoInstrumento } from '@/types/ema'
 
 interface EmaTipoBadgeProps {
-  tipo: TipoInstrumento
+  tipo: TipoInstrumento | string | undefined
   showLabel?: boolean
   className?: string
 }
@@ -24,16 +24,37 @@ const TIPO_CONFIG: Record<TipoInstrumento, { label: string; sublabel: string; cl
     sublabel: 'Trabajo',
     className: 'bg-stone-100 text-stone-700 border-stone-200',
   },
+  D: {
+    label: 'Tipo D',
+    sublabel: 'Auxiliar',
+    className: 'bg-emerald-100 text-emerald-900 border-emerald-200',
+  },
+}
+
+function normalizeTipo(t: string): TipoInstrumento | null {
+  const u = String(t ?? '')
+    .trim()
+    .toUpperCase()
+    .slice(0, 1)
+  if (u === 'A' || u === 'B' || u === 'C' || u === 'D') return u
+  return null
 }
 
 export function EmaTipoBadge({ tipo, showLabel = false, className }: EmaTipoBadgeProps) {
-  const cfg = TIPO_CONFIG[tipo]
+  const key = normalizeTipo(String(tipo ?? ''))
+  const cfg = key
+    ? TIPO_CONFIG[key]
+    : {
+        label: `Tipo (${String(tipo ?? '').trim() || '?'})`,
+        sublabel: 'Desconocido',
+        className: 'bg-stone-100 text-stone-600 border-stone-200',
+      }
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
         cfg.className,
-        className
+        className,
       )}
     >
       {cfg.label}

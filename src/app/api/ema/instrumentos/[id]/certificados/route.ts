@@ -164,6 +164,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const admin = createServiceClient();
     const { data: instTipo } = await admin.from('instrumentos').select('tipo').eq('id', id).maybeSingle();
     const tipo = (instTipo as { tipo?: string } | null)?.tipo;
+    if (tipo === 'D') {
+      return NextResponse.json(
+        {
+          error:
+            'Los instrumentos tipo D (auxiliar / no metrológico) no usan certificados de calibración EMA. Use el flujo de inspección con plantilla si aplica a su conjunto.',
+        },
+        { status: 400 },
+      );
+    }
     if (tipo === 'A' || tipo === 'B') {
       const u = parsed.data.incertidumbre_expandida;
       const unit = parsed.data.incertidumbre_unidad?.trim();

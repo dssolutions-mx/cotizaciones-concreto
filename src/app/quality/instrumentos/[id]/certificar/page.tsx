@@ -207,6 +207,27 @@ export default function CertificarPage() {
     )
   }
 
+  if (instrumento?.tipo === 'D') {
+    return (
+      <div className="flex min-w-0 w-full max-w-3xl flex-col gap-5">
+        <EmaBreadcrumb items={[
+          { label: instrumento?.nombre ?? 'Instrumento', href: `/quality/instrumentos/${id}` },
+          { label: 'Registrar certificado' },
+        ]} />
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950 space-y-3">
+          <p className="font-medium">Los instrumentos tipo D no usan certificados de calibración EMA</p>
+          <p className="text-amber-900/90">
+            Este equipo está catalogado como auxiliar / no metrológico. Para un control periódico documentado,
+            use la ruta de <strong>verificación con plantilla</strong> desde la ficha del instrumento.
+          </p>
+          <Button variant="outline" size="sm" className="border-amber-300" asChild>
+            <Link href={`/quality/instrumentos/${id}`}>Volver a la ficha</Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-w-0 w-full max-w-3xl flex-col gap-5">
       <EmaBreadcrumb items={[

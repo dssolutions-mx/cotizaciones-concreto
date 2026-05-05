@@ -14,7 +14,7 @@ const CreateConjuntoSchema = z.object({
   codigo_conjunto: z.string().regex(/^[0-9]{2,3}$/, 'Debe ser NN o NNN (2-3 dígitos)'),
   nombre_conjunto: z.string().min(1).max(200),
   categoria: z.string().min(1).max(100),
-  tipo_defecto: z.enum(['A', 'B', 'C']),
+  tipo_defecto: z.enum(['A', 'B', 'C', 'D']),
   tipo_servicio: z.enum(['calibracion', 'verificacion', 'ninguno']),
   mes_inicio_servicio: mes,
   mes_fin_servicio: mes,

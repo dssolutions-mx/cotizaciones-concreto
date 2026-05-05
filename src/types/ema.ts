@@ -16,7 +16,7 @@
 // Enums / union types
 // ─────────────────────────────────────────
 
-export type TipoInstrumento = 'A' | 'B' | 'C';
+export type TipoInstrumento = 'A' | 'B' | 'C' | 'D';
 
 export type EstadoInstrumento =
   | 'vigente'

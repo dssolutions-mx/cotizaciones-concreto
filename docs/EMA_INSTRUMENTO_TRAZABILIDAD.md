@@ -65,7 +65,7 @@ Define el tipo y período de calibración por defecto para una familia de instru
 | `id` | UUID PK | `gen_random_uuid()` |
 | `nombre_modelo` | VARCHAR NOT NULL | Nombre descriptivo del modelo |
 | `categoria` | VARCHAR NOT NULL | Categoría libre (ej. "Equipo de compresión") |
-| `tipo_defecto` | CHAR(1) CHECK ('A','B','C') | Tipo de instrumento por defecto |
+| `tipo_defecto` | CHAR(1) CHECK ('A','B','C','D') | Tipo de instrumento por defecto |
 | `periodo_calibracion_dias` | INT NOT NULL | Intervalo de calibración en días |
 | `descripcion` | TEXT | Descripción opcional |
 | `business_unit_id` | UUID → `business_units` | Alcance de unidad de negocio (NULL = global) |
@@ -88,7 +88,7 @@ Un registro por cada instrumento físico en planta.
 | `codigo` | VARCHAR UNIQUE NOT NULL | Código interno (ej. `INS-P001-001`) |
 | `nombre` | VARCHAR NOT NULL | Nombre descriptivo |
 | `modelo_id` | UUID NOT NULL → `modelos_instrumento` | Template del instrumento |
-| `tipo` | CHAR(1) CHECK ('A','B','C') | Tipo de instrumento |
+| `tipo` | CHAR(1) CHECK ('A','B','C','D') | Tipo de instrumento |
 | `plant_id` | UUID NOT NULL → `plants` | Planta propietaria |
 | `numero_serie` | VARCHAR | Número de serie fabricante |
 | `marca` | VARCHAR | Marca comercial |
@@ -110,6 +110,7 @@ Un registro por cada instrumento físico en planta.
 **Constraints:**
 - `chk_tipo_c_necesita_maestro`: Tipo C requiere `instrumento_maestro_id NOT NULL`
 - `chk_tipos_ab_sin_maestro`: Tipos A y B deben tener `instrumento_maestro_id IS NULL`
+- **Tipo D:** sin patrón; el trigger `ema_assert_maestro_vinculo_row` en `instrumento_maestro_vinculos` solo permite vínculos cuando el instrumento hijo es **tipo C** (equivalente operativo a A/B para “no patrón”).
 
 **Índices:**
 ```sql
@@ -433,8 +434,11 @@ Ejecuta diariamente a las **9:00 AM (hora CDMX / UTC-6)**.
 | **A** | Maestro verificador | Laboratorio externo acreditado EMA | Balanza de precisión, patrón de masa |
 | **B** | Externo independiente | Laboratorio externo acreditado EMA | Termómetro de referencia |
 | **C** | Trabajo interno | Verificación interna con Tipo A | Cono de Abrams, termómetro de campo, prensa |
+| **D** | Auxiliar / no metrológico | Sin certificado EMA obligatorio ni patrón | Carretilla, moldes sin medición trazable, accesorios de laboratorio |
 
-**Cadena de trazabilidad EMA:**
+Los instrumentos **Tipo D** viven en el mismo catálogo y conjuntos que A/B/C para inventario y operación, pero **no** forman parte de la cadena laboratorio → patrón → resultado de ensayo. Pueden usar **plantillas de verificación** (`completed_verificaciones`) como inspección documentada cuando el conjunto tiene `tipo_servicio` de verificación; en **muestreos/ensayos** el snapshot **no** guarda `completed_verificacion_id` para tipo D (igual que A/B; solo **C** enlaza la última verificación interna cerrada).
+
+**Cadena de trazabilidad EMA (mediciones):**
 ```
 Laboratorio EMA externo
         │ certifica
@@ -447,6 +451,8 @@ Instrumento Tipo C (trabajo)
         ▼
 Muestreo / Ensayo
 ```
+
+El **Tipo D** queda fuera del diagrama anterior: no recibe certificación en el flujo de `certificados_calibracion` y no declara patrones en `instrumento_maestro_vinculos`.
 
 ---
 
@@ -687,7 +693,7 @@ z.object({
   modelo_id:    z.string().uuid(),
   codigo:       z.string().min(1).max(50),
   nombre:       z.string().min(1).max(200),
-  tipo:         z.enum(['A','B','C']),
+  tipo:         z.enum(['A','B','C','D']),
   plant_id:     z.string().uuid(),
   // campos opcionales...
   periodo_calibracion_dias: z.number().int().positive().optional(),

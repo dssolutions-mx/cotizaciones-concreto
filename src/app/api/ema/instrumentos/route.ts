@@ -13,7 +13,7 @@ const CreateInstrumentoSchema = z.object({
   // `codigo` is server-generated via ema_next_instrument_code — never accepted from client.
   nombre: z.string().min(1).max(200),
   conjunto_id: z.string().uuid(),
-  tipo: z.enum(['A', 'B', 'C']),
+  tipo: z.enum(['A', 'B', 'C', 'D']),
   plant_id: z.string().uuid(),
   numero_serie: z.string().optional().nullable(),
   marca: z.string().optional().nullable(),

@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 
+import type { TipoInstrumento } from '@/types/ema'
+
 const MESES = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
   'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre',
@@ -26,7 +28,7 @@ export default function NuevoConjuntoPage() {
     codigo_conjunto: '',
     nombre_conjunto: '',
     categoria: '',
-    tipo_defecto: 'C' as 'A' | 'B' | 'C',
+    tipo_defecto: 'C' as TipoInstrumento,
     tipo_servicio: 'verificacion' as TipoServicio,
     mes_inicio_servicio: '' as string,
     mes_fin_servicio: '' as string,
@@ -153,6 +155,7 @@ export default function NuevoConjuntoPage() {
                   <SelectItem value="A">A — Maestro</SelectItem>
                   <SelectItem value="B">B — Externo</SelectItem>
                   <SelectItem value="C">C — Trabajo</SelectItem>
+                  <SelectItem value="D">D — Auxiliar</SelectItem>
                 </SelectContent>
               </Select>
             </div>

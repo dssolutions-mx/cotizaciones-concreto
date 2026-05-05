@@ -73,7 +73,7 @@ const ESTADOS: EstadoInstrumento[] = [
   'en_revision',
   'inactivo',
 ]
-const TIPOS: TipoInstrumento[] = ['A', 'B', 'C']
+const TIPOS: TipoInstrumento[] = ['A', 'B', 'C', 'D']
 
 function useMediaQueryMdUp() {
   const [m, setM] = useState(false)
@@ -452,7 +452,7 @@ export function EmaInstrumentosWorkspaceClient() {
               size="sm"
               variant="outline"
               className="h-9 min-h-[44px]"
-              title="Fecha del siguiente evento del programa: calibración (A/B) o verificación interna (C). Ver texto arriba en la barra de filtros."
+              title="Fecha del siguiente evento del programa: calibración (A/B) o verificación interna (C/D). Ver texto arriba en la barra de filtros."
               onClick={() => setBatchOpen('fecha')}
             >
               Próx. evento (programa)
@@ -905,7 +905,7 @@ export function EmaInstrumentosWorkspaceClient() {
           <DialogHeader>
             <DialogTitle>Cambiar tipo — {selectedIds.size} instrumento(s)</DialogTitle>
             <DialogDescription>
-              Tipo C exige maestro tipo A. Los tipos A/B quitan el maestro. Revise filas con error tras aplicar.
+              Tipo C exige maestro tipo A. Los tipos A, B y D quitan el maestro. Revise filas con error tras aplicar.
             </DialogDescription>
           </DialogHeader>
           <Label>Nuevo tipo</Label>

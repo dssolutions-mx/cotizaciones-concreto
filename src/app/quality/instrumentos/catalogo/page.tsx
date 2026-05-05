@@ -36,6 +36,7 @@ const TIPO_OPTIONS: { value: TipoInstrumento; label: string }[] = [
   { value: 'A', label: 'Tipo A — Maestro' },
   { value: 'B', label: 'Tipo B — Externo' },
   { value: 'C', label: 'Tipo C — Trabajo' },
+  { value: 'D', label: 'Tipo D — Auxiliar' },
 ]
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

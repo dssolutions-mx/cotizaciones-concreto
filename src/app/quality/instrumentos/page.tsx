@@ -104,7 +104,7 @@ export default function EmaHubPage() {
     [data]
   )
   const needsVerification = useMemo(() =>
-    (data?.urgent_items ?? []).filter(i => i.tipo === 'C'),
+    (data?.urgent_items ?? []).filter(i => i.tipo === 'C' || i.tipo === 'D'),
     [data]
   )
 

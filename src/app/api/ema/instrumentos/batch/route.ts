@@ -22,7 +22,7 @@ const mes = z.number().int().min(1).max(12).nullable().optional();
 const patchSchema = z
   .object({
     nombre: z.string().min(1).max(200).optional(),
-    tipo: z.enum(['A', 'B', 'C']).optional(),
+    tipo: z.enum(['A', 'B', 'C', 'D']).optional(),
     instrumento_maestro_ids: z.array(z.string().uuid()).max(EMA_INSTRUMENTO_MAESTRO_IDS_MAX).nullable().optional(),
     plant_id: z.string().uuid().optional(),
     numero_serie: z.string().max(120).nullable().optional(),

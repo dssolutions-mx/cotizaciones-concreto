@@ -6,6 +6,7 @@ import Link from 'next/link'
 import {
   ArrowLeft,
   Award,
+  Boxes,
   CalendarRange,
   CheckCircle2,
   ChevronDown,
@@ -26,7 +27,7 @@ import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { cn } from '@/lib/utils'
-import type { ConjuntoHerramientas, InstrumentoCard } from '@/types/ema'
+import type { ConjuntoHerramientas, InstrumentoCard, TipoInstrumento } from '@/types/ema'
 
 type Step = 1 | 2 | 3
 
@@ -71,6 +72,16 @@ const TIPO_EXPLAIN = {
     bgColor: 'bg-amber-50',
     textColor: 'text-amber-800',
   },
+  D: {
+    icon: Boxes,
+    color: 'emerald',
+    title: 'Equipo auxiliar (Tipo D)',
+    subtitle: 'No metrológico — sin certificado EMA obligatorio ni cadena de patrón',
+    next: 'Si el conjunto tiene plantilla de inspección, podrá registrar verificaciones sin patrón.',
+    borderColor: 'border-emerald-300 ring-emerald-200',
+    bgColor: 'bg-emerald-50',
+    textColor: 'text-emerald-800',
+  },
 } as const
 
 const TIPO_SERVICIO_LABEL = {
@@ -100,7 +111,7 @@ export default function NuevoInstrumentoPage() {
   // Step 2-3: instrument details
   const [form, setForm] = useState({
     nombre: '',
-    tipo: '' as '' | 'A' | 'B' | 'C',
+    tipo: '' as '' | TipoInstrumento,
     plant_id: currentPlant?.id ?? '',
     numero_serie: '',
     marca: '',
@@ -175,7 +186,7 @@ export default function NuevoInstrumentoPage() {
     if (!selectedConjuntoId || !selectedConjunto) return
     setForm(f => ({
       ...f,
-      tipo: (selectedConjunto.tipo_defecto as 'A' | 'B' | 'C') || f.tipo,
+      tipo: (selectedConjunto.tipo_defecto as TipoInstrumento) || f.tipo,
       mes_inicio_servicio_override: '',
       mes_fin_servicio_override: '',
       instrumento_maestro_ids: [],
@@ -448,8 +459,8 @@ export default function NuevoInstrumentoPage() {
           {/* Type selector */}
           <div className="rounded-lg border border-stone-200 bg-white p-5 space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600">Tipo de instrumento</h2>
-            <div className="grid grid-cols-3 gap-2">
-              {(['A', 'B', 'C'] as const).map(tipo => {
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(['A', 'B', 'C', 'D'] as const).map(tipo => {
                 const info = TIPO_EXPLAIN[tipo]
                 const isSelected = form.tipo === tipo
                 return (
@@ -470,7 +481,7 @@ export default function NuevoInstrumentoPage() {
                   >
                     <p className="text-sm font-medium text-stone-900">Tipo {tipo}</p>
                     <p className="text-[10px] text-stone-500 mt-0.5 leading-tight">
-                      {tipo === 'A' ? 'Maestro' : tipo === 'B' ? 'Externo' : 'Trabajo'}
+                      {tipo === 'A' ? 'Maestro' : tipo === 'B' ? 'Externo' : tipo === 'C' ? 'Trabajo' : 'Auxiliar'}
                     </p>
                   </button>
                 )
@@ -749,7 +760,7 @@ export default function NuevoInstrumentoPage() {
               </div>
               <div>
                 <span className="text-[11px] text-stone-400 uppercase">Tipo</span>
-                <div className="mt-0.5"><EmaTipoBadge tipo={form.tipo as any} showLabel /></div>
+                <div className="mt-0.5"><EmaTipoBadge tipo={form.tipo} showLabel /></div>
               </div>
               <div>
                 <span className="text-[11px] text-stone-400 uppercase">Código (auto)</span>

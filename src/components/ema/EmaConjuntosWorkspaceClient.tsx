@@ -50,7 +50,13 @@ import { EMA_VIRTUAL_ROW_HEIGHT, useEmaTableVirtualizer } from '@/components/ema
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { EMA_CONJUNTO_UPDATE_ROLES } from '@/lib/ema/emaWorkspaceRoles'
 import { cn } from '@/lib/utils'
-import type { ConjuntoHerramientas, ConjuntoHerramientasListRow, TipoServicio, UpdateConjuntoInput } from '@/types/ema'
+import type {
+  ConjuntoHerramientas,
+  ConjuntoHerramientasListRow,
+  TipoInstrumento,
+  TipoServicio,
+  UpdateConjuntoInput,
+} from '@/types/ema'
 
 const MESES = Array.from({ length: 12 }, (_, i) => ({ v: i + 1, label: String(i + 1) }))
 
@@ -724,7 +730,7 @@ export function EmaConjuntosWorkspaceClient() {
               <Select
                 disabled={structuralLocked}
                 value={form.tipo_defecto ?? detail.tipo_defecto}
-                onValueChange={(v) => setForm((f) => ({ ...f, tipo_defecto: v as 'A' | 'B' | 'C' }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, tipo_defecto: v as TipoInstrumento }))}
               >
                 <SelectTrigger className="mt-1">
                   <SelectValue />
@@ -733,6 +739,7 @@ export function EmaConjuntosWorkspaceClient() {
                   <SelectItem value="A">A</SelectItem>
                   <SelectItem value="B">B</SelectItem>
                   <SelectItem value="C">C</SelectItem>
+                  <SelectItem value="D">D</SelectItem>
                 </SelectContent>
               </Select>
             </div>

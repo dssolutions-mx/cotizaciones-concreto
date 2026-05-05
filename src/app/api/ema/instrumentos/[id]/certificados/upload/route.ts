@@ -67,11 +67,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const { data: inst, error: instError } = await supabase
       .from('instrumentos')
-      .select('id')
+      .select('id, tipo')
       .eq('id', instrumentoId)
       .maybeSingle();
     if (instError || !inst) {
       return NextResponse.json({ error: 'Instrumento no encontrado' }, { status: 404 });
+    }
+    const tipo = (inst as { tipo?: string }).tipo;
+    if (tipo === 'D') {
+      return NextResponse.json(
+        {
+          error:
+            'Los instrumentos tipo D no admiten carga de certificados de calibración. Use inspección con plantilla si aplica.',
+        },
+        { status: 400 },
+      );
     }
 
     const formData = await request.formData();

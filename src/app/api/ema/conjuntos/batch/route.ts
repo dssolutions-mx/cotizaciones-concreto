@@ -16,7 +16,7 @@ const patchSchema = z
   .object({
     nombre_conjunto: z.string().min(1).max(200).optional(),
     categoria: z.string().min(1).max(100).optional(),
-    tipo_defecto: z.enum(['A', 'B', 'C']).optional(),
+    tipo_defecto: z.enum(['A', 'B', 'C', 'D']).optional(),
     tipo_servicio: z.enum(['calibracion', 'verificacion', 'ninguno']).optional(),
     mes_inicio_servicio: mes,
     mes_fin_servicio: mes,
