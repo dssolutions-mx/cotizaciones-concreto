@@ -12604,6 +12604,16 @@ export type Database = {
           },
         ]
       }
+      v_material_inventory_reconciled: {
+        Row: {
+          delta_vs_reconciled: number | null
+          dosificador_stock: number | null
+          material_id: string | null
+          plant_id: string | null
+          reconciled_stock: number | null
+        }
+        Relationships: []
+      }
       v_master_recipe_summary: {
         Row: {
           age_days: number | null
@@ -13576,6 +13586,18 @@ export type Database = {
           remision_material_id: string
           remision_number: string | null
         }[]
+      }
+      fn_reconciled_stock_since_cutover: {
+        Args: {
+          p_cutover_date?: string
+          p_material_id: string
+          p_plant_id: string
+        }
+        Returns: number | null
+      }
+      fn_sync_plant_inventory_from_cutover: {
+        Args: { p_cutover_date?: string; p_plant_id: string }
+        Returns: number
       }
       generate_daily_snapshots: {
         Args: { p_target_date?: string }

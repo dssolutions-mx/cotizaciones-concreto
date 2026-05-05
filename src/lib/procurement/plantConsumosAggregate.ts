@@ -2,8 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ConsumosAccountingMaterialBlock, ConsumosAccountingSummary } from '@/lib/procurement/consumosAccountingExcelExport'
 import {
   adjustmentDisplayForConsumos,
-  isSyntheticFifoOpeningEntry,
 } from '@/lib/procurement/openingConsumosMerge'
+import { isFifoOrphanBucketEntry, isSyntheticFifoCostLayerEntry } from '@/lib/inventory/fifoSyntheticLayers'
 
 export type RemisionesEmbed = {
   id: string
@@ -202,7 +202,7 @@ export function aggregatePlantConsumosFromRows(
   }
 
   for (const row of entryRows) {
-    if (isSyntheticFifoOpeningEntry(row.entry_number)) {
+    if (isSyntheticFifoCostLayerEntry(row.entry_number) || isFifoOrphanBucketEntry(row.entry_number)) {
       continue
     }
     const mid = row.material_id

@@ -549,6 +549,12 @@ export class InventoryDashboardService {
 
       const historicalEntriesByMaterial = new Map<string, number>();
       (historicalEntriesAggRows || []).forEach((e) => {
+        if (
+          isSyntheticFifoCostLayerEntry(e.entry_number) ||
+          isFifoOrphanBucketEntry(e.entry_number)
+        ) {
+          return;
+        }
         const current = historicalEntriesByMaterial.get(e.material_id) || 0;
         historicalEntriesByMaterial.set(e.material_id, current + Number(e.quantity_received || 0));
       });
@@ -629,6 +635,12 @@ export class InventoryDashboardService {
 
       const periodEntriesByMaterial = new Map<string, number[]>();
       (allPeriodEntries || []).forEach(e => {
+        if (
+          isSyntheticFifoCostLayerEntry(e.entry_number) ||
+          isFifoOrphanBucketEntry(e.entry_number)
+        ) {
+          return;
+        }
         if (!periodEntriesByMaterial.has(e.material_id)) {
           periodEntriesByMaterial.set(e.material_id, []);
         }
@@ -1535,6 +1547,9 @@ export class InventoryDashboardService {
   ): MaterialFlowSummary {
     // Synthetic FIFO entry rows (`0OPEN-*`, `ADJP-*`) carry kg in `total_entries`; skip paired positive adjustments.
     const totalEntries = entries.reduce((sum, e) => {
+      if (isSyntheticFifoCostLayerEntry(e.entry_number) || isFifoOrphanBucketEntry(e.entry_number)) {
+        return sum;
+      }
       return sum + Number(e.quantity_received);
     }, 0);
     const totalRemisionConsumption = remisionMaterials.reduce((sum, rm) => sum + (Number(rm.cantidad_real) || 0), 0);

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getConjuntos, getConjuntosWithListCounts, createConjunto } from '@/services/emaInstrumentoService';
+import { EMA_CONJUNTO_UPDATE_ROLES } from '@/lib/ema/emaWorkspaceRoles';
+import type { UserRole } from '@/store/auth/types';
 import { z } from 'zod';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
@@ -66,7 +68,8 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !MANAGER_ROLES.includes(profile.role))
+    const role = (profile as { role: string } | null)?.role;
+    if (!role || !EMA_CONJUNTO_UPDATE_ROLES.includes(role as UserRole))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();

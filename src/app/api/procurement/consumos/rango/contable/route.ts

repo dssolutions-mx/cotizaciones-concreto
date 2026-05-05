@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles'
+import { fetchPlantConsumosRangeDays } from '@/lib/procurement/plantConsumosAggregate'
+
+const FINANZAS_PROCUREMENT_ROLES = [
+  'EXECUTIVE',
+  'ADMIN_OPERATIONS',
+  'PLANT_MANAGER',
+  'CREDIT_VALIDATOR',
+  'SALES_AGENT',
+] as const
+
+/** Keep in sync with `src/app/api/procurement/consumos/rango/route.ts` */
+const MAX_RANGE_DAYS = 366
+
+function parseISODate(s: string | null): string | null {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  return s
+}
+
+function daysBetweenInclusive(from: string, to: string): number {
+  const a = new Date(`${from}T12:00:00Z`).getTime()
+  const b = new Date(`${to}T12:00:00Z`).getTime()
+  return Math.floor((b - a) / 86400000) + 1
+}
+
+/**
+ * GET /api/procurement/consumos/rango/contable
+ * Detalle contable por día (mismo layout que consumo diario) para un rango — Excel contable / auditoría.
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = await createServerSupabaseClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    }
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role, plant_id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
+    }
+
+    if (!FINANZAS_PROCUREMENT_ROLES.includes(profile.role as (typeof FINANZAS_PROCUREMENT_ROLES)[number])) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+
+    let plantId = searchParams.get('plant_id') || undefined
