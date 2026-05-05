@@ -228,28 +228,33 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
       [plantId],
     );
 
-    const addInstrumento = useCallback((inst: any, paqueteId?: string) => {
-      if (selected.some((s) => s.instrumento_id === inst.id)) return;
+    const toggleInstrumento = useCallback(
+      (inst: any, paqueteId?: string) => {
+        setSelected((prev) => {
+          if (prev.some((s) => s.instrumento_id === inst.id)) {
+            const next = prev.filter((s) => s.instrumento_id !== inst.id);
+            onChange?.(next);
+            return next;
+          }
+          let estadoSnap: SelectedInstrumento['estado_al_momento'] = 'vigente';
+          if (inst.estado === 'vencido') estadoSnap = 'vencido';
+          else if (inst.estado === 'proximo_vencer') estadoSnap = 'proximo_vencer';
 
-      let estadoSnap: SelectedInstrumento['estado_al_momento'] = 'vigente';
-      if (inst.estado === 'vencido') estadoSnap = 'vencido';
-      else if (inst.estado === 'proximo_vencer') estadoSnap = 'proximo_vencer';
-
-      const newItem: SelectedInstrumento = {
-        instrumento_id: inst.id,
-        paquete_id: paqueteId,
-        nombre: inst.nombre,
-        codigo: inst.codigo,
-        estado_al_momento: estadoSnap,
-        fecha_vencimiento_al_momento: inst.fecha_proximo_evento ?? new Date().toISOString().split('T')[0],
-      };
-      const next = [...selected, newItem];
-      setSelected(next);
-      onChange?.(next);
-      setSearchQuery('');
-      setSearchResults([]);
-      setNoSearchMatch(false);
-    }, [selected, onChange]);
+          const newItem: SelectedInstrumento = {
+            instrumento_id: inst.id,
+            paquete_id: paqueteId,
+            nombre: inst.nombre,
+            codigo: inst.codigo,
+            estado_al_momento: estadoSnap,
+            fecha_vencimiento_al_momento: inst.fecha_proximo_evento ?? new Date().toISOString().split('T')[0],
+          };
+          const next = [...prev, newItem];
+          onChange?.(next);
+          return next;
+        });
+      },
+      [onChange],
+    );
 
     const removeInstrumento = useCallback(
       (instrumentoId: string) => {
@@ -468,7 +473,7 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
                           ) : (
                             list.map((inst: any) => {
                               const isSel = selected.some((s) => s.instrumento_id === inst.id);
-                              const disabled = inst.estado === 'vencido';
+                              const disabled = inst.estado === 'vencido' && !isSel;
                               return (
                                 <div
                                   key={inst.id}
@@ -477,13 +482,13 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
                                     disabled ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer hover:bg-stone-50',
                                     isSel && 'bg-emerald-50/50',
                                   )}
-                                  onClick={() => !disabled && addInstrumento(inst)}
+                                  onClick={() => !disabled && toggleInstrumento(inst)}
                                   role="button"
                                   tabIndex={0}
                                   onKeyDown={(e) => {
                                     if ((e.key === 'Enter' || e.key === ' ') && !disabled) {
                                       e.preventDefault();
-                                      addInstrumento(inst);
+                                      toggleInstrumento(inst);
                                     }
                                   }}
                                 >
@@ -535,23 +540,42 @@ export const EquipoUtilizadoPicker = forwardRef<EquipoUtilizadoPickerHandle, Pro
               )}
               {searchResults.length > 0 && (
                 <div className="absolute z-20 w-full mt-1 bg-white border border-stone-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {searchResults.map((inst: any) => (
+                  {searchResults.map((inst: any) => {
+                    const isSearchSel = selected.some((s) => s.instrumento_id === inst.id);
+                    return (
                     <div
                       key={inst.id}
-                      className="px-3 py-2 cursor-pointer hover:bg-stone-50 text-xs flex items-center justify-between"
-                      onClick={() => addInstrumento(inst)}
+                      className={cn(
+                        'px-3 py-2 cursor-pointer hover:bg-stone-50 text-xs flex items-center justify-between',
+                        isSearchSel && 'bg-emerald-50/50',
+                      )}
+                      onClick={() => {
+                        const wasSelected = selected.some((s) => s.instrumento_id === inst.id);
+                        toggleInstrumento(inst);
+                        if (!wasSelected) {
+                          setSearchQuery('');
+                          setSearchResults([]);
+                          setNoSearchMatch(false);
+                        }
+                      }}
                     >
                       <span>
                         <span className="font-mono text-stone-500 mr-2">{inst.codigo}</span>
                         {inst.nombre}
                       </span>
-                      <span
-                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[inst.estado] ?? 'bg-stone-100 text-stone-600'}`}
-                      >
-                        {ESTADO_ICON[inst.estado]} {inst.estado}
+                      <span className="flex items-center gap-1 shrink-0">
+                        {isSearchSel && (
+                          <CheckCircle className="h-3.5 w-3.5 text-emerald-600" aria-label="Seleccionado" />
+                        )}
+                        <span
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${ESTADO_BADGE[inst.estado] ?? 'bg-stone-100 text-stone-600'}`}
+                        >
+                          {ESTADO_ICON[inst.estado]} {inst.estado}
+                        </span>
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {noSearchMatch && searchQuery.length >= 2 && !loadingSearch && (
