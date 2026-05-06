@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getRequestAuditMeta, requireFinanzasAuditContext } from '@/lib/finanzas/auditRequestContext'
+import {
+  assertOrderAccess,
+  getRequestAuditMeta,
+  requireFinanzasAuditContext,
+} from '@/lib/finanzas/auditRequestContext'
+import { assertWritableOrderStatus } from '@/lib/finanzas/auditCapabilities'
 import { insertFinanzasAuditLog } from '@/lib/finanzas/auditLog'
+import { applyQuoteToOrder } from '@/lib/finanzas/applyQuoteToOrder'
 import { productPriceService } from '@/lib/supabase/product-prices'
 
 type Body = {
@@ -11,6 +17,8 @@ type Body = {
   pump_price?: number
   reason?: string
   preview?: boolean
+  /** When true, allows syncing order lines for completed/cancelled orders (same rules as requote). */
+  allow_post_close?: boolean
 }
 
 export async function PATCH(
@@ -71,7 +79,7 @@ export async function PATCH(
 
     const { data: impactedOrders } = await admin
       .from('orders')
-      .select('id, order_number, final_amount')
+      .select('id, order_number, final_amount, plant_id, order_status')
       .eq('quote_id', quoteId)
       .limit(200)
 
@@ -108,7 +116,55 @@ export async function PATCH(
       console.warn('handleQuoteApproval after detail edit', e)
     }
 
+    const allowPostClose = Boolean(body.allow_post_close)
+    const ordersSynced: string[] = []
+    const ordersSkipped: Array<{ id: string; order_number?: string; reason: string }> = []
+    const ordersSyncErrors: Array<{ id: string; order_number?: string; message: string }> = []
+
+    for (const ord of impactedOrders || []) {
+      const oid = ord.id as string
+      try {
+        await assertOrderAccess(ctx.profile, ord.plant_id as string | null)
+      } catch {
+        ordersSkipped.push({
+          id: oid,
+          order_number: ord.order_number as string | undefined,
+          reason: 'Sin acceso al pedido',
+        })
+        continue
+      }
+      try {
+        assertWritableOrderStatus(ord.order_status as string, ctx.profile, allowPostClose)
+      } catch (e) {
+        ordersSkipped.push({
+          id: oid,
+          order_number: ord.order_number as string | undefined,
+          reason: e instanceof Error ? e.message : 'Pedido no editable',
+        })
+        continue
+      }
+      try {
+        await applyQuoteToOrder(admin, oid, quoteId)
+        ordersSynced.push(oid)
+      } catch (e) {
+        ordersSyncErrors.push({
+          id: oid,
+          order_number: ord.order_number as string | undefined,
+          message: e instanceof Error ? e.message : 'Error al sincronizar',
+        })
+      }
+    }
+
     const meta = getRequestAuditMeta(request)
+    const resyncSummary =
+      ordersSynced.length || ordersSkipped.length || ordersSyncErrors.length
+        ? JSON.stringify({
+            synced: ordersSynced.length,
+            skipped: ordersSkipped,
+            errors: ordersSyncErrors,
+          })
+        : null
+
     await insertFinanzasAuditLog(
       {
         actor_id: ctx.profile.id,
@@ -121,19 +177,33 @@ export async function PATCH(
         action: 'update',
         reason,
         changes,
-        flags: {},
+        flags: {
+          order_resync_summary: resyncSummary,
+        },
         request_ip: meta.request_ip,
         user_agent: meta.user_agent,
       },
       admin
     )
 
+    let message = 'Línea actualizada y precios de pedido sincronizados con la cotización.'
+    if (ordersSyncErrors.length > 0) {
+      message = `Línea actualizada. ${ordersSynced.length} pedido(s) sincronizados; ${ordersSyncErrors.length} error(es) al sincronizar.`
+    } else if (ordersSkipped.length > 0 && ordersSynced.length === 0) {
+      message =
+        'Línea actualizada. Ningún pedido se sincronizó (sin acceso, estado no editable, o sin pedidos con esta cotización).'
+    } else if (ordersSkipped.length > 0) {
+      message = `Línea actualizada. ${ordersSynced.length} pedido(s) sincronizados; ${ordersSkipped.length} omitido(s) (acceso o estado).`
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         impacted_order_ids: (impactedOrders || []).map((o) => o.id),
-        message:
-          'Línea actualizada. Recalcule los pedidos afectados desde el panel si los montos deben reflejar el cambio.',
+        orders_synced: ordersSynced,
+        orders_skipped: ordersSkipped,
+        orders_sync_errors: ordersSyncErrors,
+        message,
       },
     })
   } catch (e) {

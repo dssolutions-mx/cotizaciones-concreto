@@ -435,16 +435,16 @@ export default function OrderLineEditorDialog({
     }
   }
 
-  const confirmQuoteDetailPatch = async (reason: string) => {
+  const confirmQuoteDetailPatch = async (reason: string, allowPostClose: boolean) => {
     if (!qdDetailId || !qdPreviewBody) return
     const res = await fetch(`/api/finanzas/audit/quote-detail/${qdDetailId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...qdPreviewBody, reason }),
+      body: JSON.stringify({ ...qdPreviewBody, reason, allow_post_close: allowPostClose }),
     })
-    const json = await parseJsonResponse<{ error?: string }>(res)
+    const json = await parseJsonResponse<{ error?: string; data?: { message?: string } }>(res)
     if (!res.ok) throw new Error(json.error || 'Error')
-    toast.success('Cotización actualizada')
+    toast.success(json.data?.message || 'Cotización actualizada')
     onRefresh()
     setQdPreviewOpen(false)
     onOpenChange(false)
@@ -1018,8 +1018,8 @@ export default function OrderLineEditorDialog({
         rows={qdPreviewRows}
         warnings={qdPreviewWarnings}
         requirePostCloseAck={postCloseWarning && canPostClose}
-        onConfirm={async (reason, _allowPostClose) => {
-          await confirmQuoteDetailPatch(reason)
+        onConfirm={async (reason, allowPostClose) => {
+          await confirmQuoteDetailPatch(reason, allowPostClose)
         }}
       />
     </>

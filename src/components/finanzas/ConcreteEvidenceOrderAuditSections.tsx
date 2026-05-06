@@ -513,6 +513,7 @@ export default function ConcreteEvidenceOrderAuditSections({
       ?.quote_details
     setQuoteLinesBusy(true)
     try {
+      let lastMessage: string | undefined
       for (const d of details || []) {
         const raw = quoteLinePrices[d.id]
         if (raw === undefined || raw === '') continue
@@ -523,10 +524,14 @@ export default function ConcreteEvidenceOrderAuditSections({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ final_price, reason }),
         })
-        const json = await parseJsonResponse<{ error?: string }>(res)
+        const json = await parseJsonResponse<{
+          error?: string
+          data?: { message?: string }
+        }>(res)
         if (!res.ok) throw new Error(json.error || 'Error al guardar línea')
+        lastMessage = json.data?.message
       }
-      toast.success('Cotización actualizada')
+      toast.success(lastMessage || 'Cotización actualizada')
       setQuoteLinesOpen(false)
       onRefresh()
     } catch (e) {
