@@ -1,3 +1,4 @@
+import { gatePlantAccessForExternalClient } from '@/lib/client-portal/portalApiPlantGate';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -121,6 +122,9 @@ export async function GET(request: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Usuario no autenticado' }, { status: 401 });
     }
+
+    const portalBlock = await gatePlantAccessForExternalClient(supabase, request, user.id, plantId);
+    if (portalBlock) return portalBlock;
 
     const { data: certs, error } = await supabase
       .from('plant_certificates')

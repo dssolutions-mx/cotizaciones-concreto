@@ -229,31 +229,36 @@ export function QualityChartSection({
   }, [seriesBucketsByAge, seriesBucketsByClasificacion, colorMode]);
 
   const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      if (!data) return null;
+    if (!active || !payload?.length) return null;
 
-      const dateValue = new Date(data.x);
-      const formattedDate = format(dateValue, 'dd/MM/yyyy');
-      const percentage = Number(data.cumplimiento || data.y || 0);
-      const formattedPercentage = percentage.toFixed(2);
+    const scatterEntry =
+      payload.find((p: any) => p?.payload?.original_data != null) ??
+      payload.find((p: any) => typeof p?.payload?.cumplimiento === 'number') ??
+      payload.find((p: any) => typeof p?.payload?.y === 'number' && p?.dataKey !== 'ma') ??
+      payload[0];
 
-      return (
-        <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-md min-w-[200px]">
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between gap-6">
-              <span className="text-stone-500">Fecha</span>
-              <span className="font-medium text-stone-900">{formattedDate}</span>
-            </div>
-            <div className="flex justify-between gap-6 border-t border-stone-100 pt-2">
-              <span className="text-stone-500">Cumplimiento</span>
-              <span className="font-semibold text-stone-900">{formattedPercentage}%</span>
-            </div>
+    const data = scatterEntry?.payload;
+    if (!data) return null;
+
+    const dateValue = new Date(data.x);
+    const formattedDate = format(dateValue, 'dd/MM/yyyy');
+    const percentage = Number(data.cumplimiento ?? data.y ?? 0);
+    const formattedPercentage = percentage.toFixed(2);
+
+    return (
+      <div className="rounded-lg border border-stone-200 bg-white p-3 shadow-md min-w-[200px]">
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between gap-6">
+            <span className="text-stone-500">Fecha</span>
+            <span className="font-medium text-stone-900">{formattedDate}</span>
+          </div>
+          <div className="flex justify-between gap-6 border-t border-stone-100 pt-2">
+            <span className="text-stone-500">Cumplimiento</span>
+            <span className="font-semibold text-stone-900">{formattedPercentage}%</span>
           </div>
         </div>
-      );
-    }
-    return null;
+      </div>
+    );
   };
 
   if (loading) {
@@ -330,8 +335,9 @@ export function QualityChartSection({
                 <ComposedChart
                   margin={{ top: 20, right: 80, bottom: 75, left: 72 }}
                   onClick={(data: any) => {
-                    if (data && data.activePayload && data.activePayload.length > 0) {
-                      const payload = data.activePayload[0].payload;
+                    if (data?.activePayload?.length > 0) {
+                      const hit = data.activePayload.find((ap: any) => ap?.payload?.original_data);
+                      const payload = hit?.payload ?? data.activePayload[0]?.payload;
                       if (payload?.original_data) {
                         setSelectedPoint(payload.original_data);
                       }

@@ -13,6 +13,7 @@ interface ClientAssociationChip {
   is_active: boolean;
   /** null / undefined / empty = todas las obras */
   allowed_construction_site_ids?: string[] | null;
+  allowed_plant_ids?: string[] | null;
 }
 
 interface ClientAssociationChipsProps {
@@ -57,6 +58,10 @@ export function ClientAssociationChips({ associations, onRemove }: ClientAssocia
             {assoc.allowed_construction_site_ids?.length
               ? `${assoc.allowed_construction_site_ids.length} obra(s)`
               : 'Todas las obras'}
+            {' · '}
+            {assoc.allowed_plant_ids?.length
+              ? `${assoc.allowed_plant_ids.length} planta(s)`
+              : 'Todas las plantas'}
           </span>
         </Badge>
       ))}

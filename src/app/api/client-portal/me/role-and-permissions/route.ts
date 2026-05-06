@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
       membership_id: ctx.membershipId,
       allowed_construction_site_ids: ctx.allowedSiteIds,
       sites_restricted: ctx.sitesRestricted,
+      allowed_plant_ids: ctx.allowedPlantIds,
+      plants_restricted: ctx.plantsRestricted,
     });
   } catch (error) {
     console.error('Role and permissions API error:', error);

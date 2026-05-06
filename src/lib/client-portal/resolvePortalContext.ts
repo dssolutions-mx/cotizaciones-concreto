@@ -9,6 +9,9 @@ export type PortalContext = {
   /** null = all sites for this membership */
   allowedSiteIds: string[] | null;
   sitesRestricted: boolean;
+  /** null = all plants for this membership */
+  allowedPlantIds: string[] | null;
+  plantsRestricted: boolean;
   /** No client_portal_users row; site list unrestricted at RLS level */
   legacyPortalUser?: boolean;
 };
@@ -65,6 +68,8 @@ export async function resolvePortalContext(
           permissions: {},
           allowedSiteIds: null,
           sitesRestricted: false,
+          allowedPlantIds: null,
+          plantsRestricted: false,
           legacyPortalUser: true,
         },
       };
@@ -89,19 +94,37 @@ export async function resolvePortalContext(
     };
   }
 
-  const { data: siteRows, error: sj } = row.id
-    ? await supabase
-        .from('client_portal_user_construction_sites')
-        .select('construction_site_id')
-        .eq('client_portal_user_id', row.id)
-    : { data: [] as { construction_site_id: string }[], error: null };
+  const membershipId = row.id;
+  const [siteResult, plantResult] = membershipId
+    ? await Promise.all([
+        supabase
+          .from('client_portal_user_construction_sites')
+          .select('construction_site_id')
+          .eq('client_portal_user_id', membershipId),
+        supabase
+          .from('client_portal_user_plants')
+          .select('plant_id')
+          .eq('client_portal_user_id', membershipId),
+      ])
+    : [
+        { data: [] as { construction_site_id: string }[], error: null },
+        { data: [] as { plant_id: string }[], error: null },
+      ];
 
-  if (sj) {
-    return { ok: false, status: 500, message: sj.message };
+  if (siteResult.error) {
+    return { ok: false, status: 500, message: siteResult.error.message };
+  }
+  if (plantResult.error) {
+    return { ok: false, status: 500, message: plantResult.error.message };
   }
 
-  const ids = (siteRows || []).map((s) => s.construction_site_id).filter(Boolean) as string[];
+  const ids = (siteResult.data || [])
+    .map((s) => s.construction_site_id)
+    .filter(Boolean) as string[];
   const sitesRestricted = ids.length > 0;
+
+  const plantIds = (plantResult.data || []).map((p) => p.plant_id).filter(Boolean) as string[];
+  const plantsRestricted = plantIds.length > 0;
 
   return {
     ok: true,
@@ -114,6 +137,8 @@ export async function resolvePortalContext(
       permissions: (row.permissions as Record<string, unknown>) || {},
       allowedSiteIds: sitesRestricted ? ids : null,
       sitesRestricted,
+      allowedPlantIds: plantsRestricted ? plantIds : null,
+      plantsRestricted,
       legacyPortalUser: false,
     },
   };
@@ -132,5 +157,21 @@ export function assertConstructionSiteAllowedForCreate(
     ok: false,
     message:
       'construction_site_id must be one of your assigned sites. Contact your administrator if you need access to another obra.',
+  };
+}
+
+/** When plant-restricted, order/API must use an allowed plant_id. */
+export function assertPlantAllowedForPortal(
+  ctx: PortalContext,
+  plantId: string | null
+): { ok: true } | { ok: false; message: string } {
+  if (!ctx.plantsRestricted) return { ok: true };
+  if (plantId && ctx.allowedPlantIds?.includes(plantId)) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    message:
+      'plant_id must be one of your assigned plants. Contact your administrator if you need access to another plant.',
   };
 }

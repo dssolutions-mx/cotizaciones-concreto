@@ -80,7 +80,12 @@ function CreatePortalUserModalComponent({
     loaded: boolean;
     options: { id: string; name: string }[];
   };
-  const [sitePicks, setSitePicks] = useState<Record<string, ClientSitePick>>({});
+  type ClientPlantPick = {
+    allPlants: boolean;
+    selectedIds: Set<string>;
+  };
+  const [plantOptions, setPlantOptions] = useState<{ id: string; name: string }[]>([]);
+  const [plantPicks, setPlantPicks] = useState<Record<string, ClientPlantPick>>({});
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -143,7 +148,11 @@ function CreatePortalUserModalComponent({
   useEffect(() => {
     if (open) {
       loadClients();
-      
+      void fetch('/api/plants?active=true', { credentials: 'include' })
+        .then((r) => r.json())
+        .then((j: { data?: { id: string; name: string }[] }) => setPlantOptions(j.data || []))
+        .catch(() => setPlantOptions([]));
+
       // Pre-select default clients if provided
       if (defaultClientIds.length > 0) {
         setSelectedClients(defaultClientIds);
@@ -170,10 +179,18 @@ function CreatePortalUserModalComponent({
                   })),
                 },
               }));
+              setPlantPicks((prev) => ({
+                ...prev,
+                [clientId]: { allPlants: true, selectedIds: new Set() },
+              }));
             } catch {
               setSitePicks((prev) => ({
                 ...prev,
                 [clientId]: { allSites: true, selectedIds: new Set(), loaded: true, options: [] },
+              }));
+              setPlantPicks((prev) => ({
+                ...prev,
+                [clientId]: { allPlants: true, selectedIds: new Set() },
               }));
             }
           })();
@@ -191,6 +208,7 @@ function CreatePortalUserModalComponent({
       setSelectedClients([]);
       setClientRoles({});
       setSitePicks({});
+      setPlantPicks({});
     }
   }, [open, defaultClientIdsKey, form, loadClients]);
 
@@ -218,6 +236,11 @@ function CreatePortalUserModalComponent({
         delete next[clientId];
         return next;
       });
+      setPlantPicks((prev) => {
+        const next = { ...prev };
+        delete next[clientId];
+        return next;
+      });
     } else {
       const newSelected = [...selectedClients, clientId];
       setSelectedClients(newSelected);
@@ -240,10 +263,18 @@ function CreatePortalUserModalComponent({
               })),
             },
           }));
+          setPlantPicks((prev) => ({
+            ...prev,
+            [clientId]: { allPlants: true, selectedIds: new Set() },
+          }));
         } catch {
           setSitePicks((prev) => ({
             ...prev,
             [clientId]: { allSites: true, selectedIds: new Set(), loaded: true, options: [] },
+          }));
+          setPlantPicks((prev) => ({
+            ...prev,
+            [clientId]: { allPlants: true, selectedIds: new Set() },
           }));
         }
       })();
@@ -278,6 +309,24 @@ function CreatePortalUserModalComponent({
       }
     }
 
+    const plantIdsByClient: Record<string, string[]> = {};
+    for (const cid of data.clientIds) {
+      const pp = plantPicks[cid];
+      if (pp && !pp.allPlants) {
+        const ids = [...pp.selectedIds];
+        if (ids.length === 0) {
+          const label = clients.find((c) => c.id === cid)?.business_name || cid;
+          toast({
+            title: 'Plantas requeridas',
+            description: `Selecciona al menos una planta para "${label}" o marca "Todas las plantas".`,
+            variant: 'destructive',
+          });
+          return;
+        }
+        plantIdsByClient[cid] = ids;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch('/api/admin/client-portal-users', {
@@ -293,6 +342,7 @@ function CreatePortalUserModalComponent({
           roles: data.roles,
           constructionSiteIdsByClient:
             Object.keys(constructionSiteIdsByClient).length > 0 ? constructionSiteIdsByClient : undefined,
+          plantIdsByClient: Object.keys(plantIdsByClient).length > 0 ? plantIdsByClient : undefined,
         }),
       });
 
@@ -318,6 +368,7 @@ function CreatePortalUserModalComponent({
       setSelectedClients([]);
       setClientRoles({});
       setSitePicks({});
+      setPlantPicks({});
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -329,7 +380,7 @@ function CreatePortalUserModalComponent({
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, toast, onOpenChange, onSuccess, sitePicks, clients]);
+  }, [form, toast, onOpenChange, onSuccess, sitePicks, plantPicks, clients]);
 
   // Memoize modal close handler
   const handleClose = useCallback(() => {
@@ -503,6 +554,65 @@ function CreatePortalUserModalComponent({
                                               className="text-xs cursor-pointer font-normal"
                                             >
                                               {site.name}
+                                            </Label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                              {(() => {
+                                const ppick = plantPicks[client.id];
+                                if (!ppick || plantOptions.length === 0) return null;
+                                return (
+                                  <div className="mt-2 space-y-2 rounded border p-2 bg-muted/30">
+                                    <Label className="text-xs text-gray-600">Plantas (portal)</Label>
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        id={`all-plants-${client.id}`}
+                                        checked={ppick.allPlants}
+                                        onCheckedChange={(checked) => {
+                                          const v = checked === true;
+                                          setPlantPicks((prev) => ({
+                                            ...prev,
+                                            [client.id]: {
+                                              allPlants: v,
+                                              selectedIds: v ? new Set() : prev[client.id]?.selectedIds ?? new Set(),
+                                            },
+                                          }));
+                                        }}
+                                      />
+                                      <Label htmlFor={`all-plants-${client.id}`} className="text-xs cursor-pointer">
+                                        Todas las plantas
+                                      </Label>
+                                    </div>
+                                    {!ppick.allPlants && (
+                                      <div className="max-h-36 overflow-y-auto space-y-1 pl-1">
+                                        {plantOptions.map((plant) => (
+                                          <div key={plant.id} className="flex items-center space-x-2">
+                                            <Checkbox
+                                              id={`plant-${client.id}-${plant.id}`}
+                                              checked={ppick.selectedIds.has(plant.id)}
+                                              onCheckedChange={(checked) => {
+                                                setPlantPicks((prev) => {
+                                                  const cur = prev[client.id];
+                                                  if (!cur) return prev;
+                                                  const nextIds = new Set(cur.selectedIds);
+                                                  if (checked === true) nextIds.add(plant.id);
+                                                  else nextIds.delete(plant.id);
+                                                  return {
+                                                    ...prev,
+                                                    [client.id]: { ...cur, selectedIds: nextIds },
+                                                  };
+                                                });
+                                              }}
+                                            />
+                                            <Label
+                                              htmlFor={`plant-${client.id}-${plant.id}`}
+                                              className="text-xs cursor-pointer font-normal"
+                                            >
+                                              {plant.name}
                                             </Label>
                                           </div>
                                         ))}

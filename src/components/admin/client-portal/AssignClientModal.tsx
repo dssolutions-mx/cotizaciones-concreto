@@ -99,6 +99,19 @@ function AssignClientModalComponent({
     loading: false,
   });
 
+  type PlantPickState = {
+    allPlants: boolean;
+    selectedIds: Set<string>;
+    options: { id: string; name: string }[];
+    loading: boolean;
+  };
+  const [plantPick, setPlantPick] = useState<PlantPickState>({
+    allPlants: true,
+    selectedIds: new Set(),
+    options: [],
+    loading: false,
+  });
+
   // Memoize loadClients function
   const loadClients = useCallback(async () => {
     // Use cached clients if available and not expired
@@ -176,6 +189,12 @@ function AssignClientModalComponent({
         options: [],
         loading: false,
       });
+      setPlantPick({
+        allPlants: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
       // Restore focus to the trigger button or previously active element
       const elementToFocus = triggerRef || previousActiveElementRef.current;
       if (elementToFocus) {
@@ -233,6 +252,44 @@ function AssignClientModalComponent({
     };
   }, [open, watchedClientId]);
 
+  useEffect(() => {
+    if (!open) {
+      setPlantPick({
+        allPlants: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
+      return;
+    }
+    let cancelled = false;
+    setPlantPick((p) => ({ ...p, loading: true }));
+    void fetch('/api/plants?active=true', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j: { data?: { id: string; name: string }[] }) => {
+        if (cancelled) return;
+        setPlantPick({
+          allPlants: true,
+          selectedIds: new Set(),
+          loading: false,
+          options: (j.data || []).map((x) => ({ id: x.id, name: x.name })),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPlantPick({
+            allPlants: true,
+            selectedIds: new Set(),
+            options: [],
+            loading: false,
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -257,6 +314,19 @@ function AssignClientModalComponent({
       return;
     }
 
+    if (
+      !plantPick.allPlants &&
+      plantPick.options.length > 0 &&
+      plantPick.selectedIds.size === 0
+    ) {
+      toast({
+        title: 'Plantas',
+        description: 'Selecciona al menos una planta o marca Todas las plantas.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const body: Record<string, unknown> = {
@@ -265,6 +335,9 @@ function AssignClientModalComponent({
       };
       if (!sitePick.allSites && sitePick.selectedIds.size > 0) {
         body.constructionSiteIds = Array.from(sitePick.selectedIds);
+      }
+      if (!plantPick.allPlants && plantPick.selectedIds.size > 0) {
+        body.plantIds = Array.from(plantPick.selectedIds);
       }
 
       const response = await fetch(`/api/admin/client-portal-users/${userId}/clients`, {
@@ -296,6 +369,12 @@ function AssignClientModalComponent({
         options: [],
         loading: false,
       });
+      setPlantPick({
+        allPlants: true,
+        selectedIds: new Set(),
+        options: [],
+        loading: false,
+      });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -307,7 +386,7 @@ function AssignClientModalComponent({
     } finally {
       setIsSubmitting(false);
     }
-  }, [userId, form, toast, onOpenChange, onSuccess, sitePick]);
+  }, [userId, form, toast, onOpenChange, onSuccess, sitePick, plantPick]);
 
   // Memoize available clients
   const availableClients = useMemo(() => {
@@ -463,6 +542,58 @@ function AssignClientModalComponent({
                           />
                           <Label htmlFor={`assign-site-${site.id}`} className="cursor-pointer text-sm">
                             {site.name}
+                          </Label>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {plantPick.options.length > 0 && (
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="assign-all-plants"
+                    checked={plantPick.allPlants}
+                    onCheckedChange={(checked) => {
+                      const on = checked === true;
+                      setPlantPick((p) => ({
+                        ...p,
+                        allPlants: on,
+                        selectedIds: on ? new Set() : p.selectedIds,
+                      }));
+                    }}
+                  />
+                  <Label htmlFor="assign-all-plants" className="cursor-pointer font-medium">
+                    Todas las plantas
+                  </Label>
+                </div>
+                {!plantPick.allPlants && (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pl-1">
+                    {plantPick.loading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Cargando plantas…
+                      </div>
+                    ) : (
+                      plantPick.options.map((plant) => (
+                        <div key={plant.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`assign-plant-${plant.id}`}
+                            checked={plantPick.selectedIds.has(plant.id)}
+                            onCheckedChange={(checked) => {
+                              setPlantPick((p) => {
+                                const next = new Set(p.selectedIds);
+                                if (checked === true) next.add(plant.id);
+                                else next.delete(plant.id);
+                                return { ...p, selectedIds: next };
+                              });
+                            }}
+                          />
+                          <Label htmlFor={`assign-plant-${plant.id}`} className="cursor-pointer text-sm">
+                            {plant.name}
                           </Label>
                         </div>
                       ))

@@ -21,6 +21,8 @@ export interface TeamMember {
   last_login: string | null;
   /** null = todas las obras; array no vacío = restringido a esas obras */
   allowed_construction_site_ids?: string[] | null;
+  /** null = todas las plantas; array no vacío = restringido a esas plantas */
+  allowed_plant_ids?: string[] | null;
 }
 
 export interface InviteUserData {

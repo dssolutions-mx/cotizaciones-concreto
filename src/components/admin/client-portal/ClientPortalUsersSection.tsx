@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { UserPlus, Users, MapPin } from 'lucide-react';
+import { UserPlus, Users, MapPin, Factory } from 'lucide-react';
 import { AssignClientModal } from './AssignClientModal';
 import { CreatePortalUserModal } from './CreatePortalUserModal';
+import { EditPortalMembershipPlantsModal } from './EditPortalMembershipPlantsModal';
 import { EditPortalMembershipSitesModal } from './EditPortalMembershipSitesModal';
 import { Badge } from '@/components/ui/badge';
 import { UserRoleBadge } from '@/components/client-portal/shared/UserRoleBadge';
@@ -24,6 +25,9 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [sitesModal, setSitesModal] = useState<{ userId: string; association: ClientAssociation } | null>(
+    null
+  );
+  const [plantsModal, setPlantsModal] = useState<{ userId: string; association: ClientAssociation } | null>(
     null
   );
   const { toast } = useToast();
@@ -185,6 +189,10 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
                             {association.allowed_construction_site_ids?.length
                               ? `${association.allowed_construction_site_ids.length} obra(s) permitida(s)`
                               : 'Todas las obras'}
+                            {' · '}
+                            {association.allowed_plant_ids?.length
+                              ? `${association.allowed_plant_ids.length} planta(s) permitida(s)`
+                              : 'Todas las plantas'}
                           </p>
                         )}
                         {association && (
@@ -209,6 +217,21 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
                           >
                             <MapPin className="h-3.5 w-3.5" />
                             Obras
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() =>
+                              setPlantsModal({
+                                userId: user.id,
+                                association,
+                              })
+                            }
+                          >
+                            <Factory className="h-3.5 w-3.5" />
+                            Plantas
                           </Button>
                           <Button
                             variant="ghost"
@@ -261,6 +284,21 @@ export function ClientPortalUsersSection({ clientId }: ClientPortalUsersSectionP
           association={sitesModal.association}
           onSuccess={() => {
             setSitesModal(null);
+            fetchPortalUsers();
+          }}
+        />
+      ) : null}
+
+      {plantsModal ? (
+        <EditPortalMembershipPlantsModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setPlantsModal(null);
+          }}
+          userId={plantsModal.userId}
+          association={plantsModal.association}
+          onSuccess={() => {
+            setPlantsModal(null);
             fetchPortalUsers();
           }}
         />

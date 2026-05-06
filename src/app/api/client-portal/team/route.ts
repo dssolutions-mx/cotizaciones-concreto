@@ -116,6 +116,7 @@ export async function GET(request: NextRequest) {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const siteMap = new Map<string, string[]>();
+    const plantMap = new Map<string, string[]>();
     if (serviceRoleKey && supabaseUrl && teamMembers?.length) {
       const { createClient } = await import('@supabase/supabase-js');
       const admin = createClient(supabaseUrl, serviceRoleKey, {
@@ -132,6 +133,15 @@ export async function GET(request: NextRequest) {
           if (!siteMap.has(r.client_portal_user_id)) siteMap.set(r.client_portal_user_id, []);
           siteMap.get(r.client_portal_user_id)!.push(r.construction_site_id);
         }
+        const { data: prows } = await admin
+          .from('client_portal_user_plants')
+          .select('client_portal_user_id, plant_id')
+          .in('client_portal_user_id', memIds);
+        for (const row of prows || []) {
+          const r = row as { client_portal_user_id: string; plant_id: string };
+          if (!plantMap.has(r.client_portal_user_id)) plantMap.set(r.client_portal_user_id, []);
+          plantMap.get(r.client_portal_user_id)!.push(r.plant_id);
+        }
       }
     }
 
@@ -141,6 +151,7 @@ export async function GET(request: NextRequest) {
       ?.filter((member) => member.user_profiles !== null)
       .map((member) => {
         const scoped = siteMap.get(member.id);
+        const plantScoped = plantMap.get(member.id);
         return {
           id: member.id,
           user_id: member.user_id,
@@ -154,6 +165,7 @@ export async function GET(request: NextRequest) {
           last_login: null, // last_sign_in_at is in auth.users, not user_profiles
           allowed_construction_site_ids:
             scoped && scoped.length > 0 ? scoped : null,
+          allowed_plant_ids: plantScoped && plantScoped.length > 0 ? plantScoped : null,
         };
       }) || [];
 

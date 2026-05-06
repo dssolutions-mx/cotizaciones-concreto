@@ -114,6 +114,7 @@ interface OrderDetail {
   } | null;
   elemento?: string;
   special_requirements?: string;
+  comentarios_internos?: string | null;
   requires_invoice?: boolean;
   credit_status?: string;
   rejection_reason?: string;
@@ -419,6 +420,48 @@ export default function OrderDetailPage() {
             </div>
           </div>
         </motion.div>
+
+        {(order.special_requirements?.trim() || order.comentarios_internos?.trim()) ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mb-8"
+          >
+            <div className="glass-base rounded-3xl p-8 shadow-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-xl glass-thin flex items-center justify-center border border-white/10">
+                  <FileText className="w-5 h-5 text-primary" />
+                </div>
+                <h2 className="text-title-2 font-bold text-label-primary">
+                  Información del pedido
+                </h2>
+              </div>
+              <div className="space-y-6">
+                {order.special_requirements?.trim() ? (
+                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
+                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">
+                      Observaciones
+                    </p>
+                    <p className="text-body text-label-primary whitespace-pre-wrap">
+                      {order.special_requirements.trim()}
+                    </p>
+                  </div>
+                ) : null}
+                {order.comentarios_internos?.trim() ? (
+                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
+                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">
+                      Comentarios internos
+                    </p>
+                    <p className="text-body text-label-primary whitespace-pre-wrap">
+                      {order.comentarios_internos.trim()}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </motion.div>
+        ) : null}
 
         {/* Order Items */}
         {(order?.order_items && order.order_items.length > 0) ||

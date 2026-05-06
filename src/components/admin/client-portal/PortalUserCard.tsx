@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { User, Mail, ChevronDown, ChevronRight, MoreVertical, Edit, Trash2, MapPin } from 'lucide-react';
+import { User, Mail, ChevronDown, ChevronRight, MoreVertical, Edit, Trash2, MapPin, Factory } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ClientAssociationChips } from './ClientAssociationChips';
+import { EditPortalMembershipPlantsModal } from './EditPortalMembershipPlantsModal';
 import { EditPortalMembershipSitesModal } from './EditPortalMembershipSitesModal';
 import type { ClientAssociation, PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
@@ -24,6 +25,7 @@ interface PortalUserCardProps {
 export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [sitesEdit, setSitesEdit] = useState<ClientAssociation | null>(null);
+  const [plantsEdit, setPlantsEdit] = useState<ClientAssociation | null>(null);
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Sin nombre';
   const isActive = user.is_active !== false;
 
@@ -129,6 +131,10 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
                         {assoc.allowed_construction_site_ids?.length
                           ? `${assoc.allowed_construction_site_ids.length} obra(s) permitida(s)`
                           : 'Todas las obras'}
+                        {' · '}
+                        {assoc.allowed_plant_ids?.length
+                          ? `${assoc.allowed_plant_ids.length} planta(s) permitida(s)`
+                          : 'Todas las plantas'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -144,6 +150,16 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
                       >
                         <MapPin className="h-3.5 w-3.5" />
                         Obras
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 gap-1"
+                        onClick={() => setPlantsEdit(assoc)}
+                      >
+                        <Factory className="h-3.5 w-3.5" />
+                        Plantas
                       </Button>
                     </div>
                   </div>
@@ -164,6 +180,21 @@ export function PortalUserCard({ user, onRefresh, delay = 0 }: PortalUserCardPro
           association={sitesEdit}
           onSuccess={() => {
             setSitesEdit(null);
+            onRefresh?.();
+          }}
+        />
+      ) : null}
+
+      {plantsEdit ? (
+        <EditPortalMembershipPlantsModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setPlantsEdit(null);
+          }}
+          userId={user.id}
+          association={plantsEdit}
+          onSuccess={() => {
+            setPlantsEdit(null);
             onRefresh?.();
           }}
         />

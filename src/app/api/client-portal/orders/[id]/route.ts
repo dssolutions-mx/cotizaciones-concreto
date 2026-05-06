@@ -72,6 +72,7 @@ export async function GET(
         invoice_amount,
         elemento,
         special_requirements,
+        comentarios_internos,
         requires_invoice,
         credit_status,
         rejection_reason,

@@ -12,6 +12,10 @@ import {
   processMuestreosForChart,
   resolveEnsayoResistenciaReportada,
   resolveEnsayoPorcentajeCumplimiento,
+  formatTipoMuestraLabel,
+  formatEdadAlEnsayoShort,
+  formatEnsayoDateShort,
+  formatEdadGarantiaReceta,
 } from '@/lib/qualityHelpers';
 import type { DatoGraficoResistencia } from '@/types/quality';
 import * as XLSX from 'xlsx';
@@ -166,6 +170,9 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           : null;
 
         // Crear fila base del muestreo
+        const edadGarantiaReceta = formatEdadGarantiaReceta((muestreo as any).concrete_specs) || 'N/A';
+        const muestreoAgeCtx = muestreo as Record<string, unknown>;
+
         const baseRow = {
           'Remisión': muestreo.remisionNumber,
           'No. Muestreo': muestreo.numeroMuestreo,
@@ -173,6 +180,7 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           'Obra': muestreo.constructionSite,
           'Código Receta': muestreo.recipeCode || 'N/A',
           "f'c Diseño (kg/cm²)": muestreo.recipeFc || 'N/A',
+          'Edad garantía (receta)': edadGarantiaReceta,
           'Revenimiento (cm)': muestreo.revenimientoSitio || 'N/A',
           'Masa Unitaria (kg/m³)': muestreo.masaUnitaria || 'N/A',
           'Volumen Fabricado (m³)': muestreo.volumenFabricado ? muestreo.volumenFabricado.toFixed(2) : 'N/A',
@@ -187,15 +195,27 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
         };
 
         if (hasTests && allEnsayos.length > 0) {
-          // Si hay ensayos, agregar información de cada ensayo
-          allEnsayos.forEach((ensayo, idx) => {
-            excelData.push({
-              ...baseRow,
-              'No. Ensayo': idx + 1,
-              'Resistencia (kg/cm²)': Number((ensayo as any).resistenciaCalculadaAjustada || 0).toFixed(0),
-              'Cumplimiento (%)': Number((ensayo as any).porcentajeCumplimientoAjustado || 0).toFixed(1),
-              'Resistencia Promedio (kg/cm²)': avgResistance ? avgResistance.toFixed(0) : 'N/A',
-              'Cumplimiento Promedio (%)': avgCompliance ? avgCompliance.toFixed(1) : 'N/A',
+          let ensayoIdx = 0;
+          muestreo.muestras.forEach((muestra) => {
+            const mu = muestra as { identificacion?: string; tipoMuestra?: string; tipo_muestra?: string };
+            const ident =
+              (mu.identificacion && String(mu.identificacion).trim()) ||
+              `Muestra ${String(muestra.id).slice(0, 8)}`;
+            const tipoLabel = formatTipoMuestraLabel(mu.tipoMuestra ?? mu.tipo_muestra);
+            (muestra.ensayos || []).forEach((ensayo: any) => {
+              ensayoIdx += 1;
+              excelData.push({
+                ...baseRow,
+                'No. Ensayo': ensayoIdx,
+                'Identificación muestra': ident,
+                'Tipo probeta': tipoLabel,
+                'Edad al ensayo': formatEdadAlEnsayoShort(muestreoAgeCtx, ensayo as Record<string, unknown>) || 'N/A',
+                'Fecha ensayo': formatEnsayoDateShort(ensayo as Record<string, unknown>) || 'N/A',
+                'Resistencia (kg/cm²)': Number(ensayo.resistenciaCalculadaAjustada || 0).toFixed(0),
+                'Cumplimiento (%)': Number(ensayo.porcentajeCumplimientoAjustado || 0).toFixed(1),
+                'Resistencia Promedio (kg/cm²)': avgResistance ? avgResistance.toFixed(0) : 'N/A',
+                'Cumplimiento Promedio (%)': avgCompliance ? avgCompliance.toFixed(1) : 'N/A',
+              });
             });
           });
         } else {
@@ -203,6 +223,10 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           excelData.push({
             ...baseRow,
             'No. Ensayo': 'N/A',
+            'Identificación muestra': 'N/A',
+            'Tipo probeta': 'N/A',
+            'Edad al ensayo': 'N/A',
+            'Fecha ensayo': 'N/A',
             'Resistencia (kg/cm²)': 'N/A',
             'Cumplimiento (%)': 'N/A',
             'Resistencia Promedio (kg/cm²)': 'N/A',
@@ -222,6 +246,7 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
         { wch: 30 }, // Obra
         { wch: 15 }, // Código Receta
         { wch: 18 }, // f'c Diseño
+        { wch: 22 }, // Edad garantía receta
         { wch: 16 }, // Revenimiento
         { wch: 20 }, // Masa Unitaria
         { wch: 22 }, // Volumen Fabricado
@@ -232,6 +257,10 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
         { wch: 14 }, // Total Ensayos
         { wch: 14 }, // Tipo
         { wch: 12 }, // No. Ensayo
+        { wch: 22 }, // Identificación muestra
+        { wch: 14 }, // Tipo probeta
+        { wch: 18 }, // Edad al ensayo
+        { wch: 14 }, // Fecha ensayo
         { wch: 20 }, // Resistencia
         { wch: 16 }, // Cumplimiento
         { wch: 26 }, // Resistencia Promedio

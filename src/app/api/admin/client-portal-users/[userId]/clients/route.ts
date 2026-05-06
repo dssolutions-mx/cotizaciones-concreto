@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest, createServiceClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { replaceClientPortalMembershipPlantIds } from '@/lib/supabase/portalMembershipPlants';
 import { replaceClientPortalMembershipSiteIds } from '@/lib/supabase/portalMembershipSites';
 
 export const dynamic = 'force-dynamic';
@@ -12,13 +13,38 @@ const assignClientSchema = z.object({
   }),
   permissions: z.record(z.boolean()).optional(),
   constructionSiteIds: z.array(z.string().uuid()).optional(),
+  /** Non-empty = restrict to these plants; omit or empty = all plants */
+  plantIds: z.array(z.string().uuid()).optional(),
 });
 
 const updateRoleSchema = z.object({
   role: z.enum(['executive', 'user']),
   permissions: z.record(z.boolean()).optional(),
   constructionSiteIds: z.array(z.string().uuid()).optional(),
+  plantIds: z.array(z.string().uuid()).optional(),
 });
+
+async function validateActivePlantIds(
+  supabase: ReturnType<typeof createServerSupabaseClientFromRequest>,
+  plantIds: string[] | undefined
+): Promise<NextResponse | null> {
+  if (!plantIds?.length) return null;
+  const { count, error } = await supabase
+    .from('plants')
+    .select('id', { count: 'exact', head: true })
+    .eq('is_active', true)
+    .in('id', plantIds);
+  if (error) {
+    return NextResponse.json({ error: 'Error validando plantas' }, { status: 500 });
+  }
+  if ((count ?? 0) !== plantIds.length) {
+    return NextResponse.json(
+      { error: 'Una o más plantas no son válidas o están inactivas' },
+      { status: 400 }
+    );
+  }
+  return null;
+}
 
 /**
  * POST /api/admin/client-portal-users/[userId]/clients
@@ -77,7 +103,10 @@ export async function POST(
       );
     }
 
-    const { clientId, role, permissions, constructionSiteIds } = validation.data;
+    const { clientId, role, permissions, constructionSiteIds, plantIds } = validation.data;
+
+    const plantErr = await validateActivePlantIds(supabase, plantIds);
+    if (plantErr) return plantErr;
 
     if (constructionSiteIds?.length) {
       const { count, error: cntErr } = await supabase
@@ -124,15 +153,22 @@ export async function POST(
     }
 
     // Get default permissions if user role and no permissions provided
-    let finalPermissions = permissions || {};
+    let finalPermissions: Record<string, boolean> = permissions ?? {};
     if (role === 'user' && Object.keys(finalPermissions).length === 0) {
       const { data: client } = await supabase
         .from('clients')
         .select('default_permissions')
         .eq('id', clientId)
         .single();
-      
-      finalPermissions = client?.default_permissions || {};
+
+      const dp = client?.default_permissions;
+      if (dp && typeof dp === 'object' && !Array.isArray(dp)) {
+        finalPermissions = Object.fromEntries(
+          Object.entries(dp as Record<string, unknown>).filter(
+            (entry): entry is [string, boolean] => typeof entry[1] === 'boolean'
+          )
+        );
+      }
     }
 
     // Create association
@@ -166,6 +202,16 @@ export async function POST(
     if (siteErr) {
       console.error('Error assigning obra scope:', siteErr);
       return NextResponse.json({ error: 'Asociación creada pero falló asignación de obras' }, { status: 500 });
+    }
+
+    const { error: plantScopeErr } = await replaceClientPortalMembershipPlantIds(
+      db,
+      insertedAssoc.id,
+      plantIds
+    );
+    if (plantScopeErr) {
+      console.error('Error assigning plant scope:', plantScopeErr);
+      return NextResponse.json({ error: 'Asociación creada pero falló asignación de plantas' }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -327,7 +373,10 @@ export async function PATCH(
       );
     }
 
-    const { role, permissions, constructionSiteIds } = validation.data;
+    const { role, permissions, constructionSiteIds, plantIds } = validation.data;
+
+    const plantValErr = await validateActivePlantIds(supabase, plantIds);
+    if (plantValErr) return plantValErr;
 
     if (constructionSiteIds?.length) {
       const { count, error: cntErr } = await supabase
@@ -384,6 +433,22 @@ export async function PATCH(
         if (siteErr) {
           console.error('Error updating obra scope:', siteErr);
           return NextResponse.json({ error: 'Rol actualizado pero falló asignación de obras' }, { status: 500 });
+        }
+      }
+    }
+
+    if (plantIds !== undefined) {
+      const { data: row } = await db
+        .from('client_portal_users')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('client_id', clientId)
+        .maybeSingle();
+      if (row?.id) {
+        const { error: plantErr } = await replaceClientPortalMembershipPlantIds(db, row.id, plantIds);
+        if (plantErr) {
+          console.error('Error updating plant scope:', plantErr);
+          return NextResponse.json({ error: 'Rol actualizado pero falló asignación de plantas' }, { status: 500 });
         }
       }
     }

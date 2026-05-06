@@ -46,7 +46,8 @@ export default function QualityPage() {
 
   const fetchQualityData = async (range?: { from: Date; to: Date }) => {
     const rangeToUse = range || dateRange;
-    
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
+
     try {
       setLoading(true);
       setLoadingProgress(0);
@@ -68,9 +69,8 @@ export default function QualityPage() {
         to: toDate
       });
 
-      // Start progress simulation
       let currentStage = 0;
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         if (currentStage < progressStages.length) {
           setLoadingProgress(progressStages[currentStage].progress);
           setLoadingStage(progressStages[currentStage].stage);
@@ -78,7 +78,6 @@ export default function QualityPage() {
         }
       }, 300);
 
-      // Fetch summary first
       const response = await fetch(appendPortalClientId(`/api/client-portal/quality?${params}`));
       const result = await response.json();
 
@@ -118,12 +117,11 @@ export default function QualityPage() {
         }
       }
 
-      clearInterval(progressInterval);
+      if (progressInterval) clearInterval(progressInterval);
+      progressInterval = null;
+
       setLoadingProgress(100);
       setLoadingStage('Completado');
-
-      // Small delay to show 100% completion
-      await new Promise(resolve => setTimeout(resolve, 300));
 
       const completeData = {
         ...result.data,
@@ -137,6 +135,7 @@ export default function QualityPage() {
       setData(null);
       setSummary(null);
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setLoading(false);
       setLoadingProgress(0);
     }

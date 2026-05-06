@@ -1367,6 +1367,42 @@ export type Database = {
           },
         ]
       }
+      client_portal_user_plants: {
+        Row: {
+          client_portal_user_id: string
+          created_at: string
+          id: string
+          plant_id: string
+        }
+        Insert: {
+          client_portal_user_id: string
+          created_at?: string
+          id?: string
+          plant_id: string
+        }
+        Update: {
+          client_portal_user_id?: string
+          created_at?: string
+          id?: string
+          plant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_user_plants_client_portal_user_id_fkey"
+            columns: ["client_portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_portal_user_plants_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_portal_users: {
         Row: {
           client_id: string

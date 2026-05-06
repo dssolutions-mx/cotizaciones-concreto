@@ -79,7 +79,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         setLoading(true);
         
         // Cargar plantas
-        const plantsResponse = await fetch('/api/plants?active=true');
+        const plantsResponse = await fetch(appendPortalClientId('/api/client-portal/plants?active=true'));
         if (plantsResponse.ok) {
           const plantsResult = await plantsResponse.json();
           setPlants(plantsResult.data || []);

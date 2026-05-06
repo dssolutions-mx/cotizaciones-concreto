@@ -17,8 +17,14 @@ import {
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import ComplianceBadge from './ComplianceBadge';
-import { resolveEnsayoResistenciaReportada, resolveEnsayoPorcentajeCumplimiento } from '@/lib/qualityHelpers';
-import type { ClientQualityRemisionData } from '@/types/clientQuality';
+import {
+  resolveEnsayoResistenciaReportada,
+  resolveEnsayoPorcentajeCumplimiento,
+  formatTipoMuestraLabel,
+  formatEdadAlEnsayoShort,
+  formatEnsayoDateShort,
+  formatEdadGarantiaReceta,
+} from '@/lib/qualityHelpers';
 
 interface ProcessedMuestreo {
   id: string;
@@ -30,10 +36,17 @@ interface ProcessedMuestreo {
   revenimientoSitio: number;
   muestras: Array<{
     id: string;
+    identificacion?: string;
+    tipoMuestra?: 'CILINDRO' | 'VIGA' | 'CUBO' | string;
     ensayos: Array<{
       id: string;
-      porcentajeCumplimiento: number;
-      resistenciaCalculada: number;
+      porcentajeCumplimiento?: number;
+      resistenciaCalculada?: number;
+      fechaEnsayo?: string;
+      fecha_ensayo?: string;
+      fecha_ensayo_ts?: string | null;
+      hora_ensayo?: string | null;
+      [key: string]: unknown;
     }>;
   }>;
   remisionNumber: string;
@@ -44,6 +57,9 @@ interface ProcessedMuestreo {
   recipeFc?: number;
   recipeCode?: string;
   compliance?: number;
+  concrete_specs?: unknown;
+  fecha_muestreo_ts?: string | null;
+  hora_muestreo?: string | null;
 }
 
 interface MuestreoCardProps {
@@ -53,29 +69,46 @@ interface MuestreoCardProps {
 
 export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
   const hasTests = muestreo.muestras.some(m => m.ensayos.length > 0);
-  const allEnsayos = muestreo.muestras.flatMap(m => m.ensayos);
-
-  // Compute adjusted ensayo values (resistance and compliance) using recipe Fc
   const recipeFc = muestreo.recipeFc || 0;
-  const adjustedEnsayos = allEnsayos.map(e => {
-    const resAdj = resolveEnsayoResistenciaReportada(e);
-    const compAdj = resolveEnsayoPorcentajeCumplimiento(e, recipeFc);
-    return {
-      ...e,
-      resistenciaCalculadaAjustada: resAdj,
-      porcentajeCumplimientoAjustado: compAdj
-    };
-  });
-  
-  const avgCompliance = hasTests && adjustedEnsayos.length > 0
-    ? adjustedEnsayos.reduce((sum, e: any) => sum + (e.porcentajeCumplimientoAjustado || 0), 0) / adjustedEnsayos.length
-    : 0;
 
-  const avgResistance = hasTests && adjustedEnsayos.length > 0
-    ? adjustedEnsayos.reduce((sum, e: any) => sum + (e.resistenciaCalculadaAjustada || 0), 0) / adjustedEnsayos.length
-    : 0;
+  const ensayoRows = muestreo.muestras.flatMap(muestra =>
+    (muestra.ensayos || []).map(ensayo => {
+      const resAdj = resolveEnsayoResistenciaReportada(ensayo);
+      const compAdj = resolveEnsayoPorcentajeCumplimiento(ensayo, recipeFc);
+      return {
+        muestra,
+        ensayo: {
+          ...ensayo,
+          resistenciaCalculadaAjustada: resAdj,
+          porcentajeCumplimientoAjustado: compAdj,
+        },
+      };
+    })
+  );
 
-  const isCompliant = avgCompliance >= 95;
+  const avgCompliance =
+    hasTests && ensayoRows.length > 0
+      ? ensayoRows.reduce((sum, r) => sum + (r.ensayo.porcentajeCumplimientoAjustado || 0), 0) / ensayoRows.length
+      : 0;
+
+  const avgResistance =
+    hasTests && ensayoRows.length > 0
+      ? ensayoRows.reduce((sum, r) => sum + (r.ensayo.resistenciaCalculadaAjustada || 0), 0) / ensayoRows.length
+      : 0;
+
+  const edadGarantiaLabel = formatEdadGarantiaReceta(muestreo.concrete_specs);
+  const muestreoForAge = muestreo as Record<string, unknown>;
+
+  const muestraLabel = (muestra: ProcessedMuestreo['muestras'][0]) => {
+    const m = muestra as { identificacion?: string };
+    const id = m.identificacion && String(m.identificacion).trim();
+    return id || `Muestra ${String(muestra.id).slice(0, 8)}`;
+  };
+
+  const muestraTipo = (muestra: ProcessedMuestreo['muestras'][0]) => {
+    const m = muestra as { tipoMuestra?: string; tipo_muestra?: string };
+    return formatTipoMuestraLabel(m.tipoMuestra ?? m.tipo_muestra);
+  };
 
   return (
     <motion.div
@@ -117,18 +150,31 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
             </span>
           </div>
 
-          {muestreo.recipeCode && (
-            <div className="flex items-center gap-2 text-caption">
-              <span className="px-2.5 py-1 glass-thin border border-white/20 rounded-lg text-label-secondary font-medium">
-                {muestreo.recipeCode}
-              </span>
-              {muestreo.recipeFc && (
-                <span className="text-label-tertiary">
-                  f'c {muestreo.recipeFc} kg/cm²
+          {muestreo.recipeCode ? (
+            <div className="flex flex-col gap-1 text-caption">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 glass-thin border border-white/20 rounded-lg text-label-secondary font-medium">
+                  {muestreo.recipeCode}
                 </span>
-              )}
+                {muestreo.recipeFc ? (
+                  <span className="text-label-tertiary">
+                    f'c {muestreo.recipeFc} kg/cm²
+                  </span>
+                ) : null}
+              </div>
+              {edadGarantiaLabel ? (
+                <p className="text-footnote text-label-tertiary">
+                  Edad de garantía (receta):{' '}
+                  <span className="text-label-secondary font-medium">{edadGarantiaLabel}</span>
+                </p>
+              ) : null}
             </div>
-          )}
+          ) : edadGarantiaLabel ? (
+            <p className="text-footnote text-label-tertiary">
+              Edad de garantía (receta):{' '}
+              <span className="text-label-secondary font-medium">{edadGarantiaLabel}</span>
+            </p>
+          ) : null}
         </div>
 
         {/* Rendimiento Badge */}
@@ -253,7 +299,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
             <div>
               <p className="text-caption text-label-tertiary">Ensayos</p>
               <p className="text-callout font-bold text-label-primary">
-                {allEnsayos.length}
+                {ensayoRows.length}
               </p>
             </div>
           </div>
@@ -261,37 +307,60 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
       </div>
 
       {/* Test Results (if available) */}
-      {hasTests && allEnsayos.length > 0 && (
+      {hasTests && ensayoRows.length > 0 && (
         <div className="pt-4 border-t border-white/10">
           <div className="flex items-center gap-2 mb-3" title="Resultados con resistencia corregida (BD)">
             <Activity className="w-4 h-4 text-systemPurple" />
             <p className="text-callout font-semibold text-label-primary">Resultados de Ensayos</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {adjustedEnsayos.map((ensayo: any, idx: number) => (
-              <div 
+            {ensayoRows.map(({ muestra, ensayo }) => (
+              <div
                 key={ensayo.id}
-                className="flex items-center justify-between px-3 py-2.5 glass-thin rounded-xl border border-white/10 hover:border-white/20 transition-colors"
+                className="flex flex-col gap-2 px-3 py-2.5 glass-thin rounded-xl border border-white/10 hover:border-white/20 transition-colors"
               >
-                <span className="text-callout font-medium text-label-secondary">Ensayo {idx + 1}</span>
-                <div className="flex items-center gap-2">
-                  <span className={`text-callout font-bold ${
-                    (ensayo.porcentajeCumplimientoAjustado || 0) >= 95 
-                      ? 'text-systemGreen' 
-                      : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
-                      ? 'text-systemOrange'
-                      : 'text-systemRed'
-                  }`}>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                  <span className="text-callout font-semibold text-label-primary">{muestraLabel(muestra)}</span>
+                  <span className="text-caption text-label-tertiary">{muestraTipo(muestra)}</span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-caption text-label-tertiary">
+                  <span title="Tiempo entre muestreo y ensayo">
+                    Edad al ensayo:{' '}
+                    <span className="text-label-secondary font-medium">
+                      {formatEdadAlEnsayoShort(muestreoForAge, ensayo as Record<string, unknown>) || '—'}
+                    </span>
+                  </span>
+                  {formatEnsayoDateShort(ensayo as Record<string, unknown>) ? (
+                    <span>
+                      Fecha ensayo:{' '}
+                      <span className="text-label-secondary font-medium">
+                        {formatEnsayoDateShort(ensayo as Record<string, unknown>)}
+                      </span>
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/5">
+                  <span
+                    className={`text-callout font-bold ${
+                      (ensayo.porcentajeCumplimientoAjustado || 0) >= 95
+                        ? 'text-systemGreen'
+                        : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
+                          ? 'text-systemOrange'
+                          : 'text-systemRed'
+                    }`}
+                  >
                     {Number(ensayo.resistenciaCalculadaAjustada || 0).toFixed(0)} kg/cm²
                   </span>
                   <span className="text-label-tertiary">•</span>
-                  <span className={`text-callout font-bold ${
-                    (ensayo.porcentajeCumplimientoAjustado || 0) >= 95 
-                      ? 'text-systemGreen' 
-                      : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
-                      ? 'text-systemOrange'
-                      : 'text-systemRed'
-                  }`}>
+                  <span
+                    className={`text-callout font-bold ${
+                      (ensayo.porcentajeCumplimientoAjustado || 0) >= 95
+                        ? 'text-systemGreen'
+                        : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
+                          ? 'text-systemOrange'
+                          : 'text-systemRed'
+                    }`}
+                  >
                     {Number(ensayo.porcentajeCumplimientoAjustado || 0).toFixed(0)}%
                   </span>
                 </div>

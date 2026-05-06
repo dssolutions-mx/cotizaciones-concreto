@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import {
+  assertPlantAllowedForPortal,
   getOptionalPortalClientIdFromRequest,
   resolvePortalContext,
 } from '@/lib/client-portal/resolvePortalContext';
@@ -98,6 +99,13 @@ export async function GET(request: Request) {
         .maybeSingle();
       if (!siteRow) {
         return NextResponse.json({ error: 'Obra no permitida para tu cuenta' }, { status: 403 });
+      }
+    }
+
+    if (plantId) {
+      const plantGate = assertPlantAllowedForPortal(association, plantId);
+      if (!plantGate.ok) {
+        return NextResponse.json({ error: plantGate.message }, { status: 403 });
       }
     }
 
@@ -243,6 +251,15 @@ export async function GET(request: Request) {
         if (!masterData || !masterId) continue;
 
         if (!activeQuoteMasterCombos.has(`${quote.id}:${masterId}`)) continue;
+
+        if (
+          association.plantsRestricted &&
+          association.allowedPlantIds?.length &&
+          masterData.plant_id &&
+          !association.allowedPlantIds.includes(masterData.plant_id)
+        ) {
+          continue;
+        }
 
         if (plantId && masterData.plant_id !== plantId) continue;
 

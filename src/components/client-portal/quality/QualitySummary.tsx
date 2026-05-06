@@ -49,11 +49,20 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
 
   // Calculate weighted average CV from the breakdown
   // Weighted CV = sum(CV * n) / sum(n)
-  const tempOverallCV = isInmobicarpio && tempCvByRecipe ? (() => {
-    const totalWeight = tempCvByRecipe.reduce((sum, r) => sum + r.muestreoCount, 0);
-    const weightedSum = tempCvByRecipe.reduce((sum, r) => sum + (r.coefficientVariation * r.muestreoCount), 0);
-    return weightedSum / totalWeight;
-  })() : summary.averages.coefficientVariation;
+  const tempOverallCVRaw =
+    isInmobicarpio && tempCvByRecipe && tempCvByRecipe.length > 0
+      ? (() => {
+          const totalWeight = tempCvByRecipe.reduce((sum, r) => sum + r.muestreoCount, 0);
+          if (totalWeight === 0) return 0;
+          const weightedSum = tempCvByRecipe.reduce(
+            (sum, r) => sum + r.coefficientVariation * r.muestreoCount,
+            0
+          );
+          return weightedSum / totalWeight;
+        })()
+      : summary.averages.coefficientVariation;
+
+  const tempOverallCV = Number.isFinite(Number(tempOverallCVRaw)) ? Number(tempOverallCVRaw) : 0;
 
   // Prepare scatter chart data
   const datosGrafico: DatoGraficoResistencia[] = data.remisiones.flatMap(remision =>

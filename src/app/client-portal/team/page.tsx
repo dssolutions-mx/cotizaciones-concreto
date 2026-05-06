@@ -17,12 +17,13 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/client-portal/shared/EmptyState';
 import { LoadingState } from '@/components/client-portal/shared/LoadingState';
 import { UserRoleBadge } from '@/components/client-portal/shared/UserRoleBadge';
-import { Users, UserPlus, MoreVertical, Edit, Trash2, Key, MapPin, AlertCircle } from 'lucide-react';
+import { Users, UserPlus, MoreVertical, Edit, Trash2, Key, MapPin, Factory, AlertCircle } from 'lucide-react';
 import { InviteUserModal } from '@/components/client-portal/team/InviteUserModal';
 import { EditUserRoleModal } from '@/components/client-portal/team/EditUserRoleModal';
 import { EditPermissionsModal } from '@/components/client-portal/team/EditPermissionsModal';
 import { DeactivateUserDialog } from '@/components/client-portal/team/DeactivateUserDialog';
 import { EditTeamMemberSitesModal } from '@/components/client-portal/team/EditTeamMemberSitesModal';
+import { EditTeamMemberPlantsModal } from '@/components/client-portal/team/EditTeamMemberPlantsModal';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ export default function TeamManagementPage() {
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [sitesMember, setSitesMember] = useState<TeamMember | null>(null);
+  const [plantsMember, setPlantsMember] = useState<TeamMember | null>(null);
 
   // Check permissions
   if (permissionsLoading) {
@@ -154,6 +156,7 @@ export default function TeamManagementPage() {
                 <TableHead>Correo</TableHead>
                 <TableHead>Rol</TableHead>
                 <TableHead>Obras</TableHead>
+                <TableHead>Plantas</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead>Último Acceso</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
@@ -189,6 +192,15 @@ export default function TeamManagementPage() {
                         <span className="text-green-700">Todas</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-sm text-gray-600 max-w-[140px]">
+                      {member.allowed_plant_ids?.length ? (
+                        <span title={member.allowed_plant_ids.length + ' planta(s)'}>
+                          {member.allowed_plant_ids.length} planta(s)
+                        </span>
+                      ) : (
+                        <span className="text-green-700">Todas</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {member.is_active ? (
                         <span className="text-green-600 text-sm">Activo</span>
@@ -216,6 +228,18 @@ export default function TeamManagementPage() {
                           >
                             <MapPin className="h-4 w-4 mr-2" />
                             Obras permitidas
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                  setPlantsMember(member);
+                                });
+                              });
+                            }}
+                          >
+                            <Factory className="h-4 w-4 mr-2" />
+                            Plantas permitidas
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onSelect={() => {
@@ -290,6 +314,20 @@ export default function TeamManagementPage() {
           member={sitesMember}
           onSuccess={() => {
             setSitesMember(null);
+            refresh();
+          }}
+        />
+      ) : null}
+
+      {plantsMember ? (
+        <EditTeamMemberPlantsModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setPlantsMember(null);
+          }}
+          member={plantsMember}
+          onSuccess={() => {
+            setPlantsMember(null);
             refresh();
           }}
         />

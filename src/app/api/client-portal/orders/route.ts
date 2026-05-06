@@ -1,6 +1,7 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import {
   assertConstructionSiteAllowedForCreate,
+  assertPlantAllowedForPortal,
   getOptionalPortalClientIdFromBody,
   getOptionalPortalClientIdFromRequest,
   resolvePortalContext,
@@ -234,6 +235,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: siteGate.message }, { status: 403 });
     }
 
+    const plantIdStr = typeof plant_id === 'string' && plant_id.trim() ? plant_id.trim() : null;
+    const plantGate = assertPlantAllowedForPortal(association, plantIdStr);
+    if (!plantGate.ok) {
+      return NextResponse.json({ error: plantGate.message }, { status: 403 });
+    }
+
+    const { data: creatorProfile } = await supabase
+      .from('user_profiles')
+      .select('first_name, last_name, email')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    const portalUserDisplayName =
+      [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ').trim() ||
+      creatorProfile?.email ||
+      user.email ||
+      '';
+
     const insertPayload: Record<string, any> = {
       client_id: client.id,
       construction_site: construction_site ?? null,
@@ -247,12 +266,15 @@ export async function POST(request: Request) {
       order_status: 'created',
       credit_status: 'pending',
       elemento,
-      plant_id: plant_id ?? null,
+      plant_id: plantIdStr,
       quote_id: quote_id ?? null,
       // Default hidden site verification to green
       site_access_rating: 'green',
       // Set created_by to the portal user's ID
-      created_by: user.id
+      created_by: user.id,
+      // Manual portal orders (not Arkik / auto-generated): tag internal comments with creator name for ops visibility
+      auto_generated: false,
+      comentarios_internos: portalUserDisplayName || null,
       // Note: client_approval_status is set by the database trigger based on user permissions
     };
 

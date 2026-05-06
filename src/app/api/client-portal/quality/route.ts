@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest, createServiceClient } from '@/lib/supabase/server';
 import {
   getOptionalPortalClientIdFromRequest,
   resolvePortalContext,
@@ -43,18 +43,18 @@ export async function GET(request: Request) {
     const client = clientData;
     console.log(`[Quality API] Client: ${client.business_name} (${clientId})`);
 
-    // Diagnostic: Test RLS access by trying to query a single order
-    const { data: testOrder, error: testOrderError } = await supabase
-      .from('orders')
-      .select('id, order_number')
-      .eq('client_id', clientId)
-      .limit(1);
-    
-    console.log(`[Quality API] RLS Test - Orders query:`, {
-      found: testOrder?.length || 0,
-      error: testOrderError?.message || null,
-      canAccessOrders: !testOrderError && (testOrder?.length || 0) > 0
-    });
+    if (process.env.NODE_ENV === 'development') {
+      const { data: testOrder, error: testOrderError } = await supabase
+        .from('orders')
+        .select('id, order_number')
+        .eq('client_id', clientId)
+        .limit(1);
+      console.log(`[Quality API] RLS Test - Orders query:`, {
+        found: testOrder?.length || 0,
+        error: testOrderError?.message || null,
+        canAccessOrders: !testOrderError && (testOrder?.length || 0) > 0
+      });
+    }
 
     // Step 3: Get date range (default last 30 days)
     const toDate = searchParams.get('to') || new Date().toISOString().split('T')[0];
@@ -70,14 +70,23 @@ export async function GET(request: Request) {
 
     console.log(`[Quality API] Date range: ${fromDate} to ${toDate} (limit: ${limit}, offset: ${offset})`);
 
-    // Step 4: Call RPC function for summary (single query)
-    const { data: summaryData, error: summaryError } = await supabase
+    // Step 4: Summary + CV-by-recipe in parallel (independent RPCs; CV failure is non-fatal)
+    const summaryRpc = supabase
       .rpc('get_client_quality_summary', {
         p_client_id: clientId,
         p_from_date: fromDate,
         p_to_date: toDate
       })
       .single();
+
+    const cvRpc = supabase.rpc('get_client_quality_cv_by_recipe', {
+      p_client_id: clientId,
+      p_from_date: fromDate,
+      p_to_date: toDate
+    });
+
+    const [{ data: summaryData, error: summaryError }, { data: cvByRecipeData, error: cvError }] =
+      await Promise.all([summaryRpc, cvRpc]);
 
     if (summaryError) {
       console.error('[Quality API] Summary error:', summaryError);
@@ -96,7 +105,20 @@ export async function GET(request: Request) {
       }, { status: 500 });
     }
 
-    console.log(`[Quality API] Summary retrieved in ${Date.now() - startTime}ms`);
+    if (cvError) {
+      console.error('[Quality API] CV by recipe error:', cvError);
+      console.error('[Quality API] CV by recipe error details:', {
+        code: cvError.code,
+        message: cvError.message,
+        details: cvError.details,
+        hint: cvError.hint,
+        clientId,
+        fromDate,
+        toDate
+      });
+    }
+
+    console.log(`[Quality API] Summary (+ CV RPC) retrieved in ${Date.now() - startTime}ms`);
     console.log(`[Quality API] Summary metrics:`, {
       totalOrders: summaryData.total_orders,
       ordersWithEnsayos: summaryData.orders_with_ensayos,
@@ -142,45 +164,8 @@ export async function GET(request: Request) {
         const orderNumbers = remisionesData
           .map((r: any) => r.order_number)
           .filter(Boolean);
-        
-        if (orderNumbers.length > 0) {
-          console.log(`[Quality API] Fetching orders data for ${orderNumbers.length} order numbers`);
-          const { data: ordersData, error: ordersError } = await supabase
-            .from('orders')
-            .select('id, order_number, elemento')
-            .in('order_number', orderNumbers);
-          
-          if (ordersError) {
-            console.error('[Quality API] Error fetching orders data:', ordersError);
-            console.error('[Quality API] Orders error details:', {
-              code: ordersError.code,
-              message: ordersError.message,
-              details: ordersError.details,
-              hint: ordersError.hint,
-              orderNumbers: orderNumbers.slice(0, 5) // Log first 5 for debugging
-            });
-          } else {
-            console.log(`[Quality API] Orders query result: ${ordersData?.length || 0} orders found (expected ${orderNumbers.length})`);
-            // Check if RLS might be blocking - if we got fewer results than expected
-            if (ordersData && ordersData.length < orderNumbers.length) {
-              console.warn(`[Quality API] RLS WARNING: Expected ${orderNumbers.length} orders but got ${ordersData.length}. Some orders may be blocked by RLS.`);
-            }
-          }
-          
-          if (ordersData && ordersData.length > 0) {
-            const orderMap = new Map(ordersData.map((o: any) => [o.order_number, o]));
-            remisionesData = remisionesData.map((r: any) => ({
-              ...r,
-              order_id: orderMap.get(r.order_number)?.id || null,
-              elemento: orderMap.get(r.order_number)?.elemento || null
-            }));
-          } else if (orderNumbers.length > 0) {
-            console.warn(`[Quality API] No orders data returned for ${orderNumbers.length} order numbers - RLS may be blocking access`);
-          }
-        }
-        
-        // CRITICAL FIX: Fetch concrete_specs for all muestreos since RPC doesn't include it
-        // Collect all muestreo IDs from all remisiones
+        const uniqueOrderNumbers = [...new Set(orderNumbers)];
+
         const allMuestreoIds: string[] = [];
         const allMuestraIds: string[] = [];
         remisionesData.forEach((r: any) => {
@@ -199,41 +184,104 @@ export async function GET(request: Request) {
             });
           }
         });
-        
-        if (allMuestreoIds.length > 0) {
-          console.log(`[Quality API] Fetching concrete_specs for ${allMuestreoIds.length} muestreos`);
-          const { data: muestreosData, error: muestreosError } = await supabase
-            .from('muestreos')
-            .select('id, concrete_specs, fecha_muestreo_ts')
-            .in('id', allMuestreoIds);
-          
-          if (muestreosError) {
-            console.error('[Quality API] Error fetching concrete_specs:', muestreosError);
-            console.error('[Quality API] Muestreos error details:', {
-              code: muestreosError.code,
-              message: muestreosError.message,
-              details: muestreosError.details,
-              hint: muestreosError.hint,
-              muestreoIdsCount: allMuestreoIds.length
-            });
-          } else {
-            console.log(`[Quality API] Muestreos query result: ${muestreosData?.length || 0} muestreos found (expected ${allMuestreoIds.length})`);
-            // Check if RLS might be blocking - if we got fewer results than expected
-            if (muestreosData && muestreosData.length < allMuestreoIds.length) {
-              console.warn(`[Quality API] RLS WARNING: Expected ${allMuestreoIds.length} muestreos but got ${muestreosData.length}. Some muestreos may be blocked by RLS.`);
-            } else if (!muestreosData || muestreosData.length === 0) {
-              console.warn(`[Quality API] No muestreos data returned for ${allMuestreoIds.length} muestreo IDs - RLS may be blocking access`);
-            }
+
+        let service: ReturnType<typeof createServiceClient> | null = null;
+        try {
+          service = createServiceClient();
+        } catch {
+          service = null;
+        }
+
+        const ordersPromise =
+          uniqueOrderNumbers.length > 0
+            ? (async () => {
+                if (service) {
+                  return service
+                    .from('orders')
+                    .select('id, order_number, elemento')
+                    .eq('client_id', clientId)
+                    .in('order_number', uniqueOrderNumbers);
+                }
+                return supabase
+                  .from('orders')
+                  .select('id, order_number, elemento')
+                  .eq('client_id', clientId)
+                  .in('order_number', uniqueOrderNumbers);
+              })()
+            : Promise.resolve({ data: [] as any[], error: null });
+
+        const muestreosPromise =
+          allMuestreoIds.length > 0
+            ? (service ?? supabase)
+                .from('muestreos')
+                .select('id, concrete_specs, fecha_muestreo_ts')
+                .in('id', allMuestreoIds)
+            : Promise.resolve({ data: [] as any[], error: null });
+
+        const ensayosPromise =
+          allMuestraIds.length > 0
+            ? (service ?? supabase)
+                .from('ensayos')
+                .select('id, muestra_id, fecha_ensayo_ts, hora_ensayo, fecha_ensayo')
+                .in('muestra_id', allMuestraIds)
+            : Promise.resolve({ data: [] as any[], error: null });
+
+        if (uniqueOrderNumbers.length > 0) {
+          console.log(
+            `[Quality API] Enrichment parallel: orders=${uniqueOrderNumbers.length}, muestreos=${allMuestreoIds.length}, muestras=${allMuestraIds.length}`
+          );
+        }
+
+        const [ordersRes, muestreosRes, ensayosRes] = await Promise.all([
+          ordersPromise,
+          muestreosPromise,
+          ensayosPromise,
+        ]);
+
+        const { data: ordersData = null, error: ordersError } = ordersRes;
+        if (ordersError) {
+          console.error('[Quality API] Error fetching orders data:', ordersError);
+        } else if (ordersData?.length && uniqueOrderNumbers.length > 0) {
+          console.log(
+            `[Quality API] Orders: ${ordersData.length} rows (distinct order_numbers requested: ${uniqueOrderNumbers.length})`
+          );
+          if (ordersData.length < uniqueOrderNumbers.length) {
+            console.warn(
+              `[Quality API] Missing ${uniqueOrderNumbers.length - ordersData.length} orders for client; check order_number / data integrity`
+            );
           }
-          
-          if (muestreosData && muestreosData.length > 0) {
-            // Create a map of muestreo_id -> concrete_specs and fecha_muestreo_ts
+        } else if (uniqueOrderNumbers.length > 0) {
+          console.warn(
+            `[Quality API] No orders data for ${uniqueOrderNumbers.length} distinct order numbers`
+          );
+        }
+
+        if (ordersData && ordersData.length > 0) {
+          const orderMap = new Map(ordersData.map((o: any) => [o.order_number, o]));
+          remisionesData = remisionesData.map((r: any) => ({
+            ...r,
+            order_id: orderMap.get(r.order_number)?.id || null,
+            elemento: orderMap.get(r.order_number)?.elemento || null,
+          }));
+        }
+
+        const { data: muestreosData = null, error: muestreosError } = muestreosRes;
+        if (muestreosError) {
+          console.error('[Quality API] Error fetching concrete_specs:', muestreosError);
+        } else if (muestreosData?.length) {
+          if (muestreosData.length < allMuestreoIds.length) {
+            console.warn(
+              `[Quality API] Muestreos: expected ${allMuestreoIds.length}, got ${muestreosData.length}`
+            );
+          }
+        }
+
+        if (muestreosData && muestreosData.length > 0) {
             const muestreosMap = new Map(muestreosData.map((m: any) => [m.id, { 
               concrete_specs: m.concrete_specs,
               fecha_muestreo_ts: m.fecha_muestreo_ts
             }]));
             
-            // Merge concrete_specs and fecha_muestreo_ts into remisionesData
             remisionesData = remisionesData.map((r: any) => ({
               ...r,
               muestreos: (r.muestreos || []).map((m: any) => {
@@ -245,37 +293,16 @@ export async function GET(request: Request) {
                 };
               })
             }));
-            
-            console.log(`[Quality API] Merged concrete_specs and fecha_muestreo_ts for ${muestreosMap.size} muestreos`);
-          }
         }
-        
-        // CRITICAL FIX: Fetch fecha_ensayo_ts for all ensayos since RPC might not include it
-        if (allMuestraIds.length > 0) {
-          console.log(`[Quality API] Fetching fecha_ensayo_ts for ensayos from ${allMuestraIds.length} muestras`);
-          const { data: ensayosData, error: ensayosError } = await supabase
-            .from('ensayos')
-            .select('id, muestra_id, fecha_ensayo_ts, hora_ensayo, fecha_ensayo')
-            .in('muestra_id', allMuestraIds);
-          
-          if (ensayosError) {
-            console.error('[Quality API] Error fetching fecha_ensayo_ts:', ensayosError);
-            console.error('[Quality API] Ensayos error details:', {
-              code: ensayosError.code,
-              message: ensayosError.message,
-              details: ensayosError.details,
-              hint: ensayosError.hint,
-              muestraIdsCount: allMuestraIds.length
-            });
-          } else {
-            console.log(`[Quality API] Ensayos query result: ${ensayosData?.length || 0} ensayos found for ${allMuestraIds.length} muestras`);
-            // Check if RLS might be blocking - if we got no results when we expect some
-            if (!ensayosData || ensayosData.length === 0) {
-              console.warn(`[Quality API] No ensayos data returned for ${allMuestraIds.length} muestra IDs - RLS may be blocking access`);
-            }
-          }
-          
-          if (ensayosData && ensayosData.length > 0) {
+
+        const { data: ensayosData = null, error: ensayosError } = ensayosRes;
+        if (ensayosError) {
+          console.error('[Quality API] Error fetching fecha_ensayo_ts:', ensayosError);
+        } else if (allMuestraIds.length > 0 && (!ensayosData || ensayosData.length === 0)) {
+          console.warn(`[Quality API] No ensayos rows for ${allMuestraIds.length} muestra IDs`);
+        }
+
+        if (ensayosData && ensayosData.length > 0) {
             // Create a map of muestra_id -> array of ensayos with timestamps
             const ensayosByMuestraMap = new Map<string, any[]>();
             ensayosData.forEach((e: any) => {
@@ -310,35 +337,13 @@ export async function GET(request: Request) {
             }));
             
             console.log(`[Quality API] Merged fecha_ensayo_ts for ${ensayosData.length} ensayos`);
-          }
         }
       }
     }
 
-    // Step 6: Get per-recipe CV breakdown
-    const cvStartTime = Date.now();
-    const { data: cvByRecipeData, error: cvError } = await supabase
-      .rpc('get_client_quality_cv_by_recipe', {
-        p_client_id: clientId,
-        p_from_date: fromDate,
-        p_to_date: toDate
-      });
-
-    if (cvError) {
-      console.error('[Quality API] CV by recipe error:', cvError);
-      console.error('[Quality API] CV by recipe error details:', {
-        code: cvError.code,
-        message: cvError.message,
-        details: cvError.details,
-        hint: cvError.hint,
-        clientId,
-        fromDate,
-        toDate
-      });
-      // Don't fail the entire request, just log the error
-    }
-
-    console.log(`[Quality API] CV by recipe retrieved (${cvByRecipeData?.length || 0} recipes) in ${Date.now() - cvStartTime}ms`);
+    console.log(
+      `[Quality API] CV by recipe: ${(cvByRecipeData || []).length} recipes (parallel with summary)`
+    );
 
     // Handle empty data case
     if (!remisionesData || remisionesData.length === 0) {
@@ -369,7 +374,9 @@ export async function GET(request: Request) {
           resistencia: 0,
           complianceRate: 0,
           masaUnitaria: 0,
-          rendimientoVolumetrico: 0
+          rendimientoVolumetrico: 0,
+          coefficientVariation: 0,
+          cvByRecipe: undefined
         },
         performance: {
           complianceRate: 0,
@@ -569,32 +576,9 @@ export async function GET(request: Request) {
       totalMaterialQuantity: 0, // Can be calculated if needed
       materiales: [], // Not included in optimized view
       elemento: r.elemento || null, // Include elemento from order lookup
-      muestreos: (r.muestreos || []).map((m: any, idx: number) => {
-        // ALWAYS log to see what we're getting from RPC - UNCONDITIONAL
-        console.log(`[Quality API] Raw muestreo [${idx}]:`, {
-          muestreoId: m.id,
-          remisionNumber: r.remision_number,
-          hasConcreteSpecs: !!m.concrete_specs,
-          concrete_specs_raw: m.concrete_specs,
-          concrete_specs_type: typeof m.concrete_specs,
-          concrete_specs_stringified: JSON.stringify(m.concrete_specs),
-          allKeys: m.concrete_specs && typeof m.concrete_specs === 'object' ? Object.keys(m.concrete_specs) : []
-        });
-        
+      muestreos: (r.muestreos || []).map((m: any) => {
         const parsedSpecs = parseConcreteSpecs(m.concrete_specs);
-        
-        // ALWAYS log parsed result - UNCONDITIONAL
-        console.log(`[Quality API] Parsed concrete_specs [${idx}]:`, {
-          muestreoId: m.id,
-          remisionNumber: r.remision_number,
-          parsed: parsedSpecs,
-          parsedType: typeof parsedSpecs,
-          parsedStringified: JSON.stringify(parsedSpecs),
-          valor_edad: parsedSpecs?.valor_edad,
-          unidad_edad: parsedSpecs?.unidad_edad,
-          hasValidAge: typeof parsedSpecs?.valor_edad === 'number' && parsedSpecs?.valor_edad > 0 && parsedSpecs?.unidad_edad
-        });
-        
+
         return {
           ...m,
           concrete_specs: parsedSpecs,
@@ -616,7 +600,11 @@ export async function GET(request: Request) {
 
     const totalTime = Date.now() - startTime;
     console.log(`[Quality API] ✅ Total processing time: ${totalTime}ms`);
-    console.log(`[Quality API] Performance: ${remisiones.length} remisiones in ${totalTime}ms (${(totalTime / remisiones.length).toFixed(2)}ms per remision)`);
+    if (remisiones.length > 0) {
+      console.log(
+        `[Quality API] Performance: ${remisiones.length} remisiones (${(totalTime / remisiones.length).toFixed(2)}ms per remision)`
+      );
+    }
 
     const response: ClientQualityData = {
       clientInfo: summary.clientInfo,

@@ -60,6 +60,10 @@ function ClientAssociationsListComponent({
                 {assoc.allowed_construction_site_ids?.length
                   ? `${assoc.allowed_construction_site_ids.length} obra(s) permitida(s)`
                   : 'Todas las obras'}
+                {' · '}
+                {assoc.allowed_plant_ids?.length
+                  ? `${assoc.allowed_plant_ids.length} planta(s) permitida(s)`
+                  : 'Todas las plantas'}
               </p>
             </div>
           </div>

@@ -1,5 +1,7 @@
 // Helper functions for quality data processing and calculations
 
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import type { ClientQualityRemisionData, ClientQualityData } from '@/types/clientQuality';
 
 /** Shape accepted from API (camelCase or snake_case). */
@@ -460,5 +462,96 @@ export function getQualityTrend(data: ClientQualityData): 'improving' | 'declini
   if (difference > 0.5 || (avgLast >= 95 && avgFirst >= 95)) return 'improving';
   if (difference < -3) return 'declining'; // Only show declining if significant drop
   return 'stable';
+}
+
+/** Sample specimen type → Spanish label (client portal). */
+export function formatTipoMuestraLabel(tipo?: string | null): string {
+  if (!tipo) return '—';
+  const u = String(tipo).toUpperCase();
+  if (u === 'CILINDRO') return 'Cilindro';
+  if (u === 'CUBO') return 'Cubo';
+  if (u === 'VIGA') return 'Viga';
+  return tipo;
+}
+
+/** Instant (ms) when the muestreo was taken — aligns with ClientPointAnalysis. */
+export function resolveMuestreoInstantMs(muestreo: Record<string, unknown> | null | undefined): number | null {
+  if (!muestreo) return null;
+  const ts = muestreo.fecha_muestreo_ts;
+  if (typeof ts === 'string' && ts) {
+    const t = new Date(ts).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  const dStr = (muestreo.fechaMuestreo ?? muestreo.fecha_muestreo) as string | undefined;
+  if (dStr) {
+    const day = String(dStr).split('T')[0];
+    const hora = (muestreo.hora_muestreo as string | undefined) || '12:00:00';
+    const t = new Date(`${day}T${hora}`).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return null;
+}
+
+/** Instant (ms) when the ensayo was run — aligns with ClientPointAnalysis. */
+export function resolveEnsayoInstantMs(ensayo: Record<string, unknown> | null | undefined): number | null {
+  if (!ensayo) return null;
+  const ts = ensayo.fecha_ensayo_ts;
+  if (typeof ts === 'string' && ts) {
+    const t = new Date(ts).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  const fechaEnsayo = (ensayo.fechaEnsayo ?? ensayo.fecha_ensayo) as string | undefined;
+  if (fechaEnsayo) {
+    const day = String(fechaEnsayo).split('T')[0];
+    const hora = (ensayo.hora_ensayo as string | undefined) || '12:00:00';
+    const t = new Date(`${day}T${hora}`).getTime();
+    if (!Number.isNaN(t)) return t;
+  }
+  return null;
+}
+
+/**
+ * Elapsed time from muestreo to ensayo, formatted for clients (horas if &lt; 24 h, else días).
+ */
+export function formatEdadAlEnsayoShort(muestreo: Record<string, unknown>, ensayo: Record<string, unknown>): string | null {
+  const start = resolveMuestreoInstantMs(muestreo);
+  const end = resolveEnsayoInstantMs(ensayo);
+  if (start == null || end == null) return null;
+  const diffMs = end - start;
+  if (diffMs < 0) return null;
+  const ageInHours = diffMs / (1000 * 60 * 60);
+  const ageInDays = diffMs / (1000 * 60 * 60 * 24);
+  if (ageInHours < 24) {
+    const rounded = ageInHours < 2 ? ageInHours.toFixed(2) : ageInHours.toFixed(1);
+    const n = Number(rounded);
+    return `${rounded} ${n === 1 ? 'hora' : 'horas'}`;
+  }
+  const dayStr = ageInDays >= 10 ? ageInDays.toFixed(0) : ageInDays.toFixed(1);
+  const dn = Number(dayStr);
+  return `${dayStr} ${dn === 1 ? 'día' : 'días'}`;
+}
+
+export function formatEnsayoDateShort(ensayo: Record<string, unknown>): string | null {
+  const ms = resolveEnsayoInstantMs(ensayo);
+  if (ms == null) return null;
+  try {
+    return format(new Date(ms), 'dd/MM/yyyy', { locale: es });
+  } catch {
+    return null;
+  }
+}
+
+/** Recipe guarantee age from concrete_specs (valor_edad + unidad_edad). */
+export function formatEdadGarantiaReceta(specs: unknown): string | null {
+  if (!specs || typeof specs !== 'object') return null;
+  const s = specs as Record<string, unknown>;
+  const valorRaw = s.valor_edad ?? s.valorEdad;
+  const unidadRaw = s.unidad_edad ?? s.unidadEdad;
+  const v = typeof valorRaw === 'number' ? valorRaw : Number(valorRaw);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  const u = String(unidadRaw || 'DÍA').toUpperCase();
+  if (u === 'HORA' || u === 'H') return `${v} ${v === 1 ? 'hora' : 'horas'}`;
+  if (u === 'DÍA' || u === 'D') return `${v} ${v === 1 ? 'día' : 'días'}`;
+  return `${v} ${unidadRaw}`;
 }
 

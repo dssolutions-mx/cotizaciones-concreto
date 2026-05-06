@@ -8,6 +8,7 @@ import { Container } from '@/components/ui/Container';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import ElementoField from '@/components/client-portal/orders/ElementoField';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import DatePicker from '@/components/client-portal/DatePicker';
 import { cn } from '@/lib/utils';
@@ -185,7 +186,7 @@ export default function ScheduleOrderPage() {
       try {
         const [sitesRes, plantsRes] = await Promise.all([
           fetch(appendPortalClientId('/api/client-portal/sites')),
-          fetch('/api/plants')
+          fetch(appendPortalClientId('/api/client-portal/plants')),
         ]);
         const sitesJson = await sitesRes.json();
         const plantsJson = await plantsRes.json();
@@ -202,6 +203,12 @@ export default function ScheduleOrderPage() {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    if (plants.length === 1) {
+      setPlantId(plants[0].id);
+    }
+  }, [plants]);
 
   // Memoized selectors - define before they're used in effects
   const selectedSite = useMemo(() => sites.find(s => s.id === constructionSiteId), [sites, constructionSiteId]);
@@ -711,18 +718,8 @@ export default function ScheduleOrderPage() {
                   </div>
                 </div>
 
-                {/* Elemento */}
-                <div>
-                  <label htmlFor="schedule-elemento" className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Elemento *</label>
-                  <input
-                    id="schedule-elemento"
-                    type="text"
-                    placeholder="Ej: Losa de cimentación, Muro, Columna"
-                    value={elemento}
-                    onChange={(e) => setElemento(e.target.value)}
-                    className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                  />
-                </div>
+                {/* Elemento — texto libre o formato guiado */}
+                <ElementoField value={elemento} onChange={setElemento} idPrefix="schedule-elemento" />
 
                 {/* Product — cascada: resistencia → revenimiento → colocación */}
                 <div className="rounded-2xl border border-white/20 bg-white/[0.03] p-4 space-y-4">
@@ -1149,7 +1146,7 @@ export default function ScheduleOrderPage() {
                     </div>
                     <div className="glass-thin rounded-2xl p-5 border border-white/10">
                       <p className="text-caption text-label-tertiary uppercase tracking-wide mb-2">Elemento</p>
-                      <p className="text-body font-semibold text-label-primary">{elemento}</p>
+                      <p className="text-body font-semibold text-label-primary whitespace-pre-wrap break-words">{elemento}</p>
                     </div>
                   </div>
 

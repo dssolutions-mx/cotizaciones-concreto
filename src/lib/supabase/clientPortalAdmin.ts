@@ -24,6 +24,8 @@ export interface ClientAssociation {
   invited_at: string;
   /** null = all sites; non-empty = restricted to these construction_sites ids */
   allowed_construction_site_ids?: string[] | null;
+  /** null = all plants; non-empty = restricted to these plants ids */
+  allowed_plant_ids?: string[] | null;
 }
 
 export interface CreatePortalUserData {
@@ -34,6 +36,7 @@ export interface CreatePortalUserData {
   roles: Record<string, 'executive' | 'user'>; // clientId -> role
   permissions?: Record<string, Partial<Permissions>>; // clientId -> permissions
   constructionSiteIdsByClient?: Record<string, string[]>;
+  plantIdsByClient?: Record<string, string[]>;
 }
 
 export interface AssignClientData {
@@ -84,6 +87,7 @@ export const clientPortalAdminService = {
 
       const assocIds = (associations || []).map((a: { id: string }) => a.id).filter(Boolean);
       const siteMap = new Map<string, string[]>();
+      const plantMap = new Map<string, string[]>();
       if (assocIds.length > 0) {
         const { data: jrows } = await supabase
           .from('client_portal_user_construction_sites')
@@ -93,6 +97,15 @@ export const clientPortalAdminService = {
           const k = (row as { client_portal_user_id: string }).client_portal_user_id;
           if (!siteMap.has(k)) siteMap.set(k, []);
           siteMap.get(k)!.push((row as { construction_site_id: string }).construction_site_id);
+        }
+        const { data: prows } = await supabase
+          .from('client_portal_user_plants')
+          .select('client_portal_user_id, plant_id')
+          .in('client_portal_user_id', assocIds);
+        for (const row of prows || []) {
+          const k = (row as { client_portal_user_id: string }).client_portal_user_id;
+          if (!plantMap.has(k)) plantMap.set(k, []);
+          plantMap.get(k)!.push((row as { plant_id: string }).plant_id);
         }
       }
 
@@ -113,6 +126,7 @@ export const clientPortalAdminService = {
           is_active: assoc.is_active,
           invited_at: assoc.invited_at,
           allowed_construction_site_ids: siteMap.get(assoc.id) ?? null,
+          allowed_plant_ids: plantMap.get(assoc.id) ?? null,
         });
       });
 
@@ -172,6 +186,7 @@ export const clientPortalAdminService = {
 
       const assocIds = (associations || []).map((a: { id: string }) => a.id).filter(Boolean);
       const siteMap = new Map<string, string[]>();
+      const plantMap = new Map<string, string[]>();
       if (assocIds.length > 0) {
         const { data: jrows } = await supabase
           .from('client_portal_user_construction_sites')
@@ -181,6 +196,15 @@ export const clientPortalAdminService = {
           const k = (row as { client_portal_user_id: string }).client_portal_user_id;
           if (!siteMap.has(k)) siteMap.set(k, []);
           siteMap.get(k)!.push((row as { construction_site_id: string }).construction_site_id);
+        }
+        const { data: prows } = await supabase
+          .from('client_portal_user_plants')
+          .select('client_portal_user_id, plant_id')
+          .in('client_portal_user_id', assocIds);
+        for (const row of prows || []) {
+          const k = (row as { client_portal_user_id: string }).client_portal_user_id;
+          if (!plantMap.has(k)) plantMap.set(k, []);
+          plantMap.get(k)!.push((row as { plant_id: string }).plant_id);
         }
       }
 
@@ -196,6 +220,7 @@ export const clientPortalAdminService = {
           is_active: assoc.is_active,
           invited_at: assoc.invited_at,
           allowed_construction_site_ids: siteMap.get(assoc.id) ?? null,
+          allowed_plant_ids: plantMap.get(assoc.id) ?? null,
         };
       });
 
