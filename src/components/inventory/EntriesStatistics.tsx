@@ -4,8 +4,8 @@ import React, { useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import StatCard from './ui/StatCard'
 import { MaterialEntry } from '@/types/inventory'
-import { Package, DollarSign, TrendingUp, Calendar } from 'lucide-react'
-import { format } from 'date-fns'
+import { Package, DollarSign, TrendingUp } from 'lucide-react'
+import { format, parse } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 interface EntriesStatisticsProps {
@@ -23,13 +23,18 @@ export default function EntriesStatistics({ entries, dateRange, hideCost }: Entr
     const uniqueMaterials = new Set(entries.map(e => e.material_id)).size
     const uniqueSuppliers = new Set(entries.filter(e => e.supplier_id).map(e => e.supplier_id)).size
 
-    // Group by date
     const entriesByDate = entries.reduce((acc, entry) => {
-      const date = format(new Date(entry.entry_date), 'yyyy-MM-dd')
-      if (!acc[date]) {
-        acc[date] = []
+      const raw = entry.entry_date?.trim()
+      if (!raw) return acc
+      let key = raw
+      try {
+        const dt = parse(raw, 'yyyy-MM-dd', new Date())
+        if (!Number.isNaN(dt.getTime())) key = format(dt, 'yyyy-MM-dd')
+      } catch {
+        /* keep raw */
       }
-      acc[date].push(entry)
+      if (!acc[key]) acc[key] = []
+      acc[key].push(entry)
       return acc
     }, {} as Record<string, MaterialEntry[]>)
 
@@ -61,13 +66,14 @@ export default function EntriesStatistics({ entries, dateRange, hideCost }: Entr
         value={stats.totalEntries}
         icon={Package}
         iconColor="text-blue-600"
+        subtitle="Entradas que coinciden con el filtro actual"
       />
       <StatCard
         title="Cantidad Total"
         value={stats.totalQuantity.toLocaleString('es-MX', { maximumFractionDigits: 0 })}
         icon={TrendingUp}
         iconColor="text-green-600"
-        subtitle="Unidades recibidas"
+        subtitle="Suma de kg báscula/cantidad en filas cargadas (mezcla UoM si hay litros)"
       />
       {!hideCost && (
         <StatCard

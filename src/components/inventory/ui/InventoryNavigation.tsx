@@ -40,10 +40,10 @@ const navItems: NavItem[] = [
     icon: FileText,
   },
   {
-    href: '/production-control/advanced-dashboard',
-    label: 'Dashboard',
+    href: '/production-control/inventario',
+    label: 'Inventario',
     icon: BarChart3,
-    roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS']
+    roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR']
   },
   {
     href: '/production-control/reloj-checador',
@@ -64,8 +64,8 @@ export default function InventoryNavigation() {
   })
 
   const isActive = (href: string) => {
-    if (href === '/production-control/advanced-dashboard') {
-      return pathname === href || pathname?.startsWith('/production-control/advanced-dashboard')
+    if (href === '/production-control/inventario') {
+      return pathname === href || pathname?.startsWith('/production-control/inventario')
     }
     if (href === '/production-control/reloj-checador') {
       return pathname === href || pathname?.startsWith('/production-control/reloj-checador')

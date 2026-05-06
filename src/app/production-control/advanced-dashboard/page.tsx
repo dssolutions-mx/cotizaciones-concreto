@@ -1,8 +1,5 @@
-'use client'
+import { redirect } from 'next/navigation'
 
-import React from 'react'
-import InventoryDashboardPage from '@/components/inventory/InventoryDashboardPage'
-
-export default function AdvancedInventoryDashboardPage() {
-  return <InventoryDashboardPage />
+export default function AdvancedDashboardRedirectPage() {
+  redirect('/production-control/inventario')
 }

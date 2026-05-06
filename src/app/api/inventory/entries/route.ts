@@ -224,6 +224,101 @@ function inventoryContributionFromEntryRow(row: Record<string, unknown>): number
   return Number(row.received_qty_kg ?? row.quantity_received) || 0;
 }
 
+/**
+ * Entradas sin línea de OC: el cliente PUT suele mandar solo `quantity_received`.
+ * Mantener `received_qty_kg`, `received_qty_entered` y `quantity_received` alineados para FIFO/CXP.
+ */
+async function coerceMaterialEntryQuantityFieldsNoPo(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  currentEntry: Record<string, unknown>,
+  updatePayload: Record<string, unknown>,
+  updateData: Record<string, unknown>
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const uomRaw = (updatePayload.received_uom ?? currentEntry.received_uom) as string | null | undefined;
+  const uom = uomRaw === 'l' || uomRaw === 'm3' ? uomRaw : 'kg';
+
+  if (uom === 'l') {
+    const entered =
+      Number(
+        updateData.received_qty_entered ??
+          updateData.quantity_received ??
+          updatePayload.received_qty_entered ??
+          updatePayload.quantity_received ??
+          currentEntry.received_qty_entered ??
+          currentEntry.quantity_received ??
+          0
+      ) || 0;
+    updatePayload.received_uom = 'l';
+    updatePayload.received_qty_entered = entered;
+    updatePayload.quantity_received = entered;
+    updatePayload.received_qty_kg = null;
+    return { ok: true };
+  }
+
+  if (uom === 'm3') {
+    const kg =
+      Number(
+        updateData.received_qty_kg ??
+          updateData.quantity_received ??
+          updatePayload.received_qty_kg ??
+          updatePayload.quantity_received ??
+          currentEntry.received_qty_kg ??
+          currentEntry.quantity_received ??
+          0
+      ) || 0;
+    const { data: matRow } = await supabase
+      .from('materials')
+      .select('bulk_density_kg_per_m3')
+      .eq('id', currentEntry.material_id as string)
+      .maybeSingle();
+    const resolved = await resolveVolumetricWeightKgPerM3(supabase, {
+      poItemVolumetricKgPerM3: null,
+      supplierId: (updatePayload.supplier_id ?? currentEntry.supplier_id) as string | null,
+      materialId: currentEntry.material_id as string | undefined,
+      materialBulkDensityKgPerM3: matRow?.bulk_density_kg_per_m3 ?? null,
+      entryOverride:
+        (updateData.volumetric_weight_kg_per_m3 ?? currentEntry.volumetric_weight_kg_per_m3) as
+          | number
+          | null
+          | undefined,
+    });
+    if (!resolved || !(resolved.volW > 0)) {
+      return {
+        ok: false,
+        error:
+          'Se requiere peso volumétrico (kg/m³) en el material, acuerdo de proveedor o en la entrada para recepciones en m³ sin OC.',
+        status: 400,
+      };
+    }
+    const native = kg / resolved.volW;
+    updatePayload.received_uom = 'm3';
+    updatePayload.received_qty_kg = kg;
+    updatePayload.quantity_received = kg;
+    updatePayload.received_qty_entered = native;
+    updatePayload.volumetric_weight_kg_per_m3 = resolved.volW;
+    updatePayload.volumetric_weight_source = resolved.volSource;
+    return { ok: true };
+  }
+
+  const kg =
+    Number(
+      updateData.received_qty_entered ??
+        updateData.quantity_received ??
+        updateData.received_qty_kg ??
+        updatePayload.quantity_received ??
+        updatePayload.received_qty_kg ??
+        currentEntry.received_qty_kg ??
+        currentEntry.quantity_received ??
+        0
+    ) || 0;
+  updatePayload.received_uom = 'kg';
+  updatePayload.received_qty_kg = kg;
+  updatePayload.received_qty_entered = kg;
+  updatePayload.quantity_received = kg;
+  return { ok: true };
+}
+
 export async function GET(request: NextRequest) {
   try {
     console.log('GET /api/inventory/entries called');
@@ -1217,6 +1312,7 @@ export async function PUT(request: NextRequest) {
         nativeUom = 'l';
         updatePayload.received_uom = 'l';
         updatePayload.received_qty_entered = newReceivedNative;
+        updatePayload.quantity_received = newReceivedNative;
         updatePayload.received_qty_kg = null; // no conversion for liters
       }
       // m3: báscula/inventario en kg; OC comercial en m³ — derivar m³ = kg / densidad acordada
@@ -1265,6 +1361,7 @@ export async function PUT(request: NextRequest) {
         updatePayload.received_uom = 'kg';
         updatePayload.received_qty_entered = newReceivedNative;
         updatePayload.received_qty_kg = newReceivedKg;
+        updatePayload.quantity_received = newReceivedKg;
       }
 
       // Remaining validation based on native UoM
@@ -1334,6 +1431,18 @@ export async function PUT(request: NextRequest) {
           : Number(currentEntry.received_qty_kg || 0);
       const deltaKg = Math.max(newReceivedKg - previousKg, 0);
       updatePayload.__po_delta_kg = deltaKg;
+    }
+
+    if (qtyTouches && !currentEntry.po_item_id) {
+      const coerced = await coerceMaterialEntryQuantityFieldsNoPo(
+        supabase,
+        currentEntry as Record<string, unknown>,
+        updatePayload,
+        updateData
+      );
+      if (!coerced.ok) {
+        return NextResponse.json({ success: false, error: coerced.error }, { status: coerced.status });
+      }
     }
 
     // Solo revisión de precios: el formulario envía MXN/m³; la columna unit_price es MXN/kg

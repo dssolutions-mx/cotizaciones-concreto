@@ -10,9 +10,10 @@
 
 | Client / hook | API | Purpose |
 |---------------|-----|---------|
-| [`useInventoryDashboard`](src/hooks/useInventoryDashboard.ts) → [`InventoryDashboardPage`](src/components/inventory/InventoryDashboardPage.tsx) (e.g. production-control advanced dashboard) | `GET /api/inventory/dashboard` | Dated analytics (movements, consumption, remisiones tie-in) — requires `start_date`, `end_date`, `plant_id` for global users without a home plant |
-| [`CrossPlantInventorySummary`](src/components/procurement/CrossPlantInventorySummary.tsx), [`ProcurementInventoryDetail`](src/components/procurement/ProcurementInventoryDetail.tsx), [`DosificadorDashboard`](src/components/inventory/DosificadorDashboard.tsx) | `GET /api/inventory/dashboard-summary` | Per-plant KPIs / stock summary for procurement and dosificador |
-| [`MaterialAuditSheet`](src/components/procurement/MaterialAuditSheet.tsx) (opened from [`ProcurementInventoryDetail`](src/components/procurement/ProcurementInventoryDetail.tsx)) | `GET /api/inventory/material-ledger`, `GET /api/inventory/material-ledger/variances`, `POST /api/inventory/entries/[id]/resync-accounting`, reuse `PUT /api/inventory/entries`, `POST /api/inventory/adjustments` | Material audit / correction console: movements + WASTE, opening baseline, three-way reconciliation, variance drill-down |
+| [`InventoryDashboardPage`](src/components/inventory/InventoryDashboardPage.tsx) (legacy) | `GET /api/inventory/dashboard` | Dated analytics stack still in repo; not the production operator path. [`/production-control/advanced-dashboard`](../src/app/production-control/advanced-dashboard/page.tsx) redirects to [`/production-control/inventario`](../src/app/production-control/inventario/page.tsx). |
+| [`PlantInventoryReviewPanel`](src/components/inventory/PlantInventoryReviewPanel.tsx) (via [`ProcurementInventoryDetail`](src/components/procurement/ProcurementInventoryDetail.tsx) + inventario page), [`DosificadorDashboard`](src/components/inventory/DosificadorDashboard.tsx) | `GET /api/inventory/dashboard-summary` | Per-plant stock summary; row opens [`MaterialAuditSheet`](src/components/procurement/MaterialAuditSheet.tsx) |
+| [`PlantConsumosAccountingExport`](src/components/inventory/PlantConsumosAccountingExport.tsx) | `GET /api/procurement/consumos`, `GET /api/procurement/consumos/rango/contable` | Same accounting Excel as Compras → Consumos; auth [`consumosRouteAuth`](src/lib/procurement/consumosRouteAuth.ts) (`DOSIFICADOR` plant-scoped) |
+| [`MaterialAuditSheet`](src/components/procurement/MaterialAuditSheet.tsx) | `GET /api/inventory/material-ledger`, `GET /api/inventory/material-ledger/variances`, `POST /api/inventory/entries/[id]/resync-accounting`, reuse `PUT /api/inventory/entries`, `POST /api/inventory/adjustments` | Audit console: movements + WASTE, opening baseline, reconciliation |
 
 Both now allow **`ADMIN_OPERATIONS`** alongside **`EXECUTIVE`** for cross-plant reads where applicable (see [`inventoryRoles`](src/lib/auth/inventoryRoles.ts)).
 
@@ -23,6 +24,7 @@ Both now allow **`ADMIN_OPERATIONS`** alongside **`EXECUTIVE`** for cross-plant 
 | Module | Path | Contents |
 |--------|------|----------|
 | Inventory standard access | [`src/lib/auth/inventoryRoles.ts`](../src/lib/auth/inventoryRoles.ts) | `INVENTORY_STANDARD_ROLES`, `isGlobalInventoryRole`, `hasInventoryStandardAccess` |
+| Procurement consumos API access | [`src/lib/procurement/consumosRouteAuth.ts`](../src/lib/procurement/consumosRouteAuth.ts) | `canAccessProcurementConsumosRoutes`, `lockedConsumosPlantId` |
 | Materials catalog writes | [`src/lib/auth/materialsCatalogRoles.ts`](../src/lib/auth/materialsCatalogRoles.ts) | `MATERIAL_CATALOG_WRITE_ROLES`, `canWriteMaterialsCatalog` |
 | Procurement PO/AP (reference) | [`src/lib/auth/procurementRoles.ts`](../src/lib/auth/procurementRoles.ts) | `PROCUREMENT_PO_READ_ROLES`, `PROCUREMENT_PO_WRITE_ROLES` |
 
@@ -35,6 +37,10 @@ Both now allow **`ADMIN_OPERATIONS`** alongside **`EXECUTIVE`** for cross-plant 
 Typical pattern: **`EXECUTIVE`**, **`ADMIN_OPERATIONS`**, **`PLANT_MANAGER`** (read); writes on PO lines often **`EXECUTIVE`** + **`ADMIN_OPERATIONS`** only.
 
 Representative files: [`src/app/api/po/route.ts`](../src/app/api/po/route.ts), [`src/app/api/procurement/dashboard/route.ts`](../src/app/api/procurement/dashboard/route.ts), [`src/app/api/finanzas/supplier-analysis/route.ts`](../src/app/api/finanzas/supplier-analysis/route.ts), [`src/app/api/ap/payables/route.ts`](../src/app/api/ap/payables/route.ts).
+
+### Procurement consumos (accounting Excel payloads)
+
+- [`GET /api/procurement/consumos`](../src/app/api/procurement/consumos/route.ts), [`GET /api/procurement/consumos/rango`](../src/app/api/procurement/consumos/rango/route.ts), [`GET /api/procurement/consumos/rango/contable`](../src/app/api/procurement/consumos/rango/contable/route.ts) — [`consumosRouteAuth`](../src/lib/procurement/consumosRouteAuth.ts): finanzas roles + **`DOSIFICADOR`** with plant locked to `profile.plant_id` (same pattern as `PLANT_MANAGER`).
 
 ### Inventory (entries, dashboard, stock, documents)
 

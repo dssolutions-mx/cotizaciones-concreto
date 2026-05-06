@@ -35,9 +35,9 @@ const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Transferencia entre plantas', href: '/production-control/transfer-between-plants', icon: Truck }
   ],
-  '/production-control/advanced-dashboard': [
+  '/production-control/inventario': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
-    { label: 'Reportes de Materiales', href: '/production-control/advanced-dashboard', icon: BarChart3 }
+    { label: 'Inventario y conciliación', href: '/production-control/inventario', icon: BarChart3 }
   ],
   '/production-control/daily-log': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },

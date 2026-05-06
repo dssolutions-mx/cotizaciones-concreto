@@ -24,6 +24,7 @@ import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import {
   formatReceptionAssignedDay,
   formatEntrySavedShortFor,
+  formatReceivedQuantity,
 } from '@/lib/inventory/entryReceivedDisplay'
 import Link from 'next/link'
 import { toast } from 'sonner'
@@ -44,6 +45,32 @@ function sortEntriesNewestFirst(list: MaterialEntry[]): MaterialEntry[] {
     const kb = `${b.entry_date ?? ''}T${b.entry_time ?? '00:00:00'}`
     return kb.localeCompare(ka)
   })
+}
+
+const ENTRIES_PAGE_SIZE = 200
+
+async function fetchAllMaterialEntriesPages(
+  baseParams: URLSearchParams
+): Promise<MaterialEntry[]> {
+  const collected: MaterialEntry[] = []
+  let offset = 0
+  while (true) {
+    const params = new URLSearchParams(baseParams)
+    params.set('limit', String(ENTRIES_PAGE_SIZE))
+    params.set('offset', String(offset))
+    const response = await fetch(`/api/inventory/entries?${params.toString()}`)
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}))
+      throw new Error(typeof err.error === 'string' ? err.error : 'Error al cargar entradas')
+    }
+    const data = await response.json()
+    const batch: MaterialEntry[] = data.entries || []
+    collected.push(...batch)
+    const hasMore = Boolean(data.pagination?.hasMore)
+    if (!hasMore || batch.length === 0) break
+    offset += ENTRIES_PAGE_SIZE
+  }
+  return collected
 }
 
 interface MaterialEntriesListProps {
@@ -203,37 +230,30 @@ export default function MaterialEntriesList({
         }
         if (poId) params.set('po_id', poId)
         if (plantId) params.set('plant_id', plantId)
-        const response = await fetch(`/api/inventory/entries?${params.toString()}`)
 
-        if (response.ok) {
-          const data = await response.json()
-          let entriesData: MaterialEntry[] = data.entries || []
+        let entriesData = sortEntriesNewestFirst(await fetchAllMaterialEntriesPages(params))
 
-          if (
-            highlightEntryId &&
-            !entriesData.some((e) => e.id === highlightEntryId)
-          ) {
-            const entryParams = new URLSearchParams()
-            entryParams.set('entry_id', highlightEntryId)
-            if (plantId) entryParams.set('plant_id', plantId)
-            const r2 = await fetch(`/api/inventory/entries?${entryParams.toString()}`)
-            if (r2.ok) {
-              const data2 = await r2.json()
-              const extra: MaterialEntry[] = data2.entries || []
-              const merged = [...extra, ...entriesData]
-              const seen = new Set<string>()
-              entriesData = merged.filter((e) => {
-                if (seen.has(e.id)) return false
-                seen.add(e.id)
-                return true
-              })
-              entriesData = sortEntriesNewestFirst(entriesData)
-            }
-          }
-
-          setEntries(entriesData)
-          onEntriesLoaded?.(entriesData)
+        if (
+          highlightEntryId &&
+          !entriesData.some((e) => e.id === highlightEntryId)
+        ) {
+          const entryParams = new URLSearchParams()
+          entryParams.set('entry_id', highlightEntryId)
+          if (plantId) entryParams.set('plant_id', plantId)
+          const extra = await fetchAllMaterialEntriesPages(entryParams)
+          const merged = [...extra, ...entriesData]
+          const seen = new Set<string>()
+          entriesData = sortEntriesNewestFirst(
+            merged.filter((e) => {
+              if (seen.has(e.id)) return false
+              seen.add(e.id)
+              return true
+            })
+          )
         }
+
+        setEntries(entriesData)
+        onEntriesLoaded?.(entriesData)
       } catch (error) {
         console.error('Error fetching entries:', error)
         toast.error('Error al cargar las entradas')
@@ -518,12 +538,9 @@ export default function MaterialEntriesList({
               </div>
               
               <div>
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Cantidad Recibida</h4>
-                <p className="text-lg font-semibold text-green-600">
-                  {entry.quantity_received.toLocaleString('es-MX', { 
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2 
-                  })} {entry.material?.unit_of_measure || 'kg'}
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Cantidad recibida</h4>
+                <p className="text-lg font-semibold text-green-600" title="Unidad según la recepción (no la unidad del catálogo)">
+                  {formatReceivedQuantity(entry)}
                 </p>
               </div>
             </div>

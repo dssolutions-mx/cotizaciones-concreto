@@ -8,14 +8,10 @@ import {
   type AdjustmentRow,
   type WasteMaterialRow,
 } from '@/lib/procurement/plantConsumosAggregate'
-
-const FINANZAS_PROCUREMENT_ROLES = [
-  'EXECUTIVE',
-  'ADMIN_OPERATIONS',
-  'PLANT_MANAGER',
-  'CREDIT_VALIDATOR',
-  'SALES_AGENT',
-] as const
+import {
+  canAccessProcurementConsumosRoutes,
+  lockedConsumosPlantId,
+} from '@/lib/procurement/consumosRouteAuth'
 
 async function fetchPlantDay(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
@@ -162,8 +158,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
     }
 
-    if (!FINANZAS_PROCUREMENT_ROLES.includes(profile.role as (typeof FINANZAS_PROCUREMENT_ROLES)[number])) {
+    if (!canAccessProcurementConsumosRoutes(profile)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+    if (profile.role === 'DOSIFICADOR' && !profile.plant_id) {
+      return NextResponse.json({ error: 'Sin planta asignada en el perfil' }, { status: 403 })
     }
 
     const { searchParams } = new URL(request.url)
@@ -173,11 +172,10 @@ export async function GET(request: NextRequest) {
         ? dateParam
         : new Date().toISOString().slice(0, 10)
 
-    let requestedPlantId = searchParams.get('plant_id') || undefined
-
-    if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
-      requestedPlantId = profile.plant_id
-    }
+    let requestedPlantId = lockedConsumosPlantId(
+      profile,
+      searchParams.get('plant_id') || undefined
+    )
 
     const global = isGlobalInventoryRole(profile.role) || profile.role === 'SALES_AGENT'
 

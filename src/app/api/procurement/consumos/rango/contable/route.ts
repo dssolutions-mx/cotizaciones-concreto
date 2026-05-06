@@ -2,14 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles'
 import { fetchPlantConsumosRangeDays } from '@/lib/procurement/plantConsumosAggregate'
-
-const FINANZAS_PROCUREMENT_ROLES = [
-  'EXECUTIVE',
-  'ADMIN_OPERATIONS',
-  'PLANT_MANAGER',
-  'CREDIT_VALIDATOR',
-  'SALES_AGENT',
-] as const
+import {
+  canAccessProcurementConsumosRoutes,
+  lockedConsumosPlantId,
+} from '@/lib/procurement/consumosRouteAuth'
 
 /** Keep in sync with `src/app/api/procurement/consumos/rango/route.ts` */
 const MAX_RANGE_DAYS = 366
@@ -50,12 +46,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
     }
 
-    if (!FINANZAS_PROCUREMENT_ROLES.includes(profile.role as (typeof FINANZAS_PROCUREMENT_ROLES)[number])) {
+    if (!canAccessProcurementConsumosRoutes(profile)) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    }
+    if (profile.role === 'DOSIFICADOR' && !profile.plant_id) {
+      return NextResponse.json({ error: 'Sin planta asignada en el perfil' }, { status: 403 })
     }
 
     const { searchParams } = new URL(request.url)
-    let plantId = searchParams.get('plant_id') || undefined
+    let plantId = lockedConsumosPlantId(profile, searchParams.get('plant_id') || undefined)
     const dateFrom = parseISODate(searchParams.get('date_from'))
     const dateTo = parseISODate(searchParams.get('date_to'))
 
@@ -75,10 +74,6 @@ export async function GET(request: NextRequest) {
     const span = daysBetweenInclusive(dateFrom, dateTo)
     if (span > MAX_RANGE_DAYS) {
       return NextResponse.json({ error: `El rango máximo es ${MAX_RANGE_DAYS} días` }, { status: 400 })
-    }
-
-    if (profile.role === 'PLANT_MANAGER' && profile.plant_id) {
-      plantId = profile.plant_id
     }
 
     const global = isGlobalInventoryRole(profile.role) || profile.role === 'SALES_AGENT'

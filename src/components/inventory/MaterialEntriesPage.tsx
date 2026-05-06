@@ -173,8 +173,11 @@ export default function MaterialEntriesPage() {
                     <List className="h-5 w-5" />
                     Entradas Registradas
                   </CardTitle>
-                  <CardDescription>
-                    Historial de entradas de materiales
+                  <CardDescription className="max-w-xl text-stone-600">
+                    Historial filtrado por{' '}
+                    <span className="font-medium text-stone-800">día de recepción</span> (fecha de
+                    entrada en la entrada de material), no por el momento en que se guardó el registro
+                    en el sistema.
                   </CardDescription>
                 </div>
                 
