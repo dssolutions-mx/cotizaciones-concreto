@@ -390,7 +390,7 @@ export class InventoryDashboardService {
         this.fetchAllPages(() =>
           this.supabase
             .from('material_adjustments')
-            .select('material_id, quantity_adjusted, adjustment_type')
+            .select('material_id, quantity_adjusted, adjustment_type, adjustment_date')
             .eq('plant_id', plantId)
             .in('material_id', materialIdsList)
             .lt('adjustment_date', startDate)
@@ -481,7 +481,7 @@ export class InventoryDashboardService {
         this.fetchAllPages(() =>
           this.supabase
             .from('material_adjustments')
-            .select('material_id, quantity_adjusted, adjustment_type')
+            .select('material_id, quantity_adjusted, adjustment_type, adjustment_date')
             .eq('plant_id', plantId)
             .in('material_id', materialIdsList)
             .gte('adjustment_date', startDate)
@@ -545,6 +545,24 @@ export class InventoryDashboardService {
             syntheticOpenEntryDateByMaterial.set(e.material_id, d);
           }
         }
+      }
+
+      /** Earliest `initial_count` date per OPEN-layer material — cutover day for saldo inicial = 0 (OPEN `entry_date` can be month-start, not conteo). */
+      const initialCountAdjustmentDateByMaterial = new Map<string, string>();
+      for (const adj of [
+        ...(historicalAdjustmentsAggRows || []),
+        ...(allPeriodAdjustments || []),
+      ] as Array<{ material_id?: string; adjustment_type?: string; adjustment_date?: string }>) {
+        if (adj.adjustment_type !== 'initial_count') continue;
+        const mid = adj.material_id;
+        if (!mid || !openFifoMaterialIds.has(mid)) continue;
+        const d =
+          adj.adjustment_date && typeof adj.adjustment_date === 'string'
+            ? adj.adjustment_date.slice(0, 10)
+            : null;
+        if (!d) continue;
+        const prev = initialCountAdjustmentDateByMaterial.get(mid);
+        if (!prev || d < prev) initialCountAdjustmentDateByMaterial.set(mid, d);
       }
 
       const historicalEntriesByMaterial = new Map<string, number>();
@@ -715,22 +733,45 @@ export class InventoryDashboardService {
         // Get actual current stock
         const actualCurrentStock = inventoryMap.get(materialId) || 0;
 
-        // OPTIMIZED APPROACH: Calculate initial stock using historical aggregations
-        // Initial Stock = Historical Entries + Historical Additions - Historical Consumption - Historical Withdrawals - Historical Waste
-        // Then verify by working backwards: Initial Stock = Current Stock - Period Entries - Period Additions + Period Consumption + Period Withdrawals + Period Waste
+        // Inventario teórico final = solo aritmética sobre movimientos (histórico antes del rango + periodo).
+        // Stock dosificador (`material_inventory`) solo alimenta variance = actual − teórico; no define el teórico.
         const initialStockFromHistory = historicalEntriesTotal + historicalAdjustments.additions - historicalConsumptionTotal - historicalAdjustments.withdrawals - historicalWasteTotal;
+        /** Backward solve from dosificador — only for diagnostics; must not define theoretical final. */
         const initialStockFromCurrent = actualCurrentStock - periodEntriesTotal - periodManualAdditions + periodConsumptionTotal + periodManualWithdrawals + periodWasteTotal;
 
-        /** Implied stock at period start from the movement identity (not `material_inventory`).
-         *  `initialStockFromCurrent` = actual − entradas periodo − ajustes c/p + remisiones + ajustes salida + merma.
-         *  Old “cutover = 0” here forced `theoretical` away from `actualCurrentStock` whenever that implied
-         *  balance was > 0 (p. ej. 510MX con OPEN 2026-04-01 y rango que empieza ese día). */
-        const openDay = syntheticOpenEntryDateByMaterial.get(materialId);
-        const isOpenCutoverStart =
-          openFifoMaterialIds.has(materialId) && openDay !== undefined && startDate === openDay;
+        /** OPEN capa kg en el periodo (no recepción física nueva) — sustituye el antiguo fold desde stock vivo en cutover. */
+        let syntheticOpenLayerKgPeriod = 0;
+        for (const e of allPeriodEntries || []) {
+          if (e.material_id !== materialId) continue;
+          if (!isSyntheticFifoOpeningEntry(e.entry_number)) continue;
+          syntheticOpenLayerKgPeriod += Number(e.quantity_received || 0);
+        }
 
-        const initialStockAdjusted = Math.max(0, initialStockFromCurrent);
-        
+        const cutoverDay =
+          initialCountAdjustmentDateByMaterial.get(materialId) ??
+          syntheticOpenEntryDateByMaterial.get(materialId);
+
+        /** Primer día de corté OPEN: saldo inicial del puente = 0; la capa OPEN del periodo va en additions (solo filas, sin stock vivo). */
+        const isOpenCutoverStart =
+          openFifoMaterialIds.has(materialId) &&
+          cutoverDay !== undefined &&
+          startDate === cutoverDay;
+
+        const initialStockAdjusted = isOpenCutoverStart
+          ? 0
+          : Math.max(0, initialStockFromHistory);
+
+        const additionsForTheory =
+          periodManualAdditions + (isOpenCutoverStart ? syntheticOpenLayerKgPeriod : 0);
+
+        const theoreticalFinalStock =
+          initialStockAdjusted +
+          periodEntriesTotal +
+          additionsForTheory -
+          periodConsumptionTotal -
+          periodManualWithdrawals -
+          periodWasteTotal;
+
         // Debug log for first material only to avoid spam
         if (materialId === filteredMaterials[0]?.id) {
           console.log('🔍 Initial stock calculation (first material):', {
@@ -738,22 +779,21 @@ export class InventoryDashboardService {
             actualCurrentStock,
             periodEntriesTotal,
             periodManualAdditions,
+            additionsForTheory,
+            syntheticOpenLayerKgPeriod,
             periodConsumptionTotal,
             periodManualWithdrawals,
             periodWasteTotal,
             initialStockFromHistory,
             initialStockFromCurrent,
             isOpenCutoverStart,
-            openDay,
+            cutoverDay,
             initialStockAdjusted,
-            formula: isOpenCutoverStart
-              ? `max(0, implied initial) OPEN cutover day ${openDay} === start ${startDate}`
-              : `${actualCurrentStock} - ${periodEntriesTotal} - ${periodManualAdditions} + ${periodConsumptionTotal} + ${periodManualWithdrawals} + ${periodWasteTotal}`
+            theoreticalFinalStock_note:
+              'initial=historical (no stock vivo); final=aritmética pura; variance=actual−final',
           });
         }
-        
-        const theoreticalFinalStock = initialStockAdjusted + periodEntriesTotal + periodManualAdditions - periodConsumptionTotal - periodManualWithdrawals - periodWasteTotal;
-        
+
         // Debug log for first material only (moved after calculation to fix ReferenceError)
         if (materialId === filteredMaterials[0]?.id) {
           console.log('🔍 Period consumption calculation (first material):', {
@@ -762,11 +802,12 @@ export class InventoryDashboardService {
             periodConsumptionTotal,
             periodEntriesTotal,
             periodManualAdditions,
+            additionsForTheory,
             periodManualWithdrawals,
             periodWasteTotal,
             initialStockAdjusted,
             theoreticalFinalStock,
-            actualCurrentStock
+            actualCurrentStock,
           });
         }
         const variance = actualCurrentStock - theoreticalFinalStock;
@@ -779,14 +820,14 @@ export class InventoryDashboardService {
           material_code: material.material_code,
           initial_stock: initialStockAdjusted,
           total_entries: periodEntriesTotal,
-          total_manual_additions: periodManualAdditions,
+          total_manual_additions: additionsForTheory,
           total_remisiones_consumption: periodConsumptionTotal,
           total_manual_withdrawals: periodManualWithdrawals,
           total_waste: periodWasteTotal,
           theoretical_final_stock: theoreticalFinalStock,
           actual_current_stock: actualCurrentStock,
           variance: variance,
-          variance_percentage: variancePercentage
+          variance_percentage: variancePercentage,
         });
       }
 

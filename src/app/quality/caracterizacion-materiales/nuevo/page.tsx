@@ -35,6 +35,7 @@ interface EstudioData {
   planta: string;
   tipo_material: 'Arena' | 'Grava';
   nombre_material: string;
+  material_id: string | null;
   mina_procedencia: string;
   ubicacion: string;
   tamaño: string;
@@ -132,6 +133,7 @@ export default function CaracterizacionMaterialesPage() {
     planta: '',
     tipo_material: 'Arena',
     nombre_material: '',
+    material_id: null,
     mina_procedencia: '',
     ubicacion: '',
     tamaño: '',
@@ -233,14 +235,17 @@ export default function CaracterizacionMaterialesPage() {
       ...prev,
       id_planta: plantId,
       planta: selectedPlant ? `${selectedPlant.code} - ${selectedPlant.name}` : '',
-      nombre_material: '' // Limpiar material seleccionado al cambiar planta
+      nombre_material: '',
+      material_id: null,
     }));
   };
 
   const handleMaterialChange = (materialName: string) => {
+    const mat = filteredMaterials.find(m => m.material_name === materialName);
     setFormData(prev => ({
       ...prev,
-      nombre_material: materialName
+      nombre_material: materialName,
+      material_id: mat?.id ?? null,
     }));
   };
 
@@ -255,8 +260,7 @@ export default function CaracterizacionMaterialesPage() {
     setFormData(prev => ({
       ...prev,
       [field]: value,
-      // Limpiar material seleccionado si cambia el tipo de material
-      ...(field === 'tipo_material' && { nombre_material: '' })
+      ...(field === 'tipo_material' && { nombre_material: '', material_id: null })
     }));
   };
 

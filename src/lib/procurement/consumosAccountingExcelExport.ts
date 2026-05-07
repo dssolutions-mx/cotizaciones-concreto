@@ -1,13 +1,19 @@
 import { format } from 'date-fns'
+import type { LedgerAuditAdjustmentTotals } from '@/lib/inventory/ledgerAuditPeriodTotals'
+import type { MaterialFlowSummary } from '@/types/inventory'
 
 /** Matches GET /api/procurement/consumos `data` payload used for export. */
 export type ConsumosAccountingExcelPayload =
-  | {
+    | {
       mode: 'single'
       plant_id: string
       plant_name: string
       summary: ConsumosAccountingSummary
       materials: ConsumosAccountingMaterialBlock[]
+      /** Puente inventario teórico (mismo modelo que dashboard). */
+      material_flows?: MaterialFlowSummary[]
+      /** Ajustes periodo fusionados como en Auditoría de material (OPEN/ADJP); alinea columnas Ajustes ± con el pie del libro mayor. */
+      material_ledger_adjustments?: Record<string, LedgerAuditAdjustmentTotals>
     }
   | {
       mode: 'all'
@@ -32,6 +38,9 @@ export type ConsumosAccountingExcelPayload =
         summary: ConsumosAccountingSummary
         materials: ConsumosAccountingMaterialBlock[]
       }>
+      /** Puente inventario teórico por material (`InventoryDashboardService.calculateHistoricalInventory`). */
+      material_flows?: MaterialFlowSummary[]
+      material_ledger_adjustments?: Record<string, LedgerAuditAdjustmentTotals>
     }
 
 export type ConsumosAccountingSummary = {

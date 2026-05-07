@@ -13,6 +13,7 @@ import {
   eachPlantScope,
   type ConsumosAccountingExcelPayload,
 } from '@/lib/procurement/consumosAccountingExcelExport'
+import type { LedgerAuditAdjustmentTotals } from '@/lib/inventory/ledgerAuditPeriodTotals'
 import {
   adjustmentAuditoriaAbsKgForTotals,
   adjustmentDisplayForConsumos,
@@ -22,6 +23,7 @@ import {
   DC_NUMBER_FORMATS as FMT,
   getDocumentContact,
 } from '@/lib/reports/branding'
+import type { MaterialFlowSummary } from '@/types/inventory'
 
 function argb(hex: string, alpha = 'FF'): string {
   return alpha + hex.replace('#', '')
@@ -358,12 +360,419 @@ function computeAggregates(payload: ConsumosAccountingExcelPayload): Aggregates 
   }
 }
 
+function materialAccountingCodeByMaterialId(payload: ConsumosAccountingExcelPayload): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const scope of eachPlantScope(payload)) {
+    for (const m of scope.materials) {
+      const code = (m.material_accounting_code ?? '').trim()
+      if (code && !map.has(m.material_id)) map.set(m.material_id, code)
+    }
+  }
+  return map
+}
+
+type BridgeResumenRow = {
+  plant_name: string
+  material_id: string
+  material_name: string
+  clave: string
+  initial_stock: number
+  total_entries: number
+  total_manual_additions: number
+  total_manual_withdrawals_abs: number
+  total_remisiones_consumption: number
+  total_waste: number
+  theoretical_final_stock: number
+}
+
+function ledgerAdjustmentOverride(
+  payload: ConsumosAccountingExcelPayload,
+  materialId: string,
+): LedgerAuditAdjustmentTotals | undefined {
+  if (payload.mode !== 'single' && payload.mode !== 'range') return undefined
+  return payload.material_ledger_adjustments?.[materialId]
+}
+
+function buildBridgeResumenRows(
+  payload: ConsumosAccountingExcelPayload,
+  flows: MaterialFlowSummary[],
+): BridgeResumenRow[] {
+  const codeMap = materialAccountingCodeByMaterialId(payload)
+  const plantName =
+    payload.mode === 'range' || payload.mode === 'single' ? payload.plant_name : ''
+  const rows: BridgeResumenRow[] = flows.map((f) => {
+    const ledger = ledgerAdjustmentOverride(payload, f.material_id)
+    return {
+      plant_name: plantName,
+      material_id: f.material_id,
+      material_name: f.material_name,
+      clave: codeMap.get(f.material_id) || '',
+      initial_stock: f.initial_stock,
+      total_entries: f.total_entries,
+      total_manual_additions: ledger?.adj_positive_kg ?? f.total_manual_additions,
+      total_manual_withdrawals_abs: ledger?.adj_negative_abs_kg ?? Math.abs(f.total_manual_withdrawals),
+      total_remisiones_consumption: f.total_remisiones_consumption,
+      total_waste: f.total_waste,
+      theoretical_final_stock: f.theoretical_final_stock,
+    }
+  })
+  rows.sort((a, b) => a.material_name.localeCompare(b.material_name, 'es', { sensitivity: 'base' }))
+  return rows
+}
+
+type BridgeDisplayRow =
+  | { kind: 'material'; br: BridgeResumenRow }
+  | {
+      kind: 'plant_subtotal'
+      plant_name: string
+      sumI: number
+      sumEnt: number
+      sumAp: number
+      sumAn: number
+      sumC: number
+      sumW: number
+      sumTf: number
+    }
+
+function expandBridgeRowsWithSubtotals(rows: BridgeResumenRow[]): BridgeDisplayRow[] {
+  const out: BridgeDisplayRow[] = []
+  let i = 0
+  while (i < rows.length) {
+    const plant = rows[i].plant_name
+    let sumI = 0
+    let sumEnt = 0
+    let sumAp = 0
+    let sumAn = 0
+    let sumC = 0
+    let sumW = 0
+    let sumTf = 0
+    while (i < rows.length && rows[i].plant_name === plant) {
+      out.push({ kind: 'material', br: rows[i] })
+      sumI += rows[i].initial_stock
+      sumEnt += rows[i].total_entries
+      sumAp += rows[i].total_manual_additions
+      sumAn += rows[i].total_manual_withdrawals_abs
+      sumC += rows[i].total_remisiones_consumption
+      sumW += rows[i].total_waste
+      sumTf += rows[i].theoretical_final_stock
+      i += 1
+    }
+    out.push({
+      kind: 'plant_subtotal',
+      plant_name: plant,
+      sumI,
+      sumEnt,
+      sumAp,
+      sumAn,
+      sumC,
+      sumW,
+      sumTf,
+    })
+  }
+  return out
+}
+
+function buildResumenSheetTheoreticalBridge(
+  ws: ExcelJS.Worksheet,
+  payload: ConsumosAccountingExcelPayload,
+  flows: MaterialFlowSummary[],
+  agg: Aggregates,
+  generatedAt: Date,
+): void {
+  const contact = getDocumentContact()
+  const cols = 10
+  ws.columns = [
+    { width: 22 },
+    { width: 14 },
+    { width: 30 },
+    { width: 16 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 18 },
+    { width: 18 },
+    { width: 18 },
+  ]
+
+  ws.mergeCells(1, 1, 1, cols)
+  ws.getCell(1, 1).value = contact.companyLine
+  Object.assign(ws.getCell(1, 1), titleBarStyle())
+  ws.getRow(1).height = 22
+
+  ws.mergeCells(2, 1, 2, cols)
+  const r2 = ws.getCell(2, 1)
+  r2.value = 'Puente de inventario teórico y consumos de materiales'
+  Object.assign(r2, sheetSubtitleStyle())
+  ws.getRow(2).height = 20
+
+  const periodLabel =
+    payload.mode === 'range'
+      ? `Del ${formatDisplayDate(payload.date_from)} al ${formatDisplayDate(payload.date_to)}`
+      : payload.mode === 'single'
+        ? formatDisplayDate(payload.summary.date)
+        : formatDisplayDate(payload.date)
+
+  let row = 3
+  const meta: [string, string][] = [
+    ['Planta(s) / alcance', scopeDescription(payload)],
+    ['Periodo de movimientos', periodLabel],
+    ['Modelo', 'Mismo cálculo que el dashboard de inventario (capas OPEN / ADJP excluidas según reglas del sistema)'],
+    ['Generado', format(generatedAt, 'dd/MM/yyyy HH:mm', { locale: es })],
+  ]
+  for (const [label, value] of meta) {
+    ws.mergeCells(row, 1, row, 2)
+    ws.getCell(row, 1).value = `${label}:`
+    Object.assign(ws.getCell(row, 1), metaLabelStyle())
+    ws.mergeCells(row, 3, row, cols)
+    ws.getCell(row, 3).value = value
+    Object.assign(ws.getCell(row, 3), metaValueStyle())
+    ws.getRow(row).height = 16
+    row += 1
+  }
+
+  row += 1
+  ws.mergeCells(row, 1, row, cols)
+  const note = ws.getCell(row, 1)
+  const hasLedgerAdj =
+    (payload.mode === 'single' || payload.mode === 'range') &&
+    !!payload.material_ledger_adjustments &&
+    Object.keys(payload.material_ledger_adjustments).length > 0
+  note.value =
+    'Por material: inventario inicial y existencia teórica final provienen del modelo histórico consolidado (calculateHistoricalInventory). ' +
+    'Entradas, consumos por remisión y desperdicio Arkik coinciden con el periodo; las columnas «Ajustes ±» ' +
+    (hasLedgerAdj
+      ? 'usan los mismos movimientos fusionados que Auditoría de material (capa OPEN + conteo inicial como un solo renglón de ajuste), alineadas al pie Total Ajustes del libro mayor. '
+      : 'siguen el desglose del modelo teórico (puede diferir del libro cuando hay capa FIFO de apertura). ') +
+    'Por diseño, Inv inicial + Entradas ± Ajustes (auditoría) − Consumo − Desperdicio no tiene por qué igualar al Inv teórico final del modelo cuando hay apertura OPEN; ambas lecturas sirven para fines distintos.'
+  Object.assign(note, metaLabelStyle())
+  note.alignment = { ...note.alignment, wrapText: true, vertical: 'top', horizontal: 'left' }
+  ws.getRow(row).height = hasLedgerAdj ? 96 : 72
+  row += 2
+
+  const bridgeRows = buildBridgeResumenRows(payload, flows)
+
+  const sumInitial = flows.reduce((s, f) => s + f.initial_stock, 0)
+  const sumEntries = flows.reduce((s, f) => s + f.total_entries, 0)
+  const sumAdjPos = bridgeRows.reduce((s, r) => s + r.total_manual_additions, 0)
+  const sumAdjNegAbs = bridgeRows.reduce((s, r) => s + r.total_manual_withdrawals_abs, 0)
+  const sumConsumo = flows.reduce((s, f) => s + f.total_remisiones_consumption, 0)
+  const sumWaste = flows.reduce((s, f) => s + f.total_waste, 0)
+  const sumFinal = flows.reduce((s, f) => s + f.theoretical_final_stock, 0)
+
+  ws.mergeCells(row, 1, row, cols)
+  ws.getCell(row, 1).value = 'Indicadores — puente teórico (suma por materiales)'
+  ws.getCell(row, 1).font = { bold: true, size: 10, name: 'Calibri', color: { argb: argb(C.navy) } }
+  ws.getRow(row).height = 18
+  row += 1
+
+  const kpis: [string, number | string, string][] = [
+    ['Σ Inventario inicial (kg)', sumInitial, FMT.currencyNoSign],
+    ['Σ Entradas periodo (kg)', sumEntries, FMT.currencyNoSign],
+    [
+      hasLedgerAdj
+        ? 'Σ Ajustes positivos — mismo criterio que Auditoría de material (kg)'
+        : 'Σ Ajustes positivos / aumentos (kg)',
+      sumAdjPos,
+      FMT.currencyNoSign,
+    ],
+    [
+      hasLedgerAdj
+        ? 'Σ Ajustes negativos — magnitud, mismo criterio que Auditoría (kg)'
+        : 'Σ Ajustes negativos / salidas ajuste — magnitud (kg)',
+      sumAdjNegAbs,
+      FMT.currencyNoSign,
+    ],
+    ['Σ Consumo remisiones (kg)', sumConsumo, FMT.currencyNoSign],
+    ['Σ Desperdicio Arkik (kg)', sumWaste, FMT.currencyNoSign],
+    ['Σ Inventario teórico final (kg)', sumFinal, FMT.currencyNoSign],
+    ['Remisiones consideradas (detalle)', agg.remisionesCount, FMT.integer],
+    ['Renglones detalle — Consumos por remisión', agg.consumoLines, FMT.integer],
+    ['Renglones detalle — Desperdicios (tabla)', agg.wasteArkikLines, FMT.integer],
+    ['Renglones detalle — Ajustes', agg.ajusteLines, FMT.integer],
+    ['Renglones detalle — Entradas', agg.entradaLines, FMT.integer],
+  ]
+
+  const kpiStartRow = row
+  kpis.forEach(([label, value, fmt], i) => {
+    const r = kpiStartRow + i
+    ws.mergeCells(r, 1, r, 3)
+    ws.getCell(r, 1).value = label
+    Object.assign(ws.getCell(r, 1), kpiLabelStyle())
+    ws.mergeCells(r, 4, r, cols)
+    const v = ws.getCell(r, 4)
+    v.value = value as ExcelJS.CellValue
+    v.numFmt = fmt
+    Object.assign(v, kpiValueStyle())
+    v.alignment = { horizontal: 'right', vertical: 'middle' }
+    ws.getRow(r).height = 18
+  })
+
+  row = kpiStartRow + kpis.length + 2
+
+  ws.mergeCells(row, 1, row, cols)
+  ws.getCell(row, 1).value = 'Detalle por material — puente teórico'
+  Object.assign(ws.getCell(row, 1), sectionBannerStyle())
+  ws.getRow(row).height = 22
+  row += 1
+
+  ws.mergeCells(row, 1, row, cols)
+  ws.getCell(row, 1).value =
+    'La suma de «Inventario teórico final» entre materiales no representa un solo inventario físico agregado; sirve para revisar cada insumo.'
+  Object.assign(ws.getCell(row, 1), metaLabelStyle())
+  ws.getCell(row, 1).alignment = { wrapText: true, vertical: 'middle', horizontal: 'left' }
+  ws.getRow(row).height = 28
+  row += 1
+
+  const hdr = ws.getRow(row)
+  hdr.height = 28
+  const headers = [
+    'Planta',
+    'Clave de producto',
+    'Material',
+    'Inv. inicial (kg)',
+    'Entradas (kg)',
+    hasLedgerAdj ? 'Ajustes + (auditoría)' : 'Ajustes + (kg)',
+    hasLedgerAdj ? 'Ajustes − (auditoría)' : 'Ajustes − (kg)',
+    'Consumo remisiones (kg)',
+    'Desperdicio Arkik (kg)',
+    'Inv. teórico final (kg)',
+  ]
+  headers.forEach((h, ci) => {
+    const cell = hdr.getCell(ci + 1)
+    cell.value = h
+    Object.assign(cell, columnHeaderStyle())
+  })
+  row += 1
+
+  if (bridgeRows.length === 0) {
+    ws.mergeCells(row, 1, row, cols)
+    ws.getCell(row, 1).value = 'Sin materiales en el modelo teórico para este periodo.'
+    Object.assign(ws.getCell(row, 1), metaLabelStyle())
+    ws.getCell(row, 1).alignment = { horizontal: 'center', vertical: 'middle' }
+    ws.getRow(row).height = 22
+  } else {
+    const sumGrandI = bridgeRows.reduce((s, r) => s + r.initial_stock, 0)
+    const sumGrandEnt = bridgeRows.reduce((s, r) => s + r.total_entries, 0)
+    const sumGrandAp = bridgeRows.reduce((s, r) => s + r.total_manual_additions, 0)
+    const sumGrandAn = bridgeRows.reduce((s, r) => s + r.total_manual_withdrawals_abs, 0)
+    const sumGrandC = bridgeRows.reduce((s, r) => s + r.total_remisiones_consumption, 0)
+    const sumGrandW = bridgeRows.reduce((s, r) => s + r.total_waste, 0)
+    const sumGrandTf = bridgeRows.reduce((s, r) => s + r.theoretical_final_stock, 0)
+
+    const displayRows = expandBridgeRowsWithSubtotals(bridgeRows)
+    let dataZebra = 0
+    displayRows.forEach((entry, idx) => {
+      const dr = ws.getRow(row + idx)
+      dr.height = entry.kind === 'plant_subtotal' ? 18 : 16
+
+      if (entry.kind === 'plant_subtotal') {
+        const pst = plantSubtotalStyle()
+        const cells: (string | number)[] = [
+          `Subtotal planta — ${entry.plant_name}`,
+          '',
+          '',
+          entry.sumI,
+          entry.sumEnt,
+          entry.sumAp,
+          entry.sumAn,
+          entry.sumC,
+          entry.sumW,
+          entry.sumTf,
+        ]
+        cells.forEach((v, ci) => {
+          const cell = dr.getCell(ci + 1)
+          cell.value = v
+          Object.assign(cell, pst)
+          if (ci >= 3 && typeof v === 'number') {
+            cell.numFmt = FMT.currencyNoSign
+            cell.alignment = { horizontal: 'right', vertical: 'middle' }
+          }
+          if (ci === 0) cell.alignment = { horizontal: 'left', vertical: 'middle' }
+        })
+        return
+      }
+
+      const br = entry.br
+      const st = dataStyle(dataZebra % 2 === 1)
+      dataZebra += 1
+      const vals: (string | number)[] = [
+        br.plant_name,
+        br.clave || '—',
+        br.material_name,
+        br.initial_stock,
+        br.total_entries,
+        br.total_manual_additions,
+        br.total_manual_withdrawals_abs,
+        br.total_remisiones_consumption,
+        br.total_waste,
+        br.theoretical_final_stock,
+      ]
+      vals.forEach((v, ci) => {
+        const cell = dr.getCell(ci + 1)
+        cell.value = v
+        Object.assign(cell, st)
+        if (ci >= 3) {
+          cell.numFmt = FMT.currencyNoSign
+          cell.alignment = { horizontal: 'right', vertical: 'middle' }
+        }
+      })
+    })
+    row += displayRows.length
+
+    const tr = ws.getRow(row)
+    tr.height = 20
+    const gt = grandTotalResumenStyle()
+    const totalCells: [string | number, number][] = [
+      ['TOTAL GENERAL', 0],
+      ['', 1],
+      ['', 2],
+      [sumGrandI, 3],
+      [sumGrandEnt, 4],
+      [sumGrandAp, 5],
+      [sumGrandAn, 6],
+      [sumGrandC, 7],
+      [sumGrandW, 8],
+      [sumGrandTf, 9],
+    ]
+    totalCells.forEach(([val, ci]) => {
+      const cell = tr.getCell(ci + 1)
+      cell.value = val as ExcelJS.CellValue
+      Object.assign(cell, gt)
+      if (typeof val === 'number') {
+        cell.numFmt = FMT.currencyNoSign
+        cell.alignment = { horizontal: 'right', vertical: 'middle' }
+      } else if (ci === 0) {
+        cell.alignment = { horizontal: 'left', vertical: 'middle' }
+      }
+    })
+    row += 1
+  }
+
+  row += 1
+  ws.mergeCells(row, 1, row, cols)
+  ws.getCell(row, 1).value = `${contact.phone}  ·  ${contact.email}  ·  ${contact.web}`
+  Object.assign(ws.getCell(row, 1), metaLabelStyle())
+  ws.getCell(row, 1).alignment = { horizontal: 'right', vertical: 'middle' }
+
+  ws.properties.tabColor = { argb: argb(C.green) }
+}
+
 function buildResumenSheet(
   ws: ExcelJS.Worksheet,
   payload: ConsumosAccountingExcelPayload,
   agg: Aggregates,
   generatedAt: Date,
 ): void {
+  const flowsOpt =
+    (payload.mode === 'range' || payload.mode === 'single') &&
+    payload.material_flows !== undefined
+      ? payload.material_flows
+      : null
+  if (flowsOpt !== null) {
+    buildResumenSheetTheoreticalBridge(ws, payload, flowsOpt, agg, generatedAt)
+    return
+  }
+
   const contact = getDocumentContact()
   const cols = 9
   ws.columns = [

@@ -434,6 +434,23 @@ export default function CaracterizacionMaterialesHistoricoPage() {
           </div>
         </div>
 
+        {/* Info banner — data flow to Control Center */}
+        <div className="flex items-start gap-3 rounded-lg bg-sky-50 border border-sky-200 px-4 py-3">
+          <div className="shrink-0 mt-0.5 text-sky-600">ℹ️</div>
+          <div>
+            <p className="text-sm text-sky-800 font-medium">
+              Las propiedades de los materiales se actualizan automáticamente al guardar cada caracterización.
+            </p>
+            <p className="text-xs text-sky-600 mt-0.5">
+              Los datos alimentan el{' '}
+              <Link href="/quality/materials" className="underline hover:text-sky-800 font-medium">
+                Centro de Control de Materiales →
+              </Link>{' '}
+              para análisis de tendencias y control estadístico de proceso.
+            </p>
+          </div>
+        </div>
+
         {/* Filtros */}
         <Card>
           <CardHeader>
