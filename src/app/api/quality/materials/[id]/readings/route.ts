@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       const timestamp = Date.now()
       const rand = Math.random().toString(36).substring(2, 10)
-      const fileName = `${plantId ?? 'general'}/property-readings/${materialId}_${timestamp}_${rand}.pdf`
+      const fileName = `${plantId ?? 'general'}/certificates/${materialId}_${timestamp}_${rand}.pdf`
 
       const { error: uploadError } = await supabase.storage
         .from('material-certificates')
