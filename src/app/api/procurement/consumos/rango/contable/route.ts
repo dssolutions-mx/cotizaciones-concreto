@@ -6,6 +6,8 @@ import {
   canAccessProcurementConsumosRoutes,
   lockedConsumosPlantId,
 } from '@/lib/procurement/consumosRouteAuth'
+import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals'
+import { InventoryDashboardService } from '@/services/inventoryDashboardService'
 
 /** Keep in sync with `src/app/api/procurement/consumos/rango/route.ts` */
 const MAX_RANGE_DAYS = 366
@@ -111,6 +113,17 @@ export async function GET(request: NextRequest) {
       plantAccounting
     )
 
+    const dashboard = new InventoryDashboardService(supabase)
+    const material_flows = await dashboard.calculateHistoricalInventory(plantId, dateFrom, dateTo)
+    const flowIds = material_flows.map((f) => f.material_id)
+    const ledgerAdjMap = await ledgerAuditAdjustmentTotalsByMaterialIds(supabase, {
+      plantId,
+      startDate: dateFrom,
+      endDate: dateTo,
+      materialIds: flowIds,
+    })
+    const material_ledger_adjustments = Object.fromEntries(ledgerAdjMap)
+
     return NextResponse.json({
       success: true,
       data: {
@@ -122,6 +135,8 @@ export async function GET(request: NextRequest) {
         accounting_concept: plantAccounting.accounting_concept,
         warehouse_number: plantAccounting.warehouse_number,
         days,
+        material_flows,
+        material_ledger_adjustments,
       },
     })
   } catch (e) {

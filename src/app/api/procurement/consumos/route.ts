@@ -16,6 +16,8 @@ import {
   fetchConsumosAllPages,
   fetchRemisionMaterialesByRemisionIds,
 } from '@/lib/procurement/consumosSupabaseFetch'
+import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals'
+import { InventoryDashboardService } from '@/services/inventoryDashboardService'
 
 const RM_SELECT = `
             material_id,
@@ -221,11 +223,23 @@ export async function GET(request: NextRequest) {
           warehouse_number: null,
         }
       const payload = await fetchPlantDay(supabase, requestedPlantId, date, plantName, acct)
+      const dashboard = new InventoryDashboardService(supabase)
+      const material_flows = await dashboard.calculateHistoricalInventory(requestedPlantId, date, date)
+      const flowIds = material_flows.map((f) => f.material_id)
+      const ledgerAdjMap = await ledgerAuditAdjustmentTotalsByMaterialIds(supabase, {
+        plantId: requestedPlantId,
+        startDate: date,
+        endDate: date,
+        materialIds: flowIds,
+      })
+      const material_ledger_adjustments = Object.fromEntries(ledgerAdjMap)
       return NextResponse.json({
         success: true,
         data: {
           mode: 'single' as const,
           ...payload,
+          material_flows,
+          material_ledger_adjustments,
         },
       })
     }
