@@ -97,6 +97,14 @@ export async function GET(request: NextRequest, { params }: Params) {
         .filter((v): v is number => v != null)
       stats[key] = computeStats(values)
     }
+    // Derived: pv_promedio = avg(peso_volumetrico_suelto, peso_volumetrico_compactado)
+    const pvPromedioVals = (readings ?? []).map((r) => {
+      const s = r.peso_volumetrico_suelto as number | null
+      const c = r.peso_volumetrico_compactado as number | null
+      if (s != null && c != null) return (s + c) / 2
+      return s ?? c ?? null
+    }).filter((v): v is number => v != null)
+    stats['pv_promedio'] = computeStats(pvPromedioVals)
 
     // Granulometry history (for agregados) — from estudios_seleccionados JSONB
     let granulometryHistory: unknown[] = []

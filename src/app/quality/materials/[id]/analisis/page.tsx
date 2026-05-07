@@ -86,8 +86,7 @@ const PROPERTY_CONFIG: Record<string, { label: string; unit: string }> = {
   tiempo_fraguado_final:       { label: 'Tiempo de fraguado final',    unit: 'min' },
   ph:                          { label: 'pH',                          unit: '' },
   densidad_aditivo:            { label: 'Densidad',                    unit: 'g/cm³' },
-  peso_volumetrico_suelto:     { label: 'Peso volumétrico suelto',     unit: 'kg/m³' },
-  peso_volumetrico_compactado: { label: 'Peso volumétrico compactado', unit: 'kg/m³' },
+  pv_promedio:                 { label: 'Peso volumétrico promedio',   unit: 'kg/m³' },
   densidad_agregado:           { label: 'Densidad (masa específica)',  unit: 'g/cm³' },
   absorcion:                   { label: 'Absorción',                   unit: '%' },
   modulo_finura:               { label: 'Módulo de finura',            unit: '' },
@@ -97,9 +96,9 @@ const PROPERTY_CONFIG: Record<string, { label: string; unit: string }> = {
 const PROPERTIES_BY_CATEGORY: Record<string, string[]> = {
   cemento:  ['resistencia_compresion', 'tiempo_fraguado_inicial', 'tiempo_fraguado_final'],
   aditivo:  ['ph', 'densidad_aditivo'],
-  arena:    ['absorcion', 'modulo_finura', 'perdida_lavado', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado', 'densidad_agregado'],
-  grava:    ['absorcion', 'densidad_agregado', 'modulo_finura', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado'],
-  agregado: ['absorcion', 'modulo_finura', 'densidad_agregado', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado', 'perdida_lavado'],
+  arena:    ['absorcion', 'modulo_finura', 'perdida_lavado', 'pv_promedio', 'densidad_agregado'],
+  grava:    ['absorcion', 'densidad_agregado', 'modulo_finura', 'pv_promedio'],
+  agregado: ['absorcion', 'modulo_finura', 'densidad_agregado', 'pv_promedio', 'perdida_lavado'],
 }
 
 const CATEGORY_BADGE: Record<string, string> = {
@@ -492,6 +491,15 @@ export default function MaterialAnalysisPage() {
                 const stat = stats[prop]
                 if (!stat || stat.count === 0) return null
                 const config = PROPERTY_CONFIG[prop]
+                // Derive pv_promedio on readings so the chart can plot it
+                const chartReadings = prop === 'pv_promedio'
+                  ? propertyTimeline.map((r) => {
+                      const s = r.peso_volumetrico_suelto as number | null
+                      const c = r.peso_volumetrico_compactado as number | null
+                      const v = s != null && c != null ? (s + c) / 2 : (s ?? c ?? null)
+                      return { ...r, pv_promedio: v }
+                    })
+                  : propertyTimeline
                 return (
                   <div
                     key={prop}
@@ -504,7 +512,7 @@ export default function MaterialAnalysisPage() {
                       )}
                     </h3>
                     <PropertyControlChart
-                      readings={propertyTimeline}
+                      readings={chartReadings}
                       property={prop}
                       label={config?.label ?? prop}
                       unit={config?.unit ?? ''}

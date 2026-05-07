@@ -40,8 +40,7 @@ const PROPERTY_META: Record<string, { label: string; unit: string; short: string
   tiempo_fraguado_final:       { label: 'Fraguado final',         unit: 'min',    short: 'Frag. fin.' },
   ph:                          { label: 'pH',                     unit: '',       short: 'pH' },
   densidad_aditivo:            { label: 'Densidad',               unit: 'g/cm³',  short: 'Densidad' },
-  peso_volumetrico_suelto:     { label: 'PV suelto',              unit: 'kg/m³',  short: 'PVS' },
-  peso_volumetrico_compactado: { label: 'PV compactado',          unit: 'kg/m³',  short: 'PVC' },
+  pv_promedio:                 { label: 'PV promedio',            unit: 'kg/m³',  short: 'PV prom.' },
   densidad_agregado:           { label: 'Densidad',               unit: 'g/cm³',  short: 'Densidad' },
   absorcion:                   { label: 'Absorción',              unit: '%',      short: 'Absorción' },
   modulo_finura:               { label: 'Módulo de finura',       unit: '',       short: 'MF' },
@@ -51,17 +50,17 @@ const PROPERTY_META: Record<string, { label: string; unit: string; short: string
 const DEFAULT_SLOTS: Record<string, string[]> = {
   cemento:  ['resistencia_compresion', 'tiempo_fraguado_inicial', 'tiempo_fraguado_final'],
   aditivo:  ['ph', 'densidad_aditivo'],
-  arena:    ['absorcion', 'modulo_finura', 'perdida_lavado'],
-  grava:    ['absorcion', 'densidad_agregado', 'modulo_finura'],
-  agregado: ['absorcion', 'modulo_finura', 'densidad_agregado'],
+  arena:    ['absorcion', 'modulo_finura', 'pv_promedio'],
+  grava:    ['absorcion', 'densidad_agregado', 'pv_promedio'],
+  agregado: ['absorcion', 'modulo_finura', 'pv_promedio'],
 }
 
 const CATEGORY_PROPS: Record<string, string[]> = {
   cemento:  ['resistencia_compresion', 'tiempo_fraguado_inicial', 'tiempo_fraguado_final'],
   aditivo:  ['ph', 'densidad_aditivo'],
-  arena:    ['absorcion', 'modulo_finura', 'perdida_lavado', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado', 'densidad_agregado'],
-  grava:    ['absorcion', 'densidad_agregado', 'modulo_finura', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado'],
-  agregado: ['absorcion', 'modulo_finura', 'densidad_agregado', 'peso_volumetrico_suelto', 'peso_volumetrico_compactado', 'perdida_lavado'],
+  arena:    ['absorcion', 'modulo_finura', 'perdida_lavado', 'pv_promedio', 'densidad_agregado'],
+  grava:    ['absorcion', 'densidad_agregado', 'modulo_finura', 'pv_promedio'],
+  agregado: ['absorcion', 'modulo_finura', 'densidad_agregado', 'pv_promedio', 'perdida_lavado'],
 }
 
 // ─── Category design tokens (muted, aligned with stone/sky theme) ─────────────

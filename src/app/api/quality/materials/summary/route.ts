@@ -103,6 +103,15 @@ export async function GET(request: NextRequest) {
         stats[key] = computeStats(vals)
       }
 
+      // Derive pv_promedio per reading (avg of suelto + compactado)
+      const pvPromedioVals = readings.map((r) => {
+        const s = r.peso_volumetrico_suelto as number | null
+        const c = r.peso_volumetrico_compactado as number | null
+        if (s != null && c != null) return (s + c) / 2
+        return s ?? c ?? null
+      }).filter((v): v is number => v != null)
+      stats['pv_promedio'] = computeStats(pvPromedioVals)
+
       // Sparkline: last 12 reading dates + values per property
       const recent = readings.slice(-12)
       const sparklines: Record<string, Array<{ date: string; value: number }>> = {}
@@ -112,10 +121,19 @@ export async function GET(request: NextRequest) {
           .map((r) => ({ date: r.reading_date, value: r[key as keyof typeof r] as number }))
         if (pts.length > 0) sparklines[key] = pts
       }
+      // pv_promedio sparkline
+      const pvPts = recent.map((r) => {
+        const s = r.peso_volumetrico_suelto as number | null
+        const c = r.peso_volumetrico_compactado as number | null
+        const v = s != null && c != null ? (s + c) / 2 : (s ?? c ?? null)
+        return v != null ? { date: r.reading_date, value: v } : null
+      }).filter((p): p is { date: string; value: number } => p != null)
+      if (pvPts.length > 0) sparklines['pv_promedio'] = pvPts
 
       // Detect out-of-control on last reading
+      const alertKeys = [...PROPERTY_KEYS, 'pv_promedio'] as const
       let hasAlert = false
-      for (const key of PROPERTY_KEYS) {
+      for (const key of alertKeys) {
         const stat = stats[key]
         if (!stat.mean || !stat.stdDev || stat.count < 4) continue
         const ucl = stat.mean + 3 * stat.stdDev
