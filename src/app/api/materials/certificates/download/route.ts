@@ -24,14 +24,26 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await supabase.storage
       .from('material-certificates')
-      .createSignedUrl(path, 3600)
+      .createSignedUrl(path, 300)
 
     if (error || !data?.signedUrl) {
       console.error('[cert download]', error)
       return NextResponse.json({ error: 'No se pudo generar enlace de descarga' }, { status: 500 })
     }
 
-    return NextResponse.redirect(data.signedUrl)
+    const fileRes = await fetch(data.signedUrl)
+    if (!fileRes.ok) {
+      return NextResponse.json({ error: 'No se pudo obtener el archivo' }, { status: 502 })
+    }
+
+    const filename = path.split('/').pop() ?? 'certificado.pdf'
+    return new NextResponse(fileRes.body, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${filename}"`,
+        'Cache-Control': 'private, no-store',
+      },
+    })
   } catch (err) {
     console.error('[cert download]', err)
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
