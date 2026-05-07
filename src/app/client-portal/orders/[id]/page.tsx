@@ -20,6 +20,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataList } from '@/components/ui/DataList';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
+import {
+  PortalConcreteEvidencePanel,
+  PortalRemisionDocumentsList,
+  type PortalConcreteEvidenceItem,
+  type PortalRemisionDocumentItem,
+} from '@/components/client-portal/orders/PortalOrderEvidence';
 import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { format } from 'date-fns';
@@ -216,11 +222,14 @@ interface OrderResponse {
   order: OrderDetail;
   quote: any;
   remisiones: any[];
+  concrete_evidence?: PortalConcreteEvidenceItem[];
   summary: {
     totalRemisiones: number;
     totalVolume: number;
     totalMuestreos: number;
     totalSiteChecks: number;
+    totalConcreteEvidenceFiles?: number;
+    totalRemisionDocuments?: number;
   };
 }
 
@@ -245,20 +254,10 @@ export default function OrderDetailPage() {
         }
 
         console.log('Order detail data received:', result);
-        
-        // Set data progressively
-        setLoadingStage('remisiones');
+
+        setLoadingStage('complete');
         setOrderData(result);
-        
-        // Small delay to show progressive loading
-        setTimeout(() => {
-          setLoadingStage('quality');
-        }, 100);
-        
-        setTimeout(() => {
-          setLoadingStage('complete');
-        }, 200);
-        
+
       } catch (error) {
         console.error('Error fetching order:', error);
       } finally {
@@ -674,6 +673,34 @@ export default function OrderDetailPage() {
           </motion.div>
         ) : null}
 
+        {/* Order-level concrete evidence + hook for per-remisión docs below */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mb-8"
+        >
+          <div className="glass-base rounded-3xl p-8 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl glass-thin flex items-center justify-center border border-white/10">
+                <FileText className="w-5 h-5 text-primary" aria-hidden />
+              </div>
+              <div>
+                <h2 className="text-title-2 font-bold text-label-primary">Evidencias</h2>
+                <p className="text-caption text-label-secondary mt-0.5">
+                  Documentos del pedido y de cada entrega (PDF o imagen).
+                </p>
+              </div>
+            </div>
+            <div className="glass-thin rounded-2xl p-6 border border-white/10">
+              <p className="text-footnote font-semibold text-label-primary mb-4">
+                Pedido — evidencia de concreto
+              </p>
+              <PortalConcreteEvidencePanel items={orderData?.concrete_evidence ?? []} />
+            </div>
+          </div>
+        </motion.div>
+
         {/* Remisiones with Quality Data */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -751,6 +778,10 @@ export default function OrderDetailPage() {
                         </>
                       )}
                     </div>
+
+                    <PortalRemisionDocumentsList
+                      documents={(remision.documents ?? []) as PortalRemisionDocumentItem[]}
+                    />
 
                     {/* Muestreos */}
                     {remision.muestreos && remision.muestreos.length > 0 && (

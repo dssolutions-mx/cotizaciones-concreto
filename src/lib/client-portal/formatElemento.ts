@@ -2,7 +2,15 @@
 
 export type ElementoReferenceKind = 'cadenamiento' | 'tramo' | 'pk' | 'estacion' | 'otro';
 
+/** Fixed frente options + otro (custom text). Empty means user has not chosen yet. */
+export type FrenteChoiceId = '1' | '2' | '3' | '4' | 'otro';
+export type FrenteChoice = '' | FrenteChoiceId;
+
 export type GuidedElementoParts = {
+  /** Required in guided UI before reference/cadenamiento. */
+  frenteChoice: FrenteChoice;
+  /** When frenteChoice is "otro", custom label (e.g. "Frente norte"). */
+  frenteOtroText: string;
   referenceKind: ElementoReferenceKind;
   /** When referenceKind is "otro", label for the first segment (e.g. "Sección"). */
   customReferenceLabel: string;
@@ -90,6 +98,24 @@ function referenceKindToOutputPrefix(kind: ElementoReferenceKind, customLabel: s
   }
 }
 
+/** First segment in composed elemento when frente is chosen (before Cadenamiento / referencia). */
+export function formatFrenteSegment(parts: GuidedElementoParts): string | null {
+  const c = parts.frenteChoice;
+  if (!c) return null;
+  if (c === 'otro') {
+    const t = parts.frenteOtroText.trim();
+    return t.length > 0 ? `Frente: ${t}` : null;
+  }
+  return `Frente: Frente ${c}`;
+}
+
+/** Guided mode: frente must be selected; if Otro, custom text required. */
+export function guidedFrenteIsComplete(parts: GuidedElementoParts): boolean {
+  if (!parts.frenteChoice) return false;
+  if (parts.frenteChoice === 'otro') return parts.frenteOtroText.trim().length > 0;
+  return true;
+}
+
 export function effectiveReferenceValue(parts: GuidedElementoParts): string {
   if (usesStructuredChainage(parts.referenceKind)) {
     const structured = formatChainageSegment(
@@ -108,6 +134,10 @@ export function effectiveReferenceValue(parts: GuidedElementoParts): string {
  */
 export function formatElementoGuided(parts: GuidedElementoParts): string {
   const chunks: string[] = [];
+  const frente = formatFrenteSegment(parts);
+  if (frente) {
+    chunks.push(frente);
+  }
   const prefix = referenceKindToOutputPrefix(parts.referenceKind, parts.customReferenceLabel);
   const refVal = effectiveReferenceValue(parts);
   if (refVal.length > 0) {
@@ -125,6 +155,8 @@ export function formatElementoGuided(parts: GuidedElementoParts): string {
 }
 
 export const EMPTY_GUIDED_ELEMENTO_PARTS: GuidedElementoParts = {
+  frenteChoice: '',
+  frenteOtroText: '',
   referenceKind: 'cadenamiento',
   customReferenceLabel: '',
   referenceValue: '',
@@ -147,6 +179,8 @@ export const ELEMENTO_QUICK_EXAMPLES: ReadonlyArray<ElementoQuickExample> = [
     id: 'cadenamiento-muro2',
     chipLabel: 'Cadenamiento + muro',
     parts: {
+      frenteChoice: '1',
+      frenteOtroText: '',
       referenceKind: 'cadenamiento',
       customReferenceLabel: '',
       referenceValue: '',
@@ -160,6 +194,8 @@ export const ELEMENTO_QUICK_EXAMPLES: ReadonlyArray<ElementoQuickExample> = [
     id: 'losa',
     chipLabel: 'Losa',
     parts: {
+      frenteChoice: '2',
+      frenteOtroText: '',
       referenceKind: 'tramo',
       customReferenceLabel: '',
       referenceValue: 'Eje A–B',
@@ -173,6 +209,8 @@ export const ELEMENTO_QUICK_EXAMPLES: ReadonlyArray<ElementoQuickExample> = [
     id: 'columna',
     chipLabel: 'Columna',
     parts: {
+      frenteChoice: '3',
+      frenteOtroText: '',
       referenceKind: 'estacion',
       customReferenceLabel: '',
       referenceValue: 'E-03',
@@ -186,6 +224,8 @@ export const ELEMENTO_QUICK_EXAMPLES: ReadonlyArray<ElementoQuickExample> = [
     id: 'muro',
     chipLabel: 'Muro',
     parts: {
+      frenteChoice: '4',
+      frenteOtroText: '',
       referenceKind: 'pk',
       customReferenceLabel: '',
       referenceValue: '',

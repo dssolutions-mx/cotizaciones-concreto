@@ -167,6 +167,8 @@ export default function ScheduleOrderPage() {
   const [productId, setProductId] = useState<string>('');
   const [volume, setVolume] = useState<string>('10');
   const [elemento, setElemento] = useState<string>('');
+  /** Guided elemento: frente obligatorio (see ElementoField). Siempre true en texto libre. */
+  const [elementoGuidedOk, setElementoGuidedOk] = useState(false);
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -485,6 +487,7 @@ export default function ScheduleOrderPage() {
       productId &&
       Number(volume) > 0 &&
       elemento.trim().length > 0 &&
+      elementoGuidedOk &&
       !extrasBlocking
     );
   }, [
@@ -494,6 +497,7 @@ export default function ScheduleOrderPage() {
     productId,
     volume,
     elemento,
+    elementoGuidedOk,
     plantId,
     todayStr,
     resolvedSiteName,
@@ -719,7 +723,12 @@ export default function ScheduleOrderPage() {
                 </div>
 
                 {/* Elemento — texto libre o formato guiado */}
-                <ElementoField value={elemento} onChange={setElemento} idPrefix="schedule-elemento" />
+                <ElementoField
+                  value={elemento}
+                  onChange={setElemento}
+                  onGuidedValidityChange={setElementoGuidedOk}
+                  idPrefix="schedule-elemento"
+                />
 
                 {/* Product — cascada: resistencia → revenimiento → colocación */}
                 <div className="rounded-2xl border border-white/20 bg-white/[0.03] p-4 space-y-4">

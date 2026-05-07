@@ -11,17 +11,23 @@ import {
   EMPTY_GUIDED_ELEMENTO_PARTS,
   effectiveReferenceValue,
   formatElementoGuided,
+  guidedFrenteIsComplete,
   parseKmPlusPattern,
   usesStructuredChainage,
   type ElementoReferenceKind,
+  type FrenteChoiceId,
   type GuidedElementoParts,
 } from '@/lib/client-portal/formatElemento';
+
+const FRENTE_UNSET = '_unset';
 
 export type ElementoFieldProps = {
   value: string;
   onChange: (value: string) => void;
   /** Prefix for input ids (e.g. schedule-elemento) */
   idPrefix?: string;
+  /** Guided mode: false until frente is chosen (and Otro text filled when aplica). Texto libre always reports true. */
+  onGuidedValidityChange?: (complete: boolean) => void;
 };
 
 type Mode = 'free' | 'guided';
@@ -30,6 +36,7 @@ function ElementoFieldInner({
   value,
   onChange,
   idPrefix = 'portal-elemento',
+  onGuidedValidityChange,
 }: ElementoFieldProps) {
   const [mode, setMode] = useState<Mode>('guided');
   const [guidedParts, setGuidedParts] = useState<GuidedElementoParts>(EMPTY_GUIDED_ELEMENTO_PARTS);
@@ -50,6 +57,15 @@ function ElementoFieldInner({
     if (mode !== 'guided') return;
     debouncedPush(composedPreview);
   }, [mode, composedPreview, debouncedPush]);
+
+  useEffect(() => {
+    if (!onGuidedValidityChange) return;
+    if (mode !== 'guided') {
+      onGuidedValidityChange(true);
+      return;
+    }
+    onGuidedValidityChange(guidedFrenteIsComplete(guidedParts));
+  }, [mode, guidedParts, onGuidedValidityChange]);
 
   const flushToParent = useCallback(() => {
     debouncedPush.flush();
@@ -179,6 +195,66 @@ function ElementoFieldInner({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label
+                htmlFor={`${idPrefix}-frente`}
+                className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2"
+              >
+                Frente *
+              </label>
+              <Select
+                value={guidedParts.frenteChoice === '' ? FRENTE_UNSET : guidedParts.frenteChoice}
+                onValueChange={(v) => {
+                  if (v === FRENTE_UNSET) {
+                    updateGuided({ frenteChoice: '', frenteOtroText: '' });
+                    return;
+                  }
+                  updateGuided({
+                    frenteChoice: v as FrenteChoiceId,
+                    ...(v !== 'otro' ? { frenteOtroText: '' } : {}),
+                  });
+                }}
+              >
+                <SelectTrigger
+                  id={`${idPrefix}-frente`}
+                  className="w-full glass-thin border-white/20"
+                  onBlur={flushToParent}
+                  aria-invalid={guidedParts.frenteChoice === ''}
+                >
+                  <SelectValue placeholder="Selecciona frente" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FRENTE_UNSET} className="text-label-tertiary">
+                    Selecciona frente *
+                  </SelectItem>
+                  <SelectItem value="1">Frente 1</SelectItem>
+                  <SelectItem value="2">Frente 2</SelectItem>
+                  <SelectItem value="3">Frente 3</SelectItem>
+                  <SelectItem value="4">Frente 4</SelectItem>
+                  <SelectItem value="otro">Otro</SelectItem>
+                </SelectContent>
+              </Select>
+              {guidedParts.frenteChoice === 'otro' && (
+                <>
+                  <label
+                    htmlFor={`${idPrefix}-frente-otro`}
+                    className="block text-footnote text-label-tertiary uppercase tracking-wide mt-3 mb-2"
+                  >
+                    Describe el frente *
+                  </label>
+                  <input
+                    id={`${idPrefix}-frente-otro`}
+                    type="text"
+                    placeholder="Ej: Frente sur, acceso lateral…"
+                    value={guidedParts.frenteOtroText}
+                    onChange={(e) => updateGuided({ frenteOtroText: e.target.value })}
+                    onBlur={flushToParent}
+                    className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
+                  />
+                </>
+              )}
+            </div>
+
+            <div className="md:col-span-2">
+              <label
                 htmlFor={`${idPrefix}-ref-kind`}
                 className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2"
               >
@@ -292,7 +368,7 @@ function ElementoFieldInner({
                 htmlFor={`${idPrefix}-struct`}
                 className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2"
               >
-                Elemento estructural
+                Elemento a colar
               </label>
               <input
                 id={`${idPrefix}-struct`}
