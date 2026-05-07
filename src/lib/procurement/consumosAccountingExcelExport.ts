@@ -43,8 +43,13 @@ export type ConsumosAccountingSummary = {
   /** Ajustes de inventario con tipo «merma» (material_adjustments.adjustment_type = waste). */
   total_merma_inventario_kg: number
   total_entries_kg: number
-  /** Magnitud absoluta de todos los ajustes (incluye merma). */
+  /**
+   * Suma de magnitudes de auditoría por línea de ajuste (incluye merma): |efecto en inventario|, salvo **aperturas de saldo**
+   * donde se usa el mismo kg que «Valor en reporte» (saldo después del conteo).
+   */
   total_adjustments_kg: number
+  /** Suma algebraica del efecto en inventario: Σ cambio neto con signo (+ aumento, − disminución). */
+  total_adjustments_net_effect_kg: number
   remision_count: number
   accounting_concept?: string | null
   warehouse_number?: number | null

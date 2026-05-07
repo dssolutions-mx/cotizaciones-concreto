@@ -56,3 +56,23 @@ export function adjustmentDisplayForConsumos(
     effectSignedKg: signedQuantityForStockEffect(a.adjustment_type, a.quantity_adjusted),
   }
 }
+
+/**
+ * Kg to roll into «otros ajustes» / Σ ajustes materiales: for **aperturas de saldo**, uses the same basis as
+ * «Valor en reporte» (saldo después del conteo); otherwise |efecto neto en inventario|.
+ * Avoids summing Δ inventario on openings while the Excel row highlights saldo físico (user-facing mismatch).
+ */
+export function adjustmentAuditoriaAbsKgForTotals(a: {
+  adjustment_type: string
+  quantity_adjusted: number
+  inventory_before?: number | null
+  inventory_after?: number | null
+  reference_type?: string | null
+  reference_notes?: string | null
+}): number {
+  const d = adjustmentDisplayForConsumos(a)
+  if (isPlantOpeningBalanceAdjustment(a.reference_type, a.reference_notes)) {
+    return Math.abs(d.magnitudeKg)
+  }
+  return Math.abs(d.effectSignedKg)
+}

@@ -12,29 +12,12 @@ import {
   canAccessProcurementConsumosRoutes,
   lockedConsumosPlantId,
 } from '@/lib/procurement/consumosRouteAuth'
+import {
+  fetchConsumosAllPages,
+  fetchRemisionMaterialesByRemisionIds,
+} from '@/lib/procurement/consumosSupabaseFetch'
 
-async function fetchPlantDay(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  plantId: string,
-  date: string,
-  plantName: string,
-  plantAccounting: { accounting_concept: string | null; warehouse_number: number | null }
-): Promise<ReturnType<typeof aggregatePlantConsumosFromRows>> {
-  const { data: remisionRows } = await supabase
-    .from('remisiones')
-    .select('id')
-    .eq('plant_id', plantId)
-    .eq('fecha', date)
-
-  const remisionIds = (remisionRows || []).map((r) => r.id)
-
-  const [rmRes, entriesRes, adjRes, wasteRes] = await Promise.all([
-    remisionIds.length === 0
-      ? Promise.resolve({ data: [] as RemisionMaterialRow[], error: null })
-      : supabase
-          .from('remision_materiales')
-          .select(
-            `
+const RM_SELECT = `
             material_id,
             material_type,
             cantidad_teorica,
@@ -55,12 +38,29 @@ async function fetchPlantDay(
             ),
             materials (material_name, category, accounting_code)
           `
-          )
-          .in('remision_id', remisionIds),
-    supabase
-      .from('material_entries')
-      .select(
-        `
+
+async function fetchPlantDay(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  plantId: string,
+  date: string,
+  plantName: string,
+  plantAccounting: { accounting_concept: string | null; warehouse_number: number | null }
+): Promise<ReturnType<typeof aggregatePlantConsumosFromRows>> {
+  const remisionRows = await fetchConsumosAllPages<{ id: string }>(async (from, to) =>
+    supabase.from('remisiones').select('id').eq('plant_id', plantId).eq('fecha', date).range(from, to),
+  )
+
+  const remisionIds = remisionRows.map((r) => r.id)
+
+  const [rmRowsRaw, entryRows, adjRows, wasteRows] = await Promise.all([
+    remisionIds.length === 0
+      ? Promise.resolve([] as unknown[])
+      : fetchRemisionMaterialesByRemisionIds(supabase, remisionIds, RM_SELECT),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('material_entries')
+        .select(
+          `
         id,
         material_id,
         quantity_received,
@@ -70,13 +70,16 @@ async function fetchPlantDay(
         supplier:suppliers!supplier_id (name),
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .eq('entry_date', date),
-    supabase
-      .from('material_adjustments')
-      .select(
-        `
+        )
+        .eq('plant_id', plantId)
+        .eq('entry_date', date)
+        .range(from, to),
+    ),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('material_adjustments')
+        .select(
+          `
         id,
         material_id,
         quantity_adjusted,
@@ -88,13 +91,16 @@ async function fetchPlantDay(
         reference_notes,
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .eq('adjustment_date', date),
-    supabase
-      .from('waste_materials')
-      .select(
-        `
+        )
+        .eq('plant_id', plantId)
+        .eq('adjustment_date', date)
+        .range(from, to),
+    ),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('waste_materials')
+        .select(
+          `
         id,
         plant_id,
         fecha,
@@ -107,20 +113,17 @@ async function fetchPlantDay(
         notes,
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .eq('fecha', date),
+        )
+        .eq('plant_id', plantId)
+        .eq('fecha', date)
+        .range(from, to),
+    ),
   ])
 
-  if (rmRes.error) throw new Error(rmRes.error.message)
-  if (entriesRes.error) throw new Error(entriesRes.error.message)
-  if (adjRes.error) throw new Error(adjRes.error.message)
-  if (wasteRes.error) throw new Error(wasteRes.error.message)
-
-  const rmRows = (rmRes.data || []) as RemisionMaterialRow[]
-  const entryRows = (entriesRes.data || []) as EntryRow[]
-  const adjRows = (adjRes.data || []) as AdjustmentRow[]
-  const wasteRows = (wasteRes.data || []) as WasteMaterialRow[]
+  const rmRows = rmRowsRaw as RemisionMaterialRow[]
+  const entryRowsTyped = entryRows as EntryRow[]
+  const adjRowsTyped = adjRows as AdjustmentRow[]
+  const wasteRowsTyped = wasteRows as WasteMaterialRow[]
 
   return aggregatePlantConsumosFromRows(
     plantId,
@@ -128,9 +131,9 @@ async function fetchPlantDay(
     date,
     plantAccounting,
     rmRows,
-    entryRows,
-    adjRows,
-    wasteRows,
+    entryRowsTyped,
+    adjRowsTyped,
+    wasteRowsTyped,
   )
 }
 

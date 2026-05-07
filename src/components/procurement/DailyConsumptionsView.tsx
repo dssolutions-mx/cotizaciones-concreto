@@ -117,14 +117,20 @@ function PlantSection({
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-xs font-semibold uppercase tracking-wide text-stone-500 flex items-center gap-1.5">
               <Activity className="h-3.5 w-3.5" />
-              Ajustes (abs.)
+              Ajustes
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-0.5">
             <p className="text-xl font-mono font-semibold tabular-nums text-stone-900">
               {fmtKg(summary.total_adjustments_kg)} kg
             </p>
-            <p className="text-[10px] text-stone-500 leading-tight">Incluye merma y demás tipos</p>
+            <p className="text-[10px] text-stone-500 leading-tight">
+              Magnitud por línea para cuadrar: en aperturas de saldo coincide con «valor reportado»; en otros movimientos,
+              |efecto en inventario|.
+            </p>
+            <p className="text-sm font-mono font-medium tabular-nums text-stone-800 pt-0.5">
+              Neto inventario: {formatSignedKg(summary.total_adjustments_net_effect_kg)}
+            </p>
           </CardContent>
         </Card>
         <Card className="border-stone-200 bg-white">

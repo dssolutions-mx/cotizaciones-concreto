@@ -50,6 +50,7 @@ import {
   BookOpen,
   Lightbulb,
   Upload,
+  Award,
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -370,6 +371,12 @@ const QUALITY_SECTIONS: QualitySection[] = [
         excludeRestrictedPlants: true,
       },
       { title: 'Curvas de Abrams', href: '/quality/curvas-abrams', IconComponent: TrendingUp, subGroup: 'Evaluar Mezcla' },
+      {
+        title: 'Certificados y dossier',
+        href: '/quality/estudios/certificados',
+        IconComponent: Award,
+        subGroup: 'Documentación',
+      },
     ],
   },
   {

@@ -1,9 +1,36 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ConsumosAccountingMaterialBlock, ConsumosAccountingSummary } from '@/lib/procurement/consumosAccountingExcelExport'
 import {
+  adjustmentAuditoriaAbsKgForTotals,
   adjustmentDisplayForConsumos,
 } from '@/lib/procurement/openingConsumosMerge'
 import { isFifoOrphanBucketEntry, isSyntheticFifoCostLayerEntry } from '@/lib/inventory/fifoSyntheticLayers'
+import {
+  fetchConsumosAllPages,
+  fetchRemisionMaterialesByRemisionIds,
+} from '@/lib/procurement/consumosSupabaseFetch'
+
+const RM_SELECT_RANGE = `
+            material_id,
+            material_type,
+            cantidad_teorica,
+            cantidad_real,
+            ajuste,
+            remision_id,
+            remisiones (
+              id,
+              remision_number,
+              hora_carga,
+              volumen_fabricado,
+              fecha,
+              order:orders (
+                construction_site,
+                clients:clients (business_name)
+              ),
+              recipe:recipes (recipe_code, strength_fc)
+            ),
+            materials (material_name, category, accounting_code)
+          `
 
 export type RemisionesEmbed = {
   id: string
@@ -309,10 +336,15 @@ export function aggregatePlantConsumosFromRows(
   )
   const total_adjustments_kg = materials.reduce(
     (s, m) =>
+      s + m.adjustments.reduce((t, a) => t + adjustmentAuditoriaAbsKgForTotals(a), 0),
+    0
+  )
+  const total_adjustments_net_effect_kg = materials.reduce(
+    (s, m) =>
       s +
       m.adjustments.reduce((t, a) => {
         const d = adjustmentDisplayForConsumos(a)
-        return t + Math.abs(d.effectSignedKg)
+        return t + d.effectSignedKg
       }, 0),
     0
   )
@@ -343,6 +375,7 @@ export function aggregatePlantConsumosFromRows(
       total_merma_inventario_kg,
       total_entries_kg,
       total_adjustments_kg,
+      total_adjustments_net_effect_kg,
       remision_count: remisionIdSet.size,
       accounting_concept: plantAccounting.accounting_concept,
       warehouse_number: plantAccounting.warehouse_number,
@@ -391,50 +424,27 @@ export async function fetchPlantConsumosRangeDays(
     materials: MaterialAgg[]
   }>
 > {
-  const { data: remisionRows, error: remErr } = await supabase
-    .from('remisiones')
-    .select('id, fecha')
-    .eq('plant_id', plantId)
-    .gte('fecha', dateFrom)
-    .lte('fecha', dateTo)
-
-  if (remErr) throw new Error(remErr.message)
-
-  const remisionIds = (remisionRows || []).map((r) => r.id)
-
-  const [rmRes, entriesRes, adjRes, wasteRes] = await Promise.all([
-    remisionIds.length === 0
-      ? Promise.resolve({ data: [] as RemisionMaterialRow[], error: null })
-      : supabase
-          .from('remision_materiales')
-          .select(
-            `
-            material_id,
-            material_type,
-            cantidad_teorica,
-            cantidad_real,
-            ajuste,
-            remision_id,
-            remisiones (
-              id,
-              remision_number,
-              hora_carga,
-              volumen_fabricado,
-              fecha,
-              order:orders (
-                construction_site,
-                clients:clients (business_name)
-              ),
-              recipe:recipes (recipe_code, strength_fc)
-            ),
-            materials (material_name, category, accounting_code)
-          `
-          )
-          .in('remision_id', remisionIds),
+  const remisionRows = await fetchConsumosAllPages<{ id: string }>(async (from, to) =>
     supabase
-      .from('material_entries')
-      .select(
-        `
+      .from('remisiones')
+      .select('id, fecha')
+      .eq('plant_id', plantId)
+      .gte('fecha', dateFrom)
+      .lte('fecha', dateTo)
+      .range(from, to),
+  )
+
+  const remisionIds = remisionRows.map((r) => r.id)
+
+  const [rmRowsRaw, entryRowsAll, adjRowsAll, wasteRowsAll] = await Promise.all([
+    remisionIds.length === 0
+      ? Promise.resolve([] as unknown[])
+      : fetchRemisionMaterialesByRemisionIds(supabase, remisionIds, RM_SELECT_RANGE),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('material_entries')
+        .select(
+          `
         id,
         material_id,
         quantity_received,
@@ -445,14 +455,17 @@ export async function fetchPlantConsumosRangeDays(
         supplier:suppliers!supplier_id (name),
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .gte('entry_date', dateFrom)
-      .lte('entry_date', dateTo),
-    supabase
-      .from('material_adjustments')
-      .select(
-        `
+        )
+        .eq('plant_id', plantId)
+        .gte('entry_date', dateFrom)
+        .lte('entry_date', dateTo)
+        .range(from, to),
+    ),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('material_adjustments')
+        .select(
+          `
         id,
         material_id,
         quantity_adjusted,
@@ -465,14 +478,17 @@ export async function fetchPlantConsumosRangeDays(
         adjustment_date,
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .gte('adjustment_date', dateFrom)
-      .lte('adjustment_date', dateTo),
-    supabase
-      .from('waste_materials')
-      .select(
-        `
+        )
+        .eq('plant_id', plantId)
+        .gte('adjustment_date', dateFrom)
+        .lte('adjustment_date', dateTo)
+        .range(from, to),
+    ),
+    fetchConsumosAllPages(async (from, to) =>
+      supabase
+        .from('waste_materials')
+        .select(
+          `
         id,
         plant_id,
         fecha,
@@ -485,21 +501,18 @@ export async function fetchPlantConsumosRangeDays(
         notes,
         materials (material_name, accounting_code)
       `
-      )
-      .eq('plant_id', plantId)
-      .gte('fecha', dateFrom)
-      .lte('fecha', dateTo),
+        )
+        .eq('plant_id', plantId)
+        .gte('fecha', dateFrom)
+        .lte('fecha', dateTo)
+        .range(from, to),
+    ),
   ])
 
-  if (rmRes.error) throw new Error(rmRes.error.message)
-  if (entriesRes.error) throw new Error(entriesRes.error.message)
-  if (adjRes.error) throw new Error(adjRes.error.message)
-  if (wasteRes.error) throw new Error(wasteRes.error.message)
-
-  const rmRowsAll = (rmRes.data || []) as RemisionMaterialRow[]
-  const entryRowsAll = (entriesRes.data || []) as unknown as EntryRow[]
-  const adjRowsAll = (adjRes.data || []) as unknown as AdjustmentRow[]
-  const wasteRowsAll = (wasteRes.data || []) as unknown as WasteMaterialRow[]
+  const rmRowsAll = rmRowsRaw as RemisionMaterialRow[]
+  const entryRowsTyped = entryRowsAll as unknown as EntryRow[]
+  const adjRowsTyped = adjRowsAll as unknown as AdjustmentRow[]
+  const wasteRowsTyped = wasteRowsAll as unknown as WasteMaterialRow[]
 
   const byDate = new Map<string, DayBucket>()
   const ensure = (d: string): DayBucket => {
@@ -518,19 +531,19 @@ export async function fetchPlantConsumosRangeDays(
     ensure(d).rm.push(row)
   }
 
-  for (const row of entryRowsAll) {
+  for (const row of entryRowsTyped) {
     const d = ymdFromDbDate(row.entry_date ?? null)
     if (!d) continue
     ensure(d).entries.push(row)
   }
 
-  for (const row of adjRowsAll) {
+  for (const row of adjRowsTyped) {
     const d = ymdFromDbDate(row.adjustment_date ?? null)
     if (!d) continue
     ensure(d).adj.push(row)
   }
 
-  for (const row of wasteRowsAll) {
+  for (const row of wasteRowsTyped) {
     const d = ymdFromDbDate(row.fecha ?? null)
     if (!d) continue
     ensure(d).waste.push(row)
