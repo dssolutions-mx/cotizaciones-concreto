@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -77,7 +78,20 @@ interface LogData {
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
-export default function RemisionesLogPage() {
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Supports `?fecha=YYYY-MM-DD`, `?date=YYYY-MM-DD`, or `?date_from=&date_to=` for deep links (e.g. desde auditoría de inventario). */
+function parseDateRangeFromSearchParams(sp: URLSearchParams): { from: string; to: string } | null {
+  const single = sp.get('fecha') ?? sp.get('date');
+  if (single && ISO_DATE_RE.test(single)) return { from: single, to: single };
+  const fromQ = sp.get('date_from');
+  const toQ = sp.get('date_to');
+  if (fromQ && toQ && ISO_DATE_RE.test(fromQ) && ISO_DATE_RE.test(toQ)) return { from: fromQ, to: toQ };
+  return null;
+}
+
+function RemisionesLogPageContent() {
+  const searchParams = useSearchParams();
   const { currentPlant } = usePlantContext();
   const [data, setData] = useState<LogData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,6 +102,9 @@ export default function RemisionesLogPage() {
   const [search, setSearch] = useState('');
   const [activeSection, setActiveSection] = useState<'all' | 'regular' | 'cross-plant' | 'arkik-waste'>('all');
   const [reassignmentByRemision, setReassignmentByRemision] = useState<Map<string, string>>(() => new Map());
+
+  const rangeRef = useRef({ from: dateFrom, to: dateTo });
+  rangeRef.current = { from: dateFrom, to: dateTo };
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -120,16 +137,15 @@ export default function RemisionesLogPage() {
     };
   }, [data]);
 
-  const fetchData = useCallback(async (plantId?: string, from?: string, to?: string) => {
-    const id = plantId || currentPlant?.id;
-    if (!id) return;
+  const fetchData = useCallback(async (plantId: string, from: string, to: string) => {
+    if (!plantId) return;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({
-        plant_id: id,
-        date_from: from || dateFrom,
-        date_to: to || dateTo,
+        plant_id: plantId,
+        date_from: from,
+        date_to: to,
       });
       const res = await fetch(`/api/production-control/remisiones-log?${params}`);
       if (!res.ok) throw new Error('Error al cargar remisiones');
@@ -151,13 +167,23 @@ export default function RemisionesLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentPlant?.id, dateFrom, dateTo]);
+  }, []);
 
   useEffect(() => {
-    if (mounted && currentPlant?.id) fetchData(currentPlant.id);
-  }, [mounted, currentPlant?.id]);
+    if (!mounted || !currentPlant?.id) return;
+    const parsed = parseDateRangeFromSearchParams(searchParams);
+    if (parsed) {
+      setDateFrom(parsed.from);
+      setDateTo(parsed.to);
+      void fetchData(currentPlant.id, parsed.from, parsed.to);
+      return;
+    }
+    void fetchData(currentPlant.id, rangeRef.current.from, rangeRef.current.to);
+  }, [mounted, currentPlant?.id, searchParams, fetchData]);
 
-  const handleDateApply = () => fetchData(currentPlant?.id, dateFrom, dateTo);
+  const handleDateApply = () => {
+    if (currentPlant?.id) void fetchData(currentPlant.id, dateFrom, dateTo);
+  };
 
   const filterRemision = (r: { remision_number: string; conductor?: string | null; construction_site?: string | null; client_name?: string | null }) =>
     !search ||
@@ -208,7 +234,12 @@ export default function RemisionesLogPage() {
               </div>
             )}
           </div>
-          <Button variant="outline" size="sm" onClick={() => fetchData(currentPlant?.id)} disabled={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => currentPlant?.id && void fetchData(currentPlant.id, dateFrom, dateTo)}
+            disabled={loading}
+          >
             <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
             Actualizar
           </Button>
@@ -605,5 +636,19 @@ export default function RemisionesLogPage() {
       </div>
     </div>
     </TooltipProvider>
+  );
+}
+
+export default function RemisionesLogPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+          <div className="text-sm text-gray-600">Cargando…</div>
+        </div>
+      }
+    >
+      <RemisionesLogPageContent />
+    </Suspense>
   );
 }

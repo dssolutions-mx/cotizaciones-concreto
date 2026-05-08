@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Sheet,
   SheetContent,
@@ -50,6 +51,16 @@ import {
 
 const EPS = MATERIAL_LEDGER_EPSILON_KG
 
+/** YYYY-MM-DD for remisiones log deep links from consumo rows */
+function movementDateToFechaParam(movementDate: string): string {
+  const t = movementDate.trim()
+  const m = t.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (m) return m[1]
+  const d = new Date(t)
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+  return new Date().toISOString().slice(0, 10)
+}
+
 function fmtKg(n: number) {
   return n.toLocaleString('es-MX', { maximumFractionDigits: 3 })
 }
@@ -90,6 +101,7 @@ export default function MaterialAuditSheet({
   seedMaterial,
   startOnVariancesTab = false,
 }: MaterialAuditSheetProps) {
+  const router = useRouter()
   const { profile } = useAuthSelectors()
   const canFinance = canCompleteEntryPricingReview(profile?.role)
   /** Dosificador: movimientos y existencias, sin montos (MXN). */
@@ -113,7 +125,9 @@ export default function MaterialAuditSheet({
   const [pricingLoading, setPricingLoading] = useState(false)
   const [adjustmentOpen, setAdjustmentOpen] = useState(false)
 
-  useEffect(() => {
+  const ledgerFetchGenRef = useRef(0)
+
+  useLayoutEffect(() => {
     if (!open) return
     setActiveMaterial(seedMaterial)
     setTab(startOnVariancesTab && !seedMaterial ? 'variances' : 'movements')
@@ -154,8 +168,11 @@ export default function MaterialAuditSheet({
       setLedger(null)
       return
     }
-    setLedgerLoading(true)
+    const materialIdRequested = activeMaterial.id
+    const gen = ++ledgerFetchGenRef.current
+    setLedger(null)
     setLedgerError(null)
+    setLedgerLoading(true)
     try {
       const params = new URLSearchParams({
         plant_id: plantId,
@@ -169,15 +186,18 @@ export default function MaterialAuditSheet({
       }
       const res = await fetch(`/api/inventory/material-ledger?${params}`)
       const json = (await res.json()) as MaterialLedgerResponse & { error?: string; success?: boolean }
+      if (gen !== ledgerFetchGenRef.current) return
       if (!res.ok || json.success !== true) {
         throw new Error(json.error || 'No se pudo cargar el libro mayor')
       }
+      if (json.material?.id !== materialIdRequested) return
       setLedger(json)
     } catch (e) {
+      if (gen !== ledgerFetchGenRef.current) return
       setLedgerError(e instanceof Error ? e.message : 'Error')
       setLedger(null)
     } finally {
-      setLedgerLoading(false)
+      if (gen === ledgerFetchGenRef.current) setLedgerLoading(false)
     }
   }, [plantId, activeMaterial?.id, sinceCutover, startDate, endDate])
 
@@ -185,14 +205,27 @@ export default function MaterialAuditSheet({
     if (open && activeMaterial?.id) void loadLedger()
   }, [open, activeMaterial?.id, loadLedger])
 
+  /** Never show previous material’s ledger while another is selected or loading. */
+  useLayoutEffect(() => {
+    if (!open) return
+    setLedger(null)
+    setLedgerError(null)
+  }, [open, activeMaterial?.id])
+
+  const ledgerForView = useMemo(() => {
+    if (!ledger || !activeMaterial?.id) return null
+    if (ledger.material.id !== activeMaterial.id) return null
+    return ledger
+  }, [ledger, activeMaterial?.id])
+
   const mismatchRows = useMemo(() => {
-    if (!ledger) return []
-    return ledger.entry_rows.filter(
+    if (!ledgerForView) return []
+    return ledgerForView.entry_rows.filter(
       (r) => r.pricing_status === 'pending' || !r.ap_amount_matches_total_cost
     )
-  }, [ledger])
+  }, [ledgerForView])
 
-  const reconciliation = ledger?.reconciliation
+  const reconciliation = ledgerForView?.reconciliation
 
   const fetchEntryForPricing = async (entryId: string) => {
     setPricingLoading(true)
@@ -275,10 +308,16 @@ export default function MaterialAuditSheet({
             Crear ajuste
           </DropdownMenuItem>
           {movement.movement_type === 'REMISION' && (
-            <DropdownMenuItem asChild>
-              <Link href="/production-control/remisiones" className="cursor-pointer">
-                Ver remisiones <ExternalLink className="inline h-3 w-3 ml-1" />
-              </Link>
+            <DropdownMenuItem
+              onSelect={() => {
+                const href = `/production-control/remisiones?fecha=${encodeURIComponent(movementDateToFechaParam(movement.movement_date))}`
+                onOpenChange(false)
+                window.setTimeout(() => {
+                  router.push(href)
+                }, 200)
+              }}
+            >
+              Ver remisiones <ExternalLink className="inline h-3 w-3 ml-1" />
             </DropdownMenuItem>
           )}
           {canFinance && movement.entry_id && (
@@ -327,7 +366,7 @@ export default function MaterialAuditSheet({
     )
   }
 
-  const flow = ledger?.flow
+  const flow = ledgerForView?.flow
 
   return (
     <>
@@ -409,7 +448,7 @@ export default function MaterialAuditSheet({
               )}
             </div>
 
-            {ledger?.opening && (
+            {ledgerForView?.opening && (
               <div className="rounded-lg border border-stone-200 bg-white p-3 text-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-stone-500 mb-2">
                   Línea base (cutover)
@@ -417,44 +456,44 @@ export default function MaterialAuditSheet({
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
                     <span className="text-stone-500">Fecha conteo inicial:</span>{' '}
-                    <span className="font-medium">{ledger.opening.cutover_date ?? '—'}</span>
+                    <span className="font-medium">{ledgerForView.opening.cutover_date ?? '—'}</span>
                   </div>
                   <div>
                     <span className="text-stone-500">
-                      Cantidad conteo inicial ({ledger.material.unit_of_measure?.trim() || 'u'}):
+                      Cantidad conteo inicial ({ledgerForView.material.unit_of_measure?.trim() || 'u'}):
                     </span>{' '}
-                    <span className="font-mono">{fmtKg(ledger.opening.initial_count_qty_kg ?? 0)}</span>
+                    <span className="font-mono">{fmtKg(ledgerForView.opening.initial_count_qty_kg ?? 0)}</span>
                   </div>
                   <div>
                     <span className="text-stone-500">Capa FIFO apertura:</span>{' '}
-                    <span className="font-mono text-xs">{ledger.opening.opening_fifo_entry_id ?? '—'}</span>
+                    <span className="font-mono text-xs">{ledgerForView.opening.opening_fifo_entry_id ?? '—'}</span>
                   </div>
                   {!hideMoney && (
                     <div>
                       <span className="text-stone-500">Precio unitario apertura:</span>{' '}
                       <span className="font-mono">
-                        {ledger.opening.opening_unit_price != null
-                          ? fmtMx(ledger.opening.opening_unit_price)
+                        {ledgerForView.opening.opening_unit_price != null
+                          ? fmtMx(ledgerForView.opening.opening_unit_price)
                           : '—'}
                       </span>
                     </div>
                   )}
                 </div>
-                {ledger.opening.initial_count_adjustment_id && (
-                  <Button variant="link" className="h-auto px-0 pt-2 text-sky-800" asChild>
+                {ledgerForView.opening.initial_count_adjustment_id && (
+                  <Button variant="ghost" className="h-auto px-0 pt-2 text-sky-800 underline-offset-2 hover:underline" asChild>
                     <Link href="/production-control/adjustments">Ver ajustes en planta</Link>
                   </Button>
                 )}
               </div>
             )}
 
-            {ledgerLoading && (
+            {ledgerLoading && activeMaterial && (
               <div className="space-y-2">
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-40 w-full" />
               </div>
             )}
-            {ledgerError && <p className="text-sm text-red-700">{ledgerError}</p>}
+            {ledgerError && activeMaterial && <p className="text-sm text-red-700">{ledgerError}</p>}
 
             {reconciliation && activeMaterial && (
               <div className="grid gap-3 md:grid-cols-3">
@@ -514,9 +553,9 @@ export default function MaterialAuditSheet({
               </TabsList>
 
               <TabsContent value="movements" className="mt-3 space-y-3">
-                {ledger?.movements && activeMaterial && (
+                {ledgerForView?.movements && activeMaterial && (
                   <InventoryMovementsTable
-                    movements={ledger.movements}
+                    movements={ledgerForView.movements}
                     singleMaterial
                     ledgerMode={!hideMoney}
                     renderRowActions={(m) => renderMovementActions(m)}
@@ -525,7 +564,9 @@ export default function MaterialAuditSheet({
               </TabsContent>
 
               <TabsContent value="mismatch" className="mt-3">
-                {!ledger ? (
+                {ledgerLoading && activeMaterial ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : !ledgerForView ? (
                   <p className="text-sm text-stone-500">Cargue un material primero.</p>
                 ) : mismatchRows.length === 0 ? (
                   <p className="text-sm text-emerald-800">Sin entradas con desfase en este rango.</p>

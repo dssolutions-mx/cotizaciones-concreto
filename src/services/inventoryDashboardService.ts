@@ -343,6 +343,31 @@ export class InventoryDashboardService {
       const materialCodesList = filteredMaterials.map(m => m.material_code);
       const materialCodeToIdMap = new Map(filteredMaterials.map(m => [m.material_code, m.id]));
 
+      let historicalEntriesAggRows: any[] = []
+      let historicalAdjustmentsAggRows: any[] = []
+      let historicalConsumptionAggRows: any[] = []
+      let historicalWasteByMaterialIdAggRows: any[] = []
+      let historicalWasteLegacyAggRows: any[] = []
+      let allPeriodEntries: any[] = []
+      let allPeriodAdjustments: any[] = []
+      let periodRemisiones: Array<{ id: string; fecha: string }> = []
+      let allPeriodWasteByMaterialIdRows: any[] = []
+      let allPeriodWasteLegacyRows: any[] = []
+      let historicalConsumptionByMaterial = new Map<string, number>()
+      let historicalWasteMaps = this.buildWasteLookupMaps([])
+      let periodWasteMaps = this.buildWasteLookupMaps([])
+      let historicalEntriesByMaterial = new Map<string, number>()
+      let historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>()
+      let periodEntriesByMaterial = new Map<string, number[]>()
+      let periodAdjustmentsByMaterial = new Map<string, Array<{ qty: number; type: string }>>()
+      let periodConsumptionByMaterial = new Map<string, number[]>()
+      let allPeriodRemisionMaterials: Array<{
+        material_id: string
+        remision_id: string
+        cantidad_real?: number | null
+        material_type?: string | null
+      }> = []
+
       // PERFORMANCE OPTIMIZATION: Batch fetch ALL data at once instead of per-material queries
       console.log('📊 Batch fetching historical data for', filteredMaterials.length, 'materials');
 
@@ -366,16 +391,83 @@ export class InventoryDashboardService {
         currentInventory?.map(inv => [inv.material_id, inv.current_stock]) || []
       );
 
-      // OPTIMIZED: Use SQL aggregations instead of fetching all historical records
-      // This reduces data transfer from thousands of records to just aggregated totals per material
-      console.log('📊 Fetching historical aggregations (optimized)...');
+      type RpcFlowAggRow = {
+        material_id: string
+        hist_entries: string | number | null
+        hist_adj_additions: string | number | null
+        hist_adj_withdrawals: string | number | null
+        hist_remision_consume: string | number | null
+        hist_waste: string | number | null
+        per_entries: string | number | null
+        per_adj_additions: string | number | null
+        per_adj_withdrawals: string | number | null
+        per_remision_consume: string | number | null
+        per_waste: string | number | null
+        per_open_layer_kg: string | number | null
+      }
+
+      const num = (v: string | number | null | undefined) => Number(v ?? 0) || 0
+
+      let useSqlRpcPath = false
+      let rpcAggByMaterial: Map<string, RpcFlowAggRow> | null = null
+      let openFifoMaterialIds = new Set<string>()
+      let syntheticOpenEntryDateByMaterial = new Map<string, string>()
+      let initialCountAdjustmentDateByMaterial = new Map<string, string>()
+
+      const [aggRpc, cutoverRpc] = await Promise.all([
+        this.supabase.rpc('inventory_dashboard_material_flow_aggregates', {
+          p_plant_id: plantId,
+          p_start_date: startDate,
+          p_end_date: endDate,
+          p_material_ids: materialIdsList,
+        }),
+        this.supabase.rpc('inventory_dashboard_fifo_cutover_dates', {
+          p_plant_id: plantId,
+          p_material_ids: materialIdsList,
+        }),
+      ])
+
+      if (!aggRpc.error && Array.isArray(aggRpc.data)) {
+        useSqlRpcPath = true
+        rpcAggByMaterial = new Map(
+          (aggRpc.data as RpcFlowAggRow[]).map((r) => [String(r.material_id), r])
+        )
+        if (!cutoverRpc.error && Array.isArray(cutoverRpc.data)) {
+          for (const row of cutoverRpc.data as Array<{
+            material_id: string
+            first_fifo_layer_entry_date?: string | null
+            first_initial_count_date?: string | null
+          }>) {
+            const mid = String(row.material_id)
+            openFifoMaterialIds.add(mid)
+            const fd = row.first_fifo_layer_entry_date
+            if (fd) syntheticOpenEntryDateByMaterial.set(mid, String(fd).slice(0, 10))
+            const ic = row.first_initial_count_date
+            if (ic) initialCountAdjustmentDateByMaterial.set(mid, String(ic).slice(0, 10))
+          }
+        }
+        console.log('✅ Historical aggregations via DB RPC (inventory_dashboard_material_flow_aggregates)', {
+          materials: rpcAggByMaterial.size,
+          fifoMaterials: openFifoMaterialIds.size,
+        })
+      } else {
+        if (aggRpc.error) {
+          console.warn(
+            '⚠️ inventory_dashboard_material_flow_aggregates RPC unavailable; using legacy batch fetch:',
+            aggRpc.error.message
+          )
+        }
+      }
+
+      if (!useSqlRpcPath) {
+      console.log('📊 Fetching historical aggregations (legacy batch / paginated)...');
       
       const [
-        historicalEntriesAggRows,
-        historicalAdjustmentsAggRows,
-        historicalConsumptionAggRows,
-        historicalWasteByMaterialIdAggRows,
-        historicalWasteLegacyAggRows
+        historicalEntriesAggRowsResult,
+        historicalAdjustmentsAggRowsResult,
+        historicalConsumptionAggRowsResult,
+        historicalWasteByMaterialIdAggRowsResult,
+        historicalWasteLegacyAggRowsResult
       ] = await Promise.all([
         this.fetchAllPages(() =>
           this.supabase
@@ -407,7 +499,7 @@ export class InventoryDashboardService {
               .order('fecha', { ascending: true })
               .order('id', { ascending: true })
           );
-          const remisionIds = remisionesBefore.map((r) => r.id);
+          const remisionIds = (remisionesBefore as { id: string }[]).map((r) => r.id);
           if (remisionIds.length === 0) return [];
           return this.fetchRemisionMaterialesBatched(
             remisionIds,
@@ -438,15 +530,14 @@ export class InventoryDashboardService {
         ),
       ]);
 
-      const historicalEntriesAgg = { data: historicalEntriesAggRows, error: null as Error | null };
-      const historicalAdjustmentsAgg = { data: historicalAdjustmentsAggRows, error: null as Error | null };
-      const historicalConsumptionAgg = { data: historicalConsumptionAggRows, error: null as Error | null };
-      const historicalWasteByMaterialIdAgg = { data: historicalWasteByMaterialIdAggRows, error: null as Error | null };
-      const historicalWasteLegacyAgg = { data: historicalWasteLegacyAggRows, error: null as Error | null };
+      historicalEntriesAggRows = historicalEntriesAggRowsResult
+      historicalAdjustmentsAggRows = historicalAdjustmentsAggRowsResult
+      historicalConsumptionAggRows = historicalConsumptionAggRowsResult
+      historicalWasteByMaterialIdAggRows = historicalWasteByMaterialIdAggRowsResult
+      historicalWasteLegacyAggRows = historicalWasteLegacyAggRowsResult
 
-      // Process aggregated historical consumption
-      const historicalConsumptionByMaterial = new Map<string, number>();
-      (historicalConsumptionAgg.data || []).forEach(rm => {
+      historicalConsumptionByMaterial = new Map<string, number>();
+      (historicalConsumptionAggRows || []).forEach(rm => {
         if (rm.material_id) {
           const current = historicalConsumptionByMaterial.get(rm.material_id) || 0;
           historicalConsumptionByMaterial.set(rm.material_id, current + Number(rm.cantidad_real || 0));
@@ -454,10 +545,10 @@ export class InventoryDashboardService {
       });
 
       const historicalWasteRows = [
-        ...(historicalWasteByMaterialIdAgg.data || []),
-        ...(historicalWasteLegacyAgg.data || [])
+        ...(historicalWasteByMaterialIdAggRows || []),
+        ...(historicalWasteLegacyAggRows || [])
       ];
-      const historicalWasteMaps = this.buildWasteLookupMaps(historicalWasteRows);
+      historicalWasteMaps = this.buildWasteLookupMaps(historicalWasteRows);
 
       console.log('✅ Historical waste/consumption aggregations complete:', {
         consumptionMaterials: historicalConsumptionByMaterial.size,
@@ -524,16 +615,14 @@ export class InventoryDashboardService {
         ),
       ]);
 
-      const allPeriodEntries = periodBatch[0];
-      const allPeriodAdjustments = periodBatch[1];
-      const periodRemisiones = periodBatch[2];
-      const allPeriodWasteByMaterialIdRows = periodBatch[3];
-      const allPeriodWasteLegacyRows = periodBatch[4];
+      allPeriodEntries = periodBatch[0];
+      allPeriodAdjustments = periodBatch[1];
+      periodRemisiones = periodBatch[2] as Array<{ id: string; fecha: string }>;
+      allPeriodWasteByMaterialIdRows = periodBatch[3];
+      allPeriodWasteLegacyRows = periodBatch[4];
 
-      /** Materials with synthetic FIFO layer rows (0OPEN / ADJP): opening kg is in `ENTRY`; skip paired positive adjustments in adjustment sums. */
-      const openFifoMaterialIds = new Set<string>();
-      /** First synthetic OPEN layer date per material (for ERP cutover: stock inicial = 0 on that day). */
-      const syntheticOpenEntryDateByMaterial = new Map<string, string>();
+      openFifoMaterialIds = new Set<string>();
+      syntheticOpenEntryDateByMaterial = new Map<string, string>();
       for (const e of [...(historicalEntriesAggRows || []), ...(allPeriodEntries || [])]) {
         if (e.material_id && isSyntheticFifoCostLayerEntry(e.entry_number)) {
           openFifoMaterialIds.add(e.material_id);
@@ -547,8 +636,7 @@ export class InventoryDashboardService {
         }
       }
 
-      /** Earliest `initial_count` date per OPEN-layer material — cutover day for saldo inicial = 0 (OPEN `entry_date` can be month-start, not conteo). */
-      const initialCountAdjustmentDateByMaterial = new Map<string, string>();
+      initialCountAdjustmentDateByMaterial = new Map<string, string>();
       for (const adj of [
         ...(historicalAdjustmentsAggRows || []),
         ...(allPeriodAdjustments || []),
@@ -565,7 +653,7 @@ export class InventoryDashboardService {
         if (!prev || d < prev) initialCountAdjustmentDateByMaterial.set(mid, d);
       }
 
-      const historicalEntriesByMaterial = new Map<string, number>();
+      historicalEntriesByMaterial = new Map<string, number>();
       (historicalEntriesAggRows || []).forEach((e) => {
         if (
           isSyntheticFifoCostLayerEntry(e.entry_number) ||
@@ -577,7 +665,7 @@ export class InventoryDashboardService {
         historicalEntriesByMaterial.set(e.material_id, current + Number(e.quantity_received || 0));
       });
 
-      const historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>();
+      historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>();
       (historicalAdjustmentsAggRows || []).forEach((adj) => {
         const qty = Number(adj.quantity_adjusted || 0);
         if (isPositiveAdjustmentType(adj.adjustment_type || '') && openFifoMaterialIds.has(adj.material_id)) {
@@ -606,7 +694,7 @@ export class InventoryDashboardService {
         ...(allPeriodWasteByMaterialIdRows || []),
         ...(allPeriodWasteLegacyRows || []),
       ];
-      const periodWasteMaps = this.buildWasteLookupMaps(allPeriodWaste);
+      periodWasteMaps = this.buildWasteLookupMaps(allPeriodWaste);
 
       const periodRemisionIdSet = new Set(periodRemisiones?.map(r => r.id) || []);
       console.log('📊 Period remisiones (between dates):', {
@@ -626,8 +714,7 @@ export class InventoryDashboardService {
               periodRemisionIdArray,
               'material_id, material_type, cantidad_real, remision_id'
             );
-      // Reuse materialCodeToIdMap defined earlier
-      const allPeriodRemisionMaterials = (allPeriodRemisionMaterialsRaw || [])
+      allPeriodRemisionMaterials = (allPeriodRemisionMaterialsRaw || [])
         .map(rm => {
           // If material_id is null, try to find it by material_type (which might be a code)
           if (!rm.material_id && rm.material_type) {
@@ -651,7 +738,7 @@ export class InventoryDashboardService {
         uniqueMaterialIdsInPeriod: [...new Set(allPeriodRemisionMaterialsRaw?.map(rm => rm.material_id).filter(Boolean) || [])].length
       });
 
-      const periodEntriesByMaterial = new Map<string, number[]>();
+      periodEntriesByMaterial = new Map<string, number[]>();
       (allPeriodEntries || []).forEach(e => {
         if (
           isSyntheticFifoCostLayerEntry(e.entry_number) ||
@@ -665,7 +752,7 @@ export class InventoryDashboardService {
         periodEntriesByMaterial.get(e.material_id)!.push(Number(e.quantity_received || 0));
       });
 
-      const periodAdjustmentsByMaterial = new Map<string, Array<{ qty: number; type: string }>>();
+      periodAdjustmentsByMaterial = new Map<string, Array<{ qty: number; type: string }>>();
       (allPeriodAdjustments || []).forEach(adj => {
         if (!periodAdjustmentsByMaterial.has(adj.material_id)) {
           periodAdjustmentsByMaterial.set(adj.material_id, []);
@@ -676,7 +763,7 @@ export class InventoryDashboardService {
         });
       });
 
-      const periodConsumptionByMaterial = new Map<string, number[]>();
+      periodConsumptionByMaterial = new Map<string, number[]>();
       let periodConsumptionCount = 0;
       (allPeriodRemisionMaterials || []).forEach(rm => {
         if (periodRemisionIdSet.has(rm.remision_id)) {
@@ -692,60 +779,121 @@ export class InventoryDashboardService {
         totalConsumptionRecords: periodConsumptionCount
       });
 
+      } // end legacy !useSqlRpcPath
+
       // Calculate for each material using aggregated data
       for (const material of filteredMaterials) {
         const materialId = material.id;
-        
-        // Get aggregated historical totals (already summed)
-        const historicalEntriesTotal = historicalEntriesByMaterial.get(materialId) || 0;
-        const historicalAdjustments = historicalAdjustmentsByMaterial.get(materialId) || { additions: 0, withdrawals: 0 };
-        const historicalConsumptionTotal = historicalConsumptionByMaterial.get(materialId) || 0;
-        const historicalWasteTotal = this.wasteRowsForMaterial(
-          material,
-          historicalWasteMaps.byMaterialId,
-          historicalWasteMaps.byCodeLegacy
-        ).reduce((s: number, w) => s + Number(w.waste_amount || 0), 0);
-        
-        // Calculate period totals from grouped data
-        const periodEntriesTotal = (periodEntriesByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
-        const periodManualAdditions = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
-          if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
-            return sum;
+
+        let historicalEntriesTotal: number;
+        let historicalAdjustments: { additions: number; withdrawals: number };
+        let historicalConsumptionTotal: number;
+        let historicalWasteTotal: number;
+        let periodEntriesTotal: number;
+        let periodManualAdditions: number;
+        let periodManualWithdrawals: number;
+        let periodConsumptionTotal: number;
+        let periodWasteTotal: number;
+
+        if (useSqlRpcPath && rpcAggByMaterial) {
+          const row = rpcAggByMaterial.get(materialId);
+          if (!row) {
+            historicalEntriesTotal = 0;
+            historicalAdjustments = { additions: 0, withdrawals: 0 };
+            historicalConsumptionTotal = 0;
+            historicalWasteTotal = 0;
+            periodEntriesTotal = 0;
+            periodManualAdditions = 0;
+            periodManualWithdrawals = 0;
+            periodConsumptionTotal = 0;
+            periodWasteTotal = 0;
+          } else {
+            historicalEntriesTotal = num(row.hist_entries);
+            historicalAdjustments = {
+              additions: num(row.hist_adj_additions),
+              withdrawals: num(row.hist_adj_withdrawals),
+            };
+            historicalConsumptionTotal = num(row.hist_remision_consume);
+            historicalWasteTotal = num(row.hist_waste);
+            periodEntriesTotal = num(row.per_entries);
+            periodManualAdditions = num(row.per_adj_additions);
+            periodManualWithdrawals = num(row.per_adj_withdrawals);
+            periodConsumptionTotal = num(row.per_remision_consume);
+            periodWasteTotal = num(row.per_waste);
           }
-          if (isPositiveAdjustmentType(adj.type) && openFifoMaterialIds.has(materialId)) {
-            return sum;
-          }
-          return sum + adj.qty;
-        }, 0);
-        const periodManualWithdrawals = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
-          if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+        } else {
+          historicalEntriesTotal = historicalEntriesByMaterial.get(materialId) || 0;
+          historicalAdjustments = historicalAdjustmentsByMaterial.get(materialId) || {
+            additions: 0,
+            withdrawals: 0,
+          };
+          historicalConsumptionTotal = historicalConsumptionByMaterial.get(materialId) || 0;
+          historicalWasteTotal = this.wasteRowsForMaterial(
+            material,
+            historicalWasteMaps.byMaterialId,
+            historicalWasteMaps.byCodeLegacy
+          ).reduce((s: number, w) => s + Number(w.waste_amount || 0), 0);
+
+          periodEntriesTotal = (periodEntriesByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
+          periodManualAdditions = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
+            if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+              return sum;
+            }
+            if (isPositiveAdjustmentType(adj.type) && openFifoMaterialIds.has(materialId)) {
+              return sum;
+            }
             return sum + adj.qty;
-          }
-          return sum;
-        }, 0);
-        const periodConsumptionTotal = (periodConsumptionByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
-        const periodWasteTotal = this.wasteRowsForMaterial(
-          material,
-          periodWasteMaps.byMaterialId,
-          periodWasteMaps.byCodeLegacy
-        ).reduce((sum: number, w) => sum + Number(w.waste_amount || 0), 0);
-
-        // Get actual current stock
-        const actualCurrentStock = inventoryMap.get(materialId) || 0;
-
-        // Inventario teórico final = solo aritmética sobre movimientos (histórico antes del rango + periodo).
-        // Stock dosificador (`material_inventory`) solo alimenta variance = actual − teórico; no define el teórico.
-        const initialStockFromHistory = historicalEntriesTotal + historicalAdjustments.additions - historicalConsumptionTotal - historicalAdjustments.withdrawals - historicalWasteTotal;
-        /** Backward solve from dosificador — only for diagnostics; must not define theoretical final. */
-        const initialStockFromCurrent = actualCurrentStock - periodEntriesTotal - periodManualAdditions + periodConsumptionTotal + periodManualWithdrawals + periodWasteTotal;
+          }, 0);
+          periodManualWithdrawals = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
+            if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+              return sum + adj.qty;
+            }
+            return sum;
+          }, 0);
+          periodConsumptionTotal = (periodConsumptionByMaterial.get(materialId) || []).reduce(
+            (sum, qty) => sum + qty,
+            0
+          );
+          periodWasteTotal = this.wasteRowsForMaterial(
+            material,
+            periodWasteMaps.byMaterialId,
+            periodWasteMaps.byCodeLegacy
+          ).reduce((sum: number, w) => sum + Number(w.waste_amount || 0), 0);
+        }
 
         /** OPEN capa kg en el periodo (no recepción física nueva) — sustituye el antiguo fold desde stock vivo en cutover. */
         let syntheticOpenLayerKgPeriod = 0;
-        for (const e of allPeriodEntries || []) {
-          if (e.material_id !== materialId) continue;
-          if (!isSyntheticFifoOpeningEntry(e.entry_number)) continue;
-          syntheticOpenLayerKgPeriod += Number(e.quantity_received || 0);
+        if (useSqlRpcPath && rpcAggByMaterial) {
+          const row = rpcAggByMaterial.get(materialId);
+          if (row) syntheticOpenLayerKgPeriod = num(row.per_open_layer_kg);
+        } else {
+          for (const e of allPeriodEntries || []) {
+            if (e.material_id !== materialId) continue;
+            if (!isSyntheticFifoOpeningEntry(e.entry_number)) continue;
+            syntheticOpenLayerKgPeriod += Number(e.quantity_received || 0);
+          }
         }
+
+        const actualCurrentStock = Number(inventoryMap.get(materialId) ?? 0);
+
+        // Inventario teórico final = solo aritmética sobre movimientos (histórico antes del rango + periodo).
+        // Stock dosificador (`material_inventory`) solo alimenta variance = actual − teórico; no define el teórico.
+        const initialStockFromHistory = Number(
+          historicalEntriesTotal +
+            historicalAdjustments.additions -
+            historicalConsumptionTotal -
+            historicalAdjustments.withdrawals -
+            historicalWasteTotal
+        );
+        /** Backward solve from dosificador — only for diagnostics; must not define theoretical final. */
+        const initialStockFromCurrent = Number(
+          actualCurrentStock -
+            periodEntriesTotal -
+            periodManualAdditions +
+            periodConsumptionTotal +
+            periodManualWithdrawals +
+            periodWasteTotal
+        );
 
         const cutoverDay =
           initialCountAdjustmentDateByMaterial.get(materialId) ??
@@ -810,8 +958,9 @@ export class InventoryDashboardService {
             actualCurrentStock,
           });
         }
-        const variance = actualCurrentStock - theoreticalFinalStock;
-        const variancePercentage = theoreticalFinalStock !== 0 ? (variance / theoreticalFinalStock) * 100 : 0;
+        const variance = Number(actualCurrentStock) - Number(theoreticalFinalStock);
+        const variancePercentage =
+          theoreticalFinalStock !== 0 ? (variance / Number(theoreticalFinalStock)) * 100 : 0;
 
         calculatedData.push({
           material_id: materialId,
@@ -1067,16 +1216,39 @@ export class InventoryDashboardService {
         const allPeriodWasteRows = [...(wasteByIdRes.data || []), ...(wasteLegacyRes.data || [])];
         const periodWasteMaps = this.buildWasteLookupMaps(allPeriodWasteRows);
 
+        const entriesList = (entriesResult.data || []) as any[];
+        const adjustmentsList = (adjustmentsResult.data || []) as any[];
+        const remisionMatList = (remisionMaterialsResult.data || []) as any[];
+
+        const entriesByMaterialId = new Map<string, any[]>();
+        for (const e of entriesList) {
+          if (!entriesByMaterialId.has(e.material_id)) entriesByMaterialId.set(e.material_id, []);
+          entriesByMaterialId.get(e.material_id)!.push(e);
+        }
+        const adjustmentsByMaterialId = new Map<string, any[]>();
+        for (const a of adjustmentsList) {
+          if (!adjustmentsByMaterialId.has(a.material_id)) adjustmentsByMaterialId.set(a.material_id, []);
+          adjustmentsByMaterialId.get(a.material_id)!.push(a);
+        }
+        const remisionMaterialesByMaterialId = new Map<string, any[]>();
+        for (const rm of remisionMatList) {
+          if (!rm.material_id) continue;
+          if (!remisionMaterialesByMaterialId.has(rm.material_id)) {
+            remisionMaterialesByMaterialId.set(rm.material_id, []);
+          }
+          remisionMaterialesByMaterialId.get(rm.material_id)!.push(rm);
+        }
+
         // Build movements and consumption details for each material
         materialFlows.forEach(flow => {
           const material = materialsMap.get(flow.material_id);
           if (!material) return;
 
-          const materialEntries = (entriesResult.data || []).filter(e => e.material_id === flow.material_id);
-          const materialAdjustments = (adjustmentsResult.data || []).filter(a => a.material_id === flow.material_id);
-          const materialRemisionMaterials = (remisionMaterialsResult.data || []).filter(rm => rm.material_id === flow.material_id);
+          const materialEntries = entriesByMaterialId.get(flow.material_id) || [];
+          const materialAdjustments = adjustmentsByMaterialId.get(flow.material_id) || [];
+          const materialRemisionMaterials = remisionMaterialesByMaterialId.get(flow.material_id) || [];
           const materialWaste = this.wasteRowsForMaterial(
-            material,
+            material as any,
             periodWasteMaps.byMaterialId,
             periodWasteMaps.byCodeLegacy
           );
@@ -1084,19 +1256,19 @@ export class InventoryDashboardService {
           // Build movements
           const materialMovements = mergeLedgerSyntheticFifoPairs(
             this.buildMovementsOptimized(
-              material,
+              material as any,
               materialRemisionMaterials,
               materialEntries,
               materialAdjustments,
               periodRemisionesFull || [],
-              materialWaste
+              materialWaste as any
             )
           );
           movements.push(...materialMovements);
 
           // Build consumption details
           const materialConsumption = this.buildConsumptionDetailsOptimized(
-            material,
+            material as any,
             materialRemisionMaterials,
             periodRemisionesFull || []
           );
@@ -1403,7 +1575,7 @@ export class InventoryDashboardService {
           materialEntries,
           materialAdjustments,
           plantRemisiones,
-          materialWaste
+          materialWaste as any
         )
       );
       movements.push(...materialMovements);
