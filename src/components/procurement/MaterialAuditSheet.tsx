@@ -92,6 +92,8 @@ export default function MaterialAuditSheet({
 }: MaterialAuditSheetProps) {
   const { profile } = useAuthSelectors()
   const canFinance = canCompleteEntryPricingReview(profile?.role)
+  /** Dosificador: movimientos y existencias, sin montos (MXN). */
+  const hideMoney = profile?.role === 'DOSIFICADOR'
 
   const [tab, setTab] = useState<'movements' | 'mismatch' | 'variances'>('movements')
   const [sinceCutover, setSinceCutover] = useState(false)
@@ -304,7 +306,16 @@ export default function MaterialAuditSheet({
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => {
-              void navigator.clipboard.writeText(JSON.stringify(movement, null, 2))
+              const payload =
+                hideMoney
+                  ? Object.fromEntries(
+                      Object.entries(movement).filter(
+                        ([k]) =>
+                          !['unit_price_mxn', 'total_cost_mxn', 'landed_unit_price_mxn'].includes(k)
+                      )
+                    )
+                  : movement
+              void navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
               toast.message('Movimiento copiado al portapapeles')
             }}
           >
@@ -418,14 +429,16 @@ export default function MaterialAuditSheet({
                     <span className="text-stone-500">Capa FIFO apertura:</span>{' '}
                     <span className="font-mono text-xs">{ledger.opening.opening_fifo_entry_id ?? '—'}</span>
                   </div>
-                  <div>
-                    <span className="text-stone-500">Precio unitario apertura:</span>{' '}
-                    <span className="font-mono">
-                      {ledger.opening.opening_unit_price != null
-                        ? fmtMx(ledger.opening.opening_unit_price)
-                        : '—'}
-                    </span>
-                  </div>
+                  {!hideMoney && (
+                    <div>
+                      <span className="text-stone-500">Precio unitario apertura:</span>{' '}
+                      <span className="font-mono">
+                        {ledger.opening.opening_unit_price != null
+                          ? fmtMx(ledger.opening.opening_unit_price)
+                          : '—'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {ledger.opening.initial_count_adjustment_id && (
                   <Button variant="link" className="h-auto px-0 pt-2 text-sky-800" asChild>
@@ -462,10 +475,19 @@ export default function MaterialAuditSheet({
                 <div className="rounded-lg border border-stone-200 bg-white p-3">
                   <p className="text-xs font-semibold uppercase text-stone-500">Contabilidad / entradas período</p>
                   <p className="text-lg font-mono">{fmtKg(reconciliation.accounting_received_kg)} kg</p>
-                  <p className="text-sm text-stone-700">{fmtMx(reconciliation.accounting_total_mxn)} en CXP (material)</p>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Pendientes precio: {reconciliation.pending_pricing_entries}
-                  </p>
+                  {!hideMoney && (
+                    <>
+                      <p className="text-sm text-stone-700">
+                        {fmtMx(reconciliation.accounting_total_mxn)} en CXP (material)
+                      </p>
+                      <p className="text-[11px] text-stone-500 mt-1">
+                        Pendientes precio: {reconciliation.pending_pricing_entries}
+                      </p>
+                    </>
+                  )}
+                  {hideMoney && (
+                    <p className="text-[11px] text-stone-500 mt-1">Importes (MXN) no disponibles para su rol.</p>
+                  )}
                   {deltaBadge(reconciliation.deltas.accounting_kg_vs_dosificador)}
                 </div>
                 <div className="rounded-lg border border-stone-200 bg-white p-3">
@@ -496,7 +518,7 @@ export default function MaterialAuditSheet({
                   <InventoryMovementsTable
                     movements={ledger.movements}
                     singleMaterial
-                    ledgerMode
+                    ledgerMode={!hideMoney}
                     renderRowActions={(m) => renderMovementActions(m)}
                   />
                 )}
@@ -515,9 +537,13 @@ export default function MaterialAuditSheet({
                           <TableHead>Entrada</TableHead>
                           <TableHead>Fecha</TableHead>
                           <TableHead className="text-right">Kg</TableHead>
-                          <TableHead className="text-right">Total MXN</TableHead>
-                          <TableHead>Estado</TableHead>
-                          <TableHead>AP vs total</TableHead>
+                          {!hideMoney && (
+                            <>
+                              <TableHead className="text-right">Total MXN</TableHead>
+                              <TableHead>Estado</TableHead>
+                              <TableHead>AP vs total</TableHead>
+                            </>
+                          )}
                           <TableHead className="w-[120px]" />
                         </TableRow>
                       </TableHeader>
@@ -533,21 +559,25 @@ export default function MaterialAuditSheet({
                                   : Number(r.received_qty_kg ?? r.quantity_received ?? 0)
                               )}
                             </TableCell>
-                            <TableCell className="text-right font-mono">
-                              {r.total_cost != null ? fmtMx(r.total_cost) : '—'}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={r.pricing_status === 'pending' ? 'destructive' : 'outline'}>
-                                {r.pricing_status ?? '—'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              {r.ap_amount_matches_total_cost ? (
-                                <span className="text-emerald-700 text-sm">OK</span>
-                              ) : (
-                                <span className="text-amber-800 text-sm">Revisar</span>
-                              )}
-                            </TableCell>
+                            {!hideMoney && (
+                              <>
+                                <TableCell className="text-right font-mono">
+                                  {r.total_cost != null ? fmtMx(r.total_cost) : '—'}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={r.pricing_status === 'pending' ? 'destructive' : 'outline'}>
+                                    {r.pricing_status ?? '—'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {r.ap_amount_matches_total_cost ? (
+                                    <span className="text-emerald-700 text-sm">OK</span>
+                                  ) : (
+                                    <span className="text-amber-800 text-sm">Revisar</span>
+                                  )}
+                                </TableCell>
+                              </>
+                            )}
                             <TableCell className="text-right">
                               {canFinance && (
                                 <div className="flex justify-end gap-1">
@@ -622,7 +652,9 @@ export default function MaterialAuditSheet({
                           <TableHead className="text-right">Teórico</TableHead>
                           <TableHead className="text-right">Δ stock/teórico</TableHead>
                           <TableHead className="text-right">Δ FIFO</TableHead>
-                          <TableHead className="text-right">Pend. precio</TableHead>
+                          {!hideMoney && (
+                            <TableHead className="text-right">Pend. precio</TableHead>
+                          )}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -646,7 +678,9 @@ export default function MaterialAuditSheet({
                             <TableCell className="text-right font-mono text-xs">
                               {v.fifo_vs_stock != null ? fmtKg(v.fifo_vs_stock) : '—'}
                             </TableCell>
-                            <TableCell className="text-right">{v.pending_pricing_count}</TableCell>
+                            {!hideMoney && (
+                              <TableCell className="text-right">{v.pending_pricing_count}</TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>
