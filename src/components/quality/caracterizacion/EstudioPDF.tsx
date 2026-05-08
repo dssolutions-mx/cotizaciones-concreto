@@ -7,7 +7,10 @@ const styles = StyleSheet.create({
   page: {
     fontFamily: 'Helvetica',
     backgroundColor: 'white',
-    padding: 20,
+    paddingTop: 20,
+    paddingLeft: 20,
+    paddingRight: 20,
+    paddingBottom: 52,
     fontSize: 8,
   },
   // Header styles
@@ -210,6 +213,25 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: 'center',
   },
+  obsSection: {
+    marginTop: 6,
+    padding: 6,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 3,
+  },
+  obsSectionTitle: {
+    fontSize: 6.5,
+    fontFamily: 'Helvetica-Bold',
+    color: '#069E2D',
+    marginBottom: 3,
+  },
+  obsBody: {
+    fontSize: 6,
+    color: '#1F2937',
+    lineHeight: 1.35,
+  },
 });
 
 interface MallaData {
@@ -260,6 +282,50 @@ interface EstudioData {
 
 interface EstudioPDFProps {
   estudio: EstudioData;
+}
+
+type EstudioSeleccionadoRow = EstudioData['estudios'][number];
+
+/** NMX-C-111-ONNCCE-2018 §5.1.2 (agregado grueso, Tabla 2) — texto fijo del reporte. */
+const NMX_C111_GRUESO_TABLA2_DISCLAIMER =
+  'De la NMX-C-111-ONNCCE-2018 en el punto 5.1.2 «Agregado grueso»: debe cumplir con los límites granulométricos que establece la Tabla 2. Cuando se tengan agregados gruesos fuera de los límites indicados en la Tabla 2, se debe procesar para que satisfagan dichos límites. En el caso de aceptar que los agregados no cumplan con estos límites, debe ajustarse el proporcionamiento del concreto para compensar las deficiencias granulométricas; por tanto, debe demostrarse que el concreto elaborado tiene un comportamiento adecuado.';
+
+function getObservaciones(estudioItem: EstudioSeleccionadoRow | undefined): string | null {
+  if (!estudioItem) return null;
+  const trim = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const fromResultados = trim(estudioItem.resultados?.observaciones);
+  const fromColumn = trim(estudioItem.observaciones);
+  const text = fromResultados || fromColumn;
+  return text.length > 0 ? text : null;
+}
+
+function ObservationsSection({
+  variant,
+  userText,
+}: {
+  variant: 'granulometria' | 'default';
+  userText: string | null;
+}) {
+  const showDisclaimer = variant === 'granulometria';
+  const showUser = Boolean(userText);
+  if (!showDisclaimer && !showUser) return null;
+
+  return (
+    <View style={styles.obsSection}>
+      {showDisclaimer ? (
+        <>
+          <Text style={styles.obsSectionTitle}>Referencia normativa</Text>
+          <Text style={styles.obsBody}>{NMX_C111_GRUESO_TABLA2_DISCLAIMER}</Text>
+        </>
+      ) : null}
+      {showUser ? (
+        <View style={{ marginTop: showDisclaimer ? 5 : 0 }}>
+          <Text style={styles.obsSectionTitle}>Observaciones del técnico</Text>
+          <Text style={styles.obsBody}>{userText}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 // Helper component for rendering formulas
@@ -593,6 +659,8 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
   const densidad = estudio.estudios.find(e => e.nombre_estudio === 'Densidad');
   const perdidaLavado = estudio.estudios.find(e => e.nombre_estudio === 'Pérdida por Lavado');
   const absorcion = estudio.estudios.find(e => e.nombre_estudio === 'Absorción');
+  const absorcionObsFuente =
+    absorcion?.resultados ? absorcion : densidad?.resultados ? densidad : undefined;
 
   // NMX references text
   const normasText = "Referencia: NMX-C-111-ONNCCE-2018, NMX-C-030-ONNCCE-2004, NMX-C-170-ONNCCE-2015, NMX-C-077-ONNCCE-2019, NMX-C-073-ONNCCE-2004, NMX-C-165-ONNCCE-2020, NMX-C-166-ONNCCE-2006, NMX-C-084-ONNCCE-2018, NMX-C-416-ONNCCE-2003 y NMX-C-088-ONNCCE-2019";
@@ -755,6 +823,10 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                       <Text style={styles.formulaBold}>{(granulometria.resultados.modulo_finura || 0).toFixed(2)}</Text>
                     </Text>
                   </View>
+                  <ObservationsSection
+                    variant="granulometria"
+                    userText={getObservaciones(granulometria)}
+                  />
                 </View>
               </View>
             )}
@@ -777,6 +849,10 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                   <Text style={[styles.formulaText, { marginTop: 3 }]}>
                     Factor = <Text style={styles.formulaBold}>{(masaVolumetrica.resultados.factor || 0).toFixed(2)}</Text> 1/m³
                   </Text>
+                  <ObservationsSection
+                    variant="default"
+                    userText={getObservaciones(masaVolumetrica)}
+                  />
                 </View>
               </View>
             )}
@@ -836,6 +912,10 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                     Me_sss= Masa específica S.S.S
                     {'\n'}% Abs= % Absorción
                   </Text>
+                  <ObservationsSection
+                    variant="default"
+                    userText={getObservaciones(densidad)}
+                  />
                 </View>
               </View>
             )}
@@ -881,6 +961,10 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                       = {(absorcion?.resultados?.absorcion_porcentaje || densidad?.resultados?.absorcion || 0).toFixed(1)}%
                     </Text>
                   </View>
+                  <ObservationsSection
+                    variant="default"
+                    userText={getObservaciones(absorcionObsFuente)}
+                  />
                 </View>
               </View>
             )}
@@ -914,6 +998,10 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                       = {(perdidaLavado.resultados.porcentaje_perdida || 0).toFixed(1)}%
                     </Text>
                   </View>
+                  <ObservationsSection
+                    variant="default"
+                    userText={getObservaciones(perdidaLavado)}
+                  />
                 </View>
               </View>
             )}

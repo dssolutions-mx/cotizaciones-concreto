@@ -17,53 +17,35 @@ Se ha implementado la funcionalidad para exportar un **reporte completo** de car
 
 El PDF genera un reporte completo que incluye TODOS los estudios completados:
 
-#### Página 1: Información General y Granulometría
-- 📋 **Información del Estudio**:
+#### Página única (A4): Información general, granulometría y ensayos físicos
+
+El PDF actual se arma en **una sola página A4** en dos columnas (granulometría y gráfica a la izquierda/derecha según bloque; masa volumétrica, densidad, absorción y pérdida por lavado en tarjetas). El pie de página reserva espacio inferior (`paddingBottom` ampliado) para el bloque de contacto fijo.
+
+- 📋 **Información del Estudio** (rejilla superior):
   - Tipo de material (Arena/Grava)
   - Nombre del material
   - Procedencia (mina)
   - Planta
   - Técnico responsable
-  - Tamaño (si aplica)
-  - Fecha de elaboración
-  - ID del estudio
+  - Fechas de muestreo y elaboración
+  - ID de la muestra (prefijo del `alta_estudio`)
 
-- 📊 **Análisis Granulométrico**:
-  - Tabla completa con todas las mallas ensayadas
-  - Columnas: Malla, Abertura (mm), Peso Retenido (g), % Retenido, % Acumulado, % Pasa
-  - Límites granulométricos (si están definidos)
-  - Resultados calculados:
-    * Peso de muestra inicial
-    * Peso total retenido
-    * Módulo de finura
-    * Tamaño máximo nominal
-  - Observaciones del técnico
+- 📊 **Análisis Granulométrico** (tarjeta izquierda + curva a la derecha):
+  - Tabla de mallas con retenido, %, % acumulado y % pasa
+  - Módulo de finura
+  - Curva granulométrica y límites (si se cargan al generar el PDF)
+  - **Referencia normativa**: párrafo fijo NMX-C-111-ONNCCE-2018 §5.1.2 (agregado grueso, Tabla 2)
+  - **Observaciones del técnico**: texto guardado en `estudios_seleccionados.resultados.observaciones` (o columna `observaciones` si existiera), para ese ensayo
 
-#### Página 2: Ensayos Físicos (si aplica)
-Esta página incluye TODOS los estudios físicos completados:
+- ⚖️ **Masa Volumétrica** (si está completada): valores y factor; **observaciones** al pie de la tarjeta si hay texto.
 
-- ⚖️ **Masa Volumétrica**:
-  - Masa volumétrica suelta (kg/m³)
-  - Masa volumétrica compactada (kg/m³)
+- 🔬 **Densidad** (dos tarjetas: S.S.S. y seca): fórmulas y resultados; **observaciones** una sola vez al final de la segunda tarjeta (mismo registro).
 
-- 🔬 **Densidad**:
-  - Densidad relativa (g/cm³)
-  - Densidad SSS (g/cm³)
-  - Densidad aparente (g/cm³)
-  - Absorción (%)
+- 💧 **Absorción**: cálculo desde ensayo de Absorción o, en su defecto, desde Densidad; **observaciones** del registro que aporta los datos (Absorción prioritaria).
 
-- 🧪 **Pérdida por Lavado**:
-  - Pérdida por lavado (g)
-  - Pérdida por lavado (%)
+- 🧪 **Pérdida por Lavado**: masas y % pérdida; **observaciones** al pie si hay texto.
 
-- 💧 **Absorción**:
-  - Absorción (%)
-  - Absorción (g)
-
-- 📊 **Caracterización Física** (si existe como estudio separado):
-  - Masa específica
-  - Masa específica SSS
-  - Masa específica seca
+Los textos de observación se leen con prioridad `resultados.observaciones` y respaldo `observaciones`, coherente con el guardado desde los formularios vía `EstudioFormModal` (JSON en `resultados`).
 
 ## 🛠️ Implementación Técnica
 
