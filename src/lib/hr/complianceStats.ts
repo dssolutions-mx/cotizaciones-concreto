@@ -5,9 +5,14 @@ export const HR_COMPLIANCE_RULE_LABELS: Partial<Record<string, string>> = {
   missingMaterialEntries: 'Sin entradas de material',
   missingEvidence: 'Evidencia faltante',
   missingPumping: 'Bombeo faltante',
+  missingPumpingChecklist: 'Bombeo sin checklist del día',
+  missingLoaderChecklist: 'Cargador frontal sin checklist',
+  missingPipaChecklist: 'Pipa sin checklist del día',
+  waterEntryNoPipaInCatalog: 'Entrada agua sin pipa en catálogo',
   missingChecklist: 'Unidad cargó sin checklist del día',
   operatorMismatch: 'Conductor distinto al operador asignado',
   unknownUnit: 'Unidad no registrada en mantenimiento',
+  unknownBombeoUnit: 'Unidad bombeo no registrada',
   noDieselActivity: 'Diesel vs producción (info)',
   dieselWithoutProduction: 'Diesel sin producción (info)',
 };
@@ -15,12 +20,17 @@ export const HR_COMPLIANCE_RULE_LABELS: Partial<Record<string, string>> = {
 /** Order for listing rules in stats (most operational first). */
 export const HR_COMPLIANCE_RULE_ORDER: string[] = [
   'missingChecklist',
+  'missingPumpingChecklist',
+  'missingLoaderChecklist',
+  'missingPipaChecklist',
   'operatorMismatch',
   'unknownUnit',
+  'unknownBombeoUnit',
   'missingEvidence',
   'missingPumping',
   'missingMaterialEntries',
   'missingProduction',
+  'waterEntryNoPipaInCatalog',
   'noDieselActivity',
   'dieselWithoutProduction',
 ];

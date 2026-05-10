@@ -10,9 +10,14 @@ export type ComplianceRuleId =
   | 'missingEvidence'
   | 'missingChecklist'
   | 'unknownUnit'
+  | 'unknownBombeoUnit'
   | 'operatorMismatch'
   | 'noDieselActivity'
-  | 'dieselWithoutProduction';
+  | 'dieselWithoutProduction'
+  | 'missingPumpingChecklist'
+  | 'missingLoaderChecklist'
+  | 'missingPipaChecklist'
+  | 'waterEntryNoPipaInCatalog';
 
 export type ComplianceSeverity = 'high' | 'info';
 
@@ -147,7 +152,99 @@ type AssetRow = {
   plant_id: string;
   name: string;
   status: string;
+  is_composite?: boolean | null;
+  composite_type?: string | null;
+  model_id?: string | null;
+  /** Filled after batch load from equipment_models */
+  _model_category?: string;
+  _model_name?: string;
 };
+
+function modelMeta(a: AssetRow): { category: string; name: string } {
+  return {
+    category: a._model_category ?? '',
+    name: a._model_name ?? '',
+  };
+}
+
+function isOperationalAsset(a: AssetRow): boolean {
+  return String(a.status ?? '').toLowerCase() === 'operational';
+}
+
+/** Normalize BP01 / BP-01 / BP04 → BP-01, BP-04 for matching mantenimiento asset_id prefixes. */
+export function normalizePumpUnitCode(raw: string): string {
+  const v = normUnitKey(raw);
+  const m = v.match(/^BP-?0*(\d+)$/i);
+  if (m) return `BP-${m[1].padStart(2, '0')}`;
+  return v;
+}
+
+const EXTERNAL_PUMP_UNITS = new Set(
+  [
+    'BOMBA EXTERNA',
+    'EXTERNA',
+    'RENTADA',
+    'RENTADA EXTERNA',
+  ].map((s) => normUnitKey(s)),
+);
+
+function isExternalPumpUnit(raw: string): boolean {
+  const nk = normUnitKey(raw);
+  if (!nk) return true;
+  if (EXTERNAL_PUMP_UNITS.has(nk)) return true;
+  if (nk.includes('EXTERNA') && nk.includes('BOMBA')) return true;
+  if (nk.startsWith('RENTADA')) return true;
+  return false;
+}
+
+function findAssetForPumpUnit(
+  assets: AssetRow[],
+  canonAfterAlias: string,
+  mntPlantUuid: string | undefined,
+): AssetRow | undefined {
+  const normalized = normalizePumpUnitCode(canonAfterAlias);
+  const pool = mntPlantUuid
+    ? assets.filter((a) => a.plant_id === mntPlantUuid)
+    : assets;
+
+  const byExact = (list: AssetRow[]) =>
+    list.find((a) => normUnitKey(a.asset_id) === normUnitKey(normalized));
+
+  let hit = byExact(pool);
+  if (hit) return hit;
+
+  const pref = `${normalized}-`;
+  const byPrefix = (list: AssetRow[]) =>
+    list.find((a) => {
+      const ak = normUnitKey(a.asset_id);
+      return ak === normalized || ak.startsWith(pref) || ak.startsWith(`${normalized} `);
+    });
+
+  hit = byPrefix(pool);
+  if (hit) return hit;
+
+  hit = byExact(assets);
+  if (hit) return hit;
+  return byPrefix(assets);
+}
+
+function isPipaAsset(a: AssetRow): boolean {
+  const { category, name } = modelMeta(a);
+  const cat = category.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const nm = name.toLowerCase();
+  const aid = normUnitKey(a.asset_id);
+  if (aid.includes('PIPA') && aid.includes('AGUA')) return true;
+  if (aid.startsWith('PIPA AGUA')) return true;
+  if (nm.includes('pipa') && nm.includes('agua')) return true;
+  if (nm.includes('water truck') || nm.includes('agua')) {
+    if (cat.includes('camion') || cat.includes('camión')) return true;
+  }
+  return false;
+}
+
+function isLoaderAsset(a: AssetRow): boolean {
+  return modelMeta(a).category === 'Cargador Frontal';
+}
 
 type RemRow = {
   id: string;
@@ -226,6 +323,25 @@ export async function runComplianceCheck(
     (entries ?? []).map((e: { plant_id: string }) => e.plant_id),
   );
 
+  const { data: waterMaterials, error: wmErr } = await cot
+    .from('materials')
+    .select('id')
+    .ilike('category', 'agua');
+  if (wmErr) throw wmErr;
+  const waterMaterialIds = [...new Set((waterMaterials ?? []).map((r: { id: string }) => r.id))];
+  const plantsWithWaterEntry = new Set<string>();
+  if (waterMaterialIds.length > 0) {
+    const { data: waterEntries, error: weErr } = await cot
+      .from('material_entries')
+      .select('plant_id')
+      .eq('entry_date', input.targetDate)
+      .in('material_id', waterMaterialIds);
+    if (weErr) throw weErr;
+    for (const row of waterEntries ?? []) {
+      plantsWithWaterEntry.add((row as { plant_id: string }).plant_id);
+    }
+  }
+
   const evidenceByOrder = new Map<string, number>();
   if (orderIds.length) {
     const { data: ev, error: evErr } = await cot
@@ -239,12 +355,83 @@ export async function runComplianceCheck(
     }
   }
 
-  const { data: mntAssets, error: asErr } = await mnt.from('assets').select(
-    'id, asset_id, plant_id, name, status',
-  );
+  const { data: mntAssets, error: asErr } = await mnt
+    .from('assets')
+    .select(
+      'id, asset_id, plant_id, name, status, is_composite, composite_type, model_id',
+    );
   if (asErr) throw asErr;
 
-  const assets = (mntAssets ?? []) as AssetRow[];
+  const rawAssets = (mntAssets ?? []) as AssetRow[];
+  const modelIds = [...new Set(rawAssets.map((a) => a.model_id).filter(Boolean))] as string[];
+  const modelById = new Map<string, { category: string; name: string }>();
+  if (modelIds.length > 0) {
+    const { data: emRows, error: emErr } = await mnt
+      .from('equipment_models')
+      .select('id, category, name')
+      .in('id', modelIds);
+    if (emErr) throw emErr;
+    for (const row of emRows ?? []) {
+      const m = row as { id: string; category: string; name: string };
+      modelById.set(m.id, { category: m.category ?? '', name: m.name ?? '' });
+    }
+  }
+  const assets: AssetRow[] = rawAssets.map((a) => {
+    const mm = a.model_id ? modelById.get(a.model_id) : undefined;
+    return {
+      ...a,
+      _model_category: mm?.category,
+      _model_name: mm?.name,
+    };
+  });
+
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+
+  const { data: acrData, error: acrErr } = await mnt
+    .from('asset_composite_relationships')
+    .select(
+      'composite_asset_id, component_asset_id, status, detachment_date, attachment_date',
+    );
+  if (acrErr) throw acrErr;
+
+  const pumpingCompositeToComponents = new Map<string, Set<string>>();
+  const pumpingComponentToComposite = new Map<string, string>();
+  const tDate = input.targetDate;
+  for (const row of acrData ?? []) {
+    const r = row as {
+      composite_asset_id: string;
+      component_asset_id: string;
+      status: string | null;
+      detachment_date: string | null;
+      attachment_date: string | null;
+    };
+    if (String(r.status ?? '').toLowerCase() !== 'active') continue;
+    const composite = assetById.get(r.composite_asset_id);
+    if (!composite?.is_composite || composite.composite_type !== 'pumping_truck') continue;
+    if (r.attachment_date && r.attachment_date > tDate) continue;
+    if (r.detachment_date && r.detachment_date <= tDate) continue;
+    if (!pumpingCompositeToComponents.has(r.composite_asset_id)) {
+      pumpingCompositeToComponents.set(r.composite_asset_id, new Set());
+    }
+    pumpingCompositeToComponents.get(r.composite_asset_id)!.add(r.component_asset_id);
+    pumpingComponentToComposite.set(r.component_asset_id, r.composite_asset_id);
+  }
+
+  function pumpChecklistClosure(asset: AssetRow): Set<string> {
+    const out = new Set<string>([asset.id]);
+    if (asset.is_composite && asset.composite_type === 'pumping_truck') {
+      const kids = pumpingCompositeToComponents.get(asset.id);
+      if (kids) for (const k of kids) out.add(k);
+      return out;
+    }
+    const parent = pumpingComponentToComposite.get(asset.id);
+    if (parent) {
+      out.add(parent);
+      const kids = pumpingCompositeToComponents.get(parent);
+      if (kids) for (const k of kids) out.add(k);
+    }
+    return out;
+  }
 
   function findAssetByCanon(canonUnitId: string): AssetRow | undefined {
     const nk = normUnitKey(canonUnitId);
@@ -532,6 +719,166 @@ export async function runComplianceCheck(
         message: `Consumo de diesel sin remisiones de concreto`,
         details: { liters: dieselL },
       });
+    }
+
+    const bombeoRem = plantRem.filter((r) => r.tipo_remision === 'BOMBEO');
+    const pumpFailByKey = new Map<
+      string,
+      {
+        closure: Set<string>;
+        remisionIds: string[];
+        remisionNumbers: string[];
+        sampleUnidad: string;
+        canonical: string;
+      }
+    >();
+
+    for (const r of bombeoRem) {
+      const rawU = r.unidad?.trim() ?? '';
+      if (!rawU || isExternalPumpUnit(rawU)) continue;
+      const nk = normUnitKey(rawU);
+      if (input.exemptUnits.has(nk)) continue;
+
+      const canon = resolveCanonicalUnitId(rawU, input.unitAliases);
+      const pumpAsset = mntPlant
+        ? findAssetForPumpUnit(assets, canon, mntPlant.id)
+        : findAssetForPumpUnit(assets, canon, undefined);
+
+      if (!pumpAsset) {
+        findings.push({
+          rule: 'unknownBombeoUnit',
+          severity: 'high',
+          plantId: p.id,
+          plantCode: p.code,
+          findingKey: `${p.id}:unknownBombeo:${r.id}`,
+          message: `Unidad de bombeo ${rawU} no registrada en mantenimiento`,
+          details: {
+            unidad: rawU,
+            remisionId: r.id,
+            remisionNumber: r.remision_number ?? null,
+            canonical: canon,
+          },
+        });
+        continue;
+      }
+
+      const closure = pumpChecklistClosure(pumpAsset);
+      const ok = [...closure].some((id) => checklistAssetIds.has(id));
+      if (!ok) {
+        const key = [...closure].sort().join('|');
+        const ex = pumpFailByKey.get(key);
+        if (!ex) {
+          pumpFailByKey.set(key, {
+            closure,
+            remisionIds: [r.id],
+            remisionNumbers: r.remision_number ? [r.remision_number] : [],
+            sampleUnidad: rawU,
+            canonical: canon,
+          });
+        } else {
+          ex.remisionIds.push(r.id);
+          if (r.remision_number) ex.remisionNumbers.push(r.remision_number);
+        }
+      }
+    }
+
+    for (const [key, row] of pumpFailByKey) {
+      const codes = [...row.closure].map((id) => assetById.get(id)?.asset_id ?? id);
+      findings.push({
+        rule: 'missingPumpingChecklist',
+        severity: 'high',
+        plantId: p.id,
+        plantCode: p.code,
+        findingKey: `${p.id}:missingPumpCc:${key}`,
+        message: `Bombeo sin checklist del día (${row.sampleUnidad})`,
+        details: {
+          unidad: row.sampleUnidad,
+          remisionIds: row.remisionIds,
+          remisionNumbers: row.remisionNumbers.filter(Boolean),
+          canonical: row.canonical,
+          assetUuids: [...row.closure],
+          assetIds: codes,
+        },
+      });
+    }
+
+    if (mntPlant) {
+      const loaders = assets.filter(
+        (a) =>
+          a.plant_id === mntPlant.id &&
+          isLoaderAsset(a) &&
+          isOperationalAsset(a),
+      );
+      if (concreto.length > 0 && loaders.length > 0) {
+        const anyLoaderCc = loaders.some((l) => checklistAssetIds.has(l.id));
+        if (!anyLoaderCc) {
+          findings.push({
+            rule: 'missingLoaderChecklist',
+            severity: 'high',
+            plantId: p.id,
+            plantCode: p.code,
+            findingKey: `${p.id}:missingLoaderCc`,
+            message: `Ningún cargador frontal de la planta registró checklist del día`,
+            details: {
+              loaderCandidates: loaders.map((l) => ({
+                uuid: l.id,
+                assetId: l.asset_id,
+                name: l.name,
+              })),
+              concretoRemisionCount: concreto.length,
+              producedConcreteM3: m3,
+            },
+          });
+        }
+      }
+
+      const pipas = assets.filter(
+        (a) =>
+          a.plant_id === mntPlant.id &&
+          isPipaAsset(a) &&
+          isOperationalAsset(a),
+      );
+      const needsPipaChecklist =
+        plantsWithWaterEntry.has(p.id) ||
+        (concreto.length > 0 && pipas.length > 0);
+
+      if (needsPipaChecklist) {
+        if (pipas.length === 0) {
+          if (plantsWithWaterEntry.has(p.id)) {
+            findings.push({
+              rule: 'waterEntryNoPipaInCatalog',
+              severity: 'info',
+              plantId: p.id,
+              plantCode: p.code,
+              findingKey: `${p.id}:waterNoPipa`,
+              message: `Entrada de agua registrada pero no hay pipa operativa en catálogo de mantenimiento para esta planta`,
+              details: {},
+            });
+          }
+        } else {
+          const anyPipaCc = pipas.some((x) => checklistAssetIds.has(x.id));
+          if (!anyPipaCc) {
+            findings.push({
+              rule: 'missingPipaChecklist',
+              severity: 'high',
+              plantId: p.id,
+              plantCode: p.code,
+              findingKey: `${p.id}:missingPipaCc`,
+              message: `Ninguna pipa elegible de la planta registró checklist del día`,
+              details: {
+                pipaCandidates: pipas.map((x) => ({
+                  uuid: x.id,
+                  assetId: x.asset_id,
+                  name: x.name,
+                })),
+                hadWaterEntry: plantsWithWaterEntry.has(p.id),
+                concretoRemisionCount: concreto.length,
+                producedConcreteM3: m3,
+              },
+            });
+          }
+        }
+      }
     }
   }
 

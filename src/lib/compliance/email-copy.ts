@@ -358,6 +358,141 @@ export function buildUnknownUnitHtml(
   return { subject, html };
 }
 
+export function buildUnknownBombeoUnitHtml(
+  plantCode: string,
+  date: string,
+  findings: ComplianceFinding[],
+): { subject: string; html: string } {
+  const rows = findings.map((f) => {
+    const d = f.details;
+    return `<tr>
+      ${td(d.unidad)}
+      ${td(d.canonical)}
+      ${td(d.remisionNumber, { mono: true })}
+      ${td(d.remisionId, { dim: true })}
+    </tr>`;
+  });
+  const subject = `[DC Concretos] Unidad de bombeo no registrada — Planta ${plantCode} — ${date}`;
+  const html = wrap(`
+    ${header(plantCode, date, 'Bombeo: unidad no registrada')}
+    ${content(`
+      ${p('Estimado equipo,')}
+      ${p(`Las siguientes unidades aparecen en remisiones <strong>BOMBEO</strong> el <strong>${date}</strong> en planta <strong>${plantCode}</strong> pero <strong>no coinciden con activos</strong> en mantenimiento (revisar alias o alta de activo):`)}
+      ${table(['Texto remisión', 'Canónico', 'Num. remisión', 'ID remisión'], rows)}
+      ${deadlineNote()}
+    `)}
+    ${footer()}
+  `);
+  return { subject, html };
+}
+
+export function buildMissingPumpingChecklistHtml(
+  plantCode: string,
+  date: string,
+  findings: ComplianceFinding[],
+): { subject: string; html: string } {
+  const rows = findings.map((f) => {
+    const d = f.details;
+    return `<tr>
+      ${td(d.unidad)}
+      ${td(strArr(d.assetIds))}
+      ${td(strArr(d.remisionNumbers), { mono: true })}
+      ${td(f.message)}
+    </tr>`;
+  });
+  const subject = `[DC Concretos] Bombeo sin checklist del día — Planta ${plantCode} — ${date}`;
+  const html = wrap(`
+    ${header(plantCode, date, 'Checklist de bombeo')}
+    ${content(`
+      ${p('Estimado equipo,')}
+      ${p(`Hay servicio de <strong>bombeo registrado</strong> el <strong>${date}</strong> en planta <strong>${plantCode}</strong> pero <strong>no hay checklist del día</strong> en el compuesto de bombeo ni en sus componentes (camión/bomba) según corresponda:`)}
+      ${table(['Unidad remisión', 'Activos (códigos)', 'Remisiones', 'Detalle'], rows)}
+      ${deadlineNote()}
+    `)}
+    ${footer()}
+  `);
+  return { subject, html };
+}
+
+function candidateLines(d: Record<string, unknown>, key: string): string {
+  const arr = d[key];
+  if (!Array.isArray(arr) || arr.length === 0) return '—';
+  return (arr as { assetId?: string; name?: string }[])
+    .map((x) => [x.assetId, x.name].filter(Boolean).join(' · ') || '—')
+    .join('<br>');
+}
+
+export function buildMissingLoaderChecklistHtml(
+  plantCode: string,
+  date: string,
+  findings: ComplianceFinding[],
+): { subject: string; html: string } {
+  const rows = findings.map((f) => {
+    const d = f.details;
+    return `<tr>
+      ${td(d.concretoRemisionCount, { right: true })}
+      ${td(d.producedConcreteM3 != null ? `${Number(d.producedConcreteM3).toFixed(1)} m³` : '—', { right: true })}
+      ${td(candidateLines(d, 'loaderCandidates'))}
+    </tr>`;
+  });
+  const subject = `[DC Concretos] Cargador frontal sin checklist — Planta ${plantCode} — ${date}`;
+  const html = wrap(`
+    ${header(plantCode, date, 'Checklist cargador frontal')}
+    ${content(`
+      ${p('Estimado equipo,')}
+      ${p(`Hubo <strong>producción de concreto</strong> el <strong>${date}</strong> en planta <strong>${plantCode}</strong> pero <strong>ningún cargador frontal operativo</strong> de la planta tiene checklist del día registrado en mantenimiento. Favor completar checklist o justificar cuál unidad operó.`)}
+      ${table(['# Rem. CONCRETO', 'm³', 'Candidatos (CF en planta)'], rows)}
+      ${deadlineNote()}
+    `)}
+    ${footer()}
+  `);
+  return { subject, html };
+}
+
+export function buildMissingPipaChecklistHtml(
+  plantCode: string,
+  date: string,
+  findings: ComplianceFinding[],
+): { subject: string; html: string } {
+  const rows = findings.map((f) => {
+    const d = f.details;
+    return `<tr>
+      ${td(d.hadWaterEntry ? 'Sí' : 'No')}
+      ${td(d.concretoRemisionCount, { right: true })}
+      ${td(candidateLines(d, 'pipaCandidates'))}
+    </tr>`;
+  });
+  const subject = `[DC Concretos] Pipa / agua sin checklist — Planta ${plantCode} — ${date}`;
+  const html = wrap(`
+    ${header(plantCode, date, 'Checklist pipa / agua')}
+    ${content(`
+      ${p('Estimado equipo,')}
+      ${p(`El <strong>${date}</strong> en planta <strong>${plantCode}</strong> aplica revisión de pipa (entrada de agua y/o producción con pipa en catálogo) pero <strong>ninguna pipa elegible</strong> tiene checklist del día:`)}
+      ${table(['Entrada agua', '# Rem. CONCRETO', 'Candidatos (pipas en planta)'], rows)}
+      ${deadlineNote()}
+    `)}
+    ${footer()}
+  `);
+  return { subject, html };
+}
+
+export function buildWaterEntryNoPipaInCatalogHtml(
+  plantCode: string,
+  date: string,
+): { subject: string; html: string } {
+  const subject = `[DC Concretos] Entrada de agua sin pipa en catálogo — Planta ${plantCode} — ${date}`;
+  const html = wrap(`
+    ${header(plantCode, date, 'Agua: catálogo')}
+    ${content(`
+      ${p('Estimado equipo,')}
+      ${p(`Se registró <strong>entrada de material agua</strong> el <strong>${date}</strong> en planta <strong>${plantCode}</strong>, pero en mantenimiento <strong>no hay pipa operativa</strong> asociada a esa planta. Favor dar de alta el activo o revisar la clasificación.`)}
+      ${deadlineNote()}
+    `)}
+    ${footer()}
+  `);
+  return { subject, html };
+}
+
 export function buildMissingProductionHtml(
   plantCode: string,
   date: string,

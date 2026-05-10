@@ -111,6 +111,73 @@ export function ComplianceFindingRow({ f }: { f: ComplianceFinding }) {
     );
   }
 
+  if (f.rule === 'unknownBombeoUnit') {
+    return (
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Texto remisión BOMBEO" value={d.unidad} />
+          <Row label="Canónico resuelto" value={d.canonical} />
+          <Row label="Num. remisión" value={d.remisionNumber} />
+        </dl>
+      </Card>
+    );
+  }
+
+  if (f.rule === 'missingPumpingChecklist') {
+    return (
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Unidad remisión" value={d.unidad} />
+          <Row label="Activos (códigos)" value={d.assetIds} />
+          <Row label="Remisiones" value={d.remisionNumbers} />
+        </dl>
+      </Card>
+    );
+  }
+
+  if (f.rule === 'missingLoaderChecklist') {
+    return (
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="# Remisiones CONCRETO" value={d.concretoRemisionCount} />
+          <Row label="m³ producidos" value={d.producedConcreteM3 != null ? Number(d.producedConcreteM3).toFixed(1) : null} />
+          <Row
+            label="Candidatos CF en planta"
+            value={(d.loaderCandidates as { assetId?: string; name?: string }[] | undefined)?.map(
+              (c) => [c.assetId, c.name].filter(Boolean).join(' · '),
+            )}
+          />
+        </dl>
+      </Card>
+    );
+  }
+
+  if (f.rule === 'missingPipaChecklist') {
+    return (
+      <Card severity="high">
+        <dl className="grid gap-1.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Row label="Entrada de agua el día" value={d.hadWaterEntry ? 'Sí' : 'No'} />
+          <Row label="# Remisiones CONCRETO" value={d.concretoRemisionCount} />
+          <Row label="m³" value={d.producedConcreteM3 != null ? Number(d.producedConcreteM3).toFixed(1) : null} />
+          <Row
+            label="Candidatos pipa"
+            value={(d.pipaCandidates as { assetId?: string; name?: string }[] | undefined)?.map(
+              (c) => [c.assetId, c.name].filter(Boolean).join(' · '),
+            )}
+          />
+        </dl>
+      </Card>
+    );
+  }
+
+  if (f.rule === 'waterEntryNoPipaInCatalog') {
+    return (
+      <Card severity="info">
+        <p className="text-stone-800">{f.message}</p>
+      </Card>
+    );
+  }
+
   if (f.rule === 'missingMaterialEntries') {
     return (
       <Card severity="high">

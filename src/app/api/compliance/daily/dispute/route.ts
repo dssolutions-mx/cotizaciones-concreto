@@ -13,8 +13,13 @@ const EMAIL_CATEGORIES = new Set<ComplianceRuleId>([
   'missingProduction',
   'missingMaterialEntries',
   'missingPumping',
+  'missingPumpingChecklist',
+  'missingLoaderChecklist',
+  'missingPipaChecklist',
+  'waterEntryNoPipaInCatalog',
   'operatorMismatch',
   'unknownUnit',
+  'unknownBombeoUnit',
 ]);
 
 function dedupeEmails(arr: string[]): string[] {

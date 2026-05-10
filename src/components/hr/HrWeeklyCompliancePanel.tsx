@@ -53,9 +53,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   missingMaterialEntries: 'Sin entradas de material',
   missingEvidence: 'Evidencia faltante',
   missingPumping: 'Bombeo faltante',
+  missingPumpingChecklist: 'Checklist bombeo',
+  missingLoaderChecklist: 'Checklist cargador frontal',
+  missingPipaChecklist: 'Checklist pipa / agua',
+  waterEntryNoPipaInCatalog: 'Agua sin pipa en catálogo',
   missingChecklist: 'Checklist faltante',
   operatorMismatch: 'Conductor ≠ operador',
   unknownUnit: 'Unidad no registrada',
+  unknownBombeoUnit: 'Unidad bombeo no registrada',
 };
 
 function StatusBadge({ status }: { status: string }) {

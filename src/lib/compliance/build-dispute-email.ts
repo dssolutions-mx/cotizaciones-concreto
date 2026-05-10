@@ -5,11 +5,16 @@ import { fetchMergedComplianceOverrides } from './server-overrides';
 import {
   buildMissingChecklistHtml,
   buildMissingEvidenceHtml,
+  buildMissingLoaderChecklistHtml,
   buildMissingMaterialEntriesHtml,
+  buildMissingPipaChecklistHtml,
+  buildMissingPumpingChecklistHtml,
   buildMissingPumpingHtml,
   buildMissingProductionHtml,
   buildOperatorMismatchHtml,
+  buildUnknownBombeoUnitHtml,
   buildUnknownUnitHtml,
+  buildWaterEntryNoPipaInCatalogHtml,
 } from './email-copy';
 import { enrichComplianceReport } from './enrich-report';
 
@@ -119,6 +124,16 @@ export async function buildDisputeEmailDraft(
     ({ subject, html } = buildOperatorMismatchHtml(plantCode, targetDate, plantFindings));
   } else if (category === 'unknownUnit') {
     ({ subject, html } = buildUnknownUnitHtml(plantCode, targetDate, plantFindings));
+  } else if (category === 'unknownBombeoUnit') {
+    ({ subject, html } = buildUnknownBombeoUnitHtml(plantCode, targetDate, plantFindings));
+  } else if (category === 'missingPumpingChecklist') {
+    ({ subject, html } = buildMissingPumpingChecklistHtml(plantCode, targetDate, plantFindings));
+  } else if (category === 'missingLoaderChecklist') {
+    ({ subject, html } = buildMissingLoaderChecklistHtml(plantCode, targetDate, plantFindings));
+  } else if (category === 'missingPipaChecklist') {
+    ({ subject, html } = buildMissingPipaChecklistHtml(plantCode, targetDate, plantFindings));
+  } else if (category === 'waterEntryNoPipaInCatalog') {
+    ({ subject, html } = buildWaterEntryNoPipaInCatalogHtml(plantCode, targetDate));
   } else {
     ({ subject, html } = buildMissingProductionHtml(plantCode, targetDate));
   }
