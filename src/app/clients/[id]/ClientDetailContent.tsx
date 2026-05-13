@@ -56,7 +56,7 @@ import ClientLogoManager from '@/components/clients/ClientLogoManager';
 import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import { ExportClientResearchButton } from '@/components/finanzas/ExportClientResearchButton';
-import { generateGoogleMapsUrl } from '@/components/orders/ScheduleOrderForm';
+import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {

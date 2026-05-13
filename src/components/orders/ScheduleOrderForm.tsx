@@ -14,6 +14,12 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { cn } from '@/lib/utils';
 import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
+import {
+  generateGoogleMapsUrl,
+  MAPS_SHORT_LINK_HOST_PATTERN,
+  parseGoogleMapsCoordinates,
+  validateCoordinates,
+} from '@/lib/maps/deliveryCoordinates';
 import { ChevronRight, ChevronLeft, CheckCircle2, Circle, MapPin } from 'lucide-react';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
@@ -76,98 +82,6 @@ interface ScheduleOrderFormProps {
   preSelectedClientId?: string;
   onOrderCreated?: () => void;
 }
-
-// Utility functions for coordinates and Google Maps
-export const validateCoordinates = (lat: string, lng: string): { isValid: boolean; error: string } => {
-  const latNum = parseFloat(lat);
-  const lngNum = parseFloat(lng);
-
-  if (!lat.trim() || !lng.trim()) {
-    return { isValid: false, error: 'Ambas coordenadas son requeridas' };
-  }
-
-  if (isNaN(latNum) || isNaN(lngNum)) {
-    return { isValid: false, error: 'Las coordenadas deben ser números válidos' };
-  }
-
-  if (latNum < -90 || latNum > 90) {
-    return { isValid: false, error: 'La latitud debe estar entre -90 y 90 grados' };
-  }
-
-  if (lngNum < -180 || lngNum > 180) {
-    return { isValid: false, error: 'La longitud debe estar entre -180 y 180 grados' };
-  }
-
-  return { isValid: true, error: '' };
-};
-
-export const generateGoogleMapsUrl = (lat: string, lng: string): string => {
-  return `https://www.google.com/maps?q=${lat},${lng}`;
-};
-
-const generateGoogleMapsEmbedUrl = (lat: string, lng: string): string => {
-  // Note: This requires a Google Maps API key for production use
-  return `https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${lat},${lng}&zoom=15`;
-};
-
-// Attempts to extract coordinates from various Google Maps URL formats or raw "lat,lng"
-const parseGoogleMapsCoordinates = (input: string): { lat: string; lng: string } | null => {
-  if (!input) return null;
-  const trimmed = input.trim();
-
-  // Case 1: Plain "lat,lng"
-  const plainMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (plainMatch) {
-    return { lat: plainMatch[1], lng: plainMatch[2] };
-  }
-
-  // If it's not a URL, stop here
-  let url: URL | null = null;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    return null;
-  }
-
-  const href = url.href;
-
-  // Case 2: Pattern with @lat,lng in the path (e.g., /@19.432608,-99.133209)
-  const atMatch = href.match(/@\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
-  if (atMatch) {
-    return { lat: atMatch[1], lng: atMatch[2] };
-  }
-
-  // Case 2b: !3dLAT!4dLNG pattern
-  const bangMatch = href.match(/!3d\s*(-?\d+(?:\.\d+)?)!4d\s*(-?\d+(?:\.\d+)?)/);
-  if (bangMatch) {
-    return { lat: bangMatch[1], lng: bangMatch[2] };
-  }
-
-  // Case 3: Query params that may contain "lat,lng"
-  const paramsToCheck = ['q', 'query', 'll', 'center', 'daddr', 'saddr'];
-  for (const key of paramsToCheck) {
-    const value = url.searchParams.get(key);
-    if (!value) continue;
-    const val = decodeURIComponent(value);
-    const m = val.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
-    if (m) {
-      return { lat: m[1], lng: m[2] };
-    }
-  }
-
-  // Case 4: Some URLs put coordinates in the path separated by commas without '@'
-  const loose = href.match(/(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/i) || href.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  if (loose) {
-    const lat = parseFloat(loose[1]);
-    const lng = parseFloat(loose[2]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-    return { lat: String(lat), lng: String(lng) };
-  }
-
-  // For short links like https://maps.app.goo.gl/ we cannot resolve redirects from the browser due to CORS.
-  return null;
-};
 
 export default function ScheduleOrderForm({
   preSelectedQuoteId,
@@ -2352,7 +2266,7 @@ export default function ScheduleOrderForm({
                           }
 
                           // Server-side expansion via Supabase Edge Function to avoid CORS
-                          if (/^https?:\/\/(maps\.app\.goo\.gl|g\.co|goo\.gl)\//i.test(mapsPaste)) {
+                          if (MAPS_SHORT_LINK_HOST_PATTERN.test(mapsPaste)) {
                             try {
                               const { data, error } = await supabase.functions.invoke('maps-url-parser', {
                                 body: { url: mapsPaste }

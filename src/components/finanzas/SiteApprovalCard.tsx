@@ -5,7 +5,7 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle, XCircle, MapPin, ExternalLink } from 'lucide-react';
-import { generateGoogleMapsUrl } from '@/components/orders/ScheduleOrderForm';
+import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
 
 interface PendingSite {
   id: string;

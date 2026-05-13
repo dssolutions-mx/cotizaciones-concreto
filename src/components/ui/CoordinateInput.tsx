@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { validateCoordinates, generateGoogleMapsUrl } from '../orders/ScheduleOrderForm';
+import { validateCoordinates, generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
 
 interface CoordinateInputProps {
   latitude: string;

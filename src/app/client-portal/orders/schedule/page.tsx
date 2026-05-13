@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Package, ChevronLeft, Clock, AlertCircle, Check, Layers } from 'lucide-react';
+import { Package, ChevronLeft, Clock, AlertCircle, Check, Layers, MapPin } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -16,6 +16,8 @@ import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { appendPortalClientId, getStoredPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
 import { format, parseISO, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { OptionalDeliveryLocationSection } from '@/components/client-portal/orders/OptionalDeliveryLocationSection';
+import { generateGoogleMapsUrl, validateCoordinates } from '@/lib/maps/deliveryCoordinates';
 
 type Site = { id: string; name: string };
 type Plant = { id: string; name: string };
@@ -170,6 +172,9 @@ export default function ScheduleOrderPage() {
   /** Guided elemento: frente obligatorio (see ElementoField). Siempre true en texto libre. */
   const [elementoGuidedOk, setElementoGuidedOk] = useState(false);
   const [notes, setNotes] = useState<string>('');
+  /** Optional delivery pin (same columns as internal schedule order). */
+  const [deliveryLatitude, setDeliveryLatitude] = useState('');
+  const [deliveryLongitude, setDeliveryLongitude] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quoteExtras, setQuoteExtras] = useState<QuoteExtraItem[]>([]);
@@ -475,6 +480,22 @@ export default function ScheduleOrderPage() {
     }
   }, [recipeAgeKey, productsAtAge]);
 
+  const deliveryLocationOk = useMemo(() => {
+    const hasAny = Boolean(deliveryLatitude.trim() || deliveryLongitude.trim());
+    if (!hasAny) return true;
+    return validateCoordinates(deliveryLatitude, deliveryLongitude).isValid;
+  }, [deliveryLatitude, deliveryLongitude]);
+
+  const deliveryPinSummary = useMemo(() => {
+    const v = validateCoordinates(deliveryLatitude, deliveryLongitude);
+    if (!v.isValid || !deliveryLatitude.trim() || !deliveryLongitude.trim()) return null;
+    return {
+      lat: deliveryLatitude,
+      lng: deliveryLongitude,
+      url: generateGoogleMapsUrl(deliveryLatitude, deliveryLongitude),
+    };
+  }, [deliveryLatitude, deliveryLongitude]);
+
   const canContinue = useMemo(() => {
     const hasSite = constructionSiteId === 'other' ? constructionSiteName.trim().length > 1 : !!constructionSiteId;
     const notPast = !deliveryDate || deliveryDate >= todayStr;
@@ -488,7 +509,8 @@ export default function ScheduleOrderPage() {
       Number(volume) > 0 &&
       elemento.trim().length > 0 &&
       elementoGuidedOk &&
-      !extrasBlocking
+      !extrasBlocking &&
+      deliveryLocationOk
     );
   }, [
     constructionSiteId,
@@ -502,6 +524,7 @@ export default function ScheduleOrderPage() {
     todayStr,
     resolvedSiteName,
     extrasLoading,
+    deliveryLocationOk,
   ]);
 
   const estimatedLineTotal = useMemo(() => {
@@ -559,6 +582,18 @@ export default function ScheduleOrderPage() {
         unit_price: selectedProduct?.unit_price || 0,
         selected_additional_product_ids: Array.from(selectedAdditionalIds),
       };
+
+      const coordCheck = validateCoordinates(deliveryLatitude, deliveryLongitude);
+      const hasDeliveryPin =
+        deliveryLatitude.trim().length > 0 && deliveryLongitude.trim().length > 0;
+      if (hasDeliveryPin) {
+        if (!coordCheck.isValid) {
+          throw new Error(coordCheck.error || 'Coordenadas de entrega inválidas');
+        }
+        payload.delivery_latitude = parseFloat(deliveryLatitude);
+        payload.delivery_longitude = parseFloat(deliveryLongitude);
+      }
+
       const cid = getStoredPortalClientId();
       if (cid) payload.client_id = cid;
 
@@ -721,6 +756,13 @@ export default function ScheduleOrderPage() {
                     </div>
                   </div>
                 </div>
+
+                <OptionalDeliveryLocationSection
+                  latitude={deliveryLatitude}
+                  longitude={deliveryLongitude}
+                  onLatitudeChange={setDeliveryLatitude}
+                  onLongitudeChange={setDeliveryLongitude}
+                />
 
                 {/* Elemento — texto libre o formato guiado */}
                 <ElementoField
@@ -1158,6 +1200,26 @@ export default function ScheduleOrderPage() {
                       <p className="text-body font-semibold text-label-primary whitespace-pre-wrap break-words">{elemento}</p>
                     </div>
                   </div>
+
+                  {deliveryPinSummary ? (
+                    <div className="glass-thin rounded-2xl p-5 border border-white/10 border-primary/20 bg-primary/[0.06]">
+                      <p className="text-caption text-label-tertiary uppercase tracking-wide mb-2 flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-primary shrink-0" aria-hidden />
+                        Ubicación en obra
+                      </p>
+                      <p className="text-callout font-mono text-label-primary tabular-nums">
+                        {deliveryPinSummary.lat}, {deliveryPinSummary.lng}
+                      </p>
+                      <a
+                        href={deliveryPinSummary.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block mt-3 text-callout font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        Abrir en Google Maps
+                      </a>
+                    </div>
+                  ) : null}
 
                   {/* Product Details */}
                   <div className="glass-thin rounded-2xl p-5 border border-white/10">

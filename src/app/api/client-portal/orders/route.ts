@@ -7,6 +7,7 @@ import {
   resolvePortalContext,
 } from '@/lib/client-portal/resolvePortalContext';
 import { NextResponse } from 'next/server';
+import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
 
 export async function GET(request: Request) {
   try {
@@ -169,7 +170,9 @@ export async function POST(request: Request) {
       volume,
       unit_price,
       /** When present: only these quote_additional_products ids are copied; [] = none. Omit = copy all (legacy). */
-      selected_additional_product_ids
+      selected_additional_product_ids,
+      delivery_latitude: deliveryLatitudeRaw,
+      delivery_longitude: deliveryLongitudeRaw,
     } = body || {};
 
     // Minimal validation
@@ -241,6 +244,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: plantGate.message }, { status: 403 });
     }
 
+    const hasLat =
+      deliveryLatitudeRaw !== undefined && deliveryLatitudeRaw !== null && deliveryLatitudeRaw !== '';
+    const hasLng =
+      deliveryLongitudeRaw !== undefined && deliveryLongitudeRaw !== null && deliveryLongitudeRaw !== '';
+    let deliveryLatNum: number | null = null;
+    let deliveryLngNum: number | null = null;
+    if (hasLat !== hasLng) {
+      return NextResponse.json(
+        { error: 'Si indica ubicación de entrega, debe enviar latitud y longitud.' },
+        { status: 400 }
+      );
+    }
+    if (hasLat && hasLng) {
+      const lat =
+        typeof deliveryLatitudeRaw === 'number'
+          ? deliveryLatitudeRaw
+          : parseFloat(String(deliveryLatitudeRaw).trim());
+      const lng =
+        typeof deliveryLongitudeRaw === 'number'
+          ? deliveryLongitudeRaw
+          : parseFloat(String(deliveryLongitudeRaw).trim());
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return NextResponse.json({ error: 'Coordenadas de entrega inválidas.' }, { status: 400 });
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return NextResponse.json({ error: 'Coordenadas de entrega fuera de rango.' }, { status: 400 });
+      }
+      deliveryLatNum = lat;
+      deliveryLngNum = lng;
+    }
+
     const { data: creatorProfile } = await supabase
       .from('user_profiles')
       .select('first_name, last_name, email')
@@ -277,6 +311,15 @@ export async function POST(request: Request) {
       comentarios_internos: portalUserDisplayName || null,
       // Note: client_approval_status is set by the database trigger based on user permissions
     };
+
+    if (deliveryLatNum !== null && deliveryLngNum !== null) {
+      insertPayload.delivery_latitude = deliveryLatNum;
+      insertPayload.delivery_longitude = deliveryLngNum;
+      insertPayload.delivery_google_maps_url = generateGoogleMapsUrl(
+        String(deliveryLatNum),
+        String(deliveryLngNum)
+      );
+    }
 
     const { data: created, error: insertError } = await supabase
       .from('orders')
