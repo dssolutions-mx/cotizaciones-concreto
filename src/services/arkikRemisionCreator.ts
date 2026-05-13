@@ -222,7 +222,7 @@ export class ArkikRemisionCreator {
       // Check if order exists and can accept new remisiones
       const { data: order, error: orderError } = await supabase
         .from('orders')
-        .select('order_status, credit_status, delivery_date')
+        .select('order_status, credit_status, delivery_date, plant_id')
         .eq('id', orderId)
         .single();
 
@@ -241,18 +241,26 @@ export class ArkikRemisionCreator {
         warnings.push(`Orden con estado de crédito ${order.credit_status}`);
       }
 
-      // Check for duplicate remision numbers
+      // Check for duplicate remision numbers — scoped to (plant_id, tipo_remision)
+      // because the same number is legitimately reused across plants AND across
+      // CONCRETO/BOMBEO within the same plant on the same date.
       const remisionNumbers = stagingRemisiones.map(r => r.remision_number);
-      const { data: existingRemisiones, error: duplicateError } = await supabase
-        .from('remisiones')
-        .select('remision_number')
-        .in('remision_number', remisionNumbers);
+      if (!order.plant_id) {
+        errors.push('Orden sin planta asignada — no se puede validar duplicados');
+      } else {
+        const { data: existingRemisiones, error: duplicateError } = await supabase
+          .from('remisiones')
+          .select('remision_number')
+          .eq('plant_id', order.plant_id)
+          .eq('tipo_remision', 'CONCRETO')
+          .in('remision_number', remisionNumbers);
 
-      if (duplicateError) {
-        errors.push('Error verificando duplicados de remisiones');
-      } else if (existingRemisiones.length > 0) {
-        const duplicates = existingRemisiones.map(r => r.remision_number);
-        errors.push(`Remisiones duplicadas: ${duplicates.join(', ')}`);
+        if (duplicateError) {
+          errors.push('Error verificando duplicados de remisiones');
+        } else if (existingRemisiones.length > 0) {
+          const duplicates = existingRemisiones.map(r => r.remision_number);
+          errors.push(`Remisiones CONCRETO duplicadas en planta ${order.plant_id}: ${duplicates.join(', ')}`);
+        }
       }
 
       // Check date consistency
