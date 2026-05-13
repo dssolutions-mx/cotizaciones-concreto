@@ -507,7 +507,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                                       <Edit size={16} />
                                     </RoleProtectedButton>
                                     <RoleProtectedButton
-                                      allowedRoles={'EXECUTIVE'}
+                                      allowedRoles={['EXECUTIVE', 'CREDIT_VALIDATOR']}
                                       onClick={() => handleDeleteClick(remision)}
                                       className="p-1.5 rounded text-red-600 hover:bg-red-50"
                                       title="Eliminar remisión"
@@ -633,7 +633,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                               <Edit size={16} />
                             </RoleProtectedButton>
                             <RoleProtectedButton
-                              allowedRoles={'EXECUTIVE'}
+                              allowedRoles={['EXECUTIVE', 'CREDIT_VALIDATOR']}
                               onClick={() => handleDeleteClick(remision)}
                               className="p-1.5 rounded text-red-600 hover:bg-red-50"
                               title="Eliminar remisión"
