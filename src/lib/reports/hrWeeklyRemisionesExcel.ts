@@ -224,11 +224,14 @@ function buildResumenSheet(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, data: Hr
   };
 
   mergeSection('Totales del período (filtros aplicados)');
+  const volConc = data.aggregates.totalVolumeConcreto ?? 0;
+  const volBomb = data.aggregates.totalVolumeBombeo ?? 0;
   const kpi: [string, string | number][] = [
     ['Viajes (remisiones)', data.aggregates.trips],
     ['Conductores únicos', data.aggregates.uniqueDrivers],
     ['Unidades únicas', data.aggregates.uniqueTrucks],
-    ['Volumen total (m³)', Number(data.aggregates.totalVolume.toFixed(2))],
+    ['Volumen concreto (m³)', Number(volConc.toFixed(2))],
+    ['Volumen bombeo (m³)', Number(volBomb.toFixed(2))],
   ];
   for (const [label, val] of kpi) {
     ws.getCell(r, 1).value = label;

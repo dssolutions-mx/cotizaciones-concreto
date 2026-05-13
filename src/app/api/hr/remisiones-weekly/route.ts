@@ -402,9 +402,14 @@ export async function POST(request: NextRequest) {
     >();
 
     let totalVolume = 0;
+    let totalVolumeConcreto = 0;
+    let totalVolumeBombeo = 0;
     for (const r of all) {
       const volume = Number(r.volumen_fabricado) || 0;
       totalVolume += volume;
+      const tipo = String(r.tipo_remision ?? '').toUpperCase();
+      if (tipo === 'CONCRETO') totalVolumeConcreto += volume;
+      else if (tipo === 'BOMBEO') totalVolumeBombeo += volume;
 
       const date = r.fecha;
       const day = byDay.get(date) ?? { date, trips: 0, volume: 0 };
@@ -612,6 +617,8 @@ export async function POST(request: NextRequest) {
         uniqueDrivers,
         uniqueTrucks,
         totalVolume,
+        totalVolumeConcreto,
+        totalVolumeBombeo,
       },
       byDay: Array.from(byDay.values()).sort((a, b) => a.date.localeCompare(b.date)),
       byDriver: Array.from(byDriver.values())

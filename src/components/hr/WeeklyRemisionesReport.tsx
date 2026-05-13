@@ -1,7 +1,16 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { format, parseISO, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
+import {
+  format,
+  parseISO,
+  startOfWeek,
+  endOfWeek,
+  subWeeks,
+  addDays,
+  differenceInCalendarDays,
+  getISOWeek,
+} from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from 'react-day-picker';
 import { useDebounce } from 'use-debounce';
@@ -16,7 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-import TripsKpiCards from '@/components/hr/TripsKpiCards';
+import TripsKpiCards, { type HrWeeklyProductTypeFilter } from '@/components/hr/TripsKpiCards';
 import { ComplianceStatsPanel } from '@/components/hr/ComplianceStatsPanel';
 import TripsByDayChart from '@/components/hr/TripsByDayChart';
 import DriverTruckFilters, { type DriverTruckFiltersValue } from '@/components/hr/DriverTruckFilters';
@@ -102,8 +111,10 @@ function escapeCsv(value: any) {
   return s;
 }
 
-/** Concrete + pumping remisiones so RH can reconcile payroll with the pumping scheme (SERVICIO DE BOMBEO). */
-const HR_WEEKLY_INCLUDE_TYPES = ['CONCRETO', 'BOMBEO'] as const;
+function includeTypesFromProductFilter(f: HrWeeklyProductTypeFilter): ('CONCRETO' | 'BOMBEO')[] {
+  if (f === 'all') return ['CONCRETO', 'BOMBEO'];
+  return [f];
+}
 
 function hrWeeklyNotesTitle(r: HrWeeklyRemisionRow): string {
   const segs: string[] = [];
@@ -141,6 +152,7 @@ export default function WeeklyRemisionesReport() {
   const [data, setData] = useState<HrWeeklyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [productTypeFilter, setProductTypeFilter] = useState<HrWeeklyProductTypeFilter>('all');
 
   const startDate = useMemo(() => (dateRange.from ? toYyyyMmDd(dateRange.from) : null), [dateRange.from]);
   const endDate = useMemo(() => (dateRange.to ? toYyyyMmDd(dateRange.to) : null), [dateRange.to]);
@@ -162,7 +174,7 @@ export default function WeeklyRemisionesReport() {
         trucks: filters.trucks.length ? filters.trucks : undefined,
         plantIds: filters.plantIds.length ? filters.plantIds : undefined,
         day: filters.day,
-        includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
+        includeTypes: includeTypesFromProductFilter(productTypeFilter),
         includeCompliance: true,
       });
       setData(next);
@@ -172,7 +184,7 @@ export default function WeeklyRemisionesReport() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, page, pageSize, debouncedSearch, filters]);
+  }, [startDate, endDate, page, pageSize, debouncedSearch, filters, productTypeFilter]);
 
   // Pre-fill plant filter for DOSIFICADOR with plant_id (API enforces server-side regardless)
   useEffect(() => {
@@ -184,7 +196,16 @@ export default function WeeklyRemisionesReport() {
   // Reset pagination when query changes
   useEffect(() => {
     setPage(1);
-  }, [startDate, endDate, debouncedSearch, filters.drivers, filters.trucks, filters.plantIds, filters.day]);
+  }, [
+    startDate,
+    endDate,
+    debouncedSearch,
+    filters.drivers,
+    filters.trucks,
+    filters.plantIds,
+    filters.day,
+    productTypeFilter,
+  ]);
 
   useEffect(() => {
     runFetch();
@@ -220,7 +241,13 @@ export default function WeeklyRemisionesReport() {
 
   const weekLabel = useMemo(() => {
     if (!dateRange.from || !dateRange.to) return 'Selecciona un período';
-    return `${format(dateRange.from, "d 'de' MMM", { locale: es })} — ${format(dateRange.to, "d 'de' MMM", { locale: es })}`;
+    const span =
+      differenceInCalendarDays(dateRange.to, dateRange.from) + 1;
+    const base = `${format(dateRange.from, "d 'de' MMM", { locale: es })} — ${format(dateRange.to, "d 'de' MMM", { locale: es })}`;
+    if (span === 7) {
+      return `${base} · Sem. ISO ${getISOWeek(dateRange.from)}`;
+    }
+    return base;
   }, [dateRange.from, dateRange.to]);
 
   const pageMeta = useMemo(() => {
@@ -283,6 +310,14 @@ export default function WeeklyRemisionesReport() {
     setActiveTab('resumen');
   };
 
+  const shiftPeriodByWeek = (deltaWeeks: number) => {
+    if (!dateRange.from || !dateRange.to) return;
+    setDateRange({
+      from: addDays(dateRange.from, deltaWeeks * 7),
+      to: addDays(dateRange.to, deltaWeeks * 7),
+    });
+  };
+
   const handleExportCsv = () => {
     if (!startDate || !endDate) return;
     (async () => {
@@ -295,7 +330,7 @@ export default function WeeklyRemisionesReport() {
           trucks: filters.trucks.length ? filters.trucks : undefined,
           plantIds: filters.plantIds.length ? filters.plantIds : undefined,
           day: filters.day,
-          includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
+          includeTypes: includeTypesFromProductFilter(productTypeFilter),
           export: true,
         });
 
@@ -362,7 +397,7 @@ export default function WeeklyRemisionesReport() {
           trucks: filters.trucks.length ? filters.trucks : undefined,
           plantIds: filters.plantIds.length ? filters.plantIds : undefined,
           day: filters.day,
-          includeTypes: [...HR_WEEKLY_INCLUDE_TYPES],
+          includeTypes: includeTypesFromProductFilter(productTypeFilter),
           export: true,
           includeCompliance: true,
         });
@@ -404,6 +439,7 @@ export default function WeeklyRemisionesReport() {
   const clearAllFilters = () => {
     setFilters({ drivers: [], trucks: [], plantIds: [], day: null });
     setSearch('');
+    setProductTypeFilter('all');
     setActiveTab('resumen');
   };
 
@@ -455,6 +491,68 @@ export default function WeeklyRemisionesReport() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-gray-600">Desplazar período (±7 días)</span>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => shiftPeriodByWeek(-1)}
+                  disabled={!canQuery}
+                  aria-label="Retroceder el período una semana"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2"
+                  onClick={() => shiftPeriodByWeek(1)}
+                  disabled={!canQuery}
+                  aria-label="Avanzar el período una semana"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5 sm:items-end">
+              <span className="text-xs font-medium text-gray-600">Tipo de producto</span>
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  type="button"
+                  variant={productTypeFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setProductTypeFilter('all')}
+                >
+                  Todos
+                </Button>
+                <Button
+                  type="button"
+                  variant={productTypeFilter === 'CONCRETO' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setProductTypeFilter('CONCRETO')}
+                >
+                  Concreto
+                </Button>
+                <Button
+                  type="button"
+                  variant={productTypeFilter === 'BOMBEO' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setProductTypeFilter('BOMBEO')}
+                >
+                  Bombeo
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="space-y-2">
               <DateRangePickerWithPresets
@@ -509,7 +607,9 @@ export default function WeeklyRemisionesReport() {
             trips={data.aggregates.trips}
             uniqueDrivers={data.aggregates.uniqueDrivers}
             uniqueTrucks={data.aggregates.uniqueTrucks}
-            totalVolume={data.aggregates.totalVolume}
+            volumeConcreto={data.aggregates.totalVolumeConcreto ?? 0}
+            volumeBombeo={data.aggregates.totalVolumeBombeo ?? 0}
+            productTypeFilter={productTypeFilter}
           />
 
           {complianceRemisionStats && (
@@ -593,12 +693,28 @@ export default function WeeklyRemisionesReport() {
                           {data.aggregates.uniqueDrivers.toLocaleString('es-MX')}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between py-2 border-b">
-                        <span className="text-sm font-medium text-gray-700">Volumen total</span>
-                        <span className="text-lg font-semibold text-gray-900 tabular-nums">
-                          {data.aggregates.totalVolume.toLocaleString('es-MX', { maximumFractionDigits: 2 })} m³
-                        </span>
-                      </div>
+                      {(productTypeFilter === 'all' || productTypeFilter === 'CONCRETO') && (
+                        <div className="flex items-center justify-between py-2 border-b">
+                          <span className="text-sm font-medium text-gray-700">Volumen concreto</span>
+                          <span className="text-lg font-semibold text-gray-900 tabular-nums">
+                            {(data.aggregates.totalVolumeConcreto ?? 0).toLocaleString('es-MX', {
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            m³
+                          </span>
+                        </div>
+                      )}
+                      {(productTypeFilter === 'all' || productTypeFilter === 'BOMBEO') && (
+                        <div className="flex items-center justify-between py-2 border-b">
+                          <span className="text-sm font-medium text-gray-700">Volumen bombeo</span>
+                          <span className="text-lg font-semibold text-gray-900 tabular-nums">
+                            {(data.aggregates.totalVolumeBombeo ?? 0).toLocaleString('es-MX', {
+                              maximumFractionDigits: 2,
+                            })}{' '}
+                            m³
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between py-2">
                         <span className="text-sm font-medium text-gray-700">Promedio por conductor</span>
                         <span className="text-lg font-semibold text-gray-900 tabular-nums">

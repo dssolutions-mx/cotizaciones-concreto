@@ -66,6 +66,8 @@ export type HrWeeklyResponse = {
     uniqueDrivers: number;
     uniqueTrucks: number;
     totalVolume: number;
+    totalVolumeConcreto: number;
+    totalVolumeBombeo: number;
   };
   byDay: Array<{ date: string; trips: number; volume: number }>;
   byDriver: Array<{
