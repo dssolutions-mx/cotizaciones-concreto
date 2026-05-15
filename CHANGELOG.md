@@ -1,11 +1,12 @@
 # Changelog
 
-All notable changes to this project are documented here. Releases follow [calendar versioning](docs/VERSIONING.md) (`YYYY.M.patch`, for example `2026.4.0` for the April 2026 line). Each GitHub **Release** and git **tag** `vYYYY.M.0` marks the repository state at the end of that calendar month (or the latest commit when documenting the current month).
+All notable changes to this project are documented here. Releases follow [calendar versioning](docs/VERSIONING.md) (`YYYY.M.patch`). The **baseline** tag for a month is usually `vYYYY.M.0`; **extra snapshots** (for example close-of-month after a mid-month publish) use **`vYYYY.M.1`, `vYYYY.M.2`, …**.
 
 ## [Unreleased]
 
 ### Planned
 
+- **`2026.5.1` (`v2026.5.1`)** — cierre de mayo (~2026-05-31): congelar esta sección en `CHANGELOG.md`, `git tag -a v2026.5.1 <commit> -m "…"`, `git push origin v2026.5.1`, y `gh release create v2026.5.1 --notes-file …`. Actualizar `package.json` a `2026.5.1`.
 - Continue curating monthly entries from conventional commits where possible.
 
 ### EMA / Centro de calidad
@@ -14,9 +15,74 @@ All notable changes to this project are documented here. Releases follow [calend
 
 ---
 
+## [2026.5.0] - 2026-05-15
+
+**Tag:** `v2026.5.0` (**corte a mitad de mayo**, estado al 2026-05-15; mayo sigue abierto hasta `2026.5.1`).
+
+### Finanzas
+
+- Compras y **cuentas por pagar**: facturas proveedor, notas de crédito, agrupaciones, rutas/API y vistas CXP relacionadas.
+
+### Inventario y compras (procurement)
+
+- Mayor avance FIFO, ledger de materiales, aperturas, resincronización contable y herramientas de diagnóstico.
+- Consumos: flujos de materiales enlazados, totales auditoría ledger, arkik desperdicio/merma, Excel de consumos por planta/material; control de acceso en auditoría financiera (`MaterialAuditSheet`).
+
+### Calidad / EMA / certificados
+
+- Pavimento (`pv_promedio`) en rutas materiales y cálculos; mejoras moldes y muestreo; instrumentación Tipo D auxiliar; mejoras equipo utilizado y validaciones EMA.
+
+### RH y operaciones
+
+- Remisiones semanales: filtros tipo, KPIs volumen segregados y navegación por semana; refinamiento de filtros por planta y cliente.
+
+### Cumplimiento y documentos
+
+- Composites de bomba, loaders y checklist pipa para cumplimiento; generación PDF de estudios mejorada.
+
+### Portal de clientes y pedidos
+
+- Coordenadas de entrega opcionales en programación; detalle de pedido con evidencia de concreto y documentos de remisión; gestión mejorada planta/usuario.
+
+### Otros
+
+- Permisos (eliminación remisiones por validadores crédito); mejoras remisiones log y proceso Arkik creator; refactor layout/build y Tailwind content; CI Node/npm más recientes.
+
+---
+
+## [2026.4.1] - 2026-04-30
+
+**Tag:** `v2026.4.1` (segundo corte abril — cierre efectivo abril respecto de `2026.4.0`).
+
+### Finanzas y cliente
+
+- FIFO de obras en pagos y asignaciones; selección explícita de obra en pagos multisitio.
+- Balance de obra **UUID-first** en API, pedidos y tipos; `_safe_update` en balance FIFO y tipos/scripting asociados.
+- Portal cliente: contexto `resolvePortalContext`, alcance sitio FIFO, trabajo diario locales, catálogo de extras (APIs), resolución de obra y stripping de precios sin `view_prices`.
+
+### Inventario
+
+- Patch de entrada de materiales sanitizado; validaciones UOM; evidencia remisiones/PDF refactor; **ajuste** modelo/UI, transferencia entre plantas y correo.
+- Correcciones en formulario entrada (blur rueda en numéricos).
+
+### EMA y calidad
+
+- Plantillas **v2** (layouts, `pass_fail_rule`, cumple servidor); multi-plantilla UI; valores de cabecera y `formula_bound`; workspace y APIs batch.
+- Certificados de calibración (carga, PDF, UX, filtros vigente); programa UI y endurecimiento plantillas.
+- Verificaciones tipo C y patrones: cumplimiento, metrología, mediciones y restricciones de patrón; validación calibration U vs rango/formula; sinc cert ↔ ficha.
+- Repeticiones de sección, política de cumplimiento e instancia en plantilla/muestreo.
+- Recipe hub / calculator / gobernanza (refactors); mejoras navegación remisión bombeo combo.
+
+### Plataforma y seguridad
+
+- Parche **PostCSS** (moderate XSS en dependencias); restauración **`proxy.ts`** export `proxy` (Next 16); scripts/build en raíz (`build.js`); invitaciones y flujo contraseña.
+- Documentación (`README`/archivos) y merges de housekeeping.
+
+---
+
 ## [2026.4.0] - 2026-04-23
 
-**Tag:** `v2026.4.0` (month-to-date snapshot; April still in progress)
+**Tag:** `v2026.4.0` (primer corte abril 2026; el cierre abril está en **`2026.4.1`** / `v2026.4.1`)
 
 ### Finanzas y reportes
 
@@ -197,7 +263,9 @@ All notable changes to this project are documented here. Releases follow [calend
 
 ---
 
-[Unreleased]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.4.0...HEAD
+[Unreleased]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.5.0...HEAD
+[2026.5.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.4.1...v2026.5.0
+[2026.4.1]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.4.0...v2026.4.1
 [2026.4.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.3.0...v2026.4.0
 [2026.3.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.2.0...v2026.3.0
 [2026.2.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.1.0...v2026.2.0
