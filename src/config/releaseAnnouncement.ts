@@ -3,8 +3,12 @@
  * Persistencia "una vez por versión por usuario" se maneja en DB.
  */
 
-export const RELEASE_ANNOUNCEMENT_VERSION = '2025-02';
-export const RELEASE_ANNOUNCEMENT_ALLOWED_VERSIONS = [RELEASE_ANNOUNCEMENT_VERSION] as const;
+export const RELEASE_ANNOUNCEMENT_VERSION = '2026-05';
+export const RELEASE_ANNOUNCEMENT_ALLOWED_VERSIONS = [
+  /** Legado previo para clientes/cache que aún intentan marcar visto con el slug anterior. */
+  '2025-02',
+  RELEASE_ANNOUNCEMENT_VERSION,
+] as const;
 
 export type ReleaseAudience =
   | 'EXECUTIVE'
@@ -17,57 +21,56 @@ export type ReleaseAudience =
 const BLOCKS = {
   global: {
     title: 'Novedades de la versión',
-    subtitle: 'Un paso adelante en operación, control y experiencia comercial.',
+    subtitle: 'May 2026: finanzas y proveedor, inventario FIFO, calidad/certificados y mejoras operativas.',
     blocks: [
       {
-        title: 'Rediseño visual y navegación',
+        title: 'Finanzas y cuentas por pagar (proveedor)',
         items: [
-          'Nueva coherencia visual en dashboard, finanzas y menú.',
-          'Navegación más clara y menú más limpio.',
-          'Mejoras de accesibilidad cuando prefieres menos animación.',
+          'Gestión extendida sobre facturas y notas de crédito de proveedor.',
+          'Agrupaciones de proveedor y vistas CXP alineadas al flujo de compras.',
         ],
       },
       {
-        title: 'Procurement (PO + Entradas)',
+        title: 'Inventario, consumos y compras',
         items: [
-          'Mejoras en órdenes de compra, entradas y créditos aplicados a PO.',
-          'Mayor trazabilidad y control operativo.',
+          'FIFO consolidado con ledger por material y mejor trazo contable.',
+          'Consumos: reportes mejorados por planta, desperdicios Arkik/merma en reporteo.',
+          'Auditoría financiera sensible al rol donde aplica.',
         ],
       },
       {
-        title: 'Productos adicionales',
+        title: 'Calidad, EMA y certificados',
         items: [
-          'Configuración más flexible.',
-          'Claridad desde cotización hasta pedido.',
+          'Pavimento (pv_promedio) y mejoras en muestreos, moldes e instrumentación.',
+          'Certificados y descarga de PDF endurecidos donde aplica.',
         ],
       },
       {
-        title: 'Dashboard de aprobaciones',
+        title: 'Operaciones, RH y cliente',
         items: [
-          'Tareas pendientes en un solo lugar.',
-          'Acceso más rápido a revisiones y decisiones.',
+          'Remisiones y reporteo semanal: filtros refinados por planta, tipo de remisión y clientes.',
+          'Cumplimiento: mejoras en bomba, checklist pipa y generación PDF de estudios.',
+          'Portal cliente: evidencia por pedido/remisión y entrega opcional con coordenadas.',
         ],
       },
     ],
   },
   executive: {
     emphasis: [
-      'Procurement con enfoque ERP corporativo para mayor control de compras, inventario y lotes.',
-      'Mayor confiabilidad de datos de PO y Entradas para reporteo ejecutivo y toma de decisiones.',
-      'Trazabilidad end-to-end del flujo procurement: compras → registros → validaciones.',
+      'Cuentas por pagar y trabajo de mayo en finanzas/proveedor: más transparencia hacia cerrar ciclo ERP.',
+      'Mayor cobertura de inventario FIFO, consumos y auditoría materiales por planta.',
     ],
   },
   commercial: {
     emphasis: [
-      'Navegación comercial más centralizada para clientes, cotizaciones y seguimiento.',
-      'Productos adicionales como nuevo switch operativo en el proceso comercial: más claridad desde cotización hasta pedido.',
-      'Menos fricción para ejecutar tareas clave del día con un flujo más directo.',
+      'Portal cliente con evidencia más clara y pedidos mejor documentados.',
+      'Menos fricción al coordinar datos de obra y programa de pedidos.',
     ],
   },
   operations: {
     emphasis: [
-      'Fortalecimiento del cálculo de materia prima y asignación por lotes.',
-      'Flujo más robusto para operación diaria y control.',
+      'Reportes RR.HH./remisiones con vistas más operables para plantas y filtros efectivos.',
+      'Flujo FIFO y auditoría materiales enfocados en trabajo diario y control en planta.',
     ],
   },
 } as const;

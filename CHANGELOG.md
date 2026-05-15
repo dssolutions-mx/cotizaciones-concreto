@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Releases follow [calend
 
 ### Planned
 
-- **`2026.5.1` (`v2026.5.1`)** — cierre de mayo (~2026-05-31): congelar esta sección en `CHANGELOG.md`, `git tag -a v2026.5.1 <commit> -m "…"`, `git push origin v2026.5.1`, y `gh release create v2026.5.1 --notes-file …`. Actualizar `package.json` a `2026.5.1`.
+- **`2026.5.2` (`v2026.5.2`)** — cierre de mayo (~2026-05-31): congelar `CHANGELOG.md`, `git tag -a v2026.5.2 <commit>`, `git push origin v2026.5.2`, `gh release create v2026.5.2 --notes-file …`, `package.json` → `2026.5.2`.
 - Continue curating monthly entries from conventional commits where possible.
 
 ### EMA / Centro de calidad
@@ -15,9 +15,23 @@ All notable changes to this project are documented here. Releases follow [calend
 
 ---
 
+## [2026.5.1] - 2026-05-15
+
+**Tag:** `v2026.5.1` (Último commit del **2026-05-15** hasta el momento de publicación.)
+
+### Experiencia in-app
+
+- Modal **Novedades de la versión** con slug **`2026-05`**; copy revisado para reflejar el corte **May 2026** (finanzas/CXP y operación destacadas abajo).
+
+### Finanzas, compras e inventario (recordatorio ejecutivo/resumen modal)
+
+- Cuentas por pagar proveedor / CXP en evolución; inventario FIFO, consumos y auditoría materiales continuando el trabajo de mayo.
+
+---
+
 ## [2026.5.0] - 2026-05-15
 
-**Tag:** `v2026.5.0` (**corte a mitad de mayo**, estado al 2026-05-15; mayo sigue abierto hasta `2026.5.1`).
+**Tag:** `v2026.5.0` (**corte a mitad de mayo**, 2026-05-15; véase **`2026.5.1`** para anuncios in-app **`2026-05`** + última etiqueta **Latest** ese mismo día.)
 
 ### Finanzas
 
@@ -263,7 +277,8 @@ All notable changes to this project are documented here. Releases follow [calend
 
 ---
 
-[Unreleased]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.5.0...HEAD
+[Unreleased]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.5.1...HEAD
+[2026.5.1]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.5.0...v2026.5.1
 [2026.5.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.4.1...v2026.5.0
 [2026.4.1]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.4.0...v2026.4.1
 [2026.4.0]: https://github.com/dssolutions-mx/cotizaciones-concreto/compare/v2026.3.0...v2026.4.0
