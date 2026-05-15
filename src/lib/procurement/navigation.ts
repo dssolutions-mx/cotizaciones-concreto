@@ -99,3 +99,8 @@ export function procurementConsumosUrl(opts: { plantId?: string | null; date: st
 export function productionAlertsUrl(plantId?: string | null) {
   return buildProcurementUrl('/production-control/alerts', { plantId: plantId || undefined })
 }
+
+export function purchaseOrderUrl(poId: string | null | undefined, plantId?: string | null): string {
+  if (!poId) return buildProcurementUrl('/finanzas/procurement', { plantId: plantId || undefined, tab: 'po' })
+  return buildProcurementUrl('/finanzas/procurement', { plantId: plantId || undefined, tab: 'po', poId })
+}

@@ -6,6 +6,7 @@ const PatchSupplierSchema = z.object({
   default_payment_terms_days: z
     .union([z.number().int().min(0).max(365), z.null()])
     .optional(),
+  group_id: z.union([z.string().uuid(), z.null()]).optional(),
   /** When sent, update only applies if the supplier belongs to this plant (matches GET ?plant_id=). */
   plant_id: z.string().uuid().optional(),
 })
@@ -56,6 +57,9 @@ export async function PATCH(
     const updates: Record<string, unknown> = {}
     if (parsed.data.default_payment_terms_days !== undefined) {
       updates.default_payment_terms_days = parsed.data.default_payment_terms_days
+    }
+    if (parsed.data.group_id !== undefined) {
+      updates.group_id = parsed.data.group_id
     }
 
     if (Object.keys(updates).length === 0) {

@@ -22,7 +22,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { toast } from 'sonner'
-import { Building2, Clock, Plus, Search, Settings2 } from 'lucide-react'
+import { Building2, Clock, Link2, Plus, Search, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   PAYMENT_TERMS_PRESET_DAYS,
@@ -37,6 +37,14 @@ type SupplierRow = {
   is_active: boolean
   default_payment_terms_days: number | null
   provider_letter?: string | null
+  group_id?: string | null
+}
+
+type SupplierGroupRow = {
+  id: string
+  name: string
+  rfc: string | null
+  is_active: boolean
 }
 
 export type SupplierPlantOption = {
@@ -67,7 +75,15 @@ export default function SupplierManagementPanel({
   const [editing, setEditing] = useState<SupplierRow | null>(null)
   const [presetValue, setPresetValue] = useState<string>('unset')
   const [customDays, setCustomDays] = useState('')
+  const [editGroupId, setEditGroupId] = useState<string>('')
   const [saving, setSaving] = useState(false)
+
+  // Supplier groups (cross-plant)
+  const [groups, setGroups] = useState<SupplierGroupRow[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(true)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupRfc, setNewGroupRfc] = useState('')
+  const [savingGroup, setSavingGroup] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
@@ -97,9 +113,21 @@ export default function SupplierManagementPanel({
     }
   }, [workspacePlantId])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const loadGroups = useCallback(async () => {
+    setGroupsLoading(true)
+    try {
+      const res = await fetch('/api/ap/supplier-groups')
+      const data = res.ok ? await res.json() : { groups: [] }
+      setGroups(data.groups ?? [])
+    } catch {
+      setGroups([])
+    } finally {
+      setGroupsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+  useEffect(() => { void loadGroups() }, [loadGroups])
 
   const plantLabel = useCallback(
     (id: string) => {
@@ -196,6 +224,7 @@ export default function SupplierManagementPanel({
       setPresetValue('custom')
       setCustomDays(String(d))
     }
+    setEditGroupId(s.group_id ?? '')
     setEditOpen(true)
   }
 
@@ -222,6 +251,7 @@ export default function SupplierManagementPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           default_payment_terms_days: next,
+          group_id: editGroupId || null,
           plant_id: workspacePlantId,
         }),
       })
@@ -230,11 +260,11 @@ export default function SupplierManagementPanel({
         toast.error(data.error || 'No se pudo guardar')
         return
       }
-      toast.success('Plazo de pago actualizado')
+      toast.success('Proveedor actualizado')
       setSuppliers((prev) =>
         prev.map((r) =>
           r.id === editing.id
-            ? { ...r, default_payment_terms_days: next }
+            ? { ...r, default_payment_terms_days: next, group_id: editGroupId || null }
             : r
         )
       )
@@ -332,6 +362,26 @@ export default function SupplierManagementPanel({
     } finally {
       setCreateSaving(false)
     }
+  }
+
+  const saveGroup = async () => {
+    const name = newGroupName.trim()
+    if (!name) { toast.error('El nombre es requerido'); return }
+    setSavingGroup(true)
+    try {
+      const res = await fetch('/api/ap/supplier-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, rfc: newGroupRfc.trim() || undefined }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data.error || 'No se pudo crear el grupo'); return }
+      toast.success('Grupo creado')
+      setNewGroupName('')
+      setNewGroupRfc('')
+      void loadGroups()
+    } catch { toast.error('Error al crear grupo') }
+    finally { setSavingGroup(false) }
   }
 
   if (!workspacePlantId) {
@@ -569,6 +619,7 @@ export default function SupplierManagementPanel({
                       Plazo predeterminado
                     </span>
                   </th>
+                  <th className="py-2.5 px-3 font-medium text-stone-700 whitespace-nowrap">Grupo</th>
                   <th className="py-2.5 px-3 font-medium text-stone-700 whitespace-nowrap">Estado</th>
                   <th className="py-2.5 px-3 w-28" />
                 </tr>
@@ -595,6 +646,16 @@ export default function SupplierManagementPanel({
                         {formatPaymentTermsLabel(s.default_payment_terms_days)}
                       </Badge>
                     </td>
+                    <td className="py-2.5 px-3 max-w-[140px]">
+                      {s.group_id ? (
+                        <span className="text-xs text-stone-600 flex items-center gap-1 truncate">
+                          <Link2 className="h-3 w-3 shrink-0 text-emerald-600" />
+                          {groups.find(g => g.id === s.group_id)?.name ?? '—'}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-amber-600">Sin grupo</span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-3">
                       <Badge
                         className={cn(
@@ -616,7 +677,7 @@ export default function SupplierManagementPanel({
                           className="h-8 text-xs"
                           onClick={() => openEdit(s)}
                         >
-                          Editar plazo
+                          Editar
                         </Button>
                       ) : (
                         <span className="text-[11px] text-stone-400">—</span>
@@ -651,7 +712,7 @@ export default function SupplierManagementPanel({
       <Sheet open={editOpen} onOpenChange={setEditOpen}>
         <SheetContent className="sm:max-w-md border-stone-200 bg-white">
           <SheetHeader>
-            <SheetTitle className="text-stone-900">Plazo de pago predeterminado</SheetTitle>
+            <SheetTitle className="text-stone-900">Editar proveedor</SheetTitle>
             <SheetDescription>
               {editing && (
                 <>
@@ -664,7 +725,22 @@ export default function SupplierManagementPanel({
           </SheetHeader>
           <div className="mt-6 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="preset_terms">Plazo</Label>
+              <Label htmlFor="edit_group">Grupo de proveedor</Label>
+              <Select value={editGroupId || '__none__'} onValueChange={v => setEditGroupId(v === '__none__' ? '' : v)}>
+                <SelectTrigger id="edit_group" className="border-stone-300">
+                  <SelectValue placeholder="Sin grupo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sin grupo</SelectItem>
+                  {groups.map(g => (
+                    <SelectItem key={g.id} value={g.id}>{g.name}{g.rfc ? ` · ${g.rfc}` : ''}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-stone-500">Vincula este proveedor de planta a su empresa matriz para facturación consolidada.</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="preset_terms">Plazo de pago</Label>
               <Select value={presetValue} onValueChange={setPresetValue}>
                 <SelectTrigger id="preset_terms" className="border-stone-300">
                   <SelectValue placeholder="Seleccione…" />
@@ -860,6 +936,80 @@ export default function SupplierManagementPanel({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* ── Grupos de proveedores ─────────────────────────────────────── */}
+      <div className="mt-8 border border-stone-200 rounded-xl overflow-hidden bg-white">
+        <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-stone-500" />
+              Grupos de proveedores
+            </h3>
+            <p className="text-[11px] text-stone-500 mt-0.5">Empresas matriz que agrupan proveedores de múltiples plantas para facturación consolidada.</p>
+          </div>
+        </div>
+
+        {groupsLoading ? (
+          <div className="p-4 space-y-2">
+            {[1,2,3].map(i => <div key={i} className="h-8 bg-stone-100 rounded animate-pulse" />)}
+          </div>
+        ) : (
+          <div className="divide-y divide-stone-100">
+            {groups.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-stone-500 text-center">No hay grupos. Crea el primero abajo.</p>
+            ) : groups.map(g => {
+              const linkedCount = suppliers.filter(s => s.group_id === g.id).length
+              return (
+                <div key={g.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-stone-900">{g.name}</span>
+                    {g.rfc && <span className="ml-2 text-xs text-stone-400 font-mono">{g.rfc}</span>}
+                  </div>
+                  <span className="text-xs text-stone-400 shrink-0">
+                    {linkedCount > 0
+                      ? `${linkedCount} proveedor${linkedCount !== 1 ? 'es' : ''} vinculado${linkedCount !== 1 ? 's' : ''}`
+                      : <span className="text-amber-600">Sin proveedores</span>}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {canCreateSupplier && (
+          <div className="px-4 py-3 bg-stone-50 border-t border-stone-200">
+            <p className="text-xs font-medium text-stone-600 mb-2">Nuevo grupo</p>
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="flex-1 min-w-[160px]">
+                <Input
+                  placeholder="Nombre (ej. Cemex)"
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  className="h-8 text-xs border-stone-300"
+                />
+              </div>
+              <div className="w-36">
+                <Input
+                  placeholder="RFC (opcional)"
+                  value={newGroupRfc}
+                  onChange={e => setNewGroupRfc(e.target.value)}
+                  className="h-8 text-xs border-stone-300 font-mono uppercase"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 text-xs bg-stone-900 text-white hover:bg-stone-800 gap-1"
+                disabled={savingGroup || !newGroupName.trim()}
+                onClick={() => void saveGroup()}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {savingGroup ? 'Guardando…' : 'Crear grupo'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

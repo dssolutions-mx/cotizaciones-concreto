@@ -72,6 +72,14 @@ export async function POST(request: NextRequest) {
       .eq('id', payable_id)
       .single();
 
+    // Sync supplier_invoices.status to match the trigger-updated payable status
+    if (payable?.invoice_id && payable.status) {
+      await supabase
+        .from('supplier_invoices')
+        .update({ status: payable.status })
+        .eq('id', payable.invoice_id)
+    }
+
     return NextResponse.json({ payment, payable });
   } catch (err) {
     console.error('POST /api/ap/payments error:', err);

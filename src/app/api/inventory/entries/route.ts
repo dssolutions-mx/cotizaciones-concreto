@@ -1688,6 +1688,19 @@ export async function PUT(request: NextRequest) {
       updatePayload.pricing_status = 'reviewed';
       updatePayload.reviewed_by = user.id;
       updatePayload.reviewed_at = new Date().toISOString();
+
+      // Recompute landed_unit_price = material unit price (MXN/kg) + fleet cost per kg
+      const effectiveUnitPrice = Number(updatePayload.unit_price ?? currentEntry.unit_price ?? 0);
+      const effectiveFleetCost = Number(updatePayload.fleet_cost ?? currentEntry.fleet_cost ?? 0);
+      const effectiveQtyKg = Number(
+        updatePayload.received_qty_kg ?? currentEntry.received_qty_kg ?? currentEntry.quantity_received ?? 0
+      );
+      if (effectiveUnitPrice > 0 && effectiveQtyKg > 0) {
+        updatePayload.landed_unit_price =
+          effectiveQtyKg > 0
+            ? effectiveUnitPrice + effectiveFleetCost / effectiveQtyKg
+            : effectiveUnitPrice;
+      }
     }
 
     // Mutate payload before .update() — @supabase/postgrest-js snapshots fields at builder call time.
@@ -1730,6 +1743,21 @@ export async function PUT(request: NextRequest) {
 
     if (updateError) {
       throw new Error(`Error al actualizar entrada: ${updateError.message}`);
+    }
+
+    // Sync landed_unit_price to the associated material lot
+    if (result.landed_unit_price != null) {
+      await supabase
+        .from('material_lots')
+        .update({
+          landed_unit_price: result.landed_unit_price,
+          material_unit_price: result.unit_price,
+          fleet_cost: result.fleet_cost ?? 0,
+          fleet_unit_cost: result.received_qty_kg && Number(result.received_qty_kg) > 0
+            ? Number(result.fleet_cost ?? 0) / Number(result.received_qty_kg)
+            : 0,
+        })
+        .eq('entry_id', result.id);
     }
 
     // If linked to PO item, update the PO item received tallies and status

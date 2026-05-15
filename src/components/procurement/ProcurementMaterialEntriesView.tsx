@@ -43,14 +43,16 @@ import {
   Minimize2,
   MoreHorizontal,
   Package,
+  Pencil,
   Search,
   FileSpreadsheet,
   Info,
   Copy,
   KeyRound,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
+import { buildProcurementUrl, purchaseOrderUrl } from '@/lib/procurement/navigation'
 import DateRangePresets, { getDateRangeForPreset, type DateRangePreset } from '@/components/inventory/ui/DateRangePresets'
 import { MaterialEntry } from '@/types/inventory'
 import { toast } from 'sonner'
@@ -64,7 +66,6 @@ import {
   SheetDescription,
   SheetFooter,
 } from '@/components/ui/sheet'
-import EntryEvidencePanel from '@/components/inventory/EntryEvidencePanel'
 import ReviewedEntriesForAccountingTable from '@/components/procurement/ReviewedEntriesForAccountingTable'
 import { Label } from '@/components/ui/label'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -249,18 +250,6 @@ function EntriesTable({
                           </Link>
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem asChild>
-                        <Link
-                          href={productionEntriesUrl({
-                            plantId: e.plant_id,
-                            poId: poLinkId || undefined,
-                            entryId: e.id,
-                          })}
-                        >
-                          <Factory className="h-3.5 w-3.5 mr-2" />
-                          Ficha planta
-                        </Link>
-                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -333,6 +322,9 @@ export default function ProcurementMaterialEntriesView({
   const [reviewedReloadNonce, setReviewedReloadNonce] = useState(0)
   const [reviewedSupplierId, setReviewedSupplierId] = useState('')
   const [reviewedSuppliers, setReviewedSuppliers] = useState<Array<{ id: string; name: string }>>([])
+  const [reviewedMaterialId, setReviewedMaterialId] = useState('')
+  const [reviewedMaterials, setReviewedMaterials] = useState<Array<{ id: string; material_name: string }>>([])
+  const [inspectionMode, setInspectionMode] = useState<'view' | 'edit'>('view')
   const [plantConceptDraft, setPlantConceptDraft] = useState('')
   const [plantWarehouseDraft, setPlantWarehouseDraft] = useState('')
   const [plantAccountingSaving, setPlantAccountingSaving] = useState(false)
@@ -576,6 +568,7 @@ export default function ProcurementMaterialEntriesView({
       if (effectivePlantId) params.set('plant_id', effectivePlantId)
       if (poIdFromUrl) params.set('po_id', poIdFromUrl)
       if (reviewedSupplierId) params.set('supplier_id', reviewedSupplierId)
+      if (reviewedMaterialId) params.set('material_id', reviewedMaterialId)
       if (reviewedDateRange.from && reviewedDateRange.to) {
         params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
         params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
@@ -586,6 +579,7 @@ export default function ProcurementMaterialEntriesView({
       effectivePlantId,
       poIdFromUrl,
       reviewedSupplierId,
+      reviewedMaterialId,
       reviewedDateRange.from,
       reviewedDateRange.to,
     ]
@@ -671,7 +665,32 @@ export default function ProcurementMaterialEntriesView({
 
   useEffect(() => {
     setReviewedSupplierId('')
+    setReviewedMaterialId('')
   }, [effectivePlantId])
+
+  useEffect(() => {
+    if (!canReviewPricing || entradasView !== 'revisadas') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const qs = new URLSearchParams()
+        if (effectivePlantId) qs.set('plant_id', effectivePlantId)
+        qs.set('active', 'true')
+        const res = await fetch(`/api/materials?${qs}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const list = (data.materials || []) as Array<{ id: string; material_name?: string | null }>
+        if (cancelled) return
+        list.sort((a, b) => String(a.material_name || '').localeCompare(String(b.material_name || ''), 'es'))
+        setReviewedMaterials(
+          list.map((m) => ({ id: m.id, material_name: (m.material_name && m.material_name.trim()) || 'Sin nombre' }))
+        )
+      } catch {
+        if (!cancelled) setReviewedMaterials([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [canReviewPricing, entradasView, effectivePlantId])
 
   useEffect(() => {
     if (canReviewPricing && entradasView === 'revisadas' && effectivePlantId) {
@@ -778,6 +797,7 @@ export default function ProcurementMaterialEntriesView({
     reviewedDateRange.to,
     reviewedReloadNonce,
     reviewedSupplierId,
+    reviewedMaterialId,
   ])
 
   const loadMoreReviewed = useCallback(async () => {
@@ -1302,9 +1322,66 @@ export default function ProcurementMaterialEntriesView({
                     </PopoverContent>
                   </Popover>
                 </div>
+
+                {/* Filters row */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-stone-200/70">
+                  <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide shrink-0">Filtrar por</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Select
+                      value={reviewedSupplierId || '__all__'}
+                      onValueChange={(v) => setReviewedSupplierId(v === '__all__' ? '' : v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-[200px] border-stone-300 bg-white">
+                        <SelectValue placeholder="Todos los proveedores" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Todos los proveedores</SelectItem>
+                        {reviewedSuppliers.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {reviewedSupplierId && (
+                      <button
+                        type="button"
+                        className="h-5 w-5 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
+                        onClick={() => setReviewedSupplierId('')}
+                        title="Quitar filtro de proveedor"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Select
+                      value={reviewedMaterialId || '__all__'}
+                      onValueChange={(v) => setReviewedMaterialId(v === '__all__' ? '' : v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs w-[200px] border-stone-300 bg-white">
+                        <SelectValue placeholder="Todos los materiales" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all__">Todos los materiales</SelectItem>
+                        {reviewedMaterials.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>{m.material_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {reviewedMaterialId && (
+                      <button
+                        type="button"
+                        className="h-5 w-5 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
+                        onClick={() => setReviewedMaterialId('')}
+                        title="Quitar filtro de material"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="shrink-0 px-3 pb-2 flex flex-wrap items-center gap-2">
+              <div className="shrink-0 px-3 pb-2 pt-2 flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -1321,9 +1398,6 @@ export default function ProcurementMaterialEntriesView({
                     Claves ERP (catálogo)…
                   </Link>
                 </Button>
-                <span className="text-xs text-stone-500 truncate min-w-0 max-w-[min(100%,20rem)]">
-                  Proveedor: <span className="text-stone-700 font-medium">{reviewedSupplierLabel}</span>
-                </span>
               </div>
 
               <Sheet open={accountingExportOpen} onOpenChange={setAccountingExportOpen}>
@@ -1714,82 +1788,78 @@ export default function ProcurementMaterialEntriesView({
       )}
 
       {/* ─── Inspection Sheet ─── */}
-      <Sheet open={!!inspectionEntry} onOpenChange={(open) => !open && setInspectionEntry(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-xl md:max-w-2xl overflow-y-auto">
-          <SheetHeader className="text-left pr-8">
-            <SheetTitle>Inspección de recepción</SheetTitle>
-            <SheetDescription>
-              Revise remisión, cantidades y evidencia adjunta.
-            </SheetDescription>
-          </SheetHeader>
-          {inspectionEntry && (
-            <div className="mt-4 space-y-4">
-              <div className="rounded-lg border border-stone-200 bg-stone-50/90 p-4 space-y-2 text-sm">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-stone-600">Entrada</span>
-                  <span className="font-mono font-semibold text-stone-900">
-                    {inspectionEntry.entry_number || inspectionEntry.id.slice(0, 8)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-stone-600">Material</span>
-                  <span className="font-medium text-right">
-                    {inspectionEntry.material?.material_name || inspectionEntry.material_id}
-                  </span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-stone-600">Remisión / factura</span>
-                  <span className="font-mono text-xs">{inspectionEntry.supplier_invoice || '—'}</span>
-                </div>
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span className="text-stone-600">Estado precio</span>
-                  {inspectionEntry.pricing_status === 'reviewed' ? (
-                    <Badge className="bg-emerald-100 text-emerald-900 border-emerald-200">Revisado</Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-amber-100 text-amber-900">Pendiente</Badge>
-                  )}
-                </div>
-              </div>
-
-              <EntryEvidencePanel
-                key={inspectionEntry.id}
-                entryId={inspectionEntry.id}
-                pricingStatus={inspectionEntry.pricing_status}
-                warnWhenPendingAndEmpty
-              />
-
-              <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                {canReviewPricing && (
-                  <Button
-                    type="button"
-                    className={inspectionEntry.pricing_status === 'reviewed'
-                      ? 'bg-sky-700 hover:bg-sky-800 text-white'
-                      : 'bg-amber-600 hover:bg-amber-700 text-white'}
-                    onClick={() => {
-                      const e = inspectionEntry
-                      setInspectionEntry(null)
-                      setPricingSheetEntry(e)
-                    }}
-                  >
-                    <DollarSign className="h-4 w-4 mr-2" />
-                    {inspectionEntry.pricing_status === 'reviewed' ? 'Editar precios' : 'Revisar precio'}
-                  </Button>
-                )}
-                <Button variant="outline" className="border-stone-300" asChild>
-                  <Link
-                    href={productionEntriesUrl({
-                      plantId: inspectionEntry.plant_id,
-                      poId: inspectionEntry.po_id || inspectionEntry.fleet_po_id || undefined,
-                      entryId: inspectionEntry.id,
-                    })}
-                  >
-                    <Factory className="h-4 w-4 mr-2" />
-                    Ficha en planta
-                  </Link>
+      <Sheet
+        open={!!inspectionEntry}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInspectionEntry(null)
+            setInspectionMode('view')
+          }
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-xl md:max-w-2xl flex flex-col p-0 gap-0 overflow-hidden">
+          <SheetHeader className="text-left px-6 pt-5 pb-3 shrink-0 border-b border-stone-100">
+            <SheetTitle className="text-base pr-8">
+              {inspectionMode === 'edit' ? 'Editar precios' : 'Inspección de entrada'}
+            </SheetTitle>
+            {inspectionMode === 'view' && (
+              <SheetDescription className="text-xs">
+                Vista de sólo lectura. Pulse «Editar» para modificar precios.
+              </SheetDescription>
+            )}
+            {/* Action buttons — below title to avoid z-index clash with the sheet close (×) button */}
+            <div className="flex items-center gap-2 pt-1">
+              {inspectionEntry && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => {
+                    const url = purchaseOrderUrl(
+                      inspectionEntry.po_id || inspectionEntry.fleet_po_id || null,
+                      inspectionEntry.plant_id
+                    )
+                    setInspectionEntry(null)
+                    setInspectionMode('view')
+                    router.push(url)
+                  }}
+                >
+                  <Package className="h-3.5 w-3.5" />
+                  Ver OC
                 </Button>
-              </div>
+              )}
+              {canReviewPricing && inspectionEntry && inspectionMode === 'view' && (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 gap-1 text-xs bg-sky-700 hover:bg-sky-800 text-white"
+                  onClick={() => setInspectionMode('edit')}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Editar
+                </Button>
+              )}
             </div>
-          )}
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto">
+            {inspectionEntry && (
+              <EntryPricingForm
+                key={`${inspectionEntry.id}-${inspectionMode}`}
+                entry={inspectionEntry}
+                embedded
+                readOnly={inspectionMode === 'view'}
+                onCancel={() => setInspectionMode('view')}
+                onAfterCreatePO={() => void fetchEntries()}
+                onSuccess={() => {
+                  setInspectionMode('view')
+                  void fetchEntries()
+                  void fetchPendingEntries()
+                  setReviewedReloadNonce((n) => n + 1)
+                  onPricingSuccess?.()
+                }}
+              />
+            )}
+          </div>
         </SheetContent>
       </Sheet>
     </div>

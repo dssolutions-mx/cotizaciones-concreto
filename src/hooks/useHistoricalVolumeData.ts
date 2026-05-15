@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { Database } from '@/types/database.types.generated';
 import { subMonths, startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
+
+type UnifiedFinancialRow =
+  Database['public']['Views']['vw_plant_financial_analysis_unified']['Row'];
 
 export interface HistoricalDataPoint {
   month: string;
@@ -85,7 +89,9 @@ export function useHistoricalVolumeData({
         // Fetch from unified plant financial view for concrete volume and revenue
         let query = supabase
           .from(unifiedTable)
-          .select('plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source');
+          .select(
+            'plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, ventas_adicionales, period_start, period_end, data_source'
+          );
         
         // Apply date filters only if dates are specified
         if (startDateStr) {
@@ -105,6 +111,8 @@ export function useHistoricalVolumeData({
         }
 
         const { data: viewData, error: fetchError } = await query;
+
+        const rows = (viewData ?? []) as UnifiedFinancialRow[];
 
         if (fetchError) {
           console.error('[HistoricalVolume] ❌ Fetch error:', fetchError);
@@ -155,8 +163,8 @@ export function useHistoricalVolumeData({
           >
         > = new Map();
 
-        if (viewData && viewData.length > 0) {
-        viewData.forEach((item: any) => {
+        if (rows.length > 0) {
+        rows.forEach((item) => {
           // Extract month from period_start - use parseISO to avoid timezone issues
           const periodDate = typeof item.period_start === 'string' 
             ? parseISO(item.period_start) 
@@ -186,10 +194,11 @@ export function useHistoricalVolumeData({
           
           // Map view columns to our data structure
           const concreteVolume = Number(item.volumen_concreto_m3) || 0;
-          const totalRevenue = Number(item.ventas_total_concreto) || 0;
+          const concreteSales = Number(item.ventas_total_concreto) || 0;
+          const additionalSales = Number(item.ventas_adicionales) || 0;
 
           plantData.concreteVolume += concreteVolume;
-          plantData.totalRevenue += totalRevenue;
+          plantData.totalRevenue += concreteSales + additionalSales;
         });
         }
 

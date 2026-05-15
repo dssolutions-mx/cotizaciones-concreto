@@ -19,12 +19,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ChevronLeft, ChevronRight, Factory, KeyRound, MoreHorizontal, Package, Pencil, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KeyRound, MoreHorizontal, Package, Pencil, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { buildProcurementUrl, productionEntriesUrl } from '@/lib/procurement/navigation'
+import { buildProcurementUrl } from '@/lib/procurement/navigation'
 import { MaterialEntry } from '@/types/inventory'
 import {
   formatReceivedQuantity,
@@ -515,18 +515,6 @@ export default function ReviewedEntriesForAccountingTable({
                               </Link>
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={productionEntriesUrl({
-                                plantId: e.plant_id,
-                                poId: poLinkId || undefined,
-                                entryId: e.id,
-                              })}
-                            >
-                              <Factory className="h-3.5 w-3.5 mr-2" />
-                              Ficha planta
-                            </Link>
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

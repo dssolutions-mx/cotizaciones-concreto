@@ -299,6 +299,7 @@ export type Database = {
           id: string
           id_muestra: string | null
           id_planta: string | null
+          material_id: string | null
           mina_procedencia: string
           nombre_material: string
           origen_material: string | null
@@ -317,6 +318,7 @@ export type Database = {
           id?: string
           id_muestra?: string | null
           id_planta?: string | null
+          material_id?: string | null
           mina_procedencia: string
           nombre_material: string
           origen_material?: string | null
@@ -335,6 +337,7 @@ export type Database = {
           id?: string
           id_muestra?: string | null
           id_planta?: string | null
+          material_id?: string | null
           mina_procedencia?: string
           nombre_material?: string
           origen_material?: string | null
@@ -374,6 +377,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
             referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "alta_estudio_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -1398,8 +1408,29 @@ export type Database = {
             foreignKeyName: "client_portal_user_plants_plant_id_fkey"
             columns: ["plant_id"]
             isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "client_portal_user_plants_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
             referencedRelation: "plants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_portal_user_plants_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "client_portal_user_plants_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
           },
         ]
       }
@@ -2384,6 +2415,51 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      credit_note_invoice_allocations: {
+        Row: {
+          allocated_subtotal: number
+          allocated_tax: number
+          allocated_total: number | null
+          created_at: string
+          credit_note_id: string
+          id: string
+          invoice_id: string
+        }
+        Insert: {
+          allocated_subtotal: number
+          allocated_tax?: number
+          allocated_total?: number | null
+          created_at?: string
+          credit_note_id: string
+          id?: string
+          invoice_id: string
+        }
+        Update: {
+          allocated_subtotal?: number
+          allocated_tax?: number
+          allocated_total?: number | null
+          created_at?: string
+          credit_note_id?: string
+          id?: string
+          invoice_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credit_note_invoice_allocations_credit_note_id_fkey"
+            columns: ["credit_note_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_credit_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "credit_note_invoice_allocations_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
             referencedColumns: ["id"]
           },
         ]
@@ -4440,6 +4516,145 @@ export type Database = {
           },
         ]
       }
+      invoice_credit_note_allocations: {
+        Row: {
+          allocated_amount: number
+          credit_note_id: string
+          id: string
+          invoice_allocation_id: string | null
+          invoice_item_id: string
+        }
+        Insert: {
+          allocated_amount: number
+          credit_note_id: string
+          id?: string
+          invoice_allocation_id?: string | null
+          invoice_item_id: string
+        }
+        Update: {
+          allocated_amount?: number
+          credit_note_id?: string
+          id?: string
+          invoice_allocation_id?: string | null
+          invoice_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_credit_note_allocations_credit_note_id_fkey"
+            columns: ["credit_note_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_credit_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_note_allocations_invoice_allocation_id_fkey"
+            columns: ["invoice_allocation_id"]
+            isOneToOne: false
+            referencedRelation: "credit_note_invoice_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_note_allocations_invoice_item_id_fkey"
+            columns: ["invoice_item_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoice_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_credit_notes: {
+        Row: {
+          amount: number
+          applied_by: string | null
+          created_at: string | null
+          credit_date: string
+          credit_number: string | null
+          document_url: string | null
+          id: string
+          notes: string | null
+          plant_id: string
+          reason: string
+          status: string
+          supplier_group_id: string
+          tax_amount: number
+          total: number
+          vat_rate: number
+          xml_url: string | null
+        }
+        Insert: {
+          amount: number
+          applied_by?: string | null
+          created_at?: string | null
+          credit_date: string
+          credit_number?: string | null
+          document_url?: string | null
+          id?: string
+          notes?: string | null
+          plant_id: string
+          reason: string
+          status?: string
+          supplier_group_id: string
+          tax_amount?: number
+          total: number
+          vat_rate?: number
+          xml_url?: string | null
+        }
+        Update: {
+          amount?: number
+          applied_by?: string | null
+          created_at?: string | null
+          credit_date?: string
+          credit_number?: string | null
+          document_url?: string | null
+          id?: string
+          notes?: string | null
+          plant_id?: string
+          reason?: string
+          status?: string
+          supplier_group_id?: string
+          tax_amount?: number
+          total?: number
+          vat_rate?: number
+          xml_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_credit_notes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_notes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_notes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_notes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "invoice_credit_notes_supplier_group_id_fkey"
+            columns: ["supplier_group_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       limites_granulometricos: {
         Row: {
           created_at: string | null
@@ -5885,6 +6100,134 @@ export type Database = {
           },
           {
             foreignKeyName: "material_prices_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
+      material_property_readings: {
+        Row: {
+          absorcion: number | null
+          alta_estudio_id: string | null
+          certificate_id: string | null
+          created_at: string | null
+          created_by: string | null
+          densidad_aditivo: number | null
+          densidad_agregado: number | null
+          id: string
+          lote: string | null
+          material_id: string
+          modulo_finura: number | null
+          notes: string | null
+          perdida_lavado: number | null
+          peso_volumetrico_compactado: number | null
+          peso_volumetrico_suelto: number | null
+          ph: number | null
+          plant_id: string | null
+          reading_date: string
+          resistencia_compresion: number | null
+          source: string
+          tecnico: string | null
+          tiempo_fraguado_final: number | null
+          tiempo_fraguado_inicial: number | null
+        }
+        Insert: {
+          absorcion?: number | null
+          alta_estudio_id?: string | null
+          certificate_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          densidad_aditivo?: number | null
+          densidad_agregado?: number | null
+          id?: string
+          lote?: string | null
+          material_id: string
+          modulo_finura?: number | null
+          notes?: string | null
+          perdida_lavado?: number | null
+          peso_volumetrico_compactado?: number | null
+          peso_volumetrico_suelto?: number | null
+          ph?: number | null
+          plant_id?: string | null
+          reading_date: string
+          resistencia_compresion?: number | null
+          source?: string
+          tecnico?: string | null
+          tiempo_fraguado_final?: number | null
+          tiempo_fraguado_inicial?: number | null
+        }
+        Update: {
+          absorcion?: number | null
+          alta_estudio_id?: string | null
+          certificate_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          densidad_aditivo?: number | null
+          densidad_agregado?: number | null
+          id?: string
+          lote?: string | null
+          material_id?: string
+          modulo_finura?: number | null
+          notes?: string | null
+          perdida_lavado?: number | null
+          peso_volumetrico_compactado?: number | null
+          peso_volumetrico_suelto?: number | null
+          ph?: number | null
+          plant_id?: string | null
+          reading_date?: string
+          resistencia_compresion?: number | null
+          source?: string
+          tecnico?: string | null
+          tiempo_fraguado_final?: number | null
+          tiempo_fraguado_inicial?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_property_readings_alta_estudio_id_fkey"
+            columns: ["alta_estudio_id"]
+            isOneToOne: true
+            referencedRelation: "alta_estudio"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "material_certificates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "material_property_readings_plant_id_fkey"
             columns: ["plant_id"]
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
@@ -7863,6 +8206,7 @@ export type Database = {
           created_at: string
           entry_id: string
           id: string
+          invoice_id: string | null
           payable_id: string
           po_item_id: string | null
         }
@@ -7872,6 +8216,7 @@ export type Database = {
           created_at?: string
           entry_id: string
           id?: string
+          invoice_id?: string | null
           payable_id: string
           po_item_id?: string | null
         }
@@ -7881,6 +8226,7 @@ export type Database = {
           created_at?: string
           entry_id?: string
           id?: string
+          invoice_id?: string | null
           payable_id?: string
           po_item_id?: string | null
         }
@@ -7897,6 +8243,13 @@ export type Database = {
             columns: ["entry_id"]
             isOneToOne: false
             referencedRelation: "material_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payable_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
             referencedColumns: ["id"]
           },
           {
@@ -7924,6 +8277,7 @@ export type Database = {
           entry_id: string | null
           id: string
           invoice_date: string | null
+          invoice_id: string | null
           invoice_number: string
           plant_id: string
           status: string
@@ -7941,6 +8295,7 @@ export type Database = {
           entry_id?: string | null
           id?: string
           invoice_date?: string | null
+          invoice_id?: string | null
           invoice_number: string
           plant_id: string
           status?: string
@@ -7958,6 +8313,7 @@ export type Database = {
           entry_id?: string | null
           id?: string
           invoice_date?: string | null
+          invoice_id?: string | null
           invoice_number?: string
           plant_id?: string
           status?: string
@@ -7980,6 +8336,13 @@ export type Database = {
             columns: ["entry_id"]
             isOneToOne: false
             referencedRelation: "material_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payables_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
             referencedColumns: ["id"]
           },
           {
@@ -8057,6 +8420,74 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payables"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      plant_additional_product_income_monthly: {
+        Row: {
+          additional_line_count: number
+          id: string
+          orders_distinct_count: number
+          period_end: string
+          period_start: string
+          plant_code: string
+          plant_id: string
+          plant_name: string
+          updated_at: string
+          ventas_adicionales: number
+        }
+        Insert: {
+          additional_line_count?: number
+          id?: string
+          orders_distinct_count?: number
+          period_end: string
+          period_start: string
+          plant_code: string
+          plant_id: string
+          plant_name: string
+          updated_at?: string
+          ventas_adicionales?: number
+        }
+        Update: {
+          additional_line_count?: number
+          id?: string
+          orders_distinct_count?: number
+          period_end?: string
+          period_start?: string
+          plant_code?: string
+          plant_id?: string
+          plant_name?: string
+          updated_at?: string
+          ventas_adicionales?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_additional_product_income_monthly_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "plant_additional_product_income_monthly_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plant_additional_product_income_monthly_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "plant_additional_product_income_monthly_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
           },
         ]
       }
@@ -9828,75 +10259,6 @@ export type Database = {
           },
         ]
       }
-      reconciliation_alerts: {
-        Row: {
-          check_date: string
-          created_at: string
-          current_stock: number | null
-          deviation: number | null
-          id: string
-          material_id: string
-          plant_id: string
-          theoretical_stock: number | null
-        }
-        Insert: {
-          check_date: string
-          created_at?: string
-          current_stock?: number | null
-          deviation?: number | null
-          id?: string
-          material_id: string
-          plant_id: string
-          theoretical_stock?: number | null
-        }
-        Update: {
-          check_date?: string
-          created_at?: string
-          current_stock?: number | null
-          deviation?: number | null
-          id?: string
-          material_id?: string
-          plant_id?: string
-          theoretical_stock?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "reconciliation_alerts_material_id_fkey"
-            columns: ["material_id"]
-            isOneToOne: false
-            referencedRelation: "materials"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
-            columns: ["plant_id"]
-            isOneToOne: false
-            referencedRelation: "inventory_system_health"
-            referencedColumns: ["plant_id"]
-          },
-          {
-            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
-            columns: ["plant_id"]
-            isOneToOne: false
-            referencedRelation: "plants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
-            columns: ["plant_id"]
-            isOneToOne: false
-            referencedRelation: "vw_plant_financial_analysis"
-            referencedColumns: ["plant_id"]
-          },
-          {
-            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
-            columns: ["plant_id"]
-            isOneToOne: false
-            referencedRelation: "vw_plant_financial_analysis_fifo"
-            referencedColumns: ["plant_id"]
-          },
-        ]
-      }
       recipe_code_backup: {
         Row: {
           backed_up_at: string
@@ -10182,6 +10544,75 @@ export type Database = {
           },
           {
             foreignKeyName: "recipes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+        ]
+      }
+      reconciliation_alerts: {
+        Row: {
+          check_date: string
+          created_at: string
+          current_stock: number | null
+          deviation: number | null
+          id: string
+          material_id: string
+          plant_id: string
+          theoretical_stock: number | null
+        }
+        Insert: {
+          check_date: string
+          created_at?: string
+          current_stock?: number | null
+          deviation?: number | null
+          id?: string
+          material_id: string
+          plant_id: string
+          theoretical_stock?: number | null
+        }
+        Update: {
+          check_date?: string
+          created_at?: string
+          current_stock?: number | null
+          deviation?: number | null
+          id?: string
+          material_id?: string
+          plant_id?: string
+          theoretical_stock?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reconciliation_alerts_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "reconciliation_alerts_plant_id_fkey"
             columns: ["plant_id"]
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
@@ -10954,10 +11385,225 @@ export type Database = {
           },
         ]
       }
+      supplier_groups: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          rfc: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          rfc?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          rfc?: string | null
+        }
+        Relationships: []
+      }
+      supplier_invoice_items: {
+        Row: {
+          amount: number
+          cost_category: string | null
+          created_at: string
+          description: string | null
+          entry_id: string | null
+          id: string
+          invoice_id: string
+          qty: number | null
+          unit_price: number | null
+        }
+        Insert: {
+          amount: number
+          cost_category?: string | null
+          created_at?: string
+          description?: string | null
+          entry_id?: string | null
+          id?: string
+          invoice_id: string
+          qty?: number | null
+          unit_price?: number | null
+        }
+        Update: {
+          amount?: number
+          cost_category?: string | null
+          created_at?: string
+          description?: string | null
+          entry_id?: string | null
+          id?: string
+          invoice_id?: string
+          qty?: number | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_invoice_items_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "fifo_layer_integrity_violations"
+            referencedColumns: ["entry_id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_items_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "material_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_items_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_invoices: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          currency: string
+          discount_amount: number
+          document_url: string | null
+          due_date: string
+          id: string
+          invoice_date: string
+          invoice_number: string
+          is_internal: boolean
+          notes: string | null
+          plant_id: string
+          retention_isr_amount: number
+          retention_isr_rate: number
+          retention_iva_amount: number
+          retention_iva_rate: number
+          source: string
+          status: string
+          subtotal: number
+          supplier_group_id: string
+          tax: number
+          total: number
+          vat_rate: number
+          xml_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          discount_amount?: number
+          document_url?: string | null
+          due_date: string
+          id?: string
+          invoice_date: string
+          invoice_number: string
+          is_internal?: boolean
+          notes?: string | null
+          plant_id: string
+          retention_isr_amount?: number
+          retention_isr_rate?: number
+          retention_iva_amount?: number
+          retention_iva_rate?: number
+          source?: string
+          status?: string
+          subtotal: number
+          supplier_group_id: string
+          tax: number
+          total: number
+          vat_rate: number
+          xml_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          discount_amount?: number
+          document_url?: string | null
+          due_date?: string
+          id?: string
+          invoice_date?: string
+          invoice_number?: string
+          is_internal?: boolean
+          notes?: string | null
+          plant_id?: string
+          retention_isr_amount?: number
+          retention_isr_rate?: number
+          retention_iva_amount?: number
+          retention_iva_rate?: number
+          source?: string
+          status?: string
+          subtotal?: number
+          supplier_group_id?: string
+          tax?: number
+          total?: number
+          vat_rate?: number
+          xml_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_invoices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_plant_access"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_system_health"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "vw_plant_financial_analysis_fifo"
+            referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "supplier_invoices_supplier_group_id_fkey"
+            columns: ["supplier_group_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           created_at: string
           default_payment_terms_days: number | null
+          default_vat_rate: number | null
+          group_id: string | null
           id: string
           internal_code: string | null
           is_active: boolean
@@ -10970,6 +11616,8 @@ export type Database = {
         Insert: {
           created_at?: string
           default_payment_terms_days?: number | null
+          default_vat_rate?: number | null
+          group_id?: string | null
           id?: string
           internal_code?: string | null
           is_active?: boolean
@@ -10982,6 +11630,8 @@ export type Database = {
         Update: {
           created_at?: string
           default_payment_terms_days?: number | null
+          default_vat_rate?: number | null
+          group_id?: string | null
           id?: string
           internal_code?: string | null
           is_active?: boolean
@@ -10992,6 +11642,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "suppliers_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "suppliers_plant_id_fkey"
             columns: ["plant_id"]
@@ -13111,6 +13768,7 @@ export type Database = {
       }
       vw_plant_financial_analysis_unified: {
         Row: {
+          additional_line_count: number | null
           consumo_cem_per_m3_kg: number | null
           costo_cem_per_m3: number | null
           costo_mp_percent: number | null
@@ -13119,6 +13777,7 @@ export type Database = {
           data_source: string | null
           edad_ponderada_dias: number | null
           fc_ponderada_kg_cm2: number | null
+          orders_con_adicionales: number | null
           period_end: string | null
           period_start: string | null
           plant_code: string | null
@@ -13129,6 +13788,7 @@ export type Database = {
           snapshot_date: string | null
           spread_unitario: number | null
           spread_unitario_percent: number | null
+          ventas_adicionales: number | null
           ventas_total_concreto: number | null
           volumen_concreto_m3: number | null
           volumen_producido_m3: number | null
@@ -13138,6 +13798,7 @@ export type Database = {
       }
       vw_plant_financial_analysis_unified_fifo: {
         Row: {
+          additional_line_count: number | null
           consumo_cem_per_m3_kg: number | null
           costo_cem_per_m3: number | null
           costo_mp_percent: number | null
@@ -13146,6 +13807,7 @@ export type Database = {
           data_source: string | null
           edad_ponderada_dias: number | null
           fc_ponderada_kg_cm2: number | null
+          orders_con_adicionales: number | null
           period_end: string | null
           period_start: string | null
           plant_code: string | null
@@ -13156,6 +13818,7 @@ export type Database = {
           snapshot_date: string | null
           spread_unitario: number | null
           spread_unitario_percent: number | null
+          ventas_adicionales: number | null
           ventas_total_concreto: number | null
           volumen_concreto_m3: number | null
           volumen_producido_m3: number | null
@@ -14260,6 +14923,36 @@ export type Database = {
         }
         Returns: number
       }
+      inventory_dashboard_fifo_cutover_dates: {
+        Args: { p_material_ids: string[]; p_plant_id: string }
+        Returns: {
+          first_fifo_layer_entry_date: string
+          first_initial_count_date: string
+          material_id: string
+        }[]
+      }
+      inventory_dashboard_material_flow_aggregates: {
+        Args: {
+          p_end_date: string
+          p_material_ids: string[]
+          p_plant_id: string
+          p_start_date: string
+        }
+        Returns: {
+          hist_adj_additions: number
+          hist_adj_withdrawals: number
+          hist_entries: number
+          hist_remision_consume: number
+          hist_waste: number
+          material_id: string
+          per_adj_additions: number
+          per_adj_withdrawals: number
+          per_entries: number
+          per_open_layer_kg: number
+          per_remision_consume: number
+          per_waste: number
+        }[]
+      }
       is_client_executive: {
         Args: { p_client_id: string; p_user_id: string }
         Returns: boolean
@@ -14353,6 +15046,10 @@ export type Database = {
       }
       refresh_analytics_materialized_views: { Args: never; Returns: undefined }
       refresh_client_quality_mv: { Args: never; Returns: undefined }
+      refresh_plant_additional_product_income_monthly: {
+        Args: { p_period_end: string; p_period_start: string }
+        Returns: undefined
+      }
       refresh_plant_financial_analysis: { Args: never; Returns: Json }
       refresh_plant_financial_analysis_fifo: { Args: never; Returns: Json }
       refresh_plant_financial_analysis_mv: { Args: never; Returns: undefined }

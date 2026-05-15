@@ -42,6 +42,8 @@ interface EntryPricingFormProps {
   onAfterCreatePO?: () => void
   /** Render in master-detail pane (compact header, sticky footer) */
   embedded?: boolean
+  /** Show form in view-only mode — all fields disabled, no save button */
+  readOnly?: boolean
 }
 
 function buildPrefillFromMaterialEntry(
@@ -196,7 +198,7 @@ function materialPricingLooksComplete(entry: MaterialEntry): boolean {
   return entry.unit_price != null && entry.unit_price !== undefined
 }
 
-export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO, embedded = false }: EntryPricingFormProps) {
+export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCreatePO, embedded = false, readOnly = false }: EntryPricingFormProps) {
   const { profile } = useAuthSelectors()
   const canEditSupplierPaymentTerms = canCompleteEntryPricingReview(profile?.role)
   const [supplierTermsSheetOpen, setSupplierTermsSheetOpen] = useState(false)
@@ -1095,7 +1097,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       )}
 
       {/* ─── Scrollable content ─── */}
-      <div className={embedded ? 'flex-1 overflow-y-auto px-5 py-4 space-y-4' : 'space-y-5'}>
+      {/* NOTE: keep overflow-y-auto on the OUTER div and pointer-events-none on the INNER div.
+          pointer-events-none on a scrollable container also kills mouse-wheel scroll. */}
+      <div className={cn(embedded ? 'flex-1 overflow-y-auto' : '', readOnly && 'select-none opacity-75')}>
+      <div className={cn(embedded ? 'px-5 py-4 space-y-4' : 'space-y-5', readOnly && 'pointer-events-none')}>
         {/* API warnings */}
         {apiWarnings.length > 0 && (
           <Alert className="border-amber-300 bg-amber-50 text-amber-800 [&>svg]:text-amber-600">
@@ -2041,6 +2046,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
           </CollapsibleContent>
         </Collapsible>
       </div>
+      </div>
 
       {/* ─── Sticky footer ─── */}
       <div className={
@@ -2057,22 +2063,24 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             </span>
           )}
         </div>
-        <div className="flex gap-2">
-          {onCancel && (
-            <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={loading}>
-              Cancelar
+        {!readOnly && (
+          <div className="flex gap-2">
+            {onCancel && (
+              <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={loading}>
+                Cancelar
+              </Button>
+            )}
+            <Button
+              type="submit"
+              size="sm"
+              disabled={loading}
+              className={cn('bg-sky-800 text-white hover:bg-sky-900 shadow-sm')}
+            >
+              <Save className="h-4 w-4 mr-1.5" />
+              {loading ? 'Guardando…' : 'Guardar'}
             </Button>
-          )}
-          <Button
-            type="submit"
-            size="sm"
-            disabled={loading}
-            className={cn('bg-sky-800 text-white hover:bg-sky-900 shadow-sm')}
-          >
-            <Save className="h-4 w-4 mr-1.5" />
-            {loading ? 'Guardando…' : 'Guardar'}
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
     </form>
 

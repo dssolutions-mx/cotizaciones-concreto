@@ -116,14 +116,21 @@ const finanzasSubMenuItems = [
     href: "/finanzas/ubicaciones",
     IconComponent: MapPin,
   },
+  {
+    title: "Grupos de Proveedores",
+    href: "/finanzas/proveedores/grupos",
+    IconComponent: Building2,
+  },
 ];
 
 function getFinanzasSubMenuItemsForRole(userRole?: string) {
   const procurementWorkspaceItem = { title: "Centro de Compras", href: "/finanzas/procurement", IconComponent: Briefcase };
+  const supplierGroupsItem = { title: "Grupos de Proveedores", href: "/finanzas/proveedores/grupos", IconComponent: Building2 };
 
   if (userRole === 'ADMIN_OPERATIONS') {
     return [
       procurementWorkspaceItem,
+      supplierGroupsItem,
       { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
       { title: "Reporte Diario (Ventas y Pagos)", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
       { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
