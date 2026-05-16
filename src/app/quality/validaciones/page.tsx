@@ -217,6 +217,11 @@ export default function ValidacionesHub() {
             href: '/quality/materials',
           },
           {
+            title: 'Costos de materiales',
+            description: 'Evolución de precio: lista mensual y recepciones landed (post-abril)',
+            href: '/quality/materiales-costo',
+          },
+          {
             title: 'Proveedores',
             description: 'Alta y consulta de proveedores de materiales (número, planta, datos base)',
             href: '/quality/suppliers',

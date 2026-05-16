@@ -145,13 +145,21 @@ export default function MaterialControlCenterPage() {
             {currentPlant ? ` · ${currentPlant.name}` : ' · Todas las plantas'}
           </p>
         </div>
-        <Link
-          href="/admin/materials"
-          className="text-xs text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1 shrink-0"
-        >
-          <Activity className="h-3.5 w-3.5" />
-          Gestionar catálogo <ExternalLink className="h-3 w-3" />
-        </Link>
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <Link
+            href="/quality/materiales-costo"
+            className="text-xs text-emerald-700 hover:text-emerald-800 font-medium"
+          >
+            Costos de materiales
+          </Link>
+          <Link
+            href="/admin/materials"
+            className="text-xs text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            Gestionar catálogo <ExternalLink className="h-3 w-3" />
+          </Link>
+        </div>
       </div>
 
       {/* KPI strip */}
