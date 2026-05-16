@@ -4,6 +4,26 @@ export type InvoiceSource = 'system' | 'historical'
 export type InvoiceCostCategory = 'material' | 'fleet'
 export type CreditNoteReason = 'price_adjustment' | 'return' | 'defect' | 'other'
 export type CreditNoteStatus = 'open' | 'partially_applied' | 'fully_applied' | 'void'
+export type CfdiCaptureMode = 'manual' | 'cfdi'
+export type CfdiTipoComprobante = 'I' | 'E' | 'P' | 'N' | 'T'
+export type CfdiEstadoSat = 'vigente' | 'cancelado'
+
+export interface CfdiFields {
+  cfdi_uuid: string | null
+  cfdi_serie: string | null
+  cfdi_folio: string | null
+  cfdi_forma_pago: string | null
+  cfdi_metodo_pago: string | null
+  cfdi_uso: string | null
+  cfdi_tipo_comprobante: CfdiTipoComprobante | null
+  cfdi_fecha_emision: string | null
+  cfdi_fecha_timbrado: string | null
+  cfdi_emisor_rfc: string | null
+  cfdi_receptor_rfc: string | null
+  cfdi_estado_sat: CfdiEstadoSat | null
+  cfdi_estado_checked_at: string | null
+  cfdi_capture_mode: CfdiCaptureMode
+}
 
 export interface SupplierGroup {
   id: string
@@ -38,6 +58,21 @@ export interface SupplierInvoice {
   notes: string | null
   created_by: string | null
   created_at: string
+  // CFDI fiscal fields
+  cfdi_uuid: string | null
+  cfdi_serie: string | null
+  cfdi_folio: string | null
+  cfdi_forma_pago: string | null
+  cfdi_metodo_pago: string | null
+  cfdi_uso: string | null
+  cfdi_tipo_comprobante: CfdiTipoComprobante | null
+  cfdi_fecha_emision: string | null
+  cfdi_fecha_timbrado: string | null
+  cfdi_emisor_rfc: string | null
+  cfdi_receptor_rfc: string | null
+  cfdi_estado_sat: CfdiEstadoSat | null
+  cfdi_estado_checked_at: string | null
+  cfdi_capture_mode: CfdiCaptureMode
   // computed fields (API enrichment)
   taxable_base?: number
   supplier_group?: SupplierGroup | null
@@ -65,8 +100,115 @@ export interface InvoiceCreditNote {
   notes: string | null
   applied_by: string | null
   created_at: string | null
+  // CFDI fiscal fields (NCs are CFDIs tipo='E')
+  cfdi_uuid: string | null
+  cfdi_serie: string | null
+  cfdi_folio: string | null
+  cfdi_forma_pago: string | null
+  cfdi_metodo_pago: string | null
+  cfdi_uso: string | null
+  cfdi_tipo_comprobante: CfdiTipoComprobante | null
+  cfdi_fecha_emision: string | null
+  cfdi_fecha_timbrado: string | null
+  cfdi_emisor_rfc: string | null
+  cfdi_receptor_rfc: string | null
+  cfdi_relacionado_uuid: string | null
+  cfdi_estado_sat: CfdiEstadoSat | null
+  cfdi_estado_checked_at: string | null
+  cfdi_capture_mode: CfdiCaptureMode
   // relations
   invoice_allocations?: CreditNoteInvoiceAllocation[]
+}
+
+export interface SatCfdiRecibido {
+  uuid: string
+  receptor_rfc: string
+  emisor_rfc: string
+  emisor_nombre: string | null
+  serie: string | null
+  folio: string | null
+  fecha_emision: string
+  fecha_timbrado: string
+  tipo_comprobante: CfdiTipoComprobante
+  subtotal: number
+  descuento: number
+  total: number
+  iva_trasladado: number
+  isr_retenido: number
+  iva_retenido: number
+  metodo_pago: string | null
+  forma_pago: string | null
+  uso_cfdi: string | null
+  moneda: string
+  tipo_cambio: number | null
+  cfdi_relacionados: Array<{ uuid: string; tipo_relacion: string }> | null
+  pagos_doctos: Array<{
+    uuid: string
+    docto_relacionado_uuid: string
+    imp_pagado: number
+    num_parcialidad: number
+  }> | null
+  estado_sat: CfdiEstadoSat
+  estado_checked_at: string | null
+  raw_xml_path: string | null
+  imported_by: string | null
+  imported_at: string
+  source: 'manual_zip' | 'manual_xml' | 'pac'
+}
+
+export interface ParsedCfdi {
+  uuid: string
+  serie: string | null
+  folio: string | null
+  tipo_comprobante: CfdiTipoComprobante
+  fecha_emision: string
+  fecha_timbrado: string
+  emisor_rfc: string
+  emisor_nombre: string | null
+  receptor_rfc: string
+  receptor_nombre: string | null
+  subtotal: number
+  descuento: number
+  total: number
+  iva_trasladado: number
+  isr_retenido: number
+  iva_retenido: number
+  vat_rate: number
+  retention_isr_rate: number
+  retention_iva_rate: number
+  metodo_pago: string | null
+  forma_pago: string | null
+  uso_cfdi: string | null
+  moneda: string
+  tipo_cambio: number
+  cfdi_relacionados: Array<{ uuid: string; tipo_relacion: string }>
+  pagos_doctos: Array<{
+    uuid: string
+    docto_relacionado_uuid: string
+    imp_pagado: number
+    num_parcialidad: number
+  }>
+}
+
+export interface ReconciliationReport {
+  matched: Array<{
+    uuid: string
+    supplier_invoice_id: string
+    invoice_number: string
+    sat_total: number
+    system_total: number
+    total_match: boolean
+  }>
+  in_sat_not_in_system: SatCfdiRecibido[]
+  in_system_not_in_sat: SupplierInvoice[]
+  cancelled_in_sat_but_open: Array<SatCfdiRecibido & { supplier_invoice_id: string }>
+  total_mismatch: Array<{
+    uuid: string
+    supplier_invoice_id: string
+    sat_total: number
+    system_total: number
+  }>
+  unapplied_credit_notes: SatCfdiRecibido[]
 }
 
 export interface CreditNoteInvoiceAllocation {

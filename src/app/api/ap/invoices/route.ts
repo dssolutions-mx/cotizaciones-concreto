@@ -31,6 +31,10 @@ export async function GET(request: NextRequest) {
         currency, vat_rate, subtotal, discount_amount, tax, total,
         retention_isr_rate, retention_isr_amount, retention_iva_rate, retention_iva_amount,
         status, source, document_url, xml_url, notes,
+        cfdi_uuid, cfdi_serie, cfdi_folio, cfdi_forma_pago, cfdi_metodo_pago, cfdi_uso,
+        cfdi_tipo_comprobante, cfdi_fecha_emision, cfdi_fecha_timbrado,
+        cfdi_emisor_rfc, cfdi_receptor_rfc, cfdi_estado_sat, cfdi_estado_checked_at,
+        cfdi_capture_mode,
         created_by, created_at,
         supplier_group:supplier_groups!supplier_group_id(id, name, rfc),
         items:supplier_invoice_items(
@@ -123,10 +127,71 @@ export async function POST(request: NextRequest) {
       document_url = null,
       xml_url = null,
       items = [],
+      // CFDI fields (optional)
+      cfdi_uuid = null,
+      cfdi_serie = null,
+      cfdi_folio = null,
+      cfdi_forma_pago = null,
+      cfdi_metodo_pago = null,
+      cfdi_uso = null,
+      cfdi_tipo_comprobante = null,
+      cfdi_fecha_emision = null,
+      cfdi_fecha_timbrado = null,
+      cfdi_emisor_rfc = null,
+      cfdi_receptor_rfc = null,
+      cfdi_capture_mode = 'manual',
     } = body
 
     if (!supplier_group_id || !plant_id || !invoice_date || !due_date) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 })
+    }
+
+    // CFDI validations
+    if (cfdi_capture_mode === 'cfdi') {
+      if (!cfdi_uuid || !cfdi_emisor_rfc || !cfdi_receptor_rfc) {
+        return NextResponse.json(
+          { error: 'Modo CFDI requiere cfdi_uuid, cfdi_emisor_rfc y cfdi_receptor_rfc' },
+          { status: 400 },
+        )
+      }
+      // Validate emisor RFC matches the selected supplier group
+      const { data: group } = await supabase
+        .from('supplier_groups')
+        .select('id, rfc')
+        .eq('id', supplier_group_id)
+        .maybeSingle()
+      if (group?.rfc && group.rfc.toUpperCase() !== String(cfdi_emisor_rfc).toUpperCase()) {
+        return NextResponse.json(
+          { error: `El RFC emisor del CFDI (${cfdi_emisor_rfc}) no coincide con el del grupo de proveedor (${group.rfc})` },
+          { status: 400 },
+        )
+      }
+      // Validate receptor RFC matches company RFC
+      const { data: setting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'company_rfc')
+        .maybeSingle()
+      const companyRfc = (setting?.value ?? '').trim().toUpperCase()
+      if (companyRfc && String(cfdi_receptor_rfc).toUpperCase() !== companyRfc) {
+        return NextResponse.json(
+          { error: `El RFC receptor del CFDI (${cfdi_receptor_rfc}) no coincide con el RFC de la empresa (${companyRfc})` },
+          { status: 400 },
+        )
+      }
+    }
+    if (cfdi_uuid) {
+      const { data: dup } = await supabase
+        .from('supplier_invoices')
+        .select('id, invoice_number')
+        .eq('cfdi_uuid', cfdi_uuid)
+        .maybeSingle()
+      if (dup) {
+        return NextResponse.json(
+          { error: `Este CFDI ya está registrado en la factura ${dup.invoice_number}` },
+          { status: 409 },
+        )
+      }
     }
 
     // Compute totals server-side from canonical formula
@@ -176,6 +241,18 @@ export async function POST(request: NextRequest) {
         notes,
         document_url,
         xml_url,
+        cfdi_uuid: cfdi_uuid || null,
+        cfdi_serie: cfdi_serie || null,
+        cfdi_folio: cfdi_folio || null,
+        cfdi_forma_pago: cfdi_forma_pago || null,
+        cfdi_metodo_pago: cfdi_metodo_pago || null,
+        cfdi_uso: cfdi_uso || null,
+        cfdi_tipo_comprobante: cfdi_tipo_comprobante || null,
+        cfdi_fecha_emision: cfdi_fecha_emision || null,
+        cfdi_fecha_timbrado: cfdi_fecha_timbrado || null,
+        cfdi_emisor_rfc: cfdi_emisor_rfc || null,
+        cfdi_receptor_rfc: cfdi_receptor_rfc || null,
+        cfdi_capture_mode,
         created_by: user.id,
       })
       .select()

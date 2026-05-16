@@ -90,7 +90,7 @@ export function useHistoricalVolumeData({
         let query = supabase
           .from(unifiedTable)
           .select(
-            'plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, ventas_adicionales, period_start, period_end, data_source'
+            'plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source'
           );
         
         // Apply date filters only if dates are specified
@@ -195,10 +195,10 @@ export function useHistoricalVolumeData({
           // Map view columns to our data structure
           const concreteVolume = Number(item.volumen_concreto_m3) || 0;
           const concreteSales = Number(item.ventas_total_concreto) || 0;
-          const additionalSales = Number(item.ventas_adicionales) || 0;
 
           plantData.concreteVolume += concreteVolume;
-          plantData.totalRevenue += concreteSales + additionalSales;
+          // ventas_total_concreto already includes plant_additional_product_income_monthly; ventas_adicionales is breakdown only
+          plantData.totalRevenue += concreteSales;
         });
         }
 

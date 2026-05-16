@@ -27,13 +27,37 @@ Factura de proveedor. Columnas clave:
 | `invoice_number` | text | Folio de la factura |
 | `invoice_date` | date | Fecha de emisión |
 | `due_date` | date | Fecha de vencimiento |
-| `subtotal` | numeric | Sin IVA |
-| `tax` | numeric | IVA |
-| `total` | numeric | subtotal + tax |
+| `subtotal` | numeric | Importe total de líneas antes de descuento e IVA |
+| `discount_amount` | numeric | Descuento pre-IVA (CFDI 4.0 `Descuento`). Default 0. |
+| `tax` | numeric | IVA sobre la base gravable |
+| `total` | numeric | Monto neto a pagar al proveedor (ver fórmula abajo) |
 | `vat_rate` | numeric | e.g. `0.16` |
+| `retention_isr_rate` | numeric | Tasa de retención ISR (e.g. `0.10` = 10%). Default 0. |
+| `retention_isr_amount` | numeric | ISR retenido = round(base_gravable × retention_isr_rate, 2) |
+| `retention_iva_rate` | numeric | Tasa de retención IVA (e.g. `0.04` = 4% s/IVA). Default 0. |
+| `retention_iva_amount` | numeric | IVA retenido = round(tax × retention_iva_rate, 2) |
 | `status` | text | `open` \| `partially_paid` \| `paid` \| `void` |
 | `source` | text | `'system'` (de entrada) \| `'historical'` (manual) |
 | `is_internal` | bool | Factura inter-planta |
+
+#### Fórmula de totales
+```
+taxable_base          = subtotal - discount_amount
+tax                   = round(taxable_base × vat_rate, 2)
+retention_isr_amount  = round(taxable_base × retention_isr_rate, 2)
+retention_iva_amount  = round(tax × retention_iva_rate, 2)
+total                 = taxable_base + tax - retention_isr_amount - retention_iva_amount
+```
+`total` es el **monto neto a pagar al proveedor** (lo que va en el cheque/transferencia). Las retenciones quedan registradas como obligación fiscal a pagar a SAT en nombre del proveedor.
+
+#### Tasas de retención más comunes (México)
+| Tipo | retention_isr_rate | retention_iva_rate |
+|------|--------------------|--------------------|
+| Sin retención | 0 | 0 |
+| Autotransporte / fletes (ISR) | 0.0125 | 0 |
+| Autotransporte / fletes (IVA) | 0 | 0.04 |
+| Honorarios (ISR) | 0.10 | 0 |
+| Servicios (IVA 2/3) | 0 | 0.106667 |
 
 ### `supplier_invoice_items`
 Línea de factura. Una factura puede tener ≥1 ítems (material + flete).
@@ -47,27 +71,47 @@ Línea de factura. Una factura puede tener ≥1 ítems (material + flete).
 | `amount` | Monto sin IVA de esta línea |
 
 ### `invoice_credit_notes`
-Nota de crédito aplicada a una factura.
+Nota de crédito **standalone** (documento independiente). Una NC puede aplicarse a una o más facturas del mismo grupo de proveedor.
 
 | Columna | Descripción |
 |---------|-------------|
-| `invoice_id` | FK a `supplier_invoices` |
+| `id` | uuid PK |
+| `supplier_group_id` | FK a `supplier_groups` |
+| `plant_id` | FK a `plants` |
 | `credit_number` | Folio / UUID CFDI (opcional) |
 | `credit_date` | Fecha de la NC |
 | `reason` | `price_adjustment` \| `return` \| `defect` \| `other` |
-| `amount` | Monto sin IVA |
-| `tax_amount` | IVA sobre la NC |
+| `amount` | Subtotal total de la NC (suma de todos los `allocated_subtotal`) |
+| `tax_amount` | IVA total de la NC |
 | `total` | amount + tax_amount |
-| `applied_by` | UUID del usuario que la aplicó |
+| `vat_rate` | Tasa IVA capturada del CFDI (default 0.16) |
+| `status` | `open` \| `partially_applied` \| `fully_applied` \| `void` |
+| `notes` | Observaciones libres |
+| `applied_by` | UUID del usuario que la registró |
 
-### `invoice_credit_note_allocations`
-Distribución de la NC entre líneas de factura.
+### `credit_note_invoice_allocations`
+Distribución de una NC entre facturas (nivel factura). Una NC puede tener N filas aquí.
 
 | Columna | Descripción |
 |---------|-------------|
+| `id` | uuid PK |
 | `credit_note_id` | FK a `invoice_credit_notes` |
+| `invoice_id` | FK a `supplier_invoices` |
+| `allocated_subtotal` | Monto sin IVA asignado a esta factura |
+| `allocated_tax` | IVA sobre el `allocated_subtotal` (usa `invoice.vat_rate`) |
+| `allocated_total` | `allocated_subtotal + allocated_tax` (columna generada) |
+
+Invariante: `Σ allocated_subtotal = invoice_credit_notes.amount` (±0.01).
+
+### `invoice_credit_note_allocations`
+Distribución de un `credit_note_invoice_allocation` entre líneas de factura (nivel ítem). Opcional — si se omite al crear la NC el API distribuye proporcionalmente.
+
+| Columna | Descripción |
+|---------|-------------|
+| `credit_note_id` | FK a `invoice_credit_notes` (denormalizado para lecturas) |
+| `invoice_allocation_id` | FK a `credit_note_invoice_allocations` |
 | `invoice_item_id` | FK a `supplier_invoice_items` |
-| `allocated_amount` | Monto asignado a esta línea |
+| `allocated_amount` | Monto sin IVA asignado a esta línea |
 
 ### `payables` (legado, pero enlazado)
 Registro de CxP legado. Columna `invoice_id` (uuid nullable) enlaza con `supplier_invoices.id`. El trigger `payments_recalc` mantiene `payables.status` actualizado automáticamente.
@@ -90,30 +134,38 @@ Recepción de material
 
 También se puede crear una **factura histórica** directamente desde la tab CxP (sin entrada de material asociada). En ese caso `entry_id = null` en todos los ítems.
 
-### 2 — Nota de crédito
+### 2 — Nota de crédito (multi-factura)
 
 ```
-Usuario abre factura → botón "Aplicar NC"
+Usuario → botón "Aplicar NC" en cabecera del grupo de proveedor
   └─ ApplyCreditNoteDrawer
-       ├─ Inputs: credit_number, credit_date, reason, amount (sin IVA), notes
-       ├─ Modo distribución: proporcional (auto) | manual por línea
-       └─ POST /api/ap/invoices/[id]/credit-notes
-            ├─ Valida: amount_acumulado + nuevo_amount ≤ invoice.subtotal
-            ├─ Inserta invoice_credit_notes
-            ├─ Inserta invoice_credit_note_allocations (una fila por ítem)
-            ├─ Propaga precio a lotes (ver §Propagación de precios)
-            └─ Si crédito total ≥ subtotal → marca invoice + payable como 'paid'
+       ├─ Encabezado: credit_number, credit_date, reason, amount (subtotal total), vat_rate, notes
+       ├─ Selección de facturas: checkboxes + allocated_subtotal por factura
+       │    Botón: "Distribuir proporcionalmente por saldo"
+       │    Live: restante = amount − Σ allocated
+       └─ POST /api/ap/credit-notes
+            ├─ Valida: Σ allocated_subtotal = amount (±0.01)
+            ├─ Valida por factura: créditos existentes + nuevo ≤ taxable_base
+            ├─ Inserta invoice_credit_notes (standalone, status: open → fully_applied)
+            ├─ Inserta credit_note_invoice_allocations (una fila por factura)
+            ├─ Inserta invoice_credit_note_allocations por ítem (proporcional o explícito)
+            ├─ Propaga landed_unit_price a lotes (ver §Propagación de precios)
+            └─ Por cada factura: si Σ créditos ≥ taxable_base → marca invoice + payable 'paid'
 ```
+
+También se puede abrir el drawer desde el botón "Aplicar NC" dentro del detalle de una factura; en ese caso esa factura aparece pre-seleccionada en el paso de distribución.
 
 #### Validación de monto
 ```
-max_credit = invoice.subtotal - Σ(credit_notes.amount existentes)
-amount_nuevo ≤ max_credit + 0.01  (tolerancia centavos)
+taxable_base         = invoice.subtotal - invoice.discount_amount
+max_credit_por_inv   = taxable_base - Σ(credit_note_invoice_allocations.allocated_subtotal existentes)
+nuevo_allocated      ≤ max_credit_por_inv + 0.01  (tolerancia centavos)
+Σ invoice_allocations.allocated_subtotal = credit_note.amount  (±0.01)
 ```
 
-#### Distribución proporcional (automática)
+#### Distribución proporcional (automática por ítem)
 ```
-allocated[i] = round(item[i].amount / Σitem.amount × credit_amount, 2)
+allocated[i] = round(item[i].amount / Σitem.amount × invoice_allocated_subtotal, 2)
 último ítem absorbe redondeo restante
 ```
 
@@ -202,16 +254,18 @@ invoice_credit_note_allocations
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/ap/invoices` | Lista facturas con enriquecimiento (payable, items, paid_to_date, balance) |
-| `POST` | `/api/ap/invoices` | Crea factura desde entrada de material |
+| `GET` | `/api/ap/invoices` | Lista facturas con enriquecimiento (payable, items, paid_to_date, credit_applied_subtotal, credit_applied_total, balance) |
+| `POST` | `/api/ap/invoices` | Crea factura con discount_amount, retention_isr_rate, retention_iva_rate; computa tax y total |
 | `PATCH` | `/api/ap/invoices/[id]` | Actualiza campos de factura (status, due_date, etc.) |
 
 ### Notas de crédito
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/api/ap/invoices/[id]/credit-notes` | Lista NCs + allocations de una factura |
-| `POST` | `/api/ap/invoices/[id]/credit-notes` | Aplica NC: valida, inserta, propaga precios |
+| `GET` | `/api/ap/credit-notes?supplier_group_id=&plant_id=` | Lista NCs de un grupo con sus `invoice_allocations` |
+| `POST` | `/api/ap/credit-notes` | Crea NC multi-factura: valida, inserta, propaga precios |
+| `GET` | `/api/ap/invoices/[id]/credit-notes` | Lista NCs que tocan esta factura (via `credit_note_invoice_allocations`) con slice por factura |
+| ~~`POST`~~ | ~~`/api/ap/invoices/[id]/credit-notes`~~ | Deprecado — reemplazado por `POST /api/ap/credit-notes` |
 
 ### Pagos
 
@@ -288,7 +342,10 @@ partially_paid            │
 
 ## Consideraciones de diseño
 
+- **NC standalone**: Una nota de crédito CFDI (un folio) puede cubrir varias facturas. El modelo `invoice_credit_notes` ya no lleva `invoice_id`; la vinculación es via `credit_note_invoice_allocations`. Esto permite reconciliar fielmente contra el documento fiscal del proveedor.
+- **Descuentos pre-IVA**: `discount_amount` reduce la base gravable antes de calcular IVA, replicando el campo `Descuento` del CFDI 4.0. IVA y retenciones se calculan sobre `taxable_base = subtotal - discount_amount`.
+- **Retenciones**: `retention_isr_amount` se calcula sobre la base gravable; `retention_iva_amount` se calcula sobre el IVA (no sobre la base). Ambas reducen `total` (monto neto a pagar) pero quedan registradas como obligación fiscal SAT.
 - **Propagación best-effort**: Las actualizaciones de `material_lots.landed_unit_price` en el API de créditos son best-effort. Si fallan, el crédito ya quedó registrado. La inconsistencia es recuperable re-aplicando la fórmula o via patch manual.
 - **Doble escritura en lotes**: El trigger `trg_sync_lot_from_entry` y el API de entradas ambos escriben en `material_lots`, pero sobre campos distintos (trigger: qty/precio base; API: `landed_unit_price`). No hay conflicto.
 - **Facturas sin payable**: Facturas históricas pueden no tener `payable` asociado. El botón "Registrar pago" solo aparece si `inv.payable != null`.
-- **Crédito total = `paid`**: Si la suma de NCs cubre el subtotal de la factura, la factura se marca `paid` automáticamente sin necesidad de registrar un pago en `payments`.
+- **Crédito total = `paid`**: Si la suma de NCs cubre la base gravable de la factura (`taxable_base`), la factura se marca `paid` automáticamente sin necesidad de registrar un pago en `payments`.

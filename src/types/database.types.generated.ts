@@ -4566,6 +4566,21 @@ export type Database = {
         Row: {
           amount: number
           applied_by: string | null
+          cfdi_capture_mode: string
+          cfdi_emisor_rfc: string | null
+          cfdi_estado_checked_at: string | null
+          cfdi_estado_sat: string | null
+          cfdi_fecha_emision: string | null
+          cfdi_fecha_timbrado: string | null
+          cfdi_folio: string | null
+          cfdi_forma_pago: string | null
+          cfdi_metodo_pago: string | null
+          cfdi_receptor_rfc: string | null
+          cfdi_relacionado_uuid: string | null
+          cfdi_serie: string | null
+          cfdi_tipo_comprobante: string | null
+          cfdi_uso: string | null
+          cfdi_uuid: string | null
           created_at: string | null
           credit_date: string
           credit_number: string | null
@@ -4584,6 +4599,21 @@ export type Database = {
         Insert: {
           amount: number
           applied_by?: string | null
+          cfdi_capture_mode?: string
+          cfdi_emisor_rfc?: string | null
+          cfdi_estado_checked_at?: string | null
+          cfdi_estado_sat?: string | null
+          cfdi_fecha_emision?: string | null
+          cfdi_fecha_timbrado?: string | null
+          cfdi_folio?: string | null
+          cfdi_forma_pago?: string | null
+          cfdi_metodo_pago?: string | null
+          cfdi_receptor_rfc?: string | null
+          cfdi_relacionado_uuid?: string | null
+          cfdi_serie?: string | null
+          cfdi_tipo_comprobante?: string | null
+          cfdi_uso?: string | null
+          cfdi_uuid?: string | null
           created_at?: string | null
           credit_date: string
           credit_number?: string | null
@@ -4602,6 +4632,21 @@ export type Database = {
         Update: {
           amount?: number
           applied_by?: string | null
+          cfdi_capture_mode?: string
+          cfdi_emisor_rfc?: string | null
+          cfdi_estado_checked_at?: string | null
+          cfdi_estado_sat?: string | null
+          cfdi_fecha_emision?: string | null
+          cfdi_fecha_timbrado?: string | null
+          cfdi_folio?: string | null
+          cfdi_forma_pago?: string | null
+          cfdi_metodo_pago?: string | null
+          cfdi_receptor_rfc?: string | null
+          cfdi_relacionado_uuid?: string | null
+          cfdi_serie?: string | null
+          cfdi_tipo_comprobante?: string | null
+          cfdi_uso?: string | null
+          cfdi_uuid?: string | null
           created_at?: string | null
           credit_date?: string
           credit_number?: string | null
@@ -11158,6 +11203,99 @@ export type Database = {
           },
         ]
       }
+      sat_cfdi_recibidos: {
+        Row: {
+          cfdi_relacionados: Json | null
+          descuento: number
+          emisor_nombre: string | null
+          emisor_rfc: string
+          estado_checked_at: string | null
+          estado_sat: string
+          fecha_emision: string
+          fecha_timbrado: string
+          folio: string | null
+          forma_pago: string | null
+          imported_at: string
+          imported_by: string | null
+          isr_retenido: number
+          iva_retenido: number
+          iva_trasladado: number
+          metodo_pago: string | null
+          moneda: string
+          pagos_doctos: Json | null
+          raw_xml_path: string | null
+          receptor_rfc: string
+          serie: string | null
+          source: string
+          subtotal: number
+          tipo_cambio: number | null
+          tipo_comprobante: string
+          total: number
+          uso_cfdi: string | null
+          uuid: string
+        }
+        Insert: {
+          cfdi_relacionados?: Json | null
+          descuento?: number
+          emisor_nombre?: string | null
+          emisor_rfc: string
+          estado_checked_at?: string | null
+          estado_sat?: string
+          fecha_emision: string
+          fecha_timbrado: string
+          folio?: string | null
+          forma_pago?: string | null
+          imported_at?: string
+          imported_by?: string | null
+          isr_retenido?: number
+          iva_retenido?: number
+          iva_trasladado?: number
+          metodo_pago?: string | null
+          moneda?: string
+          pagos_doctos?: Json | null
+          raw_xml_path?: string | null
+          receptor_rfc: string
+          serie?: string | null
+          source?: string
+          subtotal?: number
+          tipo_cambio?: number | null
+          tipo_comprobante: string
+          total?: number
+          uso_cfdi?: string | null
+          uuid: string
+        }
+        Update: {
+          cfdi_relacionados?: Json | null
+          descuento?: number
+          emisor_nombre?: string | null
+          emisor_rfc?: string
+          estado_checked_at?: string | null
+          estado_sat?: string
+          fecha_emision?: string
+          fecha_timbrado?: string
+          folio?: string | null
+          forma_pago?: string | null
+          imported_at?: string
+          imported_by?: string | null
+          isr_retenido?: number
+          iva_retenido?: number
+          iva_trasladado?: number
+          metodo_pago?: string | null
+          moneda?: string
+          pagos_doctos?: Json | null
+          raw_xml_path?: string | null
+          receptor_rfc?: string
+          serie?: string | null
+          source?: string
+          subtotal?: number
+          tipo_cambio?: number | null
+          tipo_comprobante?: string
+          total?: number
+          uso_cfdi?: string | null
+          uuid?: string
+        }
+        Relationships: []
+      }
       site_checks: {
         Row: {
           created_at: string
@@ -11469,6 +11607,20 @@ export type Database = {
       }
       supplier_invoices: {
         Row: {
+          cfdi_capture_mode: string
+          cfdi_emisor_rfc: string | null
+          cfdi_estado_checked_at: string | null
+          cfdi_estado_sat: string | null
+          cfdi_fecha_emision: string | null
+          cfdi_fecha_timbrado: string | null
+          cfdi_folio: string | null
+          cfdi_forma_pago: string | null
+          cfdi_metodo_pago: string | null
+          cfdi_receptor_rfc: string | null
+          cfdi_serie: string | null
+          cfdi_tipo_comprobante: string | null
+          cfdi_uso: string | null
+          cfdi_uuid: string | null
           created_at: string
           created_by: string | null
           currency: string
@@ -11495,6 +11647,20 @@ export type Database = {
           xml_url: string | null
         }
         Insert: {
+          cfdi_capture_mode?: string
+          cfdi_emisor_rfc?: string | null
+          cfdi_estado_checked_at?: string | null
+          cfdi_estado_sat?: string | null
+          cfdi_fecha_emision?: string | null
+          cfdi_fecha_timbrado?: string | null
+          cfdi_folio?: string | null
+          cfdi_forma_pago?: string | null
+          cfdi_metodo_pago?: string | null
+          cfdi_receptor_rfc?: string | null
+          cfdi_serie?: string | null
+          cfdi_tipo_comprobante?: string | null
+          cfdi_uso?: string | null
+          cfdi_uuid?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string
@@ -11521,6 +11687,20 @@ export type Database = {
           xml_url?: string | null
         }
         Update: {
+          cfdi_capture_mode?: string
+          cfdi_emisor_rfc?: string | null
+          cfdi_estado_checked_at?: string | null
+          cfdi_estado_sat?: string | null
+          cfdi_fecha_emision?: string | null
+          cfdi_fecha_timbrado?: string | null
+          cfdi_folio?: string | null
+          cfdi_forma_pago?: string | null
+          cfdi_metodo_pago?: string | null
+          cfdi_receptor_rfc?: string | null
+          cfdi_serie?: string | null
+          cfdi_tipo_comprobante?: string | null
+          cfdi_uso?: string | null
+          cfdi_uuid?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string

@@ -16,7 +16,7 @@ import type { Payable } from '@/types/finance'
 import RecordPaymentModal from './RecordPaymentModal'
 import CreateSupplierInvoiceDrawer from './CreateSupplierInvoiceDrawer'
 import ApplyCreditNoteDrawer from './ApplyCreditNoteDrawer'
-import { procurementEntriesUrl } from '@/lib/procurement/navigation'
+import { procurementEntriesUrl, purchaseOrderUrl } from '@/lib/procurement/navigation'
 import Link from 'next/link'
 
 // Shape returned by GET /api/ap/invoices/[id]/credit-notes (allocation-join projection)
@@ -295,6 +295,31 @@ export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
                                 {inv.is_internal && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-50 text-orange-600 border border-orange-200">Interno</span>
                                 )}
+                                {/* CFDI status chip */}
+                                {inv.cfdi_uuid ? (
+                                  inv.cfdi_estado_sat === 'cancelado' ? (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700 border border-red-200 cursor-default"
+                                      title={`UUID: ${inv.cfdi_uuid}\nRFC: ${inv.cfdi_emisor_rfc ?? ''}`}
+                                    >
+                                      🛑 Cancelado SAT
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default"
+                                      title={`UUID: ${inv.cfdi_uuid}\nRFC: ${inv.cfdi_emisor_rfc ?? ''}`}
+                                    >
+                                      CFDI ✓
+                                    </span>
+                                  )
+                                ) : (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-50 text-stone-400 border border-stone-200 cursor-default"
+                                    title="Sin CFDI vinculado"
+                                  >
+                                    CFDI ✗
+                                  </span>
+                                )}
                                 {isOverdue && (
                                   <span className="flex items-center gap-1 text-xs text-red-700 font-medium">
                                     <AlertTriangle className="h-3 w-3" /> {daysOv}d vencida
@@ -372,7 +397,7 @@ export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
                                             </Link>
                                             {item.entry.po_id && (
                                               <Link
-                                                href={procurementEntriesUrl({ plantId: inv.plant_id, poId: item.entry.po_id })}
+                                                href={purchaseOrderUrl(item.entry.po_id, inv.plant_id)}
                                                 className="text-sky-600 hover:underline flex items-center gap-0.5"
                                                 onClick={e => e.stopPropagation()}
                                               >

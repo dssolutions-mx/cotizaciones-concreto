@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
         credit_number, credit_date, reason,
         amount, tax_amount, total, vat_rate, status,
         notes, applied_by, created_at,
+        cfdi_uuid, cfdi_serie, cfdi_folio, cfdi_tipo_comprobante,
+        cfdi_emisor_rfc, cfdi_relacionado_uuid, cfdi_capture_mode,
+        cfdi_estado_sat, cfdi_estado_checked_at,
         invoice_allocations:credit_note_invoice_allocations(
           id, invoice_id, allocated_subtotal, allocated_tax, allocated_total,
           invoice:supplier_invoices!invoice_id(
@@ -89,6 +92,20 @@ export async function POST(request: NextRequest) {
       amount,
       vat_rate = 0.16,
       invoice_allocations,
+      // CFDI fields (optional)
+      cfdi_uuid = null,
+      cfdi_serie = null,
+      cfdi_folio = null,
+      cfdi_forma_pago = null,
+      cfdi_metodo_pago = null,
+      cfdi_uso = null,
+      cfdi_tipo_comprobante = null,
+      cfdi_fecha_emision = null,
+      cfdi_fecha_timbrado = null,
+      cfdi_emisor_rfc = null,
+      cfdi_receptor_rfc = null,
+      cfdi_relacionado_uuid = null,
+      cfdi_capture_mode = 'manual',
     } = body
 
     // ── Basic validation ──────────────────────────────────────────────────────
@@ -103,6 +120,35 @@ export async function POST(request: NextRequest) {
         { error: 'Se requiere al menos una factura en invoice_allocations' },
         { status: 400 },
       )
+    }
+
+    // CFDI validations
+    if (cfdi_capture_mode === 'cfdi') {
+      if (!cfdi_uuid || !cfdi_emisor_rfc) {
+        return NextResponse.json(
+          { error: 'Modo CFDI requiere cfdi_uuid y cfdi_emisor_rfc' },
+          { status: 400 },
+        )
+      }
+      if (cfdi_tipo_comprobante && cfdi_tipo_comprobante !== 'E') {
+        return NextResponse.json(
+          { error: 'El CFDI debe ser de tipo Egreso (E) para una nota de crédito' },
+          { status: 400 },
+        )
+      }
+    }
+    if (cfdi_uuid) {
+      const { data: dup } = await supabase
+        .from('invoice_credit_notes')
+        .select('id, credit_number')
+        .eq('cfdi_uuid', cfdi_uuid)
+        .maybeSingle()
+      if (dup) {
+        return NextResponse.json(
+          { error: `Este CFDI ya está registrado en la NC ${dup.credit_number ?? dup.id}` },
+          { status: 409 },
+        )
+      }
     }
 
     // Σ allocated_subtotal must equal amount (±0.01)
@@ -210,6 +256,19 @@ export async function POST(request: NextRequest) {
         status: 'open',
         notes: notes?.trim() || null,
         applied_by: user.id,
+        cfdi_uuid: cfdi_uuid || null,
+        cfdi_serie: cfdi_serie || null,
+        cfdi_folio: cfdi_folio || null,
+        cfdi_forma_pago: cfdi_forma_pago || null,
+        cfdi_metodo_pago: cfdi_metodo_pago || null,
+        cfdi_uso: cfdi_uso || null,
+        cfdi_tipo_comprobante: cfdi_tipo_comprobante || null,
+        cfdi_fecha_emision: cfdi_fecha_emision || null,
+        cfdi_fecha_timbrado: cfdi_fecha_timbrado || null,
+        cfdi_emisor_rfc: cfdi_emisor_rfc || null,
+        cfdi_receptor_rfc: cfdi_receptor_rfc || null,
+        cfdi_relacionado_uuid: cfdi_relacionado_uuid || null,
+        cfdi_capture_mode,
       })
       .select()
       .single()

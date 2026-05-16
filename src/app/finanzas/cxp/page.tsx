@@ -3,7 +3,8 @@
 import React, { useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { DollarSign, FileText } from 'lucide-react'
+import { DollarSign, FileText, ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
 import OrphanEntriesTab from '@/components/finanzas/OrphanEntriesTab'
 import InvoicesPayablesTab from '@/components/finanzas/InvoicesPayablesTab'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -46,16 +47,25 @@ export default function CxpPage() {
       </div>
 
       <Tabs value={tabFromUrl} onValueChange={setTab}>
-        <TabsList className="h-9">
-          <TabsTrigger value="sin_factura" className="text-xs gap-1.5">
-            <FileText className="h-3.5 w-3.5" />
-            Sin factura
-          </TabsTrigger>
-          <TabsTrigger value="facturas" className="text-xs gap-1.5">
-            <DollarSign className="h-3.5 w-3.5" />
-            Facturas / CxP
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex items-center gap-3">
+          <TabsList className="h-9">
+            <TabsTrigger value="sin_factura" className="text-xs gap-1.5">
+              <FileText className="h-3.5 w-3.5" />
+              Sin factura
+            </TabsTrigger>
+            <TabsTrigger value="facturas" className="text-xs gap-1.5">
+              <DollarSign className="h-3.5 w-3.5" />
+              Facturas / CxP
+            </TabsTrigger>
+          </TabsList>
+          <Link
+            href="/finanzas/cxp/sat"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 transition-colors"
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Conciliación SAT
+          </Link>
+        </div>
 
         <TabsContent value="sin_factura" className="mt-4">
           <OrphanEntriesTab workspacePlantId={plant || undefined} />

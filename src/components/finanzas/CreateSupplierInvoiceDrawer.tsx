@@ -15,8 +15,9 @@ import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Plus, Trash2, AlertTriangle } from 'lucide-react'
-import type { InvoiceCostCategory } from '@/types/finance'
+import { Plus, Trash2, AlertTriangle, FileUp, FileCheck2, X } from 'lucide-react'
+import type { InvoiceCostCategory, ParsedCfdi, CfdiCaptureMode } from '@/types/finance'
+import { c_FormaPago, c_MetodoPago, c_UsoCFDI } from '@/lib/sat/codigosSat'
 
 export type OrphanEntry = {
   id: string
@@ -169,6 +170,16 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   // ── line items ─────────────────────────────────────────────────────────────
   const [lines, setLines] = useState<LineItem[]>([])
 
+  // ── CFDI XML upload ───────────────────────────────────────────────────────
+  const [cfdiCaptureMode, setCfdiCaptureMode] = useState<CfdiCaptureMode>('manual')
+  const [parsedCfdi, setParsedCfdi] = useState<ParsedCfdi | null>(null)
+  const [cfdiFile, setCfdiFile] = useState<File | null>(null)
+  const [parsingCfdi, setParsingCfdi] = useState(false)
+  const [skipCfdi, setSkipCfdi] = useState(false)
+  const [cfdiFormaPago, setCfdiFormaPago] = useState<string>('')
+  const [cfdiMetodoPago, setCfdiMetodoPago] = useState<string>('')
+  const [cfdiUso, setCfdiUso] = useState<string>('')
+
   // ── submit ─────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
 
@@ -196,6 +207,13 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setDiscountAmount('')
     setIsrRate('0')
     setIvaRetRate('0')
+    setCfdiCaptureMode('manual')
+    setParsedCfdi(null)
+    setCfdiFile(null)
+    setSkipCfdi(false)
+    setCfdiFormaPago('')
+    setCfdiMetodoPago('')
+    setCfdiUso('')
 
     if (isHistorical) {
       setGroupId('')
@@ -309,6 +327,82 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     }
   }
 
+  /** Parse a CFDI XML and prefill fiscal fields. */
+  const handleCfdiFile = async (file: File) => {
+    setParsingCfdi(true)
+    try {
+      const form = new FormData()
+      form.append('xml_file', file)
+      const res = await fetch('/api/ap/cfdi/parse', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'No se pudo leer el CFDI')
+        return
+      }
+      if (data.receptor_match === 'mismatch') {
+        toast.error(`El CFDI está dirigido a otro RFC (${data.cfdi.receptor_rfc}). El RFC configurado es ${data.company_rfc}.`)
+        return
+      }
+      if (data.receptor_match === 'company_rfc_not_set') {
+        toast.warning('El RFC de la empresa no está configurado en system_settings; no se pudo validar receptor.')
+      }
+      if (data.duplicate_invoice) {
+        toast.error(`Este CFDI ya está registrado en la factura ${data.duplicate_invoice.invoice_number}`)
+        return
+      }
+      const cfdi: ParsedCfdi = data.cfdi
+      setParsedCfdi(cfdi)
+      setCfdiFile(file)
+      setCfdiCaptureMode('cfdi')
+
+      // Prefill form fields from CFDI
+      setInvoiceNumber([cfdi.serie, cfdi.folio].filter(Boolean).join('-') || cfdi.uuid.slice(0, 8))
+      setInvoiceDate(cfdi.fecha_emision.slice(0, 10))
+      setVatRate(String(cfdi.vat_rate || DEFAULT_VAT))
+      setCfdiFormaPago(cfdi.forma_pago ?? '')
+      setCfdiMetodoPago(cfdi.metodo_pago ?? '')
+      setCfdiUso(cfdi.uso_cfdi ?? '')
+      setDiscountAmount(cfdi.descuento > 0 ? cfdi.descuento.toFixed(2) : '')
+      setIsrRate(cfdi.retention_isr_rate > 0 ? String(cfdi.retention_isr_rate) : '0')
+      setIvaRetRate(cfdi.retention_iva_rate > 0 ? String(cfdi.retention_iva_rate) : '0')
+
+      // Match supplier group by emisor RFC
+      if (data.supplier_group) {
+        setGroupId(data.supplier_group.id)
+      }
+
+      // Default a single editable line summing the CFDI subtotal so the user
+      // can split into material/fleet manually.
+      const subtotalLine = cfdi.subtotal.toFixed(2)
+      if (isHistorical) {
+        setLines([{
+          key: crypto.randomUUID(),
+          entry_id: null,
+          cost_category: 'material',
+          description: cfdi.emisor_nombre ?? `CFDI ${cfdi.serie ?? ''}${cfdi.folio ?? ''}`,
+          qty: '1',
+          unit_price: subtotalLine,
+          amount: subtotalLine,
+        }])
+      }
+
+      toast.success(`CFDI leído — UUID ${cfdi.uuid.slice(0, 8)}…`)
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Error al leer el CFDI')
+    } finally {
+      setParsingCfdi(false)
+    }
+  }
+
+  const clearCfdi = () => {
+    setParsedCfdi(null)
+    setCfdiFile(null)
+    setCfdiCaptureMode('manual')
+    setCfdiFormaPago('')
+    setCfdiMetodoPago('')
+    setCfdiUso('')
+  }
+
   /** Expand aggregated display lines into individual API items (one per source entry). */
   const buildApiItems = () => {
     const items: Array<{
@@ -364,6 +458,16 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     const apiItems = buildApiItems()
     if (apiItems.length === 0) { toast.error('No hay líneas válidas'); return }
 
+    // Warn if user-edited subtotal/total deviates from the parsed CFDI
+    if (parsedCfdi) {
+      if (Math.abs(subtotal - parsedCfdi.subtotal) > 0.02) {
+        const ok = window.confirm(
+          `El subtotal capturado (${subtotal.toFixed(2)}) no coincide con el del CFDI (${parsedCfdi.subtotal.toFixed(2)}). ¿Continuar?`,
+        )
+        if (!ok) return
+      }
+    }
+
     setLoading(true)
     try {
       const res = await fetch('/api/ap/invoices', {
@@ -384,6 +488,18 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           source: isHistorical ? 'historical' : 'system',
           notes: notes.trim() || null,
           items: apiItems,
+          cfdi_uuid: parsedCfdi?.uuid ?? null,
+          cfdi_serie: parsedCfdi?.serie ?? null,
+          cfdi_folio: parsedCfdi?.folio ?? null,
+          cfdi_forma_pago: cfdiFormaPago || parsedCfdi?.forma_pago || null,
+          cfdi_metodo_pago: cfdiMetodoPago || parsedCfdi?.metodo_pago || null,
+          cfdi_uso: cfdiUso || parsedCfdi?.uso_cfdi || null,
+          cfdi_tipo_comprobante: parsedCfdi?.tipo_comprobante ?? null,
+          cfdi_fecha_emision: parsedCfdi?.fecha_emision ?? null,
+          cfdi_fecha_timbrado: parsedCfdi?.fecha_timbrado ?? null,
+          cfdi_emisor_rfc: parsedCfdi?.emisor_rfc ?? null,
+          cfdi_receptor_rfc: parsedCfdi?.receptor_rfc ?? null,
+          cfdi_capture_mode: cfdiCaptureMode,
         }),
       })
       const data = await res.json()
@@ -421,6 +537,98 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+          {/* CFDI XML upload — primary capture path */}
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-stone-900 flex items-center gap-2">
+              CFDI (XML)
+              {parsedCfdi && (
+                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-medium uppercase tracking-wide">
+                  Leído
+                </span>
+              )}
+            </h3>
+            {parsedCfdi ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3 space-y-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-2">
+                    <FileCheck2 className="h-4 w-4 text-emerald-600 mt-0.5" />
+                    <div className="text-xs space-y-0.5">
+                      <div className="font-medium text-stone-900">
+                        {cfdiFile?.name ?? 'CFDI'} · {parsedCfdi.tipo_comprobante}
+                      </div>
+                      <div className="font-mono text-[10px] text-stone-500">
+                        UUID {parsedCfdi.uuid}
+                      </div>
+                      <div className="text-stone-600">
+                        {parsedCfdi.emisor_nombre ?? parsedCfdi.emisor_rfc} · {parsedCfdi.emisor_rfc}
+                      </div>
+                      <div className="text-stone-500">
+                        Subtotal {mxn.format(parsedCfdi.subtotal)} · Total {mxn.format(parsedCfdi.total)}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearCfdi}
+                    className="p-1 text-stone-400 hover:text-rose-600"
+                    title="Quitar CFDI"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ) : skipCfdi ? (
+              <div className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600 flex items-center justify-between">
+                <span>Captura sin XML (histórica / sin CFDI)</span>
+                <button
+                  type="button"
+                  className="text-sky-700 hover:text-sky-800 underline-offset-2 hover:underline"
+                  onClick={() => setSkipCfdi(false)}
+                >
+                  Subir XML
+                </button>
+              </div>
+            ) : (
+              <label
+                htmlFor="cfdi-xml-input"
+                className={`flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                  parsingCfdi
+                    ? 'border-sky-300 bg-sky-50 cursor-wait'
+                    : 'border-stone-300 bg-white hover:border-sky-400 hover:bg-sky-50/30 cursor-pointer'
+                }`}
+              >
+                <FileUp className="h-6 w-6 text-stone-400" />
+                <div className="text-xs text-stone-600">
+                  {parsingCfdi ? 'Leyendo CFDI…' : 'Arrastra o haz clic para subir el XML del CFDI'}
+                </div>
+                <div className="text-[10px] text-stone-400">
+                  Los campos fiscales se prellenarán automáticamente.
+                </div>
+                <input
+                  id="cfdi-xml-input"
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  className="hidden"
+                  disabled={parsingCfdi}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) void handleCfdiFile(f)
+                    e.target.value = '' // allow re-selecting the same file
+                  }}
+                />
+                <button
+                  type="button"
+                  className="mt-1 text-[11px] text-stone-500 hover:text-stone-700 underline-offset-2 hover:underline"
+                  onClick={(e) => { e.preventDefault(); setSkipCfdi(true) }}
+                >
+                  Capturar sin XML (histórica)
+                </button>
+              </label>
+            )}
+          </section>
+
+          <Separator />
 
           {/* Supplier — read-only when entries provide it; picker for historical */}
           <section className="space-y-2">
@@ -540,6 +748,46 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                 </SelectContent>
               </Select>
             </div>
+            {(parsedCfdi || skipCfdi) && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Forma de pago (CFDI)</Label>
+                  <Select value={cfdiFormaPago || '__none__'} onValueChange={v => setCfdiFormaPago(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="bg-white h-8 text-xs">
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {c_FormaPago.map(f => <SelectItem key={f.code} value={f.code}>{f.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Método de pago</Label>
+                  <Select value={cfdiMetodoPago || '__none__'} onValueChange={v => setCfdiMetodoPago(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="bg-white h-8 text-xs">
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {c_MetodoPago.map(m => <SelectItem key={m.code} value={m.code}>{m.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Uso CFDI</Label>
+                  <Select value={cfdiUso || '__none__'} onValueChange={v => setCfdiUso(v === '__none__' ? '' : v)}>
+                    <SelectTrigger className="bg-white h-8 text-xs">
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {c_UsoCFDI.map(u => <SelectItem key={u.code} value={u.code}>{u.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
             <div className="space-y-1">
               <Label className="text-xs">Notas (opcional)</Label>
               <Input value={notes} onChange={e => setNotes(e.target.value)} className="bg-white" placeholder="Observaciones…" />
