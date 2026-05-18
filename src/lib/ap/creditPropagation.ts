@@ -36,26 +36,14 @@ export async function propagateCreditToEntry(
   const effectiveAmount = Math.max(0, Number(itemAmount) - totalItemCredit)
   const qtyKg = Number(entry.received_qty_kg)
 
-  let newLandedUnitPrice: number
-  if (itemCostCategory === 'material') {
-    const newUnitPrice = effectiveAmount / qtyKg
-    const fleetPerKg = Number(entry.fleet_cost ?? 0) / qtyKg
-    newLandedUnitPrice = newUnitPrice + fleetPerKg
-  } else {
-    // fleet item: credit reduces fleet cost portion
-    const fleetAfterCredit = Math.max(0, Number(entry.fleet_cost ?? 0) - totalItemCredit)
-    newLandedUnitPrice = Number(entry.unit_price ?? 0) + fleetAfterCredit / qtyKg
-  }
+  // landed_unit_price is GENERATED on material_entries and material_lots — update source columns.
+  const entryUpdate =
+    itemCostCategory === 'material'
+      ? { unit_price: effectiveAmount / qtyKg }
+      : { fleet_cost: Math.max(0, Number(entry.fleet_cost ?? 0) - totalItemCredit) }
 
-  await admin
-    .from('material_entries')
-    .update({ landed_unit_price: newLandedUnitPrice })
-    .eq('id', entryId)
-
-  await admin
-    .from('material_lots')
-    .update({ landed_unit_price: newLandedUnitPrice })
-    .eq('entry_id', entryId)
+  await admin.from('material_entries').update(entryUpdate).eq('id', entryId)
+  // trg_sync_lot_from_entry copies unit_price / fleet_cost to the lot; landed_unit_price recomputes there
 }
 
 /**

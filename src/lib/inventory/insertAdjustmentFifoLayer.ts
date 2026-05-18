@@ -130,7 +130,6 @@ async function insertAdjpZeroCostFifoLayer(
       inventory_after: stockSnapshot,
       unit_price: 0,
       total_cost: 0,
-      landed_unit_price: null,
       notes: `${marker} — ajuste ${params.adjustmentNumber}`,
       entered_by: params.enteredBy,
       pricing_status: 'reviewed',
