@@ -10,6 +10,7 @@ import { fetchMuestreoById, deleteMuestreo } from '@/services/qualityMuestreoSer
 import { deleteMuestra } from '@/services/qualityMuestraService'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import type { MuestreoWithRelations } from '@/types/quality'
+import type { PublishedUEntry } from '@/components/quality/muestreos/detail/MuestreoEnvironmentalCard'
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal'
 import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis'
 import ResistanceEvolutionTimeline from '@/components/quality/muestreos/ResistanceEvolutionTimeline'
@@ -44,6 +45,7 @@ export default function MuestreoDetailPage() {
   const { toast } = useToast()
 
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null)
+  const [publishedUMap, setPublishedUMap] = useState<Record<string, PublishedUEntry>>({})
   const [orderTotals, setOrderTotals] = useState<{
     totalOrderVolume: number
     totalOrderSamplings: number
@@ -82,6 +84,21 @@ export default function MuestreoDetailPage() {
       const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id
       const data = await fetchMuestreoById(muestreoId)
       setMuestreo(data)
+
+      fetch('/api/ema/uncertainty/published')
+        .then((r) => r.json())
+        .then((j: { data?: Array<{ measurand?: { codigo: string }; u_expandida: number; k_factor: number; unidad: string }> } | Array<{ measurand?: { codigo: string }; u_expandida: number; k_factor: number; unidad: string }>) => {
+          const rows = Array.isArray(j) ? j : j.data
+          if (!Array.isArray(rows)) return
+          const map: Record<string, PublishedUEntry> = {}
+          for (const row of rows) {
+            if (row.measurand?.codigo) {
+              map[row.measurand.codigo] = { u_expandida: row.u_expandida, k_factor: row.k_factor, unidad: row.unidad }
+            }
+          }
+          setPublishedUMap(map)
+        })
+        .catch(() => {})
 
       setEmaInstrumentosLoading(true)
       fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`)
@@ -371,11 +388,15 @@ export default function MuestreoDetailPage() {
                 rendimientoLoading={rendimientoLoading}
                 onRetryOrderTotals={() => void retryOrderTotals()}
                 onRevenimientoSaved={() => void fetchMuestreoDetails()}
+                publishedU={{ REV: publishedUMap['REV'] ?? null, MU: publishedUMap['MU'] ?? null }}
               />
             </div>
 
             <div className="space-y-6">
-              <MuestreoEnvironmentalCard muestreo={muestreo} />
+              <MuestreoEnvironmentalCard
+                muestreo={muestreo}
+                publishedU={{ TEMP: publishedUMap['TEMP'] ?? null, AIRE: publishedUMap['AIRE'] ?? null }}
+              />
               <MuestreoSampleSummaryCard
                 muestreo={muestreo}
                 cilindros={cilindros.length}

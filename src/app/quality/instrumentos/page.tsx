@@ -363,6 +363,12 @@ export default function EmaHubPage() {
             label="Paquetes"
             description="Conjuntos de equipo"
           />
+          <NavCard
+            href="/quality/ema/incertidumbre"
+            icon={<Award className="h-5 w-5 text-blue-600" />}
+            label="Incertidumbre"
+            description="Presupuesto §7.6 GUM"
+          />
         </div>
       </section>
     </div>

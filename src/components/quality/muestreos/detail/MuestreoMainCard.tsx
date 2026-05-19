@@ -26,6 +26,7 @@ import { cn, formatDate } from '@/lib/utils'
 import { qualityHubLinkOutlineClass, qualityHubOutlineNeutralClass } from '../../qualityHubUi'
 import { getOrderInfo } from './muestreoDetailUtils'
 import MuestreoRevenimientoInline from './MuestreoRevenimientoInline'
+import type { PublishedUEntry } from './MuestreoEnvironmentalCard'
 
 type OrderTotals = {
   totalOrderVolume: number
@@ -59,6 +60,7 @@ type Props = {
   rendimientoLoading: boolean
   onRetryOrderTotals: () => void
   onRevenimientoSaved: () => void
+  publishedU?: { REV?: PublishedUEntry; MU?: PublishedUEntry }
 }
 
 export default function MuestreoMainCard({
@@ -71,6 +73,7 @@ export default function MuestreoMainCard({
   rendimientoLoading,
   onRetryOrderTotals,
   onRevenimientoSaved,
+  publishedU,
 }: Props) {
   const order = getOrderInfo(muestreo)
 
@@ -219,6 +222,7 @@ export default function MuestreoMainCard({
               muestreoId={muestreoId}
               valueCm={muestreo.revenimiento_sitio}
               onSaved={onRevenimientoSaved}
+              publishedU={publishedU?.REV ?? null}
             />
 
             {typeof muestreo.masa_unitaria === 'number' && (
@@ -227,6 +231,14 @@ export default function MuestreoMainCard({
                 <div className="text-2xl font-bold text-stone-900">
                   {Math.round(muestreo.masa_unitaria)}
                   <span className="text-sm font-normal text-stone-500 ml-1">kg/m³</span>
+                  {publishedU?.MU && (
+                    <span
+                      className="ml-2 text-xs text-stone-400 font-normal tabular-nums"
+                      title={`Incertidumbre expandida declarada §7.6 GUM — k=${publishedU.MU.k_factor.toFixed(2)}`}
+                    >
+                      ± {publishedU.MU.u_expandida} {publishedU.MU.unidad}
+                    </span>
+                  )}
                 </div>
               </div>
             )}

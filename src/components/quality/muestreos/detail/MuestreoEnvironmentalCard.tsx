@@ -6,11 +6,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator'
 import type { MuestreoWithRelations } from '@/types/quality'
 
+export type PublishedUEntry = { u_expandida: number; k_factor: number; unidad: string } | null
+
 type Props = {
   muestreo: MuestreoWithRelations
+  publishedU?: { TEMP?: PublishedUEntry; AIRE?: PublishedUEntry }
 }
 
-export default function MuestreoEnvironmentalCard({ muestreo }: Props) {
+function UncertaintyBadge({ entry }: { entry: PublishedUEntry }) {
+  if (!entry) return null
+  return (
+    <span
+      className="ml-2 text-xs text-stone-400 font-normal tabular-nums"
+      title={`Incertidumbre expandida declarada §7.6 GUM — k=${entry.k_factor.toFixed(2)}`}
+    >
+      ± {entry.u_expandida} {entry.unidad}
+    </span>
+  )
+}
+
+export default function MuestreoEnvironmentalCard({ muestreo, publishedU }: Props) {
   const hasAmbient = typeof muestreo.temperatura_ambiente === 'number'
   const hasConcrete = typeof muestreo.temperatura_concreto === 'number'
   const hasAir = muestreo.contenido_aire != null
@@ -55,6 +70,7 @@ export default function MuestreoEnvironmentalCard({ muestreo }: Props) {
             <div className="text-3xl font-bold text-stone-900">
               {muestreo.temperatura_concreto}
               <span className="text-sm font-normal text-stone-500 ml-1">°C</span>
+              <UncertaintyBadge entry={publishedU?.TEMP ?? null} />
             </div>
           </div>
         )}
@@ -67,6 +83,7 @@ export default function MuestreoEnvironmentalCard({ muestreo }: Props) {
               <div className="text-3xl font-bold text-stone-900">
                 {muestreo.contenido_aire}
                 <span className="text-sm font-normal text-stone-500 ml-1">%</span>
+                <UncertaintyBadge entry={publishedU?.AIRE ?? null} />
               </div>
             </div>
           </div>

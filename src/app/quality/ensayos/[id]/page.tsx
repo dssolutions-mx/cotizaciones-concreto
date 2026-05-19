@@ -256,6 +256,7 @@ export default function EnsayoDetailPage() {
   const router = useRouter()
   const { profile } = useAuthBridge()
   const [ensayo, setEnsayo] = useState<EnsayoWithRelations | null>(null)
+  const [publishedFCU, setPublishedFCU] = useState<{ u_expandida: number; k_factor: number; unidad: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [specsSheetOpen, setSpecsSheetOpen] = useState(false)
@@ -292,6 +293,15 @@ export default function EnsayoDetailPage() {
         setLoading(true)
         setError(null)
         await reload()
+        fetch('/api/ema/uncertainty/published')
+          .then((r) => r.json())
+          .then((j: { data?: Array<{ measurand?: { codigo: string }; u_expandida: number; k_factor: number; unidad: string }> } | Array<{ measurand?: { codigo: string }; u_expandida: number; k_factor: number; unidad: string }>) => {
+            const rows = Array.isArray(j) ? j : j.data
+            if (!Array.isArray(rows)) return
+            const fc = rows.find((row) => row.measurand?.codigo === 'FC')
+            if (fc) setPublishedFCU({ u_expandida: fc.u_expandida, k_factor: fc.k_factor, unidad: fc.unidad })
+          })
+          .catch(() => {})
       } catch (err) {
         console.error(err)
         setError('No se pudo cargar la información del ensayo')
@@ -675,6 +685,14 @@ export default function EnsayoDetailPage() {
                   {resistenciaCorregida.toFixed(2)}{' '}
                   <span className="text-sm font-normal text-stone-500">kg/cm²</span>
                 </p>
+                {publishedFCU && (
+                  <p
+                    className="text-xs text-stone-400 font-normal tabular-nums mt-0.5"
+                    title={`Incertidumbre expandida declarada §7.6 GUM — k=${publishedFCU.k_factor.toFixed(2)}`}
+                  >
+                    ± {publishedFCU.u_expandida} {publishedFCU.unidad}
+                  </p>
+                )}
               </div>
               <div className={cn('rounded-lg border p-3', compStyles.card)}>
                 <p className="text-xs font-medium text-stone-500">% Cumplimiento</p>
