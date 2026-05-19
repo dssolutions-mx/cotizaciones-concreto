@@ -57,7 +57,7 @@ export type MaterialEntryRaw = {
   pricing_status?: 'pending' | 'reviewed' | string | null;
 };
 
-const PRICE_ALERT_PCT = 10;
+export const PRICE_ALERT_PCT = 10;
 
 export const MATERIAL_COST_VIEW_ROLES = [
   'QUALITY_TEAM',
@@ -284,6 +284,25 @@ export type SeriesSummary = {
   lastSource: CostSource | null;
   lastPeriodStart: string | null;
   hasAlert: boolean;
+  /** Último punto es prolongación sin recepción nueva en el bucket */
+  lastCarriedForward: boolean;
+  /** Recepciones reales en el último bucket (0 si lista o carry-forward) */
+  lastBucketReceiptCount: number;
+};
+
+export type CostEntryException = {
+  id: string;
+  entry_number: string | null;
+  entry_date: string;
+  issue: 'pending_review' | 'missing_landed' | 'excluded_fifo';
+  qty_kg: number;
+};
+
+export type PriceJustification = {
+  headline: string;
+  formula: string;
+  bullets: string[];
+  caution?: string;
 };
 
 function meaningfulPoints(series: CostTrendPoint[]): CostTrendPoint[] {
@@ -300,6 +319,8 @@ export function summarizeSeries(series: CostTrendPoint[]): SeriesSummary {
       lastSource: null,
       lastPeriodStart: null,
       hasAlert: false,
+      lastCarriedForward: false,
+      lastBucketReceiptCount: 0,
     };
   }
   const last = valid[valid.length - 1];
@@ -320,6 +341,146 @@ export function summarizeSeries(series: CostTrendPoint[]): SeriesSummary {
     lastSource: last.source,
     lastPeriodStart: last.periodStart,
     hasAlert,
+    lastCarriedForward: last.carriedForward === true,
+    lastBucketReceiptCount: last.receiptCount ?? 0,
+  };
+}
+
+/** Entradas en el período que impiden costo confiable o requieren acción. */
+export function entriesToExceptionRows(
+  entries: MaterialEntryRaw[],
+  from?: string | null,
+  to?: string | null
+): CostEntryException[] {
+  const rows: CostEntryException[] = [];
+  for (const e of entries) {
+    if (!entryInDateWindow(e, from, to)) continue;
+    const qty = entryQtyKg(e);
+    if (qty <= 0) continue;
+
+    if (e.excluded_from_fifo === true) {
+      rows.push({
+        id: e.id,
+        entry_number: e.entry_number,
+        entry_date: (e.entry_date ?? '').slice(0, 10),
+        issue: 'excluded_fifo',
+        qty_kg: qty,
+      });
+      continue;
+    }
+    if (!isReviewedCostEntry(e)) {
+      rows.push({
+        id: e.id,
+        entry_number: e.entry_number,
+        entry_date: (e.entry_date ?? '').slice(0, 10),
+        issue: 'pending_review',
+        qty_kg: qty,
+      });
+      continue;
+    }
+    const landed = e.landed_unit_price != null ? Number(e.landed_unit_price) : null;
+    if (landed == null || !Number.isFinite(landed) || landed <= 0) {
+      rows.push({
+        id: e.id,
+        entry_number: e.entry_number,
+        entry_date: (e.entry_date ?? '').slice(0, 10),
+        issue: 'missing_landed',
+        qty_kg: qty,
+      });
+    }
+  }
+  return rows.sort((a, b) => b.entry_date.localeCompare(a.entry_date));
+}
+
+export function materialNeedsAttention(summary: {
+  hasAlert?: boolean;
+  pendingReviewInPeriod?: number;
+  missingLandedInPeriod?: number;
+  lastCarriedForward?: boolean;
+  receiptCountInPeriod?: number;
+  lastSource?: CostSource | null;
+}): boolean {
+  if (summary.hasAlert) return true;
+  if ((summary.pendingReviewInPeriod ?? 0) > 0) return true;
+  if ((summary.missingLandedInPeriod ?? 0) > 0) return true;
+  if (
+    summary.lastSource === 'receipt' &&
+    summary.lastCarriedForward &&
+    (summary.receiptCountInPeriod ?? 0) === 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function buildPriceJustification(
+  summary: SeriesSummary,
+  lastActualBucket: CostTrendPoint | null
+): PriceJustification | null {
+  if (summary.lastPrice == null || !summary.lastPeriodStart) return null;
+
+  const periodLabel = formatBucketLabel(
+    summary.lastPeriodStart,
+    lastActualBucket?.granularity ??
+      (summary.lastSource === 'list' ? 'month' : 'week')
+  );
+
+  if (summary.lastSource === 'list') {
+    return {
+      headline: `Precio de lista — ${periodLabel}`,
+      formula: 'Precio registrado en material_prices para el mes (MXN/kg).',
+      bullets: [
+        'Fuente: catálogo mensual de precios por planta (antes del corte operativo).',
+        'No incluye flete ni ajustes de recepción; es referencia de lista.',
+        summary.priorPrice != null
+          ? `Período anterior: ${formatPriceMxnKg(summary.priorPrice)}${
+              summary.pctChange != null
+                ? ` (${summary.pctChange > 0 ? '+' : ''}${summary.pctChange.toFixed(1)}%)`
+                : ''
+            }`
+          : 'Sin período anterior comparable en la serie.',
+      ],
+    };
+  }
+
+  if (summary.lastCarriedForward) {
+    return {
+      headline: `Último precio conocido — ${periodLabel}`,
+      formula: 'Sin recepciones revisadas en este bucket; se repite el último promedio landed.',
+      bullets: [
+        'El gráfico muestra línea plana hasta la siguiente recepción con precio revisado.',
+        'Revise entradas pendientes de revisión o sin landed en el período.',
+      ],
+      caution:
+        'El precio puede estar desactualizado si no hubo compras recientes.',
+    };
+  }
+
+  const bucket = lastActualBucket;
+  if (bucket && bucket.receiptCount && bucket.totalQtyKg) {
+    return {
+      headline: `Promedio ponderado landed — ${periodLabel}`,
+      formula: 'Σ (kg × landed_unit_price) ÷ Σ kg',
+      bullets: [
+        `${bucket.receiptCount} ${bucket.receiptCount > 1 ? 'recepciones' : 'recepción'} revisada${bucket.receiptCount > 1 ? 's' : ''} · ${bucket.totalQtyKg.toFixed(0)} kg`,
+        bucket.minPrice != null && bucket.maxPrice != null
+          ? `Rango en el período: ${formatPriceMxnKg(bucket.minPrice)} – ${formatPriceMxnKg(bucket.maxPrice)}`
+          : 'Solo entradas con pricing_status = reviewed y landed > 0.',
+        summary.priorPrice != null
+          ? `vs período anterior: ${formatPriceMxnKg(summary.priorPrice)} → ${formatPriceMxnKg(summary.lastPrice)}`
+          : 'Primer bucket con recepciones en la serie visible.',
+      ],
+      caution:
+        summary.hasAlert
+          ? `Variación ≥${PRICE_ALERT_PCT}% respecto al período anterior.`
+          : undefined,
+    };
+  }
+
+  return {
+    headline: `Precio de recepción — ${periodLabel}`,
+    formula: 'Promedio de entradas revisadas en el período.',
+    bullets: ['Fuente: material_entries.landed_unit_price (compras revisadas).'],
   };
 }
 

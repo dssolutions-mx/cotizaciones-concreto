@@ -17,9 +17,10 @@ export type MaterialCostSummaryRow = {
 
 type Props = {
   materials: MaterialCostSummaryRow[];
+  periodLabel?: string;
 };
 
-export default function MaterialCostKpiStrip({ materials }: Props) {
+export default function MaterialCostKpiStrip({ materials, periodLabel }: Props) {
   const total = materials.length;
   const withReceipts = materials.filter((m) => m.receiptCountInPeriod > 0).length;
   const missingLanded = materials.reduce((s, m) => s + m.missingLandedInPeriod, 0);
@@ -75,6 +76,10 @@ export default function MaterialCostKpiStrip({ materials }: Props) {
   ];
 
   return (
+    <div className="space-y-2">
+      {periodLabel && (
+        <p className="text-xs text-stone-500">Resumen del período {periodLabel}</p>
+      )}
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {cards.map((card) => {
         const s = qualityHubSummaryStatusMap[card.status];
@@ -93,6 +98,7 @@ export default function MaterialCostKpiStrip({ materials }: Props) {
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
