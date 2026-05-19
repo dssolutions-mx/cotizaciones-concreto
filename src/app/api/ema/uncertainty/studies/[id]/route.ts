@@ -48,6 +48,7 @@ export async function PATCH(
       notas?: string | null;
       plant_id?: string | null;
       equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[] } | null;
+      env_overrides?: Record<string, number> | null;
     } = {};
     if ('notas' in body) fields.notas = body.notas ?? null;
     if ('plant_id' in body) fields.plant_id = body.plant_id ?? null;
@@ -61,6 +62,17 @@ export async function PATCH(
           ? pool.instrumento_ids.filter((id): id is string => typeof id === 'string')
           : [],
       };
+    }
+    if ('env_overrides' in body) {
+      if (body.env_overrides == null) {
+        fields.env_overrides = null;
+      } else if (typeof body.env_overrides === 'object' && !Array.isArray(body.env_overrides)) {
+        const overrides: Record<string, number> = {};
+        for (const [k, v] of Object.entries(body.env_overrides as Record<string, unknown>)) {
+          if (typeof v === 'number' && isFinite(v) && v > 0) overrides[k] = v;
+        }
+        fields.env_overrides = Object.keys(overrides).length > 0 ? overrides : null;
+      }
     }
     if (Object.keys(fields).length > 0) {
       await updateStudyFields(id, fields);

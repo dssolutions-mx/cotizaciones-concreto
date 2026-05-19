@@ -2,8 +2,10 @@
 
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { RotateCcw } from 'lucide-react'
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import { EmaUncertaintyMeasurandPanel } from '@/components/ema/uncertainty/EmaUncertaintyMeasurandPanel'
 import { EmaUncertaintyReplicaSetupTable } from '@/components/ema/uncertainty/EmaUncertaintyReplicaSetupTable'
@@ -27,7 +29,23 @@ const KIND_CLASS: Record<string, string> = {
   systematic: 'bg-orange-100 text-orange-700',
 }
 
-function AutoContributorRow({ inp }: { inp: UncertaintyMeasurandInput }) {
+function AutoContributorRow({
+  inp,
+  overrideValue,
+  isLocked,
+  onOverrideChange,
+  onReset,
+}: {
+  inp: UncertaintyMeasurandInput
+  overrideValue: number | null
+  isLocked: boolean
+  onOverrideChange: (simbolo: string, value: number | null) => void
+  onReset: (simbolo: string) => void
+}) {
+  const defaultVal = inp.default_semiamplitud
+  const displayVal = overrideValue ?? defaultVal
+  const isOverridden = overrideValue !== null
+
   return (
     <tr className="hover:bg-stone-50">
       <td className="px-3 py-1.5 font-mono text-xs text-stone-700">{inp.simbolo}</td>
@@ -37,10 +55,40 @@ function AutoContributorRow({ inp }: { inp: UncertaintyMeasurandInput }) {
           {KIND_LABEL[inp.kind] ?? inp.kind}
         </span>
       </td>
-      <td className="px-3 py-1.5 text-right font-mono text-xs text-stone-600">
-        {inp.default_semiamplitud != null
-          ? `±${inp.default_semiamplitud} ${inp.unidad}`
-          : <span className="text-stone-400">del certif.</span>}
+      <td className="px-3 py-2 text-right">
+        {isLocked ? (
+          <span className={`font-mono text-xs ${isOverridden ? 'font-semibold text-amber-700' : 'text-stone-600'}`}>
+            {displayVal != null ? `±${displayVal}` : <span className="text-stone-400">del certif.</span>}
+            {inp.unidad ? ` ${inp.unidad}` : ''}
+            {isOverridden && <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] text-amber-700">modificado</span>}
+          </span>
+        ) : (
+          <div className="flex items-center justify-end gap-1">
+            <Input
+              type="number"
+              step="any"
+              min="0"
+              className="h-6 w-24 text-right text-xs"
+              value={displayVal ?? ''}
+              placeholder={defaultVal != null ? String(defaultVal) : ''}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                onOverrideChange(inp.simbolo, isNaN(v) || v <= 0 ? null : v)
+              }}
+            />
+            {inp.unidad && <span className="text-[11px] text-stone-500 whitespace-nowrap">{inp.unidad}</span>}
+            {isOverridden && (
+              <button
+                type="button"
+                title="Restaurar valor de norma"
+                onClick={() => onReset(inp.simbolo)}
+                className="text-stone-400 hover:text-stone-600"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
       </td>
       <td className="px-3 py-1.5 text-center">
         <EmaNormReferenceChip ref_norma={inp.norma_ref ?? 'GUM §4.3.6'} formula_display={inp.descripcion ?? undefined} />
@@ -80,6 +128,10 @@ export function EmaUncertaintyStudyConfig({
   )
   const [notas, setNotas] = useState(study.notas ?? '')
   const [saving, setSaving] = useState(false)
+  const [envOverrides, setEnvOverrides] = useState<Record<string, number>>(
+    (study.env_overrides as Record<string, number>) ?? {},
+  )
+  const [overrideSaving, setOverrideSaving] = useState(false)
 
   async function saveNotes() {
     setSaving(true)
@@ -96,6 +148,37 @@ export function EmaUncertaintyStudyConfig({
     } finally {
       setSaving(false)
     }
+  }
+
+  async function patchEnvOverrides(next: Record<string, number>) {
+    setOverrideSaving(true)
+    try {
+      const res = await fetch(`/api/ema/uncertainty/studies/${study.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ env_overrides: Object.keys(next).length > 0 ? next : null }),
+      })
+      if (!res.ok) throw new Error('Error guardando condiciones')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error')
+    } finally {
+      setOverrideSaving(false)
+    }
+  }
+
+  function handleOverrideChange(simbolo: string, value: number | null) {
+    const next = { ...envOverrides }
+    if (value == null) {
+      delete next[simbolo]
+    } else {
+      next[simbolo] = value
+    }
+    setEnvOverrides(next)
+    patchEnvOverrides(next)
+  }
+
+  function handleOverrideReset(simbolo: string) {
+    handleOverrideChange(simbolo, null)
   }
 
   return (
@@ -151,13 +234,15 @@ export function EmaUncertaintyStudyConfig({
 
       {autoContributors.length > 0 && (
         <section>
-          <h3 className="text-sm font-semibold text-stone-800">
-            Contribuyentes automáticos (Tipo B)
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-stone-800">
+              Condiciones del ensayo — contribuyentes Tipo B
+            </h3>
+            {overrideSaving && <span className="text-[10px] text-stone-400">Guardando…</span>}
+          </div>
           <p className="mt-0.5 text-xs text-stone-500">
-            Incluidos automáticamente en el presupuesto por la norma. Las semi-amplitudes por defecto
-            provienen del catálogo; el laboratorio puede justificar un valor alternativo en el campo
-            de notas.
+            Semi-amplitudes por defecto según la norma citada. Edite solo si las condiciones del ensayo
+            difieren del valor típico (p. ej. temperatura ambiente inusualmente alta).
           </p>
           <div className="mt-2 overflow-hidden rounded-lg border border-stone-200">
             <table className="w-full text-left">
@@ -166,13 +251,20 @@ export function EmaUncertaintyStudyConfig({
                   <th className="w-20 px-3 py-2">Símbolo</th>
                   <th className="px-3 py-2">Fuente</th>
                   <th className="w-28 px-3 py-2 text-center">Categoría</th>
-                  <th className="w-32 px-3 py-2 text-right">Semi-amplitud</th>
+                  <th className="w-40 px-3 py-2 text-right" title="Semi-amplitud ±a de la distribución rectangular. Modifique si las condiciones del día difieren del valor típico.">Semi-amplitud ±a</th>
                   <th className="w-24 px-3 py-2 text-center">Norma</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {autoContributors.map((inp) => (
-                  <AutoContributorRow key={inp.id} inp={inp} />
+                  <AutoContributorRow
+                    key={inp.id}
+                    inp={inp}
+                    overrideValue={envOverrides[inp.simbolo] ?? null}
+                    isLocked={isLocked}
+                    onOverrideChange={handleOverrideChange}
+                    onReset={handleOverrideReset}
+                  />
                 ))}
               </tbody>
             </table>

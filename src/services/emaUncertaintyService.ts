@@ -44,7 +44,7 @@ export async function listMeasurands(): Promise<UncertaintyMeasurand[]> {
   if (error) throw error;
   // Fetch inputs separately to avoid PostgREST FK schema-cache dependency
   const ids = (data ?? []).map((m) => m.id as string);
-  if (ids.length === 0) return (data ?? []) as UncertaintyMeasurand[];
+  if (ids.length === 0) return (data ?? []) as unknown as UncertaintyMeasurand[];
   const { data: inputs } = await supabase
     .from('ema_uncertainty_measurand_inputs')
     .select('*')
@@ -59,7 +59,7 @@ export async function listMeasurands(): Promise<UncertaintyMeasurand[]> {
   return (data ?? []).map((m) => ({
     ...m,
     inputs: inputsByMeasurand.get(m.id as string) ?? [],
-  })) as UncertaintyMeasurand[];
+  })) as unknown as UncertaintyMeasurand[];
 }
 
 export async function getMeasurandByCodigo(
@@ -77,7 +77,7 @@ export async function getMeasurandByCodigo(
     .select('*')
     .eq('measurand_id', (data as { id: string }).id)
     .order('orden');
-  return { ...data, inputs: inputs ?? [] } as UncertaintyMeasurand;
+  return { ...data, inputs: inputs ?? [] } as unknown as UncertaintyMeasurand;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ export async function listPublishedU(): Promise<UncertaintyPublished[]> {
     ...r,
     measurand: mById.get((r as { measurand_id: string }).measurand_id) ?? null,
     study: sById.get((r as { study_id: string }).study_id) ?? null,
-  })) as UncertaintyPublished[];
+  })) as unknown as UncertaintyPublished[];
 }
 
 export async function getDeclaredUForMeasurand(
@@ -279,7 +279,7 @@ export async function getStudy(id: string): Promise<UncertaintyStudy | null> {
     measurand: measurand ? { ...measurand, inputs: rawInputs ?? [] } : null,
     replicas,
     budget: budget ?? null,
-  } as UncertaintyStudy;
+  } as unknown as UncertaintyStudy;
 }
 
 export async function createStudy(
@@ -336,6 +336,7 @@ export async function updateStudyFields(
     notas?: string | null;
     plant_id?: string | null;
     equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[] } | null;
+    env_overrides?: Record<string, number> | null;
   },
 ): Promise<void> {
   const supabase = await createClient();
@@ -343,7 +344,9 @@ export async function updateStudyFields(
   if ('notas' in fields) patch.notas = fields.notas ?? null;
   if ('plant_id' in fields) patch.plant_id = fields.plant_id ?? null;
   if ('equipo_pool_json' in fields) patch.equipo_pool_json = fields.equipo_pool_json ?? null;
-  const { error } = await supabase.from('ema_uncertainty_studies').update(patch).eq('id', id);
+  if ('env_overrides' in fields) patch.env_overrides = fields.env_overrides ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await supabase.from('ema_uncertainty_studies').update(patch as any).eq('id', id);
   if (error) throw error;
 }
 
@@ -647,14 +650,16 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       i.default_semiamplitud !== null &&
       i.default_semiamplitud > 0,
   );
+  const envOverrides = study.env_overrides ?? {};
   for (const inp of envInputs) {
+    const halfWidth = envOverrides[inp.simbolo] ?? inp.default_semiamplitud!;
     typeBInputs.push({
       fuente: inp.nombre_display,
       magnitud_xi: inp.simbolo,
       unidad: inp.unidad,
       valor_xi: 0,
       kind: 'rectangular',
-      halfWidth: inp.default_semiamplitud!,
+      halfWidth,
       norma_ref_override: inp.norma_ref ?? 'GUM §4.3.6',
       descripcion: inp.descripcion ?? undefined,
       categoria: inp.kind === 'environmental'
@@ -905,7 +910,7 @@ export async function publishStudy(
   // 1. Upsert frozen budget (idempotent — safe to retry)
   await supabase.from('ema_uncertainty_study_budget').upsert({
     study_id: studyId,
-    presupuesto_json: budget.components,
+    presupuesto_json: budget.components as unknown as import('@/types/database.types').Json,
     mean_value: budget.mean_value,
     u_repeatability: budget.components.find((c) => c.tipo === 'A')?.ui_y ?? null,
     u_resolucion:

@@ -89,7 +89,7 @@ export function EmaUncertaintyBudgetTable({
               <th className="px-3 py-2 text-left">Fuente</th>
               <th className="px-3 py-2 text-center">Categoría</th>
               <th className="px-3 py-2 text-left">Magnitud Xᵢ</th>
-              <th className="px-3 py-2 text-right">Valor xᵢ</th>
+              <th className="px-3 py-2 text-right" title="Para Tipo B rectangular = semi-amplitud ±a. Para medidas = valor medio estimado.">Valor xᵢ</th>
               <th className="px-3 py-2 text-right">u(xᵢ)</th>
               <th className="px-3 py-2 text-center">Tipo</th>
               <th className="px-3 py-2 text-center">Distribución</th>
@@ -162,6 +162,18 @@ export function EmaUncertaintyBudgetTable({
             Incertidumbre relativa: <strong>{U_rel_pct.toFixed(2)} %</strong>
           </p>
         )}
+        {(() => {
+          const typeAComp = components.find((c) => c.tipo === 'A');
+          const nuA = typeAComp?.nu;
+          if (nuA == null || !isFinite(nuA) || nu_eff < nuA * 2) return null;
+          return (
+            <p className="mt-1 text-[10px] text-blue-500">
+              νeff ({fmtFixed(nu_eff, 1)}) &gt; ν_A ({nuA}) porque las fuentes Tipo B tienen ν = ∞; su peso diluye el
+              término finito en Welch–Satterthwaite — resultado correcto (GUM Anex. G.4). Con fuentes Tipo B
+              dominantes, k tiende a 2 en lugar de t&#8203;_{'{n−1}'}.
+            </p>
+          );
+        })()}
         <p className="mt-1 text-[10px] text-blue-500">
           Nivel de confianza ≈ 95 % (k de distribución t de Student para νeff). Ref: GUM §6.3.
         </p>
@@ -203,6 +215,13 @@ function BudgetRow({
   const fmt = (n: number) => n.toExponential(4)
   const fmtFixed = (n: number) => n.toFixed(4)
 
+  // For Type B rectangular, show ±a (semi-amplitude = u·√3) instead of the best-estimate value (0).
+  // This makes the physical meaning clear: the prior covers ±a around the nominal.
+  const isRectangularB = c.tipo === 'B' && c.distribucion === 'rectangular'
+  const valorDisplay = isRectangularB
+    ? `±${fmtFixed(c.u_xi * Math.sqrt(3))}`
+    : fmtFixed(c.valor_xi)
+
   return (
     <tr className="hover:bg-stone-50">
       <td className="px-3 py-1.5 text-stone-700">{c.fuente}</td>
@@ -211,7 +230,7 @@ function BudgetRow({
       </td>
       <td className="px-3 py-1.5 font-mono text-stone-600">{c.magnitud_xi}</td>
       <td className="px-3 py-1.5 text-right font-mono text-stone-600">
-        {fmtFixed(c.valor_xi)}
+        {valorDisplay}
       </td>
       <td className="px-3 py-1.5 text-right font-mono text-stone-700">{fmt(c.u_xi)}</td>
       <td className="px-3 py-1.5 text-center">

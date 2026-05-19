@@ -104,6 +104,7 @@ export interface UncertaintyStudy {
   documento_codigo: string | null;
   notas: string | null;
   equipo_pool_json?: UncertaintyEquipoPool | null;
+  env_overrides?: Record<string, number> | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;

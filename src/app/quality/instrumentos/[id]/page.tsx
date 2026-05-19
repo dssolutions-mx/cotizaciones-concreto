@@ -564,7 +564,12 @@ function TraceabilityCard({
         <TraceNode
           title={`Este instrumento (Tipo ${tipo})`}
           subtitle={instrumento.nombre}
-          detail={instrumento.codigo}
+          detail={[
+            instrumento.codigo,
+            tipo === 'C' && instrumento.incertidumbre_expandida != null
+              ? `U = ±${instrumento.incertidumbre_expandida}${instrumento.incertidumbre_unidad ? ` ${instrumento.incertidumbre_unidad}` : ''}${instrumento.incertidumbre_k != null ? ` (k=${instrumento.incertidumbre_k})` : ''}`
+              : null,
+          ].filter(Boolean).join(' · ')}
           status={instrumento.estado === 'vigente' ? 'vigente' : instrumento.estado === 'proximo_vencer' ? 'warning' : 'vencido'}
           accent={tipo === 'A' ? 'sky' : tipo === 'C' ? 'stone' : tipo === 'D' ? 'emerald' : 'violet'}
           isHighlighted
@@ -590,29 +595,46 @@ function TraceabilityCard({
       </div>
 
       <div
-        className="mt-4 rounded-md border border-stone-100 bg-stone-50/90 px-3 py-2.5 text-xs text-stone-700 space-y-2"
+        className="mt-4 rounded-md border border-stone-100 bg-stone-50/90 px-3 py-2.5 text-xs text-stone-700 space-y-1.5"
         role="region"
-        aria-label="Guía de incertidumbre y verificación"
+        aria-label="Incertidumbre del instrumento"
       >
-        <p className="font-medium text-stone-800">Incertidumbre y cumplimiento (referencia NMX-EC-17025-IMNC)</p>
-        <ul className="list-disc pl-4 space-y-1 text-stone-600 leading-relaxed">
-          <li>
-            <strong>U</strong> (incertidumbre expandida) y <strong>k</strong> (factor de cobertura) provienen del{' '}
-            <strong>certificado del laboratorio acreditado</strong>; al registrar el certificado, la ficha del
-            instrumento se sincroniza con esos valores para cálculos internos (p. ej. cociente TUR orientativo en
-            verificaciones tipo C). Si el certificado da <strong>U(L)</strong> según la longitud, use un valor{' '}
-            <strong>único coherente con el intervalo</strong> (p. ej. U en el extremo superior del rango), en la misma
-            unidad que registre.
-          </li>
-          <li>
-            Puede ajustar manualmente U, k y unidad en <strong>Editar</strong> (tipos A y B) si el laboratorio emite
-            correcciones sin reemplazar aún el PDF en el sistema.
-          </li>
-          <li>
-            Los cocientes <strong>TUR</strong> mostrados en verificación son <strong>indicativos</strong>: dependen de
-            la tolerancia detectada en la plantilla y no sustituyen el dictamen metrológico del laboratorio.
-          </li>
-        </ul>
+        <p className="font-medium text-stone-700">Incertidumbre expandida — NMX-EC-17025-IMNC §7.6</p>
+
+        {/* Tipo A / B: from external certificate */}
+        {(tipo === 'A' || tipo === 'B') && (
+          instrumento.incertidumbre_expandida != null ? (
+            <p className="text-stone-700">
+              <span className="font-semibold">
+                U = ±{instrumento.incertidumbre_expandida}
+                {instrumento.incertidumbre_unidad ? ` ${instrumento.incertidumbre_unidad}` : ''}
+                {instrumento.incertidumbre_k != null ? ` (k = ${instrumento.incertidumbre_k})` : ''}
+              </span>
+              {' '}· del certificado del laboratorio EMA acreditado.
+            </p>
+          ) : (
+            <p className="text-stone-500">Sin U declarada — registre el certificado de calibración para sincronizar.</p>
+          )
+        )}
+
+        {/* Tipo C: from internal verification GUM budget */}
+        {tipo === 'C' && (
+          instrumento.incertidumbre_expandida != null ? (
+            <p className="text-stone-700">
+              <span className="font-semibold">
+                U = ±{instrumento.incertidumbre_expandida}
+                {instrumento.incertidumbre_unidad ? ` ${instrumento.incertidumbre_unidad}` : ''}
+                {instrumento.incertidumbre_k != null ? ` (k = ${instrumento.incertidumbre_k})` : ''}
+              </span>
+              {' '}· calculada del presupuesto GUM de la última verificación interna.
+            </p>
+          ) : (
+            <p className="text-stone-500">
+              U se calcula automáticamente al cerrar la primera verificación interna y aparecerá aquí y estará
+              disponible en estudios de incertidumbre.
+            </p>
+          )
+        )}
       </div>
     </section>
   )

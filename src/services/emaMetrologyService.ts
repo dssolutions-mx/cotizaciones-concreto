@@ -236,13 +236,15 @@ async function computeAndPersistVerificationGumBudget(
   if (maestroId) {
     const { data: maestroRow } = await admin
       .from('instrumentos')
-      .select('categoria')
+      .select('conjuntos_herramientas(categoria)')
       .eq('id', maestroId)
       .maybeSingle();
-    if (maestroRow?.categoria) {
+    const maestroCategoria = (maestroRow as { conjuntos_herramientas?: { categoria?: string } | null } | null)
+      ?.conjuntos_herramientas?.categoria;
+    if (maestroCategoria) {
       divMinStandard =
         (condicionesAmbientales?.div_min_patron as number | undefined) ??
-        CATEGORIA_DIV_MIN[maestroRow.categoria as string] ??
+        CATEGORIA_DIV_MIN[maestroCategoria] ??
         0.05;
     }
   }
@@ -328,6 +330,19 @@ async function computeAndPersistVerificationGumBudget(
       .slice(0, 10),
     notas: `νeff=${budget.nu_eff.toFixed(1)}, k=${budget.k.toFixed(3)}, U=${budget.U.toExponential(4)} ${unidad}`,
   });
+
+  // 8. Sync U directly onto instrumentos so the ficha shows U immediately
+  const { error: syncErr } = await admin
+    .from('instrumentos')
+    .update({
+      incertidumbre_expandida: budget.U,
+      incertidumbre_k: budget.k,
+      incertidumbre_unidad: unidad,
+    })
+    .eq('id', instrumento.id);
+  if (syncErr) {
+    console.warn('[GUM write-back] failed to sync U to instrumentos:', syncErr.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +368,7 @@ export async function persistMetrologiaTurOnVerificationClose(
 
   const { data: inst, error: iErr } = await admin
     .from('instrumentos')
-    .select('id, tipo, categoria, incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad')
+    .select('id, tipo, incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad, conjuntos_herramientas(categoria)')
     .eq('id', verif.instrumento_id)
     .maybeSingle();
   if (iErr) throw iErr;
@@ -361,6 +376,15 @@ export async function persistMetrologiaTurOnVerificationClose(
   if ((inst as { tipo?: string } | null)?.tipo !== 'C') {
     return;
   }
+
+  const instrMeta: InstrumentoMeta = {
+    id: inst!.id,
+    categoria: (inst as { conjuntos_herramientas?: { categoria?: string } | null } | null)
+      ?.conjuntos_herramientas?.categoria ?? '',
+    incertidumbre_expandida: inst!.incertidumbre_expandida ?? null,
+    incertidumbre_k: inst!.incertidumbre_k ?? null,
+    incertidumbre_unidad: inst!.incertidumbre_unidad ?? null,
+  };
 
   const { data: version, error: verErr } = await admin
     .from('verificacion_template_versions')
@@ -399,7 +423,6 @@ export async function persistMetrologiaTurOnVerificationClose(
     if (uErr) throw uErr;
     // Still attempt GUM budget with whatever maestro is linked
     if (snap && inst) {
-      const instrMeta = inst as InstrumentoMeta;
       await computeAndPersistVerificationGumBudget(
         admin,
         completedId,
@@ -466,7 +489,6 @@ export async function persistMetrologiaTurOnVerificationClose(
 
   // GUM budget — runs after TUR; overwrites presupuesto_json with full component array
   if (snap && inst) {
-    const instrMeta = inst as InstrumentoMeta;
     await computeAndPersistVerificationGumBudget(
       admin,
       completedId,
