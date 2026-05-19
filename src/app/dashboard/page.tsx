@@ -1,36 +1,44 @@
 'use client';
 
-import React, { ReactNode, Suspense } from 'react';
+import React, { ReactNode, Suspense, useMemo } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { 
-  FileText, 
-  TrendingUp, 
-  Users, 
-  Beaker, 
-  Clock, 
+import {
+  FileText,
+  TrendingUp,
+  Users,
+  Beaker,
   ExternalLink,
   DollarSign,
   AlertTriangle,
-  Calendar
+  Calendar,
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
-
-// Componentes
 import { ApprovalTasksSection } from '@/components/dashboard/ApprovalTasksSection';
+import { PersonalizedDashboardHeader } from '@/components/dashboard/PersonalizedDashboardHeader';
+import { RoleQuickActions } from '@/components/dashboard/RoleQuickActions';
+import { PlantComparisonTable } from '@/components/dashboard/PlantComparisonTable';
 import { Badge } from '@/components/ui/badge';
-import { 
-  LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
 } from 'recharts';
-
-// Add SWR for data fetching with caching
 import useSWR from 'swr';
+import {
+  getRoleDashboardConfig,
+  METRIC_DEFINITIONS,
+  type DashboardMetricKey,
+} from '@/lib/dashboard/dashboard-config';
+import { resolveDashboardScope } from '@/lib/dashboard/resolve-dashboard-scope';
+import type { UserRole } from '@/store/auth/types';
 
-// Interface definitions
 interface PendingQuote {
   id: string | number;
   client: string;
@@ -41,25 +49,17 @@ interface PendingQuote {
   recipeSummary?: string;
 }
 
-// Enhanced dashboard metrics interface
 interface DashboardData {
   metrics: {
-    // Core metrics (removed activeRecipes and quality metrics)
     monthlyQuotes: number;
     monthlySales: number;
     activeClients: number;
-    
-    // Growth metrics
     quoteGrowth: number;
     salesGrowth: number;
     clientGrowth: number;
-    
-    // Financial metrics
     totalOutstandingBalance: number;
     monthlyRevenue: number;
     pendingCreditOrders: number;
-    
-    // Operational metrics
     pendingQuotes: number;
     todayOrders: number;
   };
@@ -67,16 +67,12 @@ interface DashboardData {
   lastUpdated: string;
 }
 
-// Create a simple fetcher function for SWR
 const fetcher = async (url: string) => {
   const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error('Failed to fetch data');
-  }
+  if (!response.ok) throw new Error('Failed to fetch data');
   return response.json();
 };
 
-// Define component prop types
 interface MetricsCardProps {
   title: string;
   value: number | string;
@@ -84,161 +80,128 @@ interface MetricsCardProps {
   icon: ReactNode;
   isLoading: boolean;
   suffix?: string;
-  colorScheme?: 'green' | 'blue' | 'yellow' | 'red' | 'purple';
 }
 
-// Define component prop types
-interface ChartProps {
-  isLoading: boolean;
-}
-
-// Separate dashboard into smaller components for better performance
-const MetricsCard = ({ title, value, growth, icon, isLoading, suffix = '', colorScheme = 'green' }: MetricsCardProps) => {
-  const itemVariants = {
-    hidden: { y: 20, opacity: 0 },
-    visible: { 
-      y: 0, 
-      opacity: 1,
-      transition: { 
-        type: 'spring',
-        stiffness: 200,
-        damping: 20
-      } 
-    }
-  };
-
+const MetricsCard = ({
+  title,
+  value,
+  growth,
+  icon,
+  isLoading,
+  suffix = '',
+}: MetricsCardProps) => {
   if (isLoading) {
     return (
-      <motion.div 
-        className="glass-base rounded-2xl p-6"
-        variants={itemVariants}
-      >
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        </div>
-      </motion.div>
+      <div className="glass-base rounded-2xl p-6">
+        <motion.div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-2/3 mb-2" />
+          <motion.div className="h-8 bg-gray-200 rounded w-1/3 mb-2" />
+          <div className="h-4 bg-gray-200 rounded w-1/2" />
+        </motion.div>
+      </div>
     );
   }
 
-  // Format value for display
   const formatValue = (val: number | string): string => {
     if (typeof val === 'string') return val;
-    if (suffix === '$') {
-      return `$${val.toLocaleString('es-MX')}`;
-    }
+    if (suffix === '$') return `$${val.toLocaleString('es-MX')}`;
     return val.toLocaleString('es-MX');
   };
 
   return (
-    <motion.div 
+    <motion.div
       className="glass-base rounded-2xl p-6 @container"
-      variants={itemVariants}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
     >
       <div className="flex justify-between items-start">
         <div>
           <p className="text-gray-500 text-sm @lg:text-base">{title}</p>
           <h3 className="text-2xl font-bold text-gray-800 mt-1 @lg:text-3xl">
-            {formatValue(value)}{suffix !== '$' ? suffix : ''}
+            {formatValue(value)}
+            {suffix !== '$' ? suffix : ''}
           </h3>
           {growth !== undefined && (
-            <p className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2 @lg:text-base`}>
-              <span>
-                {growth >= 0 ? '↑' : '↓'} {Math.abs(growth)}%
-              </span> 
+            <p
+              className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2`}
+            >
+              {growth >= 0 ? '↑' : '↓'} {Math.abs(growth)}%
               <span className="text-gray-400 ml-1">vs mes anterior</span>
             </p>
           )}
         </div>
-        <div className="rounded-xl bg-primary/10 p-2">
-          {icon}
-        </div>
+        <div className="rounded-xl bg-primary/10 p-2">{icon}</div>
       </div>
     </motion.div>
   );
 };
 
-// Create a separate async API route for dashboard data
-// This will allow us to fetch everything in parallel and cache it
-const useDashboardData = () => {
-  const { currentPlant } = usePlantContext();
-  
-  const { data, error, isLoading } = useSWR(
-    currentPlant?.id ? `/api/dashboard?plant_id=${currentPlant.id}` : '/api/dashboard', 
-    fetcher, 
-    {
-      revalidateOnFocus: false,
-      revalidateIfStale: false,
-      dedupingInterval: 1000 * 60 * 5, // Cache for 5 minutes
-    }
-  );
-
-  return {
-    dashboardData: data as DashboardData | undefined,
-    isLoading,
-    isError: error
-  };
+const METRIC_ICONS: Record<DashboardMetricKey, ReactNode> = {
+  monthlyQuotes: <FileText className="h-6 w-6 text-primary" />,
+  monthlySales: <TrendingUp className="h-6 w-6 text-primary" />,
+  activeClients: <Users className="h-6 w-6 text-primary" />,
+  pendingCreditOrders: <AlertTriangle className="h-6 w-6 text-primary" />,
+  todayOrders: <Calendar className="h-6 w-6 text-primary" />,
+  totalOutstandingBalance: <DollarSign className="h-6 w-6 text-primary" />,
+  pendingQuotes: <FileText className="h-6 w-6 text-primary" />,
 };
 
-// Create individual data hooks for each section to allow lazy loading
-const useQuotesData = () => {
-  const { currentPlant } = usePlantContext();
-  
-  const { data, error, isLoading } = useSWR(
-    currentPlant?.id ? `/api/dashboard/quotes?plant_id=${currentPlant.id}` : '/api/dashboard/quotes', 
-    fetcher, 
-    {
-      revalidateOnFocus: false,
-      revalidateIfStale: false,
-      dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
-    }
-  );
+function useDashboardData(plantId?: string | null) {
+  const url = plantId ? `/api/dashboard?plant_id=${plantId}` : '/api/dashboard';
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 1000 * 60 * 5,
+  });
+  return { dashboardData: data as DashboardData | undefined, isLoading, isError: error };
+}
 
+function useQuotesData(plantId?: string | null) {
+  const url = plantId ? `/api/dashboard/quotes?plant_id=${plantId}` : '/api/dashboard/quotes';
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 1000 * 60 * 10,
+  });
   return {
-    quotesData: data?.quotesData || [],
     pendingQuotes: data?.pendingQuotes || [],
     isLoading,
-    isError: error
+    isError: error,
   };
-};
+}
 
-const useSalesData = () => {
-  const { currentPlant } = usePlantContext();
-  
-  const { data, error, isLoading } = useSWR(
-    currentPlant?.id ? `/api/dashboard/sales?plant_id=${currentPlant.id}` : '/api/dashboard/sales', 
-    fetcher, 
-    {
-      revalidateOnFocus: false,
-      revalidateIfStale: false,
-      dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
-    }
+function useSalesData(plantId?: string | null) {
+  const url = plantId ? `/api/dashboard/sales?plant_id=${plantId}` : '/api/dashboard/sales';
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 1000 * 60 * 10,
+  });
+  return { salesData: data?.salesData || [], isLoading, isError: error };
+}
+
+function useByPlantTotals(enabled: boolean) {
+  const { data, isLoading } = useSWR(
+    enabled ? '/api/dashboard/by-plant' : null,
+    fetcher,
+    { revalidateOnFocus: false, dedupingInterval: 1000 * 60 * 5 }
   );
+  return { totals: data?.totals as Record<string, number> | null, isLoading };
+}
 
-  return {
-    salesData: data?.salesData || [],
-    isLoading,
-    isError: error
-  };
-};
+function SalesChart({
+  isLoading,
+  plantId,
+}: {
+  isLoading: boolean;
+  plantId?: string | null;
+}) {
+  const { salesData, isError } = useSalesData(plantId);
 
-// Lazy-loaded components
-const SalesChart = ({ isLoading }: ChartProps) => {
-  const { salesData, isError } = useSalesData();
-  
   if (isLoading) {
-    return (
-      <div className="h-80 flex items-center justify-center">
-        <div className="animate-pulse w-full h-64 bg-gray-200 rounded"></div>
-      </div>
-    );
+    return <div className="animate-pulse w-full h-64 bg-gray-200 rounded" />;
   }
-  
   if (isError) {
     return <div className="text-red-500">Error al cargar datos de ventas</div>;
   }
-  
+
   return (
     <div className="h-80">
       <ResponsiveContainer width="100%" height="100%">
@@ -248,44 +211,39 @@ const SalesChart = ({ isLoading }: ChartProps) => {
           <YAxis />
           <Tooltip />
           <Legend />
-          <Line 
-            type="monotone" 
-            dataKey="value" 
-            stroke="#22c55e" 
-            strokeWidth={2} 
-            activeDot={{ r: 8 }} 
-          />
+          <Line type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={2} activeDot={{ r: 8 }} />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
-};
+}
 
-const PendingQuotesList = ({ isLoading }: ChartProps) => {
-  const { pendingQuotes, isError } = useQuotesData();
+function PendingQuotesList({
+  isLoading,
+  plantId,
+}: {
+  isLoading: boolean;
+  plantId?: string | null;
+}) {
+  const { pendingQuotes, isError } = useQuotesData(plantId);
   const displayQuotes = (pendingQuotes || []).slice(0, 5);
-  
+
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        {[1, 2, 3, 4, 5].map((index) => (
-          <div key={index} className="flex items-center justify-between animate-pulse py-2">
-            <div className="h-4 bg-gray-200 rounded w-1/3"></div>
-            <div className="h-4 bg-gray-200 rounded w-16"></div>
-          </div>
+      <motion.div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-10 bg-gray-200 rounded animate-pulse" />
         ))}
-      </div>
+      </motion.div>
     );
   }
-  
   if (isError) {
-    return <div className="text-red-500">Error al cargar cotizaciones pendientes</div>;
+    return <motion.div className="text-red-500">Error al cargar cotizaciones</motion.div>;
   }
-  
   if (displayQuotes.length === 0) {
     return <p className="text-footnote text-muted-foreground py-4">No hay cotizaciones pendientes</p>;
   }
-  
+
   return (
     <div className="space-y-2">
       {displayQuotes.map((quote: PendingQuote) => (
@@ -310,136 +268,141 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
       ))}
     </div>
   );
-};
+}
 
-// Create a DashboardContent component to be wrapped in Suspense
 function DashboardContent() {
   const { profile } = useAuthBridge();
-  const { currentPlant } = usePlantContext();
-  
-  // Restrict access for QUALITY_TEAM users
+  const {
+    currentPlant,
+    availablePlants,
+    businessUnits,
+    userAccess,
+    isGlobalAdmin,
+    switchPlant,
+  } = usePlantContext();
+
   if (profile?.role === 'QUALITY_TEAM') {
     return (
       <div className="container mx-auto py-16 px-4">
         <div className="max-w-3xl mx-auto bg-yellow-50 border border-yellow-300 rounded-lg p-8">
           <div className="flex items-center gap-3 mb-4">
             <AlertTriangle className="h-8 w-8 text-yellow-600" />
-            <h2 className="text-2xl font-semibold text-yellow-800">Acceso Restringido</h2>
+            <h2 className="text-2xl font-semibold text-yellow-800">Acceso restringido</h2>
           </div>
-          
           <p className="text-lg mb-4 text-yellow-700">
             No tienes permiso para acceder al dashboard principal.
           </p>
-          
-          <div className="bg-white p-4 rounded-lg border border-yellow-200 mb-4">
-            <h3 className="font-medium text-gray-800 mb-2">¿Por qué?</h3>
-            <p className="text-gray-600">
-              Los usuarios del equipo de calidad tienen acceso exclusivo al módulo de calidad.
-            </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <Link 
-              href="/quality"
-              className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-            >
-              <Beaker className="h-4 w-4 mr-2" />
-              Ir al Módulo de Calidad
-            </Link>
-          </div>
+          <Link
+            href="/quality"
+            className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
+          >
+            <Beaker className="h-4 w-4 mr-2" />
+            Ir al módulo de calidad
+          </Link>
         </div>
       </div>
     );
   }
-  
-  const { dashboardData, isLoading: isLoadingDashboard, isError } = useDashboardData();
-  const { pendingQuotes, isLoading: isLoadingQuotes } = useQuotesData();
-  const { isLoading: isLoadingSales } = useSalesData();
 
-  // Add dosificador quick access component
-  const DosificadorQuickAccess = () => {
-    if (profile?.role === 'DOSIFICADOR') {
-      return (
-        <div className="col-span-full mb-6">
-          <div className="glass-interactive rounded-2xl p-6">
-            <h2 className="text-title-3 text-gray-800 mb-4">Acceso Rápido para Dosificadores</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Link 
-                href="/orders" 
-                className="flex items-center gap-3 p-4 glass-base rounded-xl hover:glass-interactive transition-colors"
-              >
-                <div className="rounded-xl bg-primary/10 p-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                </div>
-                <span className="font-medium">Ver Pedidos del Día</span>
-              </Link>
-              <Link 
-                href="/orders?tab=calendar" 
-                className="flex items-center gap-3 p-4 glass-base rounded-xl hover:glass-interactive transition-colors"
-              >
-                <div className="rounded-xl bg-primary/10 p-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                </div>
-                <span className="font-medium">Calendario de Pedidos</span>
-              </Link>
-            </div>
-          </div>
-        </div>
-      );
+  const scope = resolveDashboardScope(
+    profile,
+    userAccess,
+    availablePlants,
+    businessUnits,
+    currentPlant,
+    isGlobalAdmin
+  );
+
+  const role = (profile?.role ?? 'EXECUTIVE') as UserRole;
+  const config = getRoleDashboardConfig(role, scope.accessLevel, scope.plants.length);
+
+  const useMultiPlantTotals =
+    config.showPlantComparison &&
+    scope.plants.length > 1 &&
+    scope.accessLevel === 'BUSINESS_UNIT';
+
+  const plantIdForApi = useMultiPlantTotals ? null : currentPlant?.id ?? null;
+
+  const { dashboardData, isLoading: isLoadingDashboard, isError } = useDashboardData(plantIdForApi);
+  const { totals: byPlantTotals, isLoading: isLoadingByPlant } = useByPlantTotals(useMultiPlantTotals);
+  const { isLoading: isLoadingQuotes } = useQuotesData(plantIdForApi);
+  const { isLoading: isLoadingSales } = useSalesData(plantIdForApi);
+
+  const metricsSource = useMemo(() => {
+    const base = dashboardData?.metrics;
+    if (!useMultiPlantTotals || !byPlantTotals) return base;
+    return {
+      ...base,
+      monthlySales: byPlantTotals.monthlySales ?? 0,
+      todayOrders: byPlantTotals.todayOrders ?? 0,
+      pendingQuotes: byPlantTotals.pendingQuotes ?? 0,
+      pendingCreditOrders: byPlantTotals.pendingCreditOrders ?? 0,
+      monthlyQuotes: byPlantTotals.monthlyQuotes ?? 0,
+      quoteGrowth: 0,
+      salesGrowth: 0,
+      clientGrowth: 0,
+    };
+  }, [dashboardData?.metrics, useMultiPlantTotals, byPlantTotals]);
+
+  const metricsLoading = isLoadingDashboard || (useMultiPlantTotals && isLoadingByPlant);
+
+  const metricCards = config.metrics.map((key) => {
+    const def = METRIC_DEFINITIONS[key];
+    const m = metricsSource;
+    let value: number | string = 0;
+    let growth: number | undefined;
+
+    switch (key) {
+      case 'monthlyQuotes':
+        value = m?.monthlyQuotes ?? 0;
+        growth = useMultiPlantTotals ? undefined : m?.quoteGrowth;
+        break;
+      case 'monthlySales':
+        value = m?.monthlySales ?? 0;
+        growth = useMultiPlantTotals ? undefined : m?.salesGrowth;
+        break;
+      case 'activeClients':
+        value = m?.activeClients ?? 0;
+        growth = useMultiPlantTotals ? undefined : m?.clientGrowth;
+        break;
+      case 'pendingCreditOrders':
+        value = m?.pendingCreditOrders ?? 0;
+        break;
+      case 'todayOrders':
+        value = m?.todayOrders ?? 0;
+        break;
+      case 'totalOutstandingBalance':
+        value = m?.totalOutstandingBalance ?? 0;
+        break;
+      case 'pendingQuotes':
+        value = m?.pendingQuotes ?? 0;
+        break;
     }
-    return null;
-  };
 
-  // Roles that need to see the "Cotizaciones Pendientes" list (create/approve quotes)
-  const quoteListRelevantRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'SALES_AGENT', 'EXTERNAL_SALES_AGENT'];
-  const showQuotesList = profile?.role && quoteListRelevantRoles.includes(profile.role);
+    return {
+      key,
+      title: def.title,
+      value,
+      growth: def.hasGrowth ? growth : undefined,
+      icon: METRIC_ICONS[key],
+      suffix: def.suffix === '$' ? '$' : def.suffix,
+    };
+  });
 
-  // Role-based metrics: show relevant data per role
-  const roleMetricsMap: Record<string, string[]> = {
-    DOSIFICADOR: ['todayOrders', 'monthlySales'],
-    CREDIT_VALIDATOR: ['pendingCreditOrders', 'totalOutstandingBalance', 'todayOrders'],
-    SALES_AGENT: ['monthlyQuotes', 'pendingQuotes', 'activeClients'],
-    ADMINISTRATIVE: ['pendingCreditOrders', 'todayOrders', 'totalOutstandingBalance'],
-    ADMIN_OPERATIONS: ['todayOrders', 'monthlySales', 'pendingCreditOrders'],
-    EXECUTIVE: ['monthlyQuotes', 'monthlySales', 'activeClients', 'pendingCreditOrders', 'todayOrders', 'totalOutstandingBalance'],
-    PLANT_MANAGER: ['monthlyQuotes', 'monthlySales', 'activeClients', 'pendingCreditOrders', 'todayOrders', 'totalOutstandingBalance'],
-    EXTERNAL_SALES_AGENT: ['monthlyQuotes', 'pendingQuotes', 'activeClients'],
-  };
+  const showCreditInTable =
+    role === 'EXECUTIVE' ||
+    role === 'PLANT_MANAGER' ||
+    role === 'CREDIT_VALIDATOR' ||
+    role === 'ADMIN_OPERATIONS';
 
-  const allMetrics = [
-    { key: 'monthlyQuotes', title: "Cotizaciones del Mes", value: dashboardData?.metrics?.monthlyQuotes || 0, growth: dashboardData?.metrics?.quoteGrowth || 0, icon: <FileText className="h-6 w-6 text-primary" />, suffix: '' },
-    { key: 'monthlySales', title: "Venta Mensual (m³)", value: dashboardData?.metrics?.monthlySales || 0, growth: dashboardData?.metrics?.salesGrowth || 0, icon: <TrendingUp className="h-6 w-6 text-primary" />, suffix: ' m³' },
-    { key: 'activeClients', title: "Clientes Activos", value: dashboardData?.metrics?.activeClients || 0, growth: dashboardData?.metrics?.clientGrowth || 0, icon: <Users className="h-6 w-6 text-primary" />, suffix: '' },
-    { key: 'pendingCreditOrders', title: "Créditos Pendientes", value: dashboardData?.metrics?.pendingCreditOrders || 0, growth: undefined, icon: <AlertTriangle className="h-6 w-6 text-primary" />, suffix: '' },
-    { key: 'todayOrders', title: "Pedidos Hoy", value: dashboardData?.metrics?.todayOrders || 0, growth: undefined, icon: <Calendar className="h-6 w-6 text-primary" />, suffix: '' },
-    { key: 'totalOutstandingBalance', title: "Cartera CxC", value: dashboardData?.metrics?.totalOutstandingBalance || 0, growth: undefined, icon: <DollarSign className="h-6 w-6 text-primary" />, suffix: '$' },
-    { key: 'pendingQuotes', title: "Cotizaciones Pendientes", value: dashboardData?.metrics?.pendingQuotes || 0, growth: undefined, icon: <FileText className="h-6 w-6 text-primary" />, suffix: '' },
-  ];
-
-  const role = (profile?.role || 'EXECUTIVE') as string;
-  const allowedKeys = roleMetricsMap[role] ?? roleMetricsMap.EXECUTIVE;
-  const metrics = allMetrics.filter((m) => allowedKeys.includes(m.key)).map(({ key, ...rest }) => rest);
-
-  // Animations for container
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1,
-      transition: { 
-        staggerChildren: 0.025,
-        staggerDirection: 1
-      } 
-    }
-  };
-
-  // Error handling
-  if (isError && !dashboardData) {
+  if (isError && !dashboardData && !byPlantTotals) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="text-red-500 text-xl mb-4">Error al cargar el dashboard</div>
-          <button 
-            className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
+          <p className="text-red-500 text-xl mb-4">Error al cargar el dashboard</p>
+          <button
+            type="button"
+            className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
             onClick={() => window.location.reload()}
           >
             Intentar nuevamente
@@ -451,85 +414,92 @@ function DashboardContent() {
 
   return (
     <div className="p-6">
-      <div className="mb-8">
-        <p className="text-footnote text-muted-foreground uppercase tracking-wider">
-          {currentPlant?.name ?? 'Todas las plantas'} · {format(new Date(), 'EEEE d MMMM', { locale: es })}
-        </p>
-        <h1 className="text-large-title text-gray-900 mt-1">
-          {profile?.first_name ? `${profile.first_name}` : 'Dashboard'}
-        </h1>
-        {dashboardData?.lastUpdated && (
-          <p className="text-footnote text-muted-foreground mt-2">
-            Última actualización: {new Date(dashboardData.lastUpdated).toLocaleString('es-MX')}
-          </p>
-        )}
-      </div>
+      <PersonalizedDashboardHeader
+        firstName={profile?.first_name}
+        config={config}
+        scope={scope}
+        lastUpdated={dashboardData?.lastUpdated}
+      />
 
-      <DosificadorQuickAccess />
+      <RoleQuickActions actions={config.quickActions} />
 
-      {/* Main Metrics Grid - Role-based relevant metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {metrics.map((metric, index) => (
+        {metricCards.map((metric) => (
           <MetricsCard
-            key={index}
+            key={metric.key}
             title={metric.title}
             value={metric.value}
             growth={metric.growth}
             icon={metric.icon}
-            isLoading={isLoadingDashboard}
+            isLoading={metricsLoading}
             suffix={metric.suffix}
-            colorScheme="green"
           />
         ))}
       </div>
 
-      <ApprovalTasksSection />
-
-      {/* Charts section - only Ventas Mensuales prominent (hidden for DOSIFICADOR) */}
-      {profile?.role !== 'DOSIFICADOR' && (
-      <div className="grid grid-cols-1 gap-6 mb-6">
-        <motion.div 
-          className="glass-base rounded-2xl p-6 @container"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.02 }}
-        >
-          <h2 className="text-title-3 text-gray-800 mb-4">Ventas Mensuales de Concreto (m³)</h2>
-          <SalesChart isLoading={isLoadingSales} />
-        </motion.div>
-      </div>
+      {config.showPlantComparison && scope.plants.length > 1 && (
+        <PlantComparisonTable
+          showCreditColumn={showCreditInTable}
+          selectedPlantId={currentPlant?.id}
+          onSelectPlant={
+            scope.accessLevel === 'BUSINESS_UNIT' || isGlobalAdmin
+              ? (id) => switchPlant(id)
+              : undefined
+          }
+        />
       )}
 
-      {/* Cotizaciones pendientes - only for roles that create/approve quotes */}
-      {showQuotesList && (
-      <div className="grid grid-cols-1 gap-6">
-        <motion.div 
-          className="glass-base rounded-2xl p-6 @container"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.05 }}
-        >
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-title-3 text-gray-800">Cotizaciones Pendientes</h2>
-            <Link href="/quotes" className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center">
-              Ver Todas <ExternalLink className="h-4 w-4 ml-1" />
-            </Link>
-          </div>
-          <PendingQuotesList isLoading={isLoadingQuotes} />
-        </motion.div>
-      </div>
+      {config.showApprovals && <ApprovalTasksSection />}
+
+      {config.showSalesChart && (
+        <div className="grid grid-cols-1 gap-6 mb-6">
+          <motion.div
+            className="glass-base rounded-2xl p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <h2 className="text-title-3 text-gray-800 mb-4">
+              Ventas mensuales de concreto (m³)
+              {currentPlant ? ` — ${currentPlant.name}` : ''}
+            </h2>
+            <SalesChart isLoading={isLoadingSales} plantId={plantIdForApi ?? currentPlant?.id} />
+          </motion.div>
+        </div>
+      )}
+
+      {config.showQuotesList && (
+        <div className="grid grid-cols-1 gap-6">
+          <motion.div className="glass-base rounded-2xl p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-title-3 text-gray-800">Cotizaciones pendientes</h2>
+              <Link
+                href="/quotes"
+                className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center"
+              >
+                Ver todas <ExternalLink className="h-4 w-4 ml-1" />
+              </Link>
+            </div>
+            <PendingQuotesList
+              isLoading={isLoadingQuotes}
+              plantId={plantIdForApi ?? currentPlant?.id}
+            />
+          </motion.div>
+        </div>
       )}
     </div>
   );
 }
 
-// Main dashboard page with Suspense boundary
 export default function DashboardPage() {
   return (
-    <Suspense fallback={<div className="p-8 flex justify-center items-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
-    </div>}>
+    <Suspense
+      fallback={
+        <motion.div className="p-8 flex justify-center items-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500" />
+        </motion.div>
+      }
+    >
       <DashboardContent />
     </Suspense>
   );
-} 
+}
