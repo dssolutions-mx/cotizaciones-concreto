@@ -638,7 +638,34 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     });
   }
 
-  // Sensitivity context (use means of replicas + raw_values_json averages for FC)
+  // Environmental / method / systematic Type B contributors seeded per measurand.
+  // These represent real physical contributions that the lab team identified and that
+  // the test method norms permit. Semi-amplitude from DB; u = halfWidth/√3.
+  const envInputs = inputs.filter(
+    (i) =>
+      (i.kind === 'environmental' || i.kind === 'method' || i.kind === 'systematic') &&
+      i.default_semiamplitud !== null &&
+      i.default_semiamplitud > 0,
+  );
+  for (const inp of envInputs) {
+    typeBInputs.push({
+      fuente: inp.nombre_display,
+      magnitud_xi: inp.simbolo,
+      unidad: inp.unidad,
+      valor_xi: 0,
+      kind: 'rectangular',
+      halfWidth: inp.default_semiamplitud!,
+      norma_ref_override: inp.norma_ref ?? 'GUM §4.3.6',
+      descripcion: inp.descripcion ?? undefined,
+      categoria: inp.kind === 'environmental'
+        ? 'environmental'
+        : inp.kind === 'method'
+          ? 'method'
+          : 'systematic',
+    });
+  }
+
+  // Sensitivity context (use means of replicas + raw_values_json averages for FC / FC_CUBO)
   const sensitivityContext: StudyInput['sensitivityContext'] = {};
   if (measurand.codigo === 'FC') {
     const cargas = replicas
@@ -647,8 +674,6 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     const dproms = replicas
       .map((r) => Number(r.raw_values_json['dprom'] ?? r.raw_values_json['d1'] ?? r.raw_values_json['d'] ?? 0))
       .filter((v) => v > 0);
-    // Only set context when both carga and diameter are available — otherwise the engine
-    // uses ci=1 for Type B rows (safe fallback) instead of propagating NaN (F-007)
     if (cargas.length > 0 && dproms.length > 0) {
       const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
       const d_mean = dproms.reduce((s, v) => s + v, 0) / dproms.length;
@@ -663,6 +688,76 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     } else {
       warnings.push('FC: sin datos de carga o diámetro en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
     }
+  }
+
+  if (measurand.codigo === 'FC_CUBO') {
+    const cargas = replicas
+      .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
+      .filter((v) => v > 0);
+    const L1s = replicas.map((r) => Number(r.raw_values_json['L1'] ?? 0)).filter((v) => v > 0);
+    const L2s = replicas.map((r) => Number(r.raw_values_json['L2'] ?? 0)).filter((v) => v > 0);
+
+    if (cargas.length > 0 && L1s.length > 0 && L2s.length > 0) {
+      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
+      const L1_mean = L1s.reduce((s, v) => s + v, 0) / L1s.length;
+      const L2_mean = L2s.reduce((s, v) => s + v, 0) / L2s.length;
+      const L_mean = (L1_mean + L2_mean) / 2;
+      const area_mean = L1_mean * L2_mean;
+      const fc_mean = carga_mean / area_mean;
+
+      if (area_mean > 0) {
+        sensitivityContext.carga_mean = carga_mean;
+        sensitivityContext.L_mean = L_mean;
+        sensitivityContext.fc_mean = fc_mean;
+        sensitivityContext.area_mean = area_mean;
+      } else {
+        warnings.push('FC_CUBO: lados promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
+      }
+    } else {
+      warnings.push('FC_CUBO: sin datos de carga o lados en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
+    }
+
+    // L_meas_err: override halfWidth with Uim of the instrument used to measure L
+    // The instrument's u_cal is already handled as a calibration Type B above.
+    // For L_meas_err specifically, we look for whether any seeded L_meas_err has halfWidth=null
+    // and if so, resolve from the instrument's Uim (stored in incertidumbre_expandida).
+    const lMeasErrIdx = typeBInputs.findIndex((tb) => tb.magnitud_xi === 'L_meas_err');
+    if (lMeasErrIdx !== -1) {
+      // The default_semiamplitud for L_meas_err is null (auto from instrument).
+      // Resolve from the first flex/vernier instrument used across replicas.
+      const instrId = replicas.find((r) => r.instrumento_id)?.instrumento_id ?? null;
+      if (instrId) {
+        const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
+        if (calData && calData.u_expandida > 0) {
+          // u = U_cert/k_cert (GUM §4.3.4); use it as halfWidth in rectangular sense = U_cert/k * √3
+          // but it's already a standard uncertainty. Pass as 'calibration' kind instead.
+          typeBInputs[lMeasErrIdx] = {
+            ...typeBInputs[lMeasErrIdx],
+            kind: 'calibration',
+            U_cert: calData.u_expandida,
+            k_cert: calData.k_factor,
+            cert_numero: calData.numero_certificado ?? undefined,
+            norma_ref_override: 'GUM §4.3.4; NMX-CH-002-IMNC-2008',
+          };
+        } else {
+          // No certificate found — remove the L_meas_err contributor to avoid NaN
+          typeBInputs.splice(lMeasErrIdx, 1);
+          warnings.push('FC_CUBO: sin certificado para el instrumento de medición del lado; se omite U_L del presupuesto.');
+        }
+      } else {
+        typeBInputs.splice(lMeasErrIdx, 1);
+        warnings.push('FC_CUBO: sin instrumento asignado para el lado; se omite U_L del presupuesto.');
+      }
+    }
+
+  }
+
+  // MU — V_recip sensitivity context (ci = MU/V, GUM §5.1.3, NMX-C-073)
+  if (measurand.codigo === 'MU') {
+    const mu_mean = replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
+    sensitivityContext.mu_mean = mu_mean;
+    // Default container volume per NMX-C-073 for the standard 7.06 L recipiente
+    sensitivityContext.V_recipiente = 7.06;
   }
 
   const studyInput: StudyInput = {

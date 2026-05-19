@@ -1,8 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
-import { BookOpen, X } from 'lucide-react'
+import React from 'react'
+import { BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface EmaNormReferenceChipProps {
   /** Short ref string displayed on the chip, e.g. "GUM §4.2.3" */
@@ -13,7 +14,7 @@ interface EmaNormReferenceChipProps {
 }
 
 /**
- * Citation chip that opens an inline detail panel.
+ * Citation chip that opens a portaled detail panel.
  * Used throughout the uncertainty budget table so users can trace every
  * computed number back to the exact norm clause.
  *
@@ -24,8 +25,6 @@ export function EmaNormReferenceChip({
   formula_display,
   className,
 }: EmaNormReferenceChipProps) {
-  const [open, setOpen] = useState(false)
-
   // Colour-code by reference type for fast visual scanning
   const chipColor = ref_norma.startsWith('GUM')
     ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
@@ -36,43 +35,35 @@ export function EmaNormReferenceChip({
     : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
 
   return (
-    <span className={cn('relative inline-block', className)}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
-          chipColor,
-        )}
-        title={`Norma: ${ref_norma}${formula_display ? ' — click para ver fórmula' : ''}`}
-      >
-        <BookOpen className="h-2.5 w-2.5 shrink-0" />
-        {ref_norma}
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-6 z-50 w-72 rounded-lg border border-stone-200 bg-white p-3 shadow-lg">
-          <div className="mb-2 flex items-start justify-between gap-2">
-            <span className="text-xs font-semibold text-stone-800">{ref_norma}</span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-stone-400 hover:text-stone-600"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          {formula_display && (
-            <pre className="whitespace-pre-wrap rounded bg-stone-50 px-2 py-1.5 font-mono text-[11px] text-stone-700">
-              {formula_display}
-            </pre>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors',
+            chipColor,
+            className,
           )}
-          <p className="mt-2 text-[10px] text-stone-500">
-            {getClauseExplanation(ref_norma)}
-          </p>
-        </div>
-      )}
-    </span>
+          title={`Norma: ${ref_norma}${formula_display ? ' — click para ver fórmula' : ''}`}
+        >
+          <BookOpen className="h-2.5 w-2.5 shrink-0" />
+          {ref_norma}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        className="w-72 rounded-lg border-stone-200 bg-white p-3"
+      >
+        <p className="text-xs font-semibold text-stone-800">{ref_norma}</p>
+        {formula_display && (
+          <pre className="mt-2 whitespace-pre-wrap rounded bg-stone-50 px-2 py-1.5 font-mono text-[11px] text-stone-700">
+            {formula_display}
+          </pre>
+        )}
+        <p className="mt-2 text-[10px] text-stone-500">{getClauseExplanation(ref_norma)}</p>
+      </PopoverContent>
+    </Popover>
   )
 }
 

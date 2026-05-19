@@ -87,6 +87,7 @@ export function EmaUncertaintyBudgetTable({
           <thead>
             <tr className="border-b border-stone-200 bg-stone-50 text-[11px] uppercase tracking-wide text-stone-500">
               <th className="px-3 py-2 text-left">Fuente</th>
+              <th className="px-3 py-2 text-center">Categoría</th>
               <th className="px-3 py-2 text-left">Magnitud Xᵢ</th>
               <th className="px-3 py-2 text-right">Valor xᵢ</th>
               <th className="px-3 py-2 text-right">u(xᵢ)</th>
@@ -106,7 +107,7 @@ export function EmaUncertaintyBudgetTable({
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-stone-300 bg-stone-50 font-semibold">
-              <td colSpan={8} className="px-3 py-2 text-right text-stone-600">
+              <td colSpan={9} className="px-3 py-2 text-right text-stone-600">
                 Σ uᵢ²(y) =
               </td>
               <td className="px-3 py-2 text-right text-stone-800">
@@ -169,6 +170,29 @@ export function EmaUncertaintyBudgetTable({
   )
 }
 
+const CATEGORIA_META: Record<
+  NonNullable<UncertaintyComponent['categoria']>,
+  { label: string; className: string }
+> = {
+  repeatability:    { label: 'Repetibilidad',    className: 'bg-purple-100 text-purple-700' },
+  reproducibility:  { label: 'Reproducibilidad', className: 'bg-violet-100 text-violet-700' },
+  resolution:       { label: 'Resolución',        className: 'bg-teal-100 text-teal-700' },
+  calibration:      { label: 'Calibración',       className: 'bg-blue-100 text-blue-700' },
+  environmental:    { label: 'Ambiental',          className: 'bg-emerald-100 text-emerald-700' },
+  method:           { label: 'Método',             className: 'bg-amber-100 text-amber-700' },
+  systematic:       { label: 'Sistemático',        className: 'bg-orange-100 text-orange-700' },
+}
+
+function CategoriaChip({ categoria }: { categoria: UncertaintyComponent['categoria'] }) {
+  if (!categoria) return <span className="text-stone-300">—</span>
+  const meta = CATEGORIA_META[categoria]
+  return (
+    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap', meta.className)}>
+      {meta.label}
+    </span>
+  )
+}
+
 function BudgetRow({
   component: c,
   unit,
@@ -182,6 +206,9 @@ function BudgetRow({
   return (
     <tr className="hover:bg-stone-50">
       <td className="px-3 py-1.5 text-stone-700">{c.fuente}</td>
+      <td className="px-3 py-1.5 text-center">
+        <CategoriaChip categoria={c.categoria} />
+      </td>
       <td className="px-3 py-1.5 font-mono text-stone-600">{c.magnitud_xi}</td>
       <td className="px-3 py-1.5 text-right font-mono text-stone-600">
         {fmtFixed(c.valor_xi)}

@@ -6,6 +6,9 @@ const INPUT_KIND_LABEL: Record<UncertaintyMeasurandInput['kind'], string> = {
   measured: 'Medida',
   constant: 'Constante',
   derived: 'Derivada',
+  environmental: 'Ambiental',
+  method: 'Método',
+  systematic: 'Sistemático',
 }
 
 export function EmaUncertaintyMeasurandPanel({

@@ -17,7 +17,13 @@ import {
 import { EmaUncertaintyMeasurandPanel } from '@/components/ema/uncertainty/EmaUncertaintyMeasurandPanel'
 import type { UncertaintyMeasurand } from '@/types/ema-uncertainty'
 
-export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand }) {
+export function NewStudyForm({
+  measurand,
+  cuboVariant,
+}: {
+  measurand: UncertaintyMeasurand
+  cuboVariant?: UncertaintyMeasurand
+}) {
   const router = useRouter()
   const { currentPlant, availablePlants, isLoading: plantsLoading } = usePlantContext()
   const plants = availablePlants ?? []
@@ -26,6 +32,10 @@ export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand })
   const [notas, setNotas] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Geometry selector — only shown when a cubo variant is available (i.e. measuring FC)
+  const [geometria, setGeometria] = useState<'cilindro' | 'cubo'>('cilindro')
+  const activeMeasurand = cuboVariant && geometria === 'cubo' ? cuboVariant : measurand
 
   useEffect(() => {
     if (!plantId && currentPlant?.id) {
@@ -46,7 +56,7 @@ export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand })
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          measurand_id: measurand.id,
+          measurand_id: activeMeasurand.id,
           plant_id: plantId,
           fecha_estudio: date,
           notas: notas || null,
@@ -58,7 +68,7 @@ export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand })
       }
       const study = await res.json()
       router.push(
-        `/quality/ema/incertidumbre/${measurand.codigo}/estudios/${study.id}?tab=lecturas`,
+        `/quality/ema/incertidumbre/${activeMeasurand.codigo}/estudios/${study.id}?tab=lecturas`,
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido')
@@ -80,7 +90,7 @@ export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand })
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-4 lg:col-span-3">
-          <EmaUncertaintyMeasurandPanel measurand={measurand} />
+          <EmaUncertaintyMeasurandPanel measurand={activeMeasurand} />
         </div>
 
         <form
@@ -93,6 +103,41 @@ export function NewStudyForm({ measurand }: { measurand: UncertaintyMeasurand })
               La planta queda guardada en el estudio y filtra los instrumentos en Lecturas.
             </p>
           </div>
+
+          {cuboVariant && (
+            <div>
+              <Label>Geometría del espécimen</Label>
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGeometria('cilindro')}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    geometria === 'cilindro'
+                      ? 'border-stone-900 bg-stone-900 text-white'
+                      : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50'
+                  }`}
+                >
+                  Cilindro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGeometria('cubo')}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    geometria === 'cubo'
+                      ? 'border-stone-900 bg-stone-900 text-white'
+                      : 'border-stone-200 bg-white text-stone-700 hover:bg-stone-50'
+                  }`}
+                >
+                  Cubo
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-stone-400">
+                {geometria === 'cubo'
+                  ? 'Área = L₁ × L₂ — instrumento: flexómetro o vernier'
+                  : 'Área = π(d/2)² — instrumento: prensa hidráulica'}
+              </p>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="study-plant">Planta del estudio</Label>

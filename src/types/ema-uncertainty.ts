@@ -6,7 +6,13 @@
 import type { BudgetResult, UncertaintyComponent } from '@/lib/ema/uncertaintyBudget';
 
 // Re-export engine types for use across the app
-export type { BudgetResult, UncertaintyComponent };
+export type {
+  BudgetResult,
+  UncertaintyComponent,
+  TypeBInput,
+  VerificationPoint,
+  VerificationBudgetResult,
+} from '@/lib/ema/uncertaintyBudget';
 
 // ---------------------------------------------------------------------------
 // GUM reference entry (stored in gum_references_json)
@@ -21,7 +27,7 @@ export interface GumReference {
 // ---------------------------------------------------------------------------
 // Measurand catalogue
 // ---------------------------------------------------------------------------
-export type MeasurandCodigo = 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC';
+export type MeasurandCodigo = 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO';
 
 export interface UncertaintyMeasurand {
   id: string;
@@ -38,19 +44,41 @@ export interface UncertaintyMeasurand {
   inputs?: UncertaintyMeasurandInput[];
 }
 
+export type MeasurandInputKind =
+  | 'measured'
+  | 'constant'
+  | 'derived'
+  | 'environmental'
+  | 'method'
+  | 'systematic';
+
+/** Geometry discriminator — only relevant for FC_CUBO vs FC (cilindro). */
+export type FCGeometria = 'cilindro' | 'cubo';
+
 export interface UncertaintyMeasurandInput {
   id: string;
   measurand_id: string;
   simbolo: string;
   nombre_display: string;
   unidad: string;
-  kind: 'measured' | 'constant' | 'derived';
+  kind: MeasurandInputKind;
+  /** 'A' or 'B' — explicit classification matching GUM §4.2 / §4.3 */
+  tipo_ab: 'A' | 'B' | null;
   default_resolucion: number | null;
+  /** Half-width for rectangular Type B contributors (environmental/method/systematic) */
+  default_semiamplitud: number | null;
   default_distribucion: 'normal' | 'rectangular' | 'triangular' | 'u-shaped';
   default_divisor: number;
   sensitivity_expr: string | null;
+  /** Specific norm clause governing this contributor (e.g. 'NMX-C-156 §6.3') */
+  norma_ref: string | null;
+  /** Human-readable description shown in the UI as a tooltip */
+  descripcion: string | null;
+  /** Which specimen geometry this input applies to */
+  aplica_geometria: 'cilindro' | 'cubo' | 'ambos' | null;
   orden: number;
 }
+
 
 // ---------------------------------------------------------------------------
 // Study

@@ -14,6 +14,11 @@ export default async function NuevoEstudioPage({
   const measurand = await getMeasurandByCodigo(measurandCode)
   if (!measurand) redirect('/quality/ema/incertidumbre')
 
+  // When the user lands on the FC (cylinder) page, also load FC_CUBO so the
+  // form can offer a geometry selector without a second round-trip.
+  const cuboMeasurand =
+    measurand.codigo === 'FC' ? await getMeasurandByCodigo('FC_CUBO') : null
+
   return (
     <>
       <EmaBreadcrumb
@@ -33,7 +38,7 @@ export default async function NuevoEstudioPage({
             {measurand.nombre} · {measurand.metodo_norma}
           </p>
         </header>
-        <NewStudyForm measurand={measurand} />
+        <NewStudyForm measurand={measurand} cuboVariant={cuboMeasurand ?? undefined} />
       </div>
     </>
   )

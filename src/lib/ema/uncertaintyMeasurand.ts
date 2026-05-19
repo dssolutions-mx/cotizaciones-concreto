@@ -18,6 +18,8 @@ export const MEASURAND_INSTRUMENT_CATEGORIES: Record<MeasurandCodigo, string[]> 
   AIRE: ['Equipo contenido de aire'],
   MU: ['Balanza', 'Recipiente PV'],
   FC: ['Balanza', 'Molde cilíndrico'],
+  // Cubes: press for load + flexómetro or vernier for side measurement
+  FC_CUBO: ['Prensa hidráulica', 'Flexometro', 'Vernier'],
 };
 
 const SYMBOL_ALIASES: Record<string, string[]> = {

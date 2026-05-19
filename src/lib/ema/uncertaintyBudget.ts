@@ -46,6 +46,8 @@ export interface UncertaintyComponent {
   ref_norma: string;
   /** Human-readable formula string shown in the UI */
   formula_display: string;
+  /** Optional category for chip display in the budget table */
+  categoria?: 'repeatability' | 'reproducibility' | 'resolution' | 'calibration' | 'environmental' | 'method' | 'systematic';
 }
 
 export interface BudgetResult {
@@ -203,17 +205,25 @@ export function welchSatterthwaite(
  * Ref: GUM §5.1.3, Eq. (13): cᵢ = ∂f/∂xᵢ |_{x=best_estimate}
  */
 export function sensitivityCoefficient(
-  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC',
+  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO',
   inputSymbol: string,
   context: {
-    /** Mean load (kg) — required for FC */
+    /** Mean load (kg) — required for FC / FC_CUBO */
     carga_mean?: number;
     /** Mean diameter (mm) — required for FC cylindrical */
     d_mean?: number;
     /** Mean area (cm²) — required for FC if pre-computed */
     area_mean?: number;
+    /** Mean side length (cm) — required for FC_CUBO L sensitivity */
+    L_mean?: number;
+    /** Mean f'c (kg/cm²) — required for FC_CUBO L sensitivity */
+    fc_mean?: number;
     /** Correction factor for MU (dimensionless) */
     factor_correccion?: number;
+    /** Mean masa unitaria (kg/m³) — required for MU V_recip */
+    mu_mean?: number;
+    /** Container volume (L) — required for MU V_recip */
+    V_recipiente?: number;
   } = {},
 ): number {
   switch (measurandCode) {
@@ -222,9 +232,17 @@ export function sensitivityCoefficient(
     case 'AIRE':
       return 1;
 
-    case 'MU':
+    case 'MU': {
+      // V_recip: c = MU/V  (GUM §5.1.3, NMX-C-073)
+      if (inputSymbol === 'V_recip') {
+        const mu = context.mu_mean;
+        const V = context.V_recipiente;
+        if (!mu || !V) throw new Error('sensitivityCoefficient MU V_recip: mu_mean and V_recipiente required');
+        return -(mu / V);  // negative: larger volume → lower MU
+      }
       // MU = (m_total − m_tara) × F;  c w.r.t. mass inputs = F
       return context.factor_correccion ?? 1;
+    }
 
     case 'FC': {
       // f'c = Carga / A, A = π·d²/4 (cylinder)
@@ -248,6 +266,30 @@ export function sensitivityCoefficient(
       return 1;
     }
 
+    case 'FC_CUBO': {
+      // f'c = Carga / (L1 × L2)
+      // c_carga = 1/A
+      // c_L = −2·f'c / L  (each side has same coefficient by symmetry)
+      // c_capping = 1 (additive systematic in kg/cm²)
+      if (inputSymbol === 'Carga' || inputSymbol === 'carga') {
+        const A = context.area_mean;
+        if (!A) throw new Error('sensitivityCoefficient FC_CUBO Carga: area_mean required');
+        return 1 / A;
+      }
+      if (
+        inputSymbol === 'L1' || inputSymbol === 'L2' ||
+        inputSymbol === 'Lprom' || inputSymbol === 'L_meas_err'
+      ) {
+        const fc = context.fc_mean;
+        const L = context.L_mean;
+        if (!fc || !L) throw new Error('sensitivityCoefficient FC_CUBO L: fc_mean and L_mean required');
+        // c_L = -2·f'c/L  (GUM §5.1.3, analogous to cylinder c_d)
+        return -2 * fc / L;
+      }
+      if (inputSymbol === 'capping') return 1;
+      return 1;
+    }
+
     default:
       return 1;
   }
@@ -258,7 +300,7 @@ export function sensitivityCoefficient(
 // ---------------------------------------------------------------------------
 
 export interface StudyInput {
-  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC';
+  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO';
   measurandName: string;
   unit: string;
   /** Replicate measurand values (already computed from raw readings) */
@@ -285,14 +327,22 @@ export interface TypeBInput {
   magnitud_xi: string;
   unidad: string;
   valor_xi: number;
-  /** 'resolution' | 'calibration' | 'custom' */
-  kind: 'resolution' | 'calibration' | 'custom';
+  /**
+   * How u(xᵢ) is evaluated:
+   *   'resolution'   — u = (divMin/2)/√3  (GUM §4.3.7)
+   *   'calibration'  — u = U_cert/k_cert  (GUM §4.3.4)
+   *   'rectangular'  — u = halfWidth/√3   (generic rectangular Type B for environmental/method/systematic)
+   *   'custom'       — u provided directly
+   */
+  kind: 'resolution' | 'calibration' | 'rectangular' | 'custom';
   /** Used for resolution: Div.mín */
   divMin?: number;
   /** Used for calibration: U from cert */
   U_cert?: number;
   /** Used for calibration: k from cert */
   k_cert?: number;
+  /** Used for rectangular: semi-amplitude (half-width) of the rectangular distribution */
+  halfWidth?: number;
   /** Used for custom: provide u directly */
   u_custom?: number;
   divisor_custom?: number;
@@ -302,6 +352,12 @@ export interface TypeBInput {
   /** Certificate info for traceability (stamped into presupuesto_json) */
   cert_numero?: string;
   cert_fecha_vencimiento?: string;
+  /** Norm clause citation for this contributor */
+  norma_ref_override?: string;
+  /** Human-readable description */
+  descripcion?: string;
+  /** Category for the chip column in the budget table */
+  categoria?: UncertaintyComponent['categoria'];
 }
 
 /**
@@ -380,6 +436,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
     // GUM §4.2.3: u_c contribution from Type A = 1 · u_A.
     const ci = 1; // ∂y/∂y = 1 always (GUM §4.2.3)
     const ui_y = row.u;
+    const isReprod = row.fuente.startsWith('Reproducibilidad');
     components.push({
       fuente: row.fuente,
       magnitud_xi: measurandName,
@@ -395,6 +452,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
       nu: row.nu,
       ref_norma: useAnova ? 'GUM §4.2.4; ISO 5725-2 §7' : 'GUM §4.2.3',
       formula_display: `u_A = s / √n = ${row.s.toExponential(4)} / √${row.n} = ${row.u.toExponential(4)}`,
+      categoria: isReprod ? 'reproducibility' : 'repeatability',
     });
   }
 
@@ -418,17 +476,27 @@ export function buildBudget(input: StudyInput): BudgetResult {
       u_xi = cal.u;
       divisor = cal.divisor;
       distribucion = 'normal';
-      ref_norma = cal.ref_norma;
+      ref_norma = tb.norma_ref_override ?? cal.ref_norma;
       formula_display = cal.formula_display;
       if (tb.cert_numero) {
         formula_display += ` [Cert: ${tb.cert_numero}]`;
       }
+    } else if (tb.kind === 'rectangular') {
+      // Generic rectangular Type B — used for environmental, method, systematic contributors.
+      // u = halfWidth / √3   (GUM §4.3.6 — rectangular distribution)
+      const hw = tb.halfWidth!;
+      const divisorVal = Math.sqrt(3);
+      u_xi = hw / divisorVal;
+      divisor = divisorVal;
+      distribucion = 'rectangular';
+      ref_norma = tb.norma_ref_override ?? 'GUM §4.3.6';
+      formula_display = `u = ${hw} / √3 = ${u_xi.toExponential(4)}`;
     } else {
       // custom
       u_xi = tb.u_custom!;
       divisor = tb.divisor_custom ?? 1;
       distribucion = tb.distribucion_custom ?? 'normal';
-      ref_norma = 'GUM §4.3';
+      ref_norma = tb.norma_ref_override ?? 'GUM §4.3';
       formula_display = `u = ${u_xi.toExponential(4)} (proporcionado)`;
     }
 
@@ -437,6 +505,17 @@ export function buildBudget(input: StudyInput): BudgetResult {
         ? tb.ci_override
         : sensitivityCoefficient(measurandCode, tb.magnitud_xi, sensitivityContext);
     const ui_y = Math.abs(ci) * u_xi;
+
+    // Derive categoria from kind if not explicitly provided
+    const categoriaB: UncertaintyComponent['categoria'] =
+      tb.categoria ??
+      (tb.kind === 'resolution'
+        ? 'resolution'
+        : tb.kind === 'calibration'
+          ? 'calibration'
+          : tb.kind === 'rectangular'
+            ? undefined // will be set by the caller via tb.categoria
+            : undefined);
 
     components.push({
       fuente: tb.fuente,
@@ -453,6 +532,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
       nu: Infinity,
       ref_norma,
       formula_display,
+      categoria: categoriaB,
     });
   }
 
@@ -478,5 +558,179 @@ export function buildBudget(input: StudyInput): BudgetResult {
     k,
     U,
     U_rel_pct,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Instrument verification types + builder
+// ---------------------------------------------------------------------------
+
+/** One measured point in a direct-comparison instrument verification. */
+export interface VerificationPoint {
+  nominal: number;
+  standard_reading: number;
+  instrument_reading: number;
+}
+
+/** GUM uncertainty budget result for an instrument verification. */
+export interface VerificationBudgetResult {
+  u_rep: number;
+  u_res_instrument: number;
+  u_res_standard: number;
+  u_cal_standard: number;
+  u_c: number;
+  nu_eff: number;
+  k: number;
+  U: number;
+  components: UncertaintyComponent[];
+}
+
+/**
+ * Builds a GUM uncertainty budget for a direct-comparison instrument verification.
+ *
+ * Used by Centro EMA verification flow when an instrument is verified against a
+ * reference standard at N nominal points. Equivalent to the Excel sheet
+ * "Flexómetro – Presupuesto" in DCEMA-HC-LC-P01-7.6-01.
+ *
+ * Computation:
+ *   Type A — variability of (instrument_reading − nominal) across N points
+ *             u_rep = STDEV(errors) / √N   (GUM §4.2.3)
+ *   Type B  — resolution of instrument under verification   (GUM §4.3.7)
+ *   Type B  — resolution of reference standard              (GUM §4.3.7)
+ *   Type B  — calibration uncertainty of reference standard (GUM §4.3.4)
+ *
+ * @param points          N verification points (nominal + instrument reading).
+ * @param divMinInstrument  Smallest scale division of the instrument under verification.
+ * @param divMinStandard    Smallest scale division of the reference standard.
+ * @param U_cert_standard   Expanded uncertainty from the standard's calibration certificate.
+ * @param k_cert_standard   Coverage factor from the standard's calibration certificate.
+ * @param certNumero        Certificate number for traceability (optional).
+ *
+ * Ref: GUM §4.2.3, §4.3.4, §4.3.7, §5.1.2, Annex G.4
+ */
+export function buildBudgetFromVerificationPoints(
+  points: VerificationPoint[],
+  divMinInstrument: number,
+  divMinStandard: number,
+  U_cert_standard: number,
+  k_cert_standard: number,
+  certNumero?: string,
+  unidad = 'mm',
+): VerificationBudgetResult {
+  if (points.length < 2) {
+    throw new Error('buildBudgetFromVerificationPoints: need ≥ 2 verification points');
+  }
+
+  const errors = points.map((p) => p.instrument_reading - p.nominal);
+  const { u_A, nu } = typeAFromReplicas(errors);
+  const n = errors.length;
+  const errMean = mean(errors);
+
+  const components: UncertaintyComponent[] = [];
+
+  // Type A — repeatability of errors  (GUM §4.2.3)
+  const s_errors = stdDevSample(errors);
+  components.push({
+    fuente: `Reproducibilidad del operador (variación de errores en ${n} puntos)`,
+    magnitud_xi: 'Error (obs − nom)',
+    unidad,
+    valor_xi: errMean,
+    u_xi: u_A,
+    tipo: 'A',
+    distribucion: 'normal',
+    divisor: Math.sqrt(n),
+    ci: 1,
+    ui_y: u_A,
+    ui2_y: u_A ** 2,
+    nu,
+    categoria: 'repeatability',
+    ref_norma: 'GUM §4.2.3',
+    formula_display: `u_rep = s/√n = ${s_errors.toExponential(4)} / √${n} = ${u_A.toExponential(4)}`,
+  });
+
+  // Type B — resolution of instrument under verification  (GUM §4.3.7)
+  const res_inst = typeBResolution(divMinInstrument);
+  components.push({
+    fuente: `Resolución del instrumento verificado`,
+    magnitud_xi: 'Div.mín instrumento',
+    unidad,
+    valor_xi: divMinInstrument,
+    u_xi: res_inst.u,
+    tipo: 'B',
+    distribucion: 'rectangular',
+    divisor: res_inst.divisor,
+    ci: 1,
+    ui_y: res_inst.u,
+    ui2_y: res_inst.u ** 2,
+    nu: Infinity,
+    categoria: 'resolution',
+    ref_norma: 'GUM §4.3.7',
+    formula_display: res_inst.formula_display,
+  });
+
+  // Type B — resolution of reference standard  (GUM §4.3.7)
+  const res_std = typeBResolution(divMinStandard);
+  components.push({
+    fuente: `Resolución del patrón (vernier)`,
+    magnitud_xi: 'Div.mín patrón',
+    unidad,
+    valor_xi: divMinStandard,
+    u_xi: res_std.u,
+    tipo: 'B',
+    distribucion: 'rectangular',
+    divisor: res_std.divisor,
+    ci: 1,
+    ui_y: res_std.u,
+    ui2_y: res_std.u ** 2,
+    nu: Infinity,
+    categoria: 'resolution',
+    ref_norma: 'GUM §4.3.7',
+    formula_display: res_std.formula_display,
+  });
+
+  // Type B — calibration uncertainty of reference standard  (GUM §4.3.4)
+  const cal_std = typeBFromCalibration(U_cert_standard, k_cert_standard);
+  const calDisplay = certNumero
+    ? `${cal_std.formula_display} [Cert: ${certNumero}]`
+    : cal_std.formula_display;
+  components.push({
+    fuente: `Calibración del patrón${certNumero ? ` (Cert. ${certNumero})` : ''}`,
+    magnitud_xi: 'U_cert patrón',
+    unidad,
+    valor_xi: U_cert_standard,
+    u_xi: cal_std.u,
+    tipo: 'B',
+    distribucion: 'normal',
+    divisor: cal_std.divisor,
+    ci: 1,
+    ui_y: cal_std.u,
+    ui2_y: cal_std.u ** 2,
+    nu: Infinity,
+    categoria: 'calibration',
+    ref_norma: 'GUM §4.3.4',
+    formula_display: calDisplay,
+  });
+
+  // Combined u_c  (GUM §5.1.2)
+  const sum_ui2 = components.reduce((s, c) => s + c.ui2_y, 0);
+  const u_c = Math.sqrt(sum_ui2);
+
+  // Welch–Satterthwaite  (GUM Annex G.4)
+  const nu_eff = welchSatterthwaite(components, u_c);
+
+  // Coverage factor & expanded U  (GUM §6.2–6.3)
+  const k = tStudent95(nu_eff);
+  const U = k * u_c;
+
+  return {
+    u_rep: u_A,
+    u_res_instrument: res_inst.u,
+    u_res_standard: res_std.u,
+    u_cal_standard: cal_std.u,
+    u_c,
+    nu_eff,
+    k,
+    U,
+    components,
   };
 }
