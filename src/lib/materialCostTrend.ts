@@ -243,19 +243,28 @@ export function buildMaterialCostSeries(
   listPoints: CostTrendPoint[],
   entries: MaterialEntryRaw[],
   grain: ReceiptGranularity,
-  from: string,
+  periodFrom: string,
   to: string
 ) {
-  const { buckets: actualBuckets, missingLandedCount, pendingReviewCount } =
-    aggregateReceiptEntries(entries, grain, from, to);
+  // Trend + carry-forward: all reviewed receipts since cutover (not limited to chart window)
+  const { buckets: actualBuckets } = aggregateReceiptEntries(
+    entries,
+    grain,
+    MATERIAL_COST_CUTOVER,
+    to
+  );
   const receiptDisplay = expandReceiptBucketsWithCarryForward(actualBuckets, grain, to);
   const series = mergeCostSeries(listPoints, receiptDisplay);
+
+  // KPI counts scoped to the selected reporting window
+  const periodStats = aggregateReceiptEntries(entries, grain, periodFrom, to);
+
   return {
     series,
     actualBuckets,
     receiptDisplay,
-    missingLandedCount,
-    pendingReviewCount,
+    missingLandedCount: periodStats.missingLandedCount,
+    pendingReviewCount: periodStats.pendingReviewCount,
   };
 }
 
@@ -318,7 +327,14 @@ export function sparklineFromSeries(
   series: CostTrendPoint[],
   maxPoints = 14
 ): Array<{ date: string; value: number }> {
-  return series.slice(-maxPoints).map((p) => ({
+  const valid = meaningfulPoints(series);
+  if (valid.length === 0) return [];
+
+  // Prefer post-cutover receipt trend (includes carry-forward); fall back to full history
+  const postCutover = valid.filter((p) => p.periodStart >= MATERIAL_COST_CUTOVER);
+  const source = postCutover.length > 0 ? postCutover : valid;
+
+  return source.slice(-maxPoints).map((p) => ({
     date: p.periodStart,
     value: p.avgPricePerKg,
   }));

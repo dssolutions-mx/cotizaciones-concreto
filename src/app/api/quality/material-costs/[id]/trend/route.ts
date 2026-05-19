@@ -7,6 +7,7 @@ import {
   defaultReceiptRange,
   effectiveMaterialCategory,
   entriesToReceiptRows,
+  entryInDateWindow,
   listPricesToPoints,
   summarizeSeries,
   type MaterialEntryRaw,
@@ -73,7 +74,6 @@ export async function GET(request: NextRequest, { params }: Params) {
         .eq('plant_id', plantId)
         .eq('material_id', materialId)
         .gte('entry_date', MATERIAL_COST_CUTOVER)
-        .gte('entry_date', from)
         .lte('entry_date', to)
         .order('entry_date', { ascending: true }),
     ]);
@@ -96,7 +96,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       pendingReviewCount,
     } = buildMaterialCostSeries(listPoints, entries, granularity, from, to);
     const summary = summarizeSeries(series);
-    const receipts = entriesToReceiptRows(entries);
+    const receipts = entriesToReceiptRows(
+      entries.filter((e) => entryInDateWindow(e, from, to))
+    );
 
     return NextResponse.json({
       material: {

@@ -84,7 +84,6 @@ export async function GET(request: NextRequest) {
         .eq('plant_id', plantId)
         .in('material_id', materialIds)
         .gte('entry_date', MATERIAL_COST_CUTOVER)
-        .gte('entry_date', from)
         .lte('entry_date', to)
         .order('entry_date', { ascending: true }),
     ]);
