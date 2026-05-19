@@ -14,8 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
-import { Plus, Trash2, AlertTriangle, FileUp, FileCheck2, X } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, FileUp, FileCheck2, X, CheckCircle2, Truck } from 'lucide-react'
 import type { InvoiceCostCategory, ParsedCfdi, CfdiCaptureMode } from '@/types/finance'
 import { c_FormaPago, c_MetodoPago, c_UsoCFDI } from '@/lib/sat/codigosSat'
 
@@ -25,6 +24,7 @@ export type OrphanEntry = {
   entry_date: string
   plant_id: string
   supplier_id: string
+  fleet_supplier_id: string | null
   material_id: string
   received_qty_entered: number | null
   received_qty_kg: number | null
@@ -36,7 +36,9 @@ export type OrphanEntry = {
   supplier_invoice: string | null
   fleet_invoice: string | null
   ap_due_date_material: string | null
+  ap_due_date_fleet: string | null
   supplier?: { id: string; name: string; group_id: string | null; default_vat_rate: number | null } | null
+  fleet_supplier?: { id: string; name: string; group_id: string | null; default_vat_rate: number | null } | null
   material?: { id: string; material_name: string } | null
 }
 
@@ -71,6 +73,12 @@ interface Props {
   plantId?: string
   /** When set, shows a "N remaining" badge indicating uno-a-uno queue progress */
   queueInfo?: { remaining: number }
+  /**
+   * When true the drawer is in fleet-only mode: shows fleet lines as the
+   * primary content, hides the material section, defaults ISR to 1.25%.
+   * Used from the "Fletes pendientes" workflow.
+   */
+  fleetOnly?: boolean
   onSuccess: () => void
 }
 
@@ -82,26 +90,16 @@ function addDays(date: Date, days: number) {
   return d
 }
 
-/** Build aggregated display lines from a set of orphan entries.
- *  Groups by (cost_category × material_id) so the user sees one line per material.
- *  On submit these expand back into individual items per entry. */
-function buildLines(entries: OrphanEntry[]): LineItem[] {
+/** Build aggregated material display lines from orphan entries (groups by material_id, sums total_cost). */
+function buildMaterialLines(entries: OrphanEntry[]): LineItem[] {
   const matGroups = new Map<string, OrphanEntry[]>()
-  const fleetGroups = new Map<string, OrphanEntry[]>()
-
   for (const e of entries) {
     const mid = e.material_id
     if (!matGroups.has(mid)) matGroups.set(mid, [])
     matGroups.get(mid)!.push(e)
-
-    if (Number(e.fleet_cost ?? 0) > 0) {
-      if (!fleetGroups.has(mid)) fleetGroups.set(mid, [])
-      fleetGroups.get(mid)!.push(e)
-    }
   }
 
   const lines: LineItem[] = []
-
   for (const [mid, grp] of matGroups) {
     const totalAmt = grp.reduce((s, e) => s + Number(e.total_cost ?? 0), 0)
     const totalQty = grp.reduce((s, e) => s + Number(e.received_qty_entered ?? 0), 0)
@@ -121,12 +119,26 @@ function buildLines(entries: OrphanEntry[]): LineItem[] {
       locked: true,
     })
   }
+  return lines
+}
 
-  for (const [mid, grp] of fleetGroups) {
+/** Build aggregated fleet display lines from orphan entries (groups by material_id, sums fleet_cost > 0). */
+function buildFleetLines(entries: OrphanEntry[]): LineItem[] {
+  const fleetGroups = new Map<string, OrphanEntry[]>()
+  for (const e of entries) {
+    if (Number(e.fleet_cost ?? 0) > 0) {
+      const mid = e.material_id
+      if (!fleetGroups.has(mid)) fleetGroups.set(mid, [])
+      fleetGroups.get(mid)!.push(e)
+    }
+  }
+
+  const lines: LineItem[] = []
+  for (const [, grp] of fleetGroups) {
     const totalFleet = grp.reduce((s, e) => s + Number(e.fleet_cost ?? 0), 0)
     const matName = grp[0].material?.material_name ?? ''
     lines.push({
-      key: `fleet:${mid}`,
+      key: `fleet:${grp[0].material_id}`,
       sourceEntries: grp,
       entry_id: null,
       cost_category: 'fleet',
@@ -137,11 +149,20 @@ function buildLines(entries: OrphanEntry[]): LineItem[] {
       locked: true,
     })
   }
-
   return lines
 }
 
-export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entries, plantId, queueInfo, onSuccess }: Props) {
+// ── small helper: CFDI pill badge ─────────────────────────────────────────────
+function CfdiPill() {
+  return (
+    <span className="ml-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-semibold uppercase tracking-wide leading-none">
+      <CheckCircle2 className="h-2.5 w-2.5" />
+      CFDI
+    </span>
+  )
+}
+
+export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entries, plantId, queueInfo, fleetOnly = false, onSuccess }: Props) {
   const isHistorical = !entries || entries.length === 0
 
   // ── supplier group ─────────────────────────────────────────────────────────
@@ -149,6 +170,10 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   const [groupId, setGroupId] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [creatingGroup, setCreatingGroup] = useState(false)
+
+  // Fleet supplier group (separate from material supplier)
+  const [fleetGroupId, setFleetGroupId] = useState('')
+  const [includeFleetInThisInvoice, setIncludeFleetInThisInvoice] = useState(false)
 
   // Derived supplier info from entries (non-historical)
   const firstSupplier = entries?.[0]?.supplier ?? null
@@ -167,8 +192,9 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   const [isrRate, setIsrRate]       = useState('0')
   const [ivaRetRate, setIvaRetRate] = useState('0')
 
-  // ── line items ─────────────────────────────────────────────────────────────
-  const [lines, setLines] = useState<LineItem[]>([])
+  // ── line items (split) ─────────────────────────────────────────────────────
+  const [materialLines, setMaterialLines] = useState<LineItem[]>([])
+  const [fleetLines, setFleetLines] = useState<LineItem[]>([])
 
   // ── CFDI XML upload ───────────────────────────────────────────────────────
   const [cfdiCaptureMode, setCfdiCaptureMode] = useState<CfdiCaptureMode>('manual')
@@ -179,6 +205,9 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   const [cfdiFormaPago, setCfdiFormaPago] = useState<string>('')
   const [cfdiMetodoPago, setCfdiMetodoPago] = useState<string>('')
   const [cfdiUso, setCfdiUso] = useState<string>('')
+
+  // ── CFDI prefill tracking ─────────────────────────────────────────────────
+  const [cfdiPrefilled, setCfdiPrefilled] = useState<Set<string>>(new Set())
 
   // ── submit ─────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
@@ -214,6 +243,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setCfdiFormaPago('')
     setCfdiMetodoPago('')
     setCfdiUso('')
+    setCfdiPrefilled(new Set())
+    setFleetGroupId('')
 
     if (isHistorical) {
       setGroupId('')
@@ -221,7 +252,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
       setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
       setInvoiceNumber('')
-      setLines([{
+      setMaterialLines([{
         key: crypto.randomUUID(),
         entry_id: null,
         cost_category: 'material',
@@ -230,11 +261,58 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
         unit_price: '',
         amount: '',
       }])
+      setFleetLines([])
+      setIncludeFleetInThisInvoice(false)
       return
     }
 
     // Non-historical: build aggregated lines from entries
-    setLines(buildLines(entries ?? []))
+    const builtMaterialLines = buildMaterialLines(entries ?? [])
+    const builtFleetLines = buildFleetLines(entries ?? [])
+    setMaterialLines(builtMaterialLines)
+    setFleetLines(builtFleetLines)
+
+    if (fleetOnly) {
+      // Fleet-only mode: fleet lines are primary; no material invoice
+      setIncludeFleetInThisInvoice(false)
+      // Pre-fill supplier group from fleet supplier — prefer group_id, fall back to supplier's own group
+      const fleetGroupIds = [...new Set((entries ?? [])
+        .map(e => e.fleet_supplier?.group_id)
+        .filter(Boolean))]
+      // If no group_id set, the fleet supplier may not be in supplier_groups yet — leave picker empty
+      setGroupId(fleetGroupIds.length === 1 ? (fleetGroupIds[0] as string) : '')
+      setVatRate(String(DEFAULT_VAT))
+      setIsrRate('0.0125') // 1.25% is the standard transport ISR retention
+      const dueFromFleet = entries?.[0]?.ap_due_date_fleet
+      if (dueFromFleet) setDueDate(dueFromFleet)
+      else setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
+      setInvoiceNumber(entries?.[0]?.fleet_invoice ?? '')
+      setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
+      return
+    }
+
+    // Detect whether all entries share the same fleet supplier as the material supplier.
+    // Two checks, because some suppliers have no group_id assigned yet:
+    //  A) Same supplier_groups record (group_id match) — cross-plant canonical identity
+    //  B) Same plant-scoped supplier row (supplier_id === fleet_supplier_id) — e.g. MAPEI with no group
+    const matGroupId = firstSupplier?.group_id ?? null
+    const allEnts = entries ?? []
+    const sameByGroupId = !!matGroupId && allEnts.length > 0 &&
+      allEnts.every(e => !!e.fleet_supplier?.group_id && e.fleet_supplier.group_id === matGroupId)
+    const sameByRow = allEnts.length > 0 &&
+      allEnts.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === e.supplier_id)
+    const isSameSupplier = sameByGroupId || sameByRow
+    // The group_id to use for the invoice — prefer group if set, fall back to first fleet supplier's group
+    const resolvedFleetGroupId = matGroupId ?? null
+
+    if (isSameSupplier && builtFleetLines.length > 0) {
+      // Same company covers both material and transport — auto-include fleet in this invoice
+      setIncludeFleetInThisInvoice(true)
+      setFleetGroupId(resolvedFleetGroupId ?? '')
+    } else {
+      setIncludeFleetInThisInvoice(false)
+      setFleetGroupId('')
+    }
 
     // Pre-fill group from first entry's supplier
     if (firstSupplier?.group_id) setGroupId(firstSupplier.group_id)
@@ -252,7 +330,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setInvoiceNumber(entries?.[0]?.supplier_invoice ?? '')
     setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, entries, isHistorical])
+  }, [open, entries, isHistorical, fleetOnly])
 
   // Auto-update VAT + due date when group changes (historical/picker mode)
   useEffect(() => {
@@ -267,8 +345,14 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId, groups])
 
-  const updateLine = (key: string, field: keyof LineItem, value: string) => {
-    setLines(prev => prev.map(l => {
+  // ── line helpers (parameterised by setter) ─────────────────────────────────
+  const updateLine = (
+    setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
+    key: string,
+    field: keyof LineItem,
+    value: string,
+  ) => {
+    setter(prev => prev.map(l => {
       if (l.key !== key || l.locked) return l
       const updated = { ...l, [field]: value }
       if (field === 'qty' || field === 'unit_price') {
@@ -280,31 +364,60 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     }))
   }
 
-  const removeLine = (key: string) => setLines(prev => prev.filter(l => l.key !== key))
+  const removeLine = (
+    setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
+    key: string,
+  ) => setter(prev => prev.filter(l => l.key !== key))
 
-  const addLine = () => setLines(prev => [...prev, {
-    key: crypto.randomUUID(),
-    entry_id: null,
-    cost_category: 'material',
-    description: '',
-    qty: '',
-    unit_price: '',
-    amount: '',
-  }])
+  const addLine = (setter: React.Dispatch<React.SetStateAction<LineItem[]>>) =>
+    setter(prev => [...prev, {
+      key: crypto.randomUUID(),
+      entry_id: null,
+      cost_category: 'material',
+      description: '',
+      qty: '',
+      unit_price: '',
+      amount: '',
+    }])
 
+  // ── computed totals ────────────────────────────────────────────────────────
   const subtotal = useMemo(
-    () => lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0),
-    [lines]
+    () => materialLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0),
+    [materialLines]
   )
-  const vat         = parseFloat(vatRate) || 0
-  const discount    = parseFloat(discountAmount) || 0
-  const isrRateNum  = parseFloat(isrRate) || 0
-  const ivaRetRateNum = parseFloat(ivaRetRate) || 0
-  const taxableBase = Math.max(0, subtotal - discount)
-  const tax         = Math.round(taxableBase * vat * 100) / 100
-  const isrAmt      = Math.round(taxableBase * isrRateNum * 100) / 100
-  const ivaRetAmt   = Math.round(tax * ivaRetRateNum * 100) / 100
-  const total       = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
+  const fleetSubtotal = useMemo(
+    () => fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0),
+    [fleetLines]
+  )
+  // Whether material and fleet come from the same supplier (can merge into one invoice).
+  // Mirrors the detection logic in the reset effect:
+  //  A) Same supplier_groups.id (cross-plant)
+  //  B) Same plant-scoped supplier row (supplier_id === fleet_supplier_id) — covers suppliers without a group
+  const sameFleetSupplier = !isHistorical && !fleetOnly && (() => {
+    const ents = entries ?? []
+    if (ents.length === 0) return false
+    const byGroup = !!groupId && !!fleetGroupId && groupId === fleetGroupId
+    const byRow = ents.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === e.supplier_id)
+    return byGroup || byRow
+  })()
+
+  // In fleet-only mode, base = fleet lines.
+  // When merging same-supplier fleet into the material invoice, base = material + fleet combined.
+  // Otherwise base = material lines only.
+  const effectiveSubtotal = fleetOnly
+    ? fleetSubtotal
+    : (sameFleetSupplier && includeFleetInThisInvoice && fleetLines.length > 0)
+      ? subtotal + fleetSubtotal
+      : subtotal
+  const vat            = parseFloat(vatRate) || 0
+  const discount       = parseFloat(discountAmount) || 0
+  const isrRateNum     = parseFloat(isrRate) || 0
+  const ivaRetRateNum  = parseFloat(ivaRetRate) || 0
+  const taxableBase    = Math.max(0, effectiveSubtotal - discount)
+  const tax            = Math.round(taxableBase * vat * 100) / 100
+  const isrAmt         = Math.round(taxableBase * isrRateNum * 100) / 100
+  const ivaRetAmt      = Math.round(taxableBase * ivaRetRateNum * 100) / 100
+  const total          = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -355,40 +468,79 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       setCfdiFile(file)
       setCfdiCaptureMode('cfdi')
 
+      // Track which fields were prefilled from CFDI
+      const prefilled = new Set<string>()
+
       // Prefill form fields from CFDI
       setInvoiceNumber([cfdi.serie, cfdi.folio].filter(Boolean).join('-') || cfdi.uuid.slice(0, 8))
+      prefilled.add('invoiceNumber')
       setInvoiceDate(cfdi.fecha_emision.slice(0, 10))
+      prefilled.add('invoiceDate')
       setVatRate(String(cfdi.vat_rate || DEFAULT_VAT))
+      prefilled.add('vatRate')
       setCfdiFormaPago(cfdi.forma_pago ?? '')
       setCfdiMetodoPago(cfdi.metodo_pago ?? '')
       setCfdiUso(cfdi.uso_cfdi ?? '')
-      setDiscountAmount(cfdi.descuento > 0 ? cfdi.descuento.toFixed(2) : '')
-      setIsrRate(cfdi.retention_isr_rate > 0 ? String(cfdi.retention_isr_rate) : '0')
-      setIvaRetRate(cfdi.retention_iva_rate > 0 ? String(cfdi.retention_iva_rate) : '0')
+      if (cfdi.descuento > 0) {
+        setDiscountAmount(cfdi.descuento.toFixed(2))
+        prefilled.add('discountAmount')
+      } else {
+        setDiscountAmount('')
+      }
+      if (cfdi.retention_isr_rate > 0) {
+        setIsrRate(String(cfdi.retention_isr_rate))
+        prefilled.add('isrRate')
+      } else {
+        setIsrRate('0')
+      }
+      if (cfdi.retention_iva_rate > 0) {
+        setIvaRetRate(String(cfdi.retention_iva_rate))
+        prefilled.add('ivaRetRate')
+      } else {
+        setIvaRetRate('0')
+      }
+
+      setCfdiPrefilled(prefilled)
 
       // Match supplier group by emisor RFC
       if (data.supplier_group) {
         setGroupId(data.supplier_group.id)
       }
 
-      // Default a single editable line summing the CFDI subtotal so the user
-      // can split into material/fleet manually.
-      const subtotalLine = cfdi.subtotal.toFixed(2)
+      // Build lines from cfdi:Conceptos (one line per concept).
+      // In non-historical mode with locked entry lines we don't override, but we
+      // still populate for historical / manual mode.
       if (isHistorical) {
-        setLines([{
-          key: crypto.randomUUID(),
-          entry_id: null,
-          cost_category: 'material',
-          description: cfdi.emisor_nombre ?? `CFDI ${cfdi.serie ?? ''}${cfdi.folio ?? ''}`,
-          qty: '1',
-          unit_price: subtotalLine,
-          amount: subtotalLine,
-        }])
+        if (cfdi.conceptos.length > 0) {
+          setMaterialLines(cfdi.conceptos.map(c => ({
+            key: crypto.randomUUID(),
+            entry_id: null,
+            cost_category: 'material' as const,
+            description: c.descripcion,
+            qty: String(c.cantidad),
+            unit_price: c.valor_unitario.toFixed(2),
+            amount: (c.importe - c.descuento).toFixed(2),
+          })))
+        } else {
+          // Fallback: single line with full subtotal
+          setMaterialLines([{
+            key: crypto.randomUUID(),
+            entry_id: null,
+            cost_category: 'material',
+            description: cfdi.emisor_nombre ?? `CFDI ${cfdi.serie ?? ''}${cfdi.folio ?? ''}`,
+            qty: '1',
+            unit_price: cfdi.subtotal.toFixed(2),
+            amount: cfdi.subtotal.toFixed(2),
+          }])
+        }
+        setFleetLines([])
       }
 
-      toast.success(`CFDI leído — UUID ${cfdi.uuid.slice(0, 8)}…`)
-    } catch (err: any) {
-      toast.error(err?.message ?? 'Error al leer el CFDI')
+      const nLines = cfdi.conceptos.length
+      toast.success(`CFDI leído — UUID ${cfdi.uuid.slice(0, 8)}…${nLines > 0 ? ` · ${nLines} concepto(s)` : ''}`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al leer el CFDI'
+      toast.error(msg)
     } finally {
       setParsingCfdi(false)
     }
@@ -401,9 +553,10 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setCfdiFormaPago('')
     setCfdiMetodoPago('')
     setCfdiUso('')
+    setCfdiPrefilled(new Set())
   }
 
-  /** Expand aggregated display lines into individual API items (one per source entry). */
+  /** Expand aggregated material display lines into individual API items. */
   const buildApiItems = () => {
     const items: Array<{
       entry_id: string | null
@@ -414,21 +567,17 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       amount: number
     }> = []
 
-    for (const l of lines) {
+    for (const l of materialLines) {
       if (l.sourceEntries && l.sourceEntries.length > 0) {
         for (const e of l.sourceEntries) {
-          const amt = l.cost_category === 'material'
-            ? Number(e.total_cost ?? 0)
-            : Number(e.fleet_cost ?? 0)
+          const amt = Number(e.total_cost ?? 0)
           if (amt <= 0) continue
           items.push({
             entry_id: e.id,
-            cost_category: l.cost_category,
-            description: l.cost_category === 'material'
-              ? `${e.material?.material_name ?? ''} — ${e.entry_number}`
-              : `Flete — ${e.entry_number}`,
-            qty: l.cost_category === 'material' ? (e.received_qty_entered ?? null) : null,
-            unit_price: l.cost_category === 'material' ? (e.unit_price ?? null) : (e.fleet_cost ?? null),
+            cost_category: 'material',
+            description: `${e.material?.material_name ?? ''} — ${e.entry_number}`,
+            qty: e.received_qty_entered ?? null,
+            unit_price: e.unit_price ?? null,
             amount: amt,
           })
         }
@@ -446,23 +595,116 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     return items
   }
 
+  /** Expand aggregated fleet display lines into individual API items. */
+  const buildFleetApiItems = () => {
+    const items: Array<{
+      entry_id: string | null
+      cost_category: string
+      description: string | null
+      qty: number | null
+      unit_price: number | null
+      amount: number
+    }> = []
+
+    for (const l of fleetLines) {
+      if (l.sourceEntries && l.sourceEntries.length > 0) {
+        for (const e of l.sourceEntries) {
+          const amt = Number(e.fleet_cost ?? 0)
+          if (amt <= 0) continue
+          items.push({
+            entry_id: e.id,
+            cost_category: 'fleet',
+            description: `Flete — ${e.entry_number}`,
+            qty: null,
+            unit_price: e.fleet_cost ?? null,
+            amount: amt,
+          })
+        }
+      } else {
+        items.push({
+          entry_id: l.entry_id,
+          cost_category: 'fleet',
+          description: l.description || null,
+          qty: l.qty ? parseFloat(l.qty) : null,
+          unit_price: l.unit_price ? parseFloat(l.unit_price) : null,
+          amount: parseFloat(l.amount),
+        })
+      }
+    }
+    return items
+  }
+
   const handleSubmit = async () => {
     if (!groupId) { toast.error('Selecciona o crea un grupo de proveedor'); return }
     if (!effectivePlantId) { toast.error('Planta requerida'); return }
     if (!invoiceDate || !dueDate) { toast.error('Fecha de factura y vencimiento requeridos'); return }
     if (!isInternal && !invoiceNumber.trim()) { toast.error('Número de factura requerido'); return }
-    if (lines.length === 0) { toast.error('Agrega al menos una línea'); return }
-    const invalidLine = lines.find(l => !l.amount || parseFloat(l.amount) <= 0)
+
+    // Fleet-only mode: validate fleet lines instead of material lines
+    if (fleetOnly) {
+      if (fleetLines.length === 0) { toast.error('Agrega al menos una línea de flete'); return }
+      const invalidFleet = fleetLines.find(l => !l.amount || parseFloat(l.amount) <= 0)
+      if (invalidFleet) { toast.error('Todas las líneas deben tener monto'); return }
+      const fleetItems = buildFleetApiItems()
+      if (fleetItems.length === 0) { toast.error('No hay líneas válidas'); return }
+      const fleetSubtotalAmt = fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
+      setLoading(true)
+      try {
+        const res = await fetch('/api/ap/invoices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            supplier_group_id: groupId,
+            plant_id: effectivePlantId,
+            invoice_number: isInternal ? '' : invoiceNumber.trim(),
+            is_internal: isInternal,
+            invoice_date: invoiceDate,
+            due_date: dueDate,
+            vat_rate: vat,
+            subtotal: fleetSubtotalAmt,
+            discount_amount: discount,
+            retention_isr_rate: isrRateNum,
+            retention_iva_rate: ivaRetRateNum,
+            source: 'system',
+            notes: notes.trim() || null,
+            items: fleetItems,
+            cfdi_uuid: parsedCfdi?.uuid ?? null,
+            cfdi_serie: parsedCfdi?.serie ?? null,
+            cfdi_folio: parsedCfdi?.folio ?? null,
+            cfdi_forma_pago: cfdiFormaPago || parsedCfdi?.forma_pago || null,
+            cfdi_metodo_pago: cfdiMetodoPago || parsedCfdi?.metodo_pago || null,
+            cfdi_uso: cfdiUso || parsedCfdi?.uso_cfdi || null,
+            cfdi_tipo_comprobante: parsedCfdi?.tipo_comprobante ?? null,
+            cfdi_fecha_emision: parsedCfdi?.fecha_emision ?? null,
+            cfdi_fecha_timbrado: parsedCfdi?.fecha_timbrado ?? null,
+            cfdi_emisor_rfc: parsedCfdi?.emisor_rfc ?? null,
+            cfdi_receptor_rfc: parsedCfdi?.receptor_rfc ?? null,
+            cfdi_capture_mode: cfdiCaptureMode,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) { toast.error(data.error ?? 'Error al crear factura de flete'); return }
+        toast.success(`Factura de flete ${data.invoice.invoice_number} creada`)
+        onOpenChange(false)
+        onSuccess()
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (materialLines.length === 0) { toast.error('Agrega al menos una línea de material'); return }
+    const invalidLine = materialLines.find(l => !l.amount || parseFloat(l.amount) <= 0)
     if (invalidLine) { toast.error('Todas las líneas deben tener monto'); return }
 
     const apiItems = buildApiItems()
     if (apiItems.length === 0) { toast.error('No hay líneas válidas'); return }
 
-    // Warn if user-edited subtotal/total deviates from the parsed CFDI
+    // Warn if user-edited subtotal deviates from the parsed CFDI
     if (parsedCfdi) {
-      if (Math.abs(subtotal - parsedCfdi.subtotal) > 0.02) {
+      if (Math.abs(effectiveSubtotal - parsedCfdi.subtotal) > 0.02) {
         const ok = window.confirm(
-          `El subtotal capturado (${subtotal.toFixed(2)}) no coincide con el del CFDI (${parsedCfdi.subtotal.toFixed(2)}). ¿Continuar?`,
+          `El subtotal capturado (${effectiveSubtotal.toFixed(2)}) no coincide con el del CFDI (${parsedCfdi.subtotal.toFixed(2)}). ¿Continuar?`,
         )
         if (!ok) return
       }
@@ -470,6 +712,13 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
 
     setLoading(true)
     try {
+      // ── Build items: merge fleet into material when same supplier group ────
+      // Same supplier → one invoice with both material and fleet lines.
+      // Different supplier → one material invoice now, fleet invoice separately below.
+      const mergeFleet = sameFleetSupplier && includeFleetInThisInvoice && fleetLines.length > 0
+      const combinedItems = mergeFleet ? [...apiItems, ...buildFleetApiItems()] : apiItems
+
+      // ── Invoice 1: material supplier (may include fleet when same supplier) ─
       const res = await fetch('/api/ap/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -481,13 +730,13 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           invoice_date: invoiceDate,
           due_date: dueDate,
           vat_rate: vat,
-          subtotal,
+          subtotal: effectiveSubtotal,
           discount_amount: discount,
           retention_isr_rate: isrRateNum,
           retention_iva_rate: ivaRetRateNum,
           source: isHistorical ? 'historical' : 'system',
           notes: notes.trim() || null,
-          items: apiItems,
+          items: combinedItems,
           cfdi_uuid: parsedCfdi?.uuid ?? null,
           cfdi_serie: parsedCfdi?.serie ?? null,
           cfdi_folio: parsedCfdi?.folio ?? null,
@@ -504,7 +753,61 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Error al crear factura'); return }
-      toast.success(`Factura ${data.invoice.invoice_number} creada`)
+      toast.success(`Factura ${data.invoice.invoice_number} creada${mergeFleet ? ' (material + flete)' : ''}`)
+      // Surface non-fatal server warnings (e.g. payable not created due to missing group)
+      if (Array.isArray(data.warnings)) {
+        for (const w of data.warnings) toast.warning(w, { duration: 8000 })
+      }
+
+      // ── Invoice 2: fleet supplier — only when DIFFERENT from material supplier ─
+      if (!mergeFleet && includeFleetInThisInvoice && fleetLines.length > 0 && fleetGroupId) {
+        const fleetItems = buildFleetApiItems()
+        if (fleetItems.length > 0) {
+          const fleetSubtotalAmt = fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
+          const fleetRes = await fetch('/api/ap/invoices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              supplier_group_id: fleetGroupId,
+              plant_id: effectivePlantId,
+              invoice_number: '',
+              is_internal: true,
+              invoice_date: invoiceDate,
+              due_date: dueDate,
+              vat_rate: vat,
+              subtotal: fleetSubtotalAmt,
+              discount_amount: 0,
+              retention_isr_rate: 0.0125,
+              retention_iva_rate: 0,
+              source: isHistorical ? 'historical' : 'system',
+              notes: `Flete — generado junto con factura ${data.invoice.invoice_number}`,
+              items: fleetItems,
+              cfdi_uuid: null,
+              cfdi_serie: null,
+              cfdi_folio: null,
+              cfdi_forma_pago: null,
+              cfdi_metodo_pago: null,
+              cfdi_uso: null,
+              cfdi_tipo_comprobante: null,
+              cfdi_fecha_emision: null,
+              cfdi_fecha_timbrado: null,
+              cfdi_emisor_rfc: null,
+              cfdi_receptor_rfc: null,
+              cfdi_capture_mode: 'manual' as CfdiCaptureMode,
+            }),
+          })
+          const fleetData = await fleetRes.json()
+          if (!fleetRes.ok) {
+            toast.error(fleetData.error ?? 'Error al crear factura de flete')
+          } else {
+            toast.success(`Factura de flete ${fleetData.invoice.invoice_number} creada`)
+            if (Array.isArray(fleetData.warnings)) {
+              for (const w of fleetData.warnings) toast.warning(w, { duration: 8000 })
+            }
+          }
+        }
+      }
+
       onOpenChange(false)
       onSuccess()
     } finally {
@@ -515,12 +818,111 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   // Resolved group name for read-only display
   const resolvedGroupName = groups.find(g => g.id === groupId)?.name ?? firstSupplier?.name ?? null
 
+  // Helper to render a set of line item cards
+  const renderLineCards = (
+    lines: LineItem[],
+    setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
+    showAddButton: boolean,
+  ) => (
+    <div className="space-y-2">
+      {lines.map(l => (
+        <div key={l.key} className={`rounded-md p-3 space-y-2 border ${l.locked ? 'bg-stone-50/70 border-stone-100' : 'bg-stone-50 border-stone-200'}`}>
+          <div className="flex items-center gap-2">
+            {l.locked ? (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium w-24 text-center ${l.cost_category === 'fleet' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {l.cost_category === 'fleet' ? 'Flete' : 'Material'}
+              </span>
+            ) : (
+              <Select value={l.cost_category} onValueChange={v => updateLine(setter, l.key, 'cost_category', v as InvoiceCostCategory)}>
+                <SelectTrigger className="w-28 h-7 text-xs bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="material">Material</SelectItem>
+                  <SelectItem value="fleet">Flete</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <span className={`flex-1 text-xs ${l.locked ? 'text-stone-700' : 'hidden'}`}>{l.description}</span>
+            {!l.locked && (
+              <Input
+                value={l.description}
+                onChange={e => updateLine(setter, l.key, 'description', e.target.value)}
+                className="flex-1 h-7 text-xs bg-white"
+                placeholder="Descripción…"
+              />
+            )}
+            {!l.locked && (
+              <button
+                type="button"
+                onClick={() => removeLine(setter, l.key)}
+                className="p-1 text-stone-400 hover:text-red-600"
+                title="Quitar línea"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-0.5">
+              <span className="text-[10px] text-stone-500">Cantidad</span>
+              <Input
+                type="number"
+                value={l.qty}
+                onChange={e => updateLine(setter, l.key, 'qty', e.target.value)}
+                className="h-7 text-xs bg-white"
+                placeholder="0"
+                disabled={l.locked}
+              />
+            </div>
+            <div className="flex-1 space-y-0.5">
+              <span className="text-[10px] text-stone-500">Precio unit.</span>
+              <Input
+                type="number"
+                value={l.unit_price}
+                onChange={e => updateLine(setter, l.key, 'unit_price', e.target.value)}
+                className="h-7 text-xs bg-white"
+                placeholder="0.00"
+                disabled={l.locked}
+              />
+            </div>
+            <div className="flex-1 space-y-0.5">
+              <span className="text-[10px] text-stone-500 font-medium">Monto neto</span>
+              <Input
+                type="number"
+                value={l.amount}
+                onChange={e => updateLine(setter, l.key, 'amount', e.target.value)}
+                className={`h-7 text-xs font-medium ${l.locked ? 'bg-stone-100 text-stone-700' : 'bg-white'}`}
+                placeholder="0.00"
+                disabled={l.locked}
+              />
+            </div>
+          </div>
+          {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
+            <p className="text-[10px] text-stone-400 pl-1">
+              {l.sourceEntries.map(e => e.entry_number).join(', ')}
+            </p>
+          )}
+        </div>
+      ))}
+      {showAddButton && (
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1 mt-1" onClick={() => addLine(setter)}>
+          <Plus className="h-3.5 w-3.5" /> Agregar línea
+        </Button>
+      )}
+    </div>
+  )
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0 overflow-hidden">
         <SheetHeader className="px-6 pt-5 pb-4 border-b border-stone-200 shrink-0">
           <SheetTitle className="flex items-center gap-2">
-            {isHistorical ? 'Nueva factura histórica' : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
+            {fleetOnly
+              ? `Factura de flete (${entries?.length ?? 0} entrada${(entries?.length ?? 0) !== 1 ? 's' : ''})`
+              : isHistorical
+                ? 'Nueva factura histórica'
+                : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
             {queueInfo && queueInfo.remaining > 0 && (
               <span className="ml-1 px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-xs font-medium">
                 {queueInfo.remaining} más después
@@ -528,11 +930,13 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            {isHistorical
-              ? 'Registra una factura anterior al sistema sin recepciones vinculadas.'
-              : queueInfo && queueInfo.remaining > 0
-                ? 'Completa esta factura y se abrirá automáticamente la siguiente recepción.'
-                : 'La factura agrupa las recepciones seleccionadas en una sola cuenta por pagar.'}
+            {fleetOnly
+              ? 'Registra la factura del proveedor de transporte/flete para las entradas seleccionadas.'
+              : isHistorical
+                ? 'Registra una factura anterior al sistema sin recepciones vinculadas.'
+                : queueInfo && queueInfo.remaining > 0
+                  ? 'Completa esta factura y se abrirá automáticamente la siguiente recepción.'
+                  : 'La factura agrupa las recepciones seleccionadas en una sola cuenta por pagar.'}
           </SheetDescription>
         </SheetHeader>
 
@@ -563,9 +967,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                       <div className="text-stone-600">
                         {parsedCfdi.emisor_nombre ?? parsedCfdi.emisor_rfc} · {parsedCfdi.emisor_rfc}
                       </div>
-                      <div className="text-stone-500">
-                        Subtotal {mxn.format(parsedCfdi.subtotal)} · Total {mxn.format(parsedCfdi.total)}
-                      </div>
+                      {/* Subtotal/Total line removed — shown in totals panel comparison below */}
                     </div>
                   </div>
                   <button
@@ -633,6 +1035,39 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           {/* Supplier — read-only when entries provide it; picker for historical */}
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-stone-900">Proveedor</h3>
+
+            {/* CFDI emisor identity banner — shown whenever a CFDI is loaded */}
+            {parsedCfdi && (
+              <div className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                <span className="font-medium shrink-0">CFDI emisor:</span>
+                <span className="font-mono font-semibold">{parsedCfdi.emisor_rfc}</span>
+                {parsedCfdi.emisor_nombre && (
+                  <span className="truncate text-sky-700">{parsedCfdi.emisor_nombre}</span>
+                )}
+              </div>
+            )}
+
+            {/* RFC mismatch warning */}
+            {parsedCfdi && groupId && (() => {
+              const selectedGroup = groups.find(g => g.id === groupId)
+              if (!selectedGroup?.rfc) return null
+              const rfcOk = selectedGroup.rfc.toUpperCase() === parsedCfdi.emisor_rfc.toUpperCase()
+              if (rfcOk) return (
+                <div className="flex items-center gap-1.5 text-[11px] text-emerald-700">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  RFC del proveedor coincide con el CFDI ({selectedGroup.rfc})
+                </div>
+              )
+              return (
+                <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    El RFC del grupo seleccionado <strong>{selectedGroup.rfc}</strong> no coincide con el RFC emisor del CFDI <strong>{parsedCfdi.emisor_rfc}</strong>. Verifica que el proveedor sea correcto.
+                  </span>
+                </div>
+              )
+            })()}
+
             {isHistorical ? (
               <>
                 <div className="flex gap-2">
@@ -643,7 +1078,9 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                     <SelectContent>
                       <SelectItem value="__none__">— Seleccionar —</SelectItem>
                       {groups.map(g => (
-                        <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name}{g.rfc ? ` · ${g.rfc}` : ''}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -668,6 +1105,12 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                 {firstSupplier?.name && resolvedGroupName !== firstSupplier.name && (
                   <span className="text-xs text-stone-400">({firstSupplier.name})</span>
                 )}
+                {(() => {
+                  const grp = groups.find(g => g.id === groupId)
+                  return grp?.rfc
+                    ? <span className="text-xs font-mono text-stone-500 ml-auto">{grp.rfc}</span>
+                    : null
+                })()}
               </div>
             ) : (
               <div className="space-y-2">
@@ -683,7 +1126,9 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                     <SelectContent>
                       <SelectItem value="__none__">— Seleccionar —</SelectItem>
                       {groups.map(g => (
-                        <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                        <SelectItem key={g.id} value={g.id}>
+                          {g.name}{g.rfc ? ` · ${g.rfc}` : ''}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -721,14 +1166,36 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             </div>
             {!isInternal && (
               <div className="space-y-1">
-                <Label className="text-xs">Número de factura *</Label>
-                <Input value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} className="bg-white" placeholder="Ej. A-12345" />
+                <Label className="text-xs flex items-center">
+                  Número de factura *
+                  {cfdiPrefilled.has('invoiceNumber') && <CfdiPill />}
+                </Label>
+                <Input
+                  value={invoiceNumber}
+                  onChange={e => {
+                    setInvoiceNumber(e.target.value)
+                    setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('invoiceNumber'); return s })
+                  }}
+                  className="bg-white"
+                  placeholder="Ej. A-12345"
+                />
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Fecha de factura *</Label>
-                <Input type="date" value={invoiceDate} onChange={e => setInvoiceDate(e.target.value)} className="bg-white" />
+                <Label className="text-xs flex items-center">
+                  Fecha de factura *
+                  {cfdiPrefilled.has('invoiceDate') && <CfdiPill />}
+                </Label>
+                <Input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={e => {
+                    setInvoiceDate(e.target.value)
+                    setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('invoiceDate'); return s })
+                  }}
+                  className="bg-white"
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Fecha de vencimiento *</Label>
@@ -736,8 +1203,14 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               </div>
             </div>
             <div className="space-y-1 w-40">
-              <Label className="text-xs">IVA</Label>
-              <Select value={vatRate} onValueChange={setVatRate}>
+              <Label className="text-xs flex items-center">
+                IVA
+                {cfdiPrefilled.has('vatRate') && <CfdiPill />}
+              </Label>
+              <Select value={vatRate} onValueChange={v => {
+                setVatRate(v)
+                setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('vatRate'); return s })
+              }}>
                 <SelectTrigger className="bg-white">
                   <SelectValue />
                 </SelectTrigger>
@@ -801,26 +1274,38 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             <h3 className="text-sm font-semibold text-stone-900">Descuentos y Retenciones</h3>
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Descuento (pre-IVA)</Label>
+                <Label className="text-xs flex items-center">
+                  Descuento (pre-IVA)
+                  {cfdiPrefilled.has('discountAmount') && <CfdiPill />}
+                </Label>
                 <Input
                   type="number"
                   min="0"
                   value={discountAmount}
-                  onChange={e => setDiscountAmount(e.target.value)}
+                  onChange={e => {
+                    setDiscountAmount(e.target.value)
+                    setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('discountAmount'); return s })
+                  }}
                   className="bg-white"
                   placeholder="0.00"
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Retención ISR</Label>
-                <Select value={isrRate} onValueChange={setIsrRate}>
+                <Label className="text-xs flex items-center">
+                  Retención ISR
+                  {cfdiPrefilled.has('isrRate') && <CfdiPill />}
+                </Label>
+                <Select value={isrRate} onValueChange={v => {
+                  setIsrRate(v)
+                  setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('isrRate'); return s })
+                }}>
                   <SelectTrigger className="bg-white">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="0">0% (ninguna)</SelectItem>
-                    <SelectItem value="0.0125">1.25% — fletes</SelectItem>
-                    <SelectItem value="0.10">10% — honorarios</SelectItem>
+                    <SelectItem value="0.0125">1.25% — fletes / RIF</SelectItem>
+                    <SelectItem value="0.10">10% — honorarios PF</SelectItem>
                     <SelectItem value="custom">Personalizado</SelectItem>
                   </SelectContent>
                 </Select>
@@ -837,8 +1322,14 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                 )}
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Retención IVA</Label>
-                <Select value={ivaRetRate} onValueChange={setIvaRetRate}>
+                <Label className="text-xs flex items-center">
+                  Retención IVA
+                  {cfdiPrefilled.has('ivaRetRate') && <CfdiPill />}
+                </Label>
+                <Select value={ivaRetRate} onValueChange={v => {
+                  setIvaRetRate(v)
+                  setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('ivaRetRate'); return s })
+                }}>
                   <SelectTrigger className="bg-white">
                     <SelectValue />
                   </SelectTrigger>
@@ -870,102 +1361,95 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-900">Líneas de factura</h3>
-              {isHistorical && (
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={addLine}>
-                  <Plus className="h-3.5 w-3.5" /> Agregar línea
-                </Button>
-              )}
             </div>
 
-            <div className="space-y-2">
-              {lines.map(l => (
-                <div key={l.key} className={`rounded-md p-3 space-y-2 border ${l.locked ? 'bg-stone-50/70 border-stone-100' : 'bg-stone-50 border-stone-200'}`}>
-                  <div className="flex items-center gap-2">
-                    {l.locked ? (
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium w-24 text-center ${l.cost_category === 'fleet' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                        {l.cost_category === 'fleet' ? 'Flete' : 'Material'}
-                      </span>
-                    ) : (
-                      <Select value={l.cost_category} onValueChange={v => updateLine(l.key, 'cost_category', v as InvoiceCostCategory)}>
-                        <SelectTrigger className="w-28 h-7 text-xs bg-white">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="material">Material</SelectItem>
-                          <SelectItem value="fleet">Flete</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <span className={`flex-1 text-xs ${l.locked ? 'text-stone-700' : 'hidden'}`}>{l.description}</span>
-                    {!l.locked && (
-                      <Input
-                        value={l.description}
-                        onChange={e => updateLine(l.key, 'description', e.target.value)}
-                        className="flex-1 h-7 text-xs bg-white"
-                        placeholder="Descripción…"
-                      />
-                    )}
-                    {!l.locked && (
-                      <button
-                        type="button"
-                        onClick={() => removeLine(l.key)}
-                        className="p-1 text-stone-400 hover:text-red-600"
-                        title="Quitar línea"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="flex-1 space-y-0.5">
-                      <span className="text-[10px] text-stone-500">Cantidad</span>
-                      <Input
-                        type="number"
-                        value={l.qty}
-                        onChange={e => updateLine(l.key, 'qty', e.target.value)}
-                        className="h-7 text-xs bg-white"
-                        placeholder="0"
-                        disabled={l.locked}
-                      />
-                    </div>
-                    <div className="flex-1 space-y-0.5">
-                      <span className="text-[10px] text-stone-500">Precio unit.</span>
-                      <Input
-                        type="number"
-                        value={l.unit_price}
-                        onChange={e => updateLine(l.key, 'unit_price', e.target.value)}
-                        className="h-7 text-xs bg-white"
-                        placeholder="0.00"
-                        disabled={l.locked}
-                      />
-                    </div>
-                    <div className="flex-1 space-y-0.5">
-                      <span className="text-[10px] text-stone-500 font-medium">Monto neto</span>
-                      <Input
-                        type="number"
-                        value={l.amount}
-                        onChange={e => updateLine(l.key, 'amount', e.target.value)}
-                        className={`h-7 text-xs font-medium ${l.locked ? 'bg-stone-100 text-stone-700' : 'bg-white'}`}
-                        placeholder="0.00"
-                        disabled={l.locked}
-                      />
-                    </div>
-                  </div>
-                  {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
-                    <p className="text-[10px] text-stone-400 pl-1">
-                      {l.sourceEntries.map(e => e.entry_number).join(', ')}
-                    </p>
-                  )}
+            {fleetOnly ? (
+              /* Fleet-only mode: fleet lines are the primary content */
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-amber-700 uppercase tracking-wide flex items-center gap-1">
+                  <Truck className="h-3 w-3" /> Flete / Transporte
+                </p>
+                {renderLineCards(fleetLines, setFleetLines, false)}
+              </div>
+            ) : (
+              <>
+                {/* Material sub-section */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-stone-600 uppercase tracking-wide">Material</p>
+                  {renderLineCards(materialLines, setMaterialLines, isHistorical)}
                 </div>
-              ))}
-            </div>
+
+                {/* Fleet sub-section — only in non-historical mode when there are fleet lines */}
+                {!isHistorical && fleetLines.length > 0 && (
+                  <div className="space-y-2 mt-4">
+                    <p className="text-xs font-medium text-stone-600 uppercase tracking-wide">Flete</p>
+
+                    {/* Toggle / status banner — mutually exclusive */}
+                    {sameFleetSupplier ? (
+                      /* Same supplier: auto-merged, no toggle needed */
+                      <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <span className="mt-0.5">✓</span>
+                        <span>El proveedor de flete es el mismo que el de material — las líneas de flete se incluyen automáticamente en esta factura.</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="include-fleet"
+                          checked={includeFleetInThisInvoice}
+                          onCheckedChange={v => setIncludeFleetInThisInvoice(!!v)}
+                        />
+                        <label htmlFor="include-fleet" className="text-xs cursor-pointer select-none">
+                          Incluir flete en esta misma factura (genera una segunda factura para el transportista)
+                        </label>
+                      </div>
+                    )}
+
+                    {includeFleetInThisInvoice ? (
+                      <div className="space-y-3">
+                        {/* Fleet supplier picker — hidden when same supplier (already set) */}
+                        {!sameFleetSupplier && (
+                          <div className="space-y-1">
+                            <Label className="text-xs">Proveedor de flete</Label>
+                            <Select value={fleetGroupId || '__none__'} onValueChange={v => setFleetGroupId(v === '__none__' ? '' : v)}>
+                              <SelectTrigger className="bg-white">
+                                <SelectValue placeholder="Seleccionar proveedor de flete…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">— Seleccionar —</SelectItem>
+                                {groups.map(g => (
+                                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* Fleet line cards */}
+                        {renderLineCards(fleetLines, setFleetLines, false)}
+
+                        {/* Fleet subtotal */}
+                        <div className="flex justify-between text-xs text-stone-600 pt-1">
+                          <span>Subtotal flete</span>
+                          <span className="tabular-nums font-medium">{mxn.format(fleetSubtotal)}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Info banner when fleet lines exist but are excluded */
+                      <div className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                        Las líneas de flete no se incluyen en esta factura. Crea una factura separada para el transportista desde la pestaña &quot;Fletes pendientes&quot;.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </section>
 
           {/* Totals breakdown */}
           <div className="bg-stone-50 rounded-md p-4 space-y-1 text-sm">
             <div className="flex justify-between">
               <span className="text-stone-600">Subtotal</span>
-              <span className="tabular-nums">{mxn.format(subtotal)}</span>
+              <span className="tabular-nums">{mxn.format(effectiveSubtotal)}</span>
             </div>
             {discount > 0 && (
               <div className="flex justify-between text-amber-700">
@@ -991,10 +1475,46 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             )}
             {ivaRetAmt > 0 && (
               <div className="flex justify-between text-rose-700">
-                <span>− Ret. IVA ({(ivaRetRateNum * 100).toFixed(2)}% s/IVA)</span>
+                <span>− Ret. IVA ({(ivaRetRateNum * 100).toFixed(2)}% s/base)</span>
                 <span className="tabular-nums">−{mxn.format(ivaRetAmt)}</span>
               </div>
             )}
+
+            {/* CFDI comparison row */}
+            {parsedCfdi && (() => {
+              const subtotalDiff = Math.abs(effectiveSubtotal - parsedCfdi.subtotal)
+              const totalDiff    = Math.abs(total             - parsedCfdi.total)
+              const subtotalOk   = subtotalDiff <= 0.02
+              const totalOk      = totalDiff    <= 0.02
+              return (
+                <>
+                  <Separator className="my-1" />
+                  <div className="grid grid-cols-2 gap-x-4 text-xs py-1">
+                    <div className="text-stone-500 font-medium">CFDI dice:</div>
+                    <div className="text-stone-500 font-medium">Esta factura:</div>
+
+                    {/* Subtotal row */}
+                    <div className={`flex items-center gap-1 ${subtotalOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {!subtotalOk && <AlertTriangle className="h-3 w-3 shrink-0" />}
+                      Subtotal {mxn.format(parsedCfdi.subtotal)}
+                    </div>
+                    <div className={`tabular-nums ${subtotalOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      Subtotal {mxn.format(effectiveSubtotal)}
+                    </div>
+
+                    {/* Total row */}
+                    <div className={`flex items-center gap-1 ${totalOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      {!totalOk && <AlertTriangle className="h-3 w-3 shrink-0" />}
+                      Total {mxn.format(parsedCfdi.total)}
+                    </div>
+                    <div className={`tabular-nums ${totalOk ? 'text-emerald-700' : 'text-amber-700'}`}>
+                      Total {mxn.format(total)}
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
+
             <Separator className="my-1" />
             <div className="flex justify-between font-semibold text-base">
               <span>Total a pagar</span>

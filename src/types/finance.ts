@@ -156,6 +156,18 @@ export interface SatCfdiRecibido {
   source: 'manual_zip' | 'manual_xml' | 'pac'
 }
 
+export interface CfdiConcepto {
+  clave_prod_serv: string | null
+  clave_unidad: string | null
+  no_identificacion: string | null
+  cantidad: number
+  descripcion: string
+  valor_unitario: number
+  importe: number
+  descuento: number
+  objeto_imp: string | null
+}
+
 export interface ParsedCfdi {
   uuid: string
   serie: string | null
@@ -188,6 +200,7 @@ export interface ParsedCfdi {
     imp_pagado: number
     num_parcialidad: number
   }>
+  conceptos: CfdiConcepto[]
 }
 
 export interface ReconciliationReport {

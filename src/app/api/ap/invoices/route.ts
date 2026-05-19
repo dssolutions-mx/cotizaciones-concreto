@@ -201,7 +201,8 @@ export async function POST(request: NextRequest) {
     const taxableBase = Math.round((Number(subtotal) - discountAmt) * 100) / 100
     const tax         = Math.round(taxableBase * Number(vat_rate) * 100) / 100
     const isrAmt      = Math.round(taxableBase * isrRate * 100) / 100
-    const ivaRetAmt   = Math.round(tax * ivaRetRate * 100) / 100
+    // retention_iva_rate is a fraction of taxable base (same as SAT TasaOCuota convention)
+    const ivaRetAmt   = Math.round(taxableBase * ivaRetRate * 100) / 100
     const total       = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
 
     // Resolve invoice_number: for internal invoices auto-generate INT-YYYY-NNNNN
@@ -262,6 +263,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: invErr?.message ?? 'Error al crear factura' }, { status: 500 })
     }
 
+    // Cross-validate: sum of item amounts must be within $1.00 of declared subtotal.
+    // Catches client-side bugs where items don't add up to what was posted.
+    if (items.length > 0) {
+      const itemsSum = items.reduce((s: number, it: any) => s + Number(it.amount ?? 0), 0)
+      if (Math.abs(itemsSum - Number(subtotal)) > 1.00) {
+        await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
+        return NextResponse.json(
+          {
+            error: `La suma de las líneas (${itemsSum.toFixed(2)}) no coincide con el subtotal declarado (${Number(subtotal).toFixed(2)}). Diferencia: ${Math.abs(itemsSum - Number(subtotal)).toFixed(2)}`,
+          },
+          { status: 400 },
+        )
+      }
+    }
+
     // Insert line items
     if (items.length > 0) {
       const itemRows = items.map((it: any) => ({
@@ -282,21 +298,45 @@ export async function POST(request: NextRequest) {
     }
 
     // Create linked payable for payment tracking.
-    // Look up the plant-scoped supplier for this group + plant.
-    const { data: supplierRow } = await supabase
-      .from('suppliers')
-      .select('id')
-      .eq('group_id', supplier_group_id)
-      .eq('plant_id', plant_id)
-      .eq('is_active', true)
-      .limit(1)
-      .maybeSingle()
+    // Strategy: prefer group→plant lookup; fall back to supplier_id via first entry_id
+    // (handles suppliers with no group_id, e.g. MAPEI).
+    const warnings: string[] = []
+    let supplierIdForPayable: string | null = null
 
-    if (supplierRow) {
+    if (supplier_group_id) {
+      const { data: byGroup } = await supabase
+        .from('suppliers')
+        .select('id')
+        .eq('group_id', supplier_group_id)
+        .eq('plant_id', plant_id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
+      supplierIdForPayable = byGroup?.id ?? null
+    }
+
+    // Fallback: derive supplier_id from the first entry that has one
+    if (!supplierIdForPayable && items.length > 0) {
+      const firstEntryId = items.find((it: any) => it.entry_id)?.entry_id
+      if (firstEntryId) {
+        const { data: entryRow } = await supabase
+          .from('material_entries')
+          .select('supplier_id, fleet_supplier_id')
+          .eq('id', firstEntryId)
+          .maybeSingle()
+        // Use fleet_supplier_id when all items are fleet cost, otherwise material supplier
+        const allFleet = items.length > 0 && items.every((it: any) => it.cost_category === 'fleet')
+        supplierIdForPayable = allFleet
+          ? (entryRow?.fleet_supplier_id ?? entryRow?.supplier_id ?? null)
+          : (entryRow?.supplier_id ?? null)
+      }
+    }
+
+    if (supplierIdForPayable) {
       const { data: payable, error: payErr } = await supabase
         .from('payables')
         .insert({
-          supplier_id: supplierRow.id,
+          supplier_id: supplierIdForPayable,
           plant_id,
           invoice_id: invoice.id,
           invoice_number,
@@ -312,8 +352,12 @@ export async function POST(request: NextRequest) {
         .select('id')
         .single()
 
-      // Create payable_items for each invoice line that has an entry
-      if (!payErr && payable && items.length > 0) {
+      if (payErr) {
+        // Payable failure is non-fatal (invoice already committed) but must be surfaced
+        console.error('/api/ap/invoices payable creation error:', payErr.message)
+        warnings.push(`Factura creada pero no se pudo crear el registro de cuentas por pagar: ${payErr.message}`)
+      } else if (payable && items.length > 0) {
+        // Create payable_items for each invoice line that has an entry
         const payableItemRows = items
           .filter((it: any) => it.entry_id)
           .map((it: any) => ({
@@ -324,12 +368,19 @@ export async function POST(request: NextRequest) {
             cost_category: it.cost_category ?? 'material',
           }))
         if (payableItemRows.length > 0) {
-          await supabase.from('payable_items').insert(payableItemRows)
+          const { error: piErr } = await supabase.from('payable_items').insert(payableItemRows)
+          if (piErr) {
+            console.error('/api/ap/invoices payable_items insert error:', piErr.message)
+            warnings.push(`Cuentas por pagar creado pero no se vincularon las líneas: ${piErr.message}`)
+          }
         }
       }
+    } else {
+      warnings.push('No se encontró proveedor activo para crear el registro de cuentas por pagar. Deberá crearse manualmente.')
+      console.warn('/api/ap/invoices: could not resolve supplier_id for payable — invoice_id:', invoice.id)
     }
 
-    return NextResponse.json({ invoice }, { status: 201 })
+    return NextResponse.json({ invoice, warnings: warnings.length > 0 ? warnings : undefined }, { status: 201 })
   } catch (err) {
     console.error('/api/ap/invoices POST error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

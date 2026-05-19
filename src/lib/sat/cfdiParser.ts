@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser'
-import type { ParsedCfdi, CfdiTipoComprobante } from '@/types/finance'
+import type { CfdiConcepto, ParsedCfdi, CfdiTipoComprobante } from '@/types/finance'
 
 export class CfdiParseError extends Error {
   constructor(message: string, public field?: string) {
@@ -95,10 +95,31 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     }
   }
 
-  // Retention rates: derived against the taxable base / IVA
+  // Retention rates: both expressed as a fraction of the taxable base (pre-IVA).
+  // This aligns with SAT TasaOCuota convention and the invoice route formula
+  // ivaRetAmt = taxableBase * retention_iva_rate.
+  // Example: IVA ret 2/3 (10.67% of base) → retention_iva_rate = 0.106667
   const taxable_base = Math.max(0, subtotal - descuento)
-  const retention_isr_rate = taxable_base > 0 ? Math.round((isr_retenido / taxable_base) * 10000) / 10000 : 0
-  const retention_iva_rate = iva_trasladado > 0 ? Math.round((iva_retenido / iva_trasladado) * 10000) / 10000 : 0
+  // Use 6 decimal places so rates like 0.106667 (2/3 of 16%) round correctly
+  const retention_isr_rate = taxable_base > 0 ? Math.round((isr_retenido / taxable_base) * 1000000) / 1000000 : 0
+  const retention_iva_rate = taxable_base > 0 ? Math.round((iva_retenido / taxable_base) * 1000000) / 1000000 : 0
+
+  // Conceptos (line items)
+  const conceptos: CfdiConcepto[] = []
+  const conceptoNodes = asArray(comprobante.Conceptos?.Concepto)
+  for (const c of conceptoNodes) {
+    conceptos.push({
+      clave_prod_serv: str(c?.['@_ClaveProdServ']),
+      clave_unidad: str(c?.['@_ClaveUnidad']),
+      no_identificacion: str(c?.['@_NoIdentificacion']),
+      cantidad: num(c?.['@_Cantidad'], 1),
+      descripcion: str(c?.['@_Descripcion']) ?? '',
+      valor_unitario: num(c?.['@_ValorUnitario']),
+      importe: num(c?.['@_Importe']),
+      descuento: num(c?.['@_Descuento']),
+      objeto_imp: str(c?.['@_ObjetoImp']),
+    })
+  }
 
   // CfdiRelacionados — CFDI 4.0 wraps in CfdiRelacionados/CfdiRelacionado
   const cfdi_relacionados: Array<{ uuid: string; tipo_relacion: string }> = []
@@ -158,5 +179,6 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     tipo_cambio: num(comprobante['@_TipoCambio'], 1),
     cfdi_relacionados,
     pagos_doctos,
+    conceptos,
   }
 }
