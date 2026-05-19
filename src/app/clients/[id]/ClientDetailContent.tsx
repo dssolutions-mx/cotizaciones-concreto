@@ -9,6 +9,7 @@ import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import PaymentForm from '@/components/clients/PaymentForm';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
 import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
 import { Button } from "@/components/ui/button";
 import {
@@ -182,15 +183,9 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
 
   if (!isClientApproved) {
     return (
-      <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
-        <p className="text-sm text-amber-800">
-          Este cliente debe ser autorizado antes de poder agregar obras. Solicita la aprobación en{' '}
-          <Link href="/finanzas/gobierno-precios" className="font-medium underline hover:text-amber-900">
-            Finanzas → Autorización de Clientes
-          </Link>
-          .
-        </p>
-      </div>
+      <CommercialWorkflowCallout className="mt-6" title="Cliente sin autorizar">
+        Este cliente debe ser autorizado antes de poder agregar obras.
+      </CommercialWorkflowCallout>
     );
   }
 

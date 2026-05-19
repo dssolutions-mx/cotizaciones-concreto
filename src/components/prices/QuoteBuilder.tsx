@@ -10,7 +10,6 @@ import { features } from '@/config/featureFlags';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
-import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
 import { calculateDistanceInfo } from '@/lib/services/distanceService';
 import {
   getAvailableProducts,
@@ -40,7 +39,14 @@ import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback, useDebounce } from 'use-debounce';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
 import { usePlantContext } from '@/contexts/PlantContext';
-import ClientCreationForm from '@/components/clients/ClientCreationForm';
+import ClientCreationForm, { type ClientCreatedPayload } from '@/components/clients/ClientCreationForm';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import {
+  COMMERCIAL_WORKFLOW_STEPS,
+  GOVERNANCE_CLIENTS_PATH,
+  MESSAGES,
+  isApproved,
+} from '@/lib/commercial/workflow';
 import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -928,6 +934,11 @@ export default function QuoteBuilder() {
       return false;
     }
 
+    if (!selectedSite) {
+      toast.error(MESSAGES.selectApprovedSite);
+      return false;
+    }
+
     if (!constructionSite) {
       toast.error('Por favor, ingrese el sitio de construcción');
       return false;
@@ -996,6 +1007,23 @@ export default function QuoteBuilder() {
       // Ensure we have a plant_id
       if (!quotePlantId) {
         setPlantValidationError('No se pudo determinar la planta para la cotización');
+        return;
+      }
+
+      const { data: clientRow, error: clientError } = await supabase
+        .from('clients')
+        .select('id, business_name, approval_status')
+        .eq('id', selectedClient)
+        .single();
+
+      if (clientError || !clientRow) {
+        toast.error('Cliente no encontrado');
+        return;
+      }
+      if (!isApproved(clientRow.approval_status)) {
+        toast.error(
+          `El cliente "${clientRow.business_name || 'Sin nombre'}" no está autorizado. Solicite la aprobación en Finanzas → Autorización de Clientes antes de cotizar.`
+        );
         return;
       }
 
@@ -1340,7 +1368,36 @@ export default function QuoteBuilder() {
     console.log('Draft quote cleared from state and sessionStorage.');
   };
 
-  // Load client sites when a client is selected
+  // Al cambiar cliente, limpiar obra seleccionada
+  useEffect(() => {
+    setSelectedSite('');
+    setConstructionSite('');
+    setLocation('');
+    setSiteCoordinates({ lat: null, lng: null });
+    setDistanceInfo(undefined);
+  }, [selectedClient]);
+
+  // Validar que el cliente siga autorizado (p. ej. borrador con cliente ya no aprobado)
+  useEffect(() => {
+    if (!selectedClient) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = await clientService.getClientById(selectedClient);
+        if (!cancelled && !isApproved(client.approval_status)) {
+          toast.error(MESSAGES.clientPendingShort);
+          setSelectedClient('');
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient]);
+
+  // Load client sites when a client is selected (solo obras aprobadas)
   useEffect(() => {
     const loadClientSites = async () => {
       if (selectedClient) {
@@ -1613,53 +1670,40 @@ export default function QuoteBuilder() {
     loadQuoteProducts();
   }, [currentQuoteId]);
 
-  // Handle new client creation
-  const handleClientCreated = (clientId: string, clientName: string) => {
-    // Add the new client to the list
-    setClients(prev => [
-      ...prev,
-      { id: clientId, business_name: clientName, client_code: '' } as Client
-    ]);
-    
-    // Select the newly created client
-    setSelectedClient(clientId);
-    
-    // Close the dialog
+  // Handle new client creation (no se agrega al selector hasta estar aprobado)
+  const handleClientCreated = (_payload: ClientCreatedPayload) => {
     setShowCreateClientDialog(false);
+    toast.info(MESSAGES.clientCreatedPending, {
+      action: {
+        label: 'Ir a autorización',
+        onClick: () => {
+          window.location.href = GOVERNANCE_CLIENTS_PATH;
+        },
+      },
+    });
   };
 
-  // Handle new site creation
-  const handleSiteCreated = (siteId: string, siteName: string, siteLocation?: string, siteLat?: number, siteLng?: number) => {
-    // Add the new site to the list with proper formatting
-    setClientSites(prev => [
-      ...prev,
-      { 
-        id: siteId, 
-        name: siteName, 
-        latitude: siteLat ?? null, 
-        longitude: siteLng ?? null,
-        is_active: true, // Ensure the site is marked as active
-        location: siteLocation ?? '' // Populate location field, ensure it's a string
-      }
-    ]);
-    
-    // Select the newly created site
-    setSelectedSite(siteId);
-    setConstructionSite(siteName);
-    if (siteLocation) {
-      setLocation(siteLocation); // Auto-fill location
-    }
-    if (siteLat && siteLng) {
-      setSiteCoordinates({ lat: siteLat, lng: siteLng });
-    } else {
-      setSiteCoordinates({ lat: null, lng: null}); // Clear if not provided
-    }
-    
-    // Close the dialog
+  // Handle new site creation (obra pendiente: no seleccionar para cotizar)
+  const handleSiteCreated = async (
+    _siteId: string,
+    _siteName: string,
+    _siteLocation?: string,
+    _siteLat?: number,
+    _siteLng?: number
+  ) => {
     setShowCreateSiteDialog(false);
-    
-    // Log successful creation
-    console.log('Site created successfully with ID:', siteId, 'Name:', siteName, 'Location:', siteLocation, 'Coords:', { lat: siteLat, lng: siteLng });
+    if (selectedClient) {
+      try {
+        const sites = await clientService.getClientSites(selectedClient, true);
+        setClientSites(sites);
+      } catch (error) {
+        console.error('Error reloading client sites:', error);
+      }
+    }
+    setSelectedSite('');
+    setConstructionSite('');
+    setLocation('');
+    setSiteCoordinates({ lat: null, lng: null });
   };
 
   // Handle map coordinates selection
@@ -1913,10 +1957,11 @@ export default function QuoteBuilder() {
         {/* Scrollable content (desktop) / natural flow (mobile) */}
         <div className="flex flex-col gap-6 flex-1 min-h-0 lg:overflow-y-auto lg:pr-2 lg:custom-scrollbar pb-6">
         <Card variant="thick" className="p-6 border-0 shrink-0">
-          <h2 className="text-title-3 font-bold mb-6 text-gray-800 flex items-center gap-2">
+          <h2 className="text-title-3 font-bold mb-2 text-gray-800 flex items-center gap-2">
             <User className="w-5 h-5 text-blue-500" />
             Cliente y Obra
           </h2>
+          <p className="text-xs text-muted-foreground mb-4">{COMMERCIAL_WORKFLOW_STEPS}</p>
           <div className="space-y-5">
             {/* Client Search & Select */}
             <div className="space-y-2">
@@ -1957,7 +2002,12 @@ export default function QuoteBuilder() {
             {/* Site Selection */}
             {selectedClient && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                <label className="text-sm font-medium text-gray-700">Obra</label>
+                <label className="text-sm font-medium text-gray-700">Obra aprobada</label>
+                {clientSites.length === 0 ? (
+                  <CommercialWorkflowCallout variant="warning" className="mb-2">
+                    {MESSAGES.noApprovedSites}
+                  </CommercialWorkflowCallout>
+                ) : null}
                 <div className="flex gap-2">
                   {clientSites.length > 0 ? (
                     <Select 
@@ -1989,7 +2039,7 @@ export default function QuoteBuilder() {
                     </Select>
                   ) : (
                     <div className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 italic">
-                      Sin obras registradas
+                      Sin obras aprobadas
                     </div>
                   )}
                   <Button
@@ -2358,7 +2408,11 @@ export default function QuoteBuilder() {
       <Dialog open={showCreateClientDialog} onOpenChange={setShowCreateClientDialog}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogTitle>Crear Nuevo Cliente</DialogTitle>
+          <DialogDescription className="sr-only">
+            Registro de cliente comercial; requiere autorización en Finanzas antes de cotizar.
+          </DialogDescription>
           <ClientCreationForm
+            embedded
             onClientCreated={handleClientCreated}
             onCancel={() => setShowCreateClientDialog(false)}
           />

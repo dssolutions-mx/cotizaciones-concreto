@@ -19,22 +19,15 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from '@/components/clients/LiveDuplicateSuggestions';
-
-// Interfaz para sitios de construcción (obras)
-interface ConstructionSite {
-  name: string;
-  location: string;
-  access_restrictions: string;
-  special_conditions: string;
-  is_active: boolean;
-}
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import { COMMERCIAL_WORKFLOW_STEPS, MESSAGES } from '@/lib/commercial/workflow';
+import { toast } from 'sonner';
 
 export default function NewClientPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showSiteForm, setShowSiteForm] = useState(false);
   const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [suggestedCashCode, setSuggestedCashCode] = useState<string | null>(null);
@@ -81,16 +74,6 @@ export default function NewClientPage() {
       });
     return () => { cancelled = true; };
   }, [debouncedBusinessName, formData.requires_invoice, formData.client_code, suggestedCashCode]);
-
-  // Estado para las obras
-  const [sites, setSites] = useState<ConstructionSite[]>([]);
-  const [currentSite, setCurrentSite] = useState<ConstructionSite>({
-    name: '',
-    location: '',
-    access_restrictions: '',
-    special_conditions: '',
-    is_active: true
-  });
 
   function getCreatorInitials(): string {
     const fn = (profile as { first_name?: string } | null)?.first_name?.trim().slice(0, 1) || '';
@@ -140,38 +123,6 @@ export default function NewClientPage() {
     }
   };
 
-  // Manejar cambios en el formulario de obra
-  const handleSiteChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setCurrentSite(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  // Agregar una obra a la lista
-  const handleAddSite = () => {
-    if (!currentSite.name.trim()) {
-      setError('El nombre de la obra es obligatorio');
-      return;
-    }
-    
-    setSites(prev => [...prev, { ...currentSite }]);
-    setCurrentSite({
-      name: '',
-      location: '',
-      access_restrictions: '',
-      special_conditions: '',
-      is_active: true
-    });
-    setShowSiteForm(false);
-  };
-
-  // Eliminar una obra de la lista
-  const handleRemoveSite = (index: number) => {
-    setSites(prev => prev.filter((_, i) => i !== index));
-  };
-
   const doCreateClient = async () => {
     const clientCode = formData.requires_invoice
       ? formData.client_code.trim()
@@ -182,7 +133,8 @@ export default function NewClientPage() {
       rfc: formData.requires_invoice ? formData.client_code.trim() : undefined,
       assigned_user_id: formData.assigned_user_id || null,
     };
-    await clientService.createClientWithSites(clientPayload, sites);
+    await clientService.createClient(clientPayload);
+    toast.success(MESSAGES.clientCreatedPending);
     router.push('/clients');
     router.refresh();
   };
@@ -252,6 +204,7 @@ export default function NewClientPage() {
           ← Volver a clientes
         </Link>
         <h1 className="text-2xl font-bold">Crear Nuevo Cliente</h1>
+        <p className="text-sm text-muted-foreground mt-1">{COMMERCIAL_WORKFLOW_STEPS}</p>
       </div>
       
       {error && (
@@ -485,172 +438,18 @@ export default function NewClientPage() {
             </div>
           </div>
           
-          {/* Sección de Obras */}
           <div className="mt-8 border-t border-gray-200 pt-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Obras</h2>
-              <button
-                type="button"
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                onClick={() => setShowSiteForm(true)}
-              >
-                Agregar Obra
-              </button>
-            </div>
-            
-            {sites.length === 0 ? (
-              <p className="text-gray-500">No hay obras agregadas. Puedes agregar obras para este cliente.</p>
-            ) : (
-              <div className="bg-gray-50 p-4 rounded-md mb-6">
-                <h3 className="font-medium mb-2">Obras Agregadas:</h3>
-                <ul className="divide-y divide-gray-200">
-                  {sites.map((site, index) => (
-                    <li key={index} className="py-3 flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{site.name}</p>
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            site.is_active 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {site.is_active ? 'Activa' : 'Inactiva'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600">{site.location}</p>
-                        {site.access_restrictions && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            <span className="font-medium">Restricciones de acceso:</span> {site.access_restrictions}
-                          </p>
-                        )}
-                        {site.special_conditions && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            <span className="font-medium">Condiciones especiales:</span> {site.special_conditions}
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSite(index)}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        Eliminar
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* Formulario para agregar obra */}
-            {showSiteForm && (
-              <div className="bg-gray-50 p-4 rounded-md mb-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-medium">Nueva Obra</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowSiteForm(false)}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="mb-3">
-                    <label htmlFor="site_name" className="block text-sm font-medium text-gray-700 mb-1">
-                      Nombre de la Obra *
-                    </label>
-                    <input
-                      type="text"
-                      id="site_name"
-                      name="name"
-                      value={currentSite.name}
-                      onChange={handleSiteChange}
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label htmlFor="site_location" className="block text-sm font-medium text-gray-700 mb-1">
-                      Ubicación
-                    </label>
-                    <input
-                      type="text"
-                      id="site_location"
-                      name="location"
-                      value={currentSite.location}
-                      onChange={handleSiteChange}
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label htmlFor="site_access_restrictions" className="block text-sm font-medium text-gray-700 mb-1">
-                      Restricciones de Acceso
-                    </label>
-                    <textarea
-                      id="site_access_restrictions"
-                      name="access_restrictions"
-                      value={currentSite.access_restrictions}
-                      onChange={handleSiteChange}
-                      rows={2}
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                    />
-                  </div>
-                  
-                  <div className="mb-3">
-                    <label htmlFor="site_special_conditions" className="block text-sm font-medium text-gray-700 mb-1">
-                      Condiciones Especiales
-                    </label>
-                    <textarea
-                      id="site_special_conditions"
-                      name="special_conditions"
-                      value={currentSite.special_conditions}
-                      onChange={handleSiteChange}
-                      rows={2}
-                      className="w-full p-2 border border-gray-300 rounded-md"
-                    />
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Estado de la Obra
-                    </label>
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id="site_is_active"
-                        name="is_active"
-                        checked={currentSite.is_active}
-                        onChange={(e) => {
-                          setCurrentSite(prev => ({
-                            ...prev,
-                            is_active: e.target.checked
-                          }));
-                        }}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                      <label htmlFor="site_is_active" className="ml-2 text-sm text-gray-700">
-                        Obra Activa
-                      </label>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={handleAddSite}
-                    className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                  >
-                    Agregar Obra
-                  </button>
-                </div>
-              </div>
-            )}
+            <h2 className="text-xl font-semibold mb-3">Obras</h2>
+            <CommercialWorkflowCallout variant="info" title="Obras después de autorizar el cliente">
+              <p className="mb-2">{COMMERCIAL_WORKFLOW_STEPS}</p>
+              <p>
+                Las obras se registran desde el detalle del cliente, una vez que Finanzas haya{' '}
+                <strong>autorizado</strong> al cliente. Cada obra también requiere autorización antes de
+                usarse en cotizaciones.
+              </p>
+            </CommercialWorkflowCallout>
           </div>
-          
+
           <div className="mt-6 flex justify-end">
             <Link 
               href="/clients" 

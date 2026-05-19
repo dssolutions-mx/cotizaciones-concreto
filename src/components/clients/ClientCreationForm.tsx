@@ -19,13 +19,24 @@ import {
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from './LiveDuplicateSuggestions';
 import { validateClientForm } from '@/lib/validation/clientValidation';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import { COMMERCIAL_WORKFLOW_STEPS, MESSAGES } from '@/lib/commercial/workflow';
 
-interface ClientCreationFormProps {
-  onClientCreated: (clientId: string, clientName: string) => void;
-  onCancel: () => void;
+export interface ClientCreatedPayload {
+  clientId: string;
+  clientName: string;
+  /** Los clientes nuevos siempre quedan pendientes de autorización. */
+  pendingApproval: boolean;
 }
 
-export default function ClientCreationForm({ onClientCreated, onCancel }: ClientCreationFormProps) {
+interface ClientCreationFormProps {
+  onClientCreated: (payload: ClientCreatedPayload) => void;
+  onCancel: () => void;
+  /** Si true, no aplica estilos de tarjeta (uso dentro de Dialog). */
+  embedded?: boolean;
+}
+
+export default function ClientCreationForm({ onClientCreated, onCancel, embedded = true }: ClientCreationFormProps) {
   const { profile } = useAuthBridge();
   const [formData, setFormData] = useState({
     business_name: '',
@@ -133,28 +144,16 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
       rfc: formData.requires_invoice ? formData.client_code.trim() : undefined,
       assigned_user_id: formData.assigned_user_id || null,
     };
-    const result = await clientService.createClient(clientData);
-    const { data, error: createError } = result;
-    if (createError) throw createError;
-    if (!data) {
-      toast.success('Cliente creado exitosamente');
-      try {
-        const clients = await clientService.getAllClients();
-        const newClient = clients.find(c => c.business_name === formData.business_name);
-        if (newClient) {
-          onClientCreated(newClient.id, formData.business_name);
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      onClientCreated('temp-' + Date.now(), formData.business_name);
-      return;
+    const createdClient = await clientService.createClient(clientData);
+    if (!createdClient?.id) {
+      throw new Error('No se recibieron datos válidos del cliente creado');
     }
-    const createdClient = Array.isArray(data) ? data[0] : data;
-    if (!createdClient?.id) throw new Error('No se recibieron datos válidos del cliente creado');
-    toast.success('Cliente creado exitosamente');
-    onClientCreated(createdClient.id, formData.business_name);
+    toast.success(MESSAGES.clientCreatedPending);
+    onClientCreated({
+      clientId: createdClient.id,
+      clientName: formData.business_name,
+      pendingApproval: true,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -208,7 +207,15 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
+    <div className={embedded ? 'space-y-4' : 'bg-white p-6 rounded-lg shadow-md'}>
+      <CommercialWorkflowCallout variant="info" showGovernanceLink={false} className="mb-1">
+        <p className="mb-1">{COMMERCIAL_WORKFLOW_STEPS}</p>
+        <p>
+          Al guardar, el cliente quedará <strong>pendiente de autorización</strong> y no podrá usarse en
+          cotizaciones hasta que Finanzas lo apruebe.
+        </p>
+      </CommercialWorkflowCallout>
+
       {error && (
         <div className="bg-red-50 text-red-600 p-3 rounded-md mb-4 border border-red-200">
           {error}

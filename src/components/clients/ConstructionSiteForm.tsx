@@ -5,7 +5,8 @@ import { clientService } from '@/lib/supabase/clients';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
-import { GmpPlaceSelectEventDetail, GmpPlaceResult } from '@/types/google.maps';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import { MESSAGES } from '@/lib/commercial/workflow';
 
 // Dynamically import map component with no SSR
 const GoogleMapSelector = dynamic(
@@ -20,6 +21,8 @@ const GoogleMapWrapper = dynamic(
 
 interface ConstructionSiteFormProps {
   clientId: string;
+  /** Si el cliente no está aprobado, el formulario muestra aviso y no permite enviar. */
+  isClientApproved?: boolean;
   onSiteCreated: (siteId: string, siteName: string, siteLocation?: string, siteLat?: number, siteLng?: number) => void;
   onCancel: () => void;
 }
@@ -247,7 +250,8 @@ const LocationSearchBox = ({ onSelectLocation }: { onSelectLocation: (lat: numbe
 };
 
 export default function ConstructionSiteForm({ 
-  clientId, 
+  clientId,
+  isClientApproved = true,
   onSiteCreated, 
   onCancel 
 }: ConstructionSiteFormProps) {
@@ -330,6 +334,11 @@ export default function ConstructionSiteForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isClientApproved) {
+      setError(MESSAGES.obraRequiresApprovedClient);
+      return;
+    }
     
     if (!siteData.name.trim()) {
       setError('El nombre de la obra es obligatorio');
@@ -340,100 +349,53 @@ export default function ConstructionSiteForm({
       setIsSubmitting(true);
       setError(null);
       
-      const { data: createdSite, error: createError } = await clientService.createSite(
-        clientId, 
-        {
-          name: siteData.name,
-          location: siteData.location,
-          access_restrictions: siteData.access_restrictions,
-          special_conditions: siteData.special_conditions,
-          is_active: siteData.is_active,
-          latitude: siteData.latitude,
-          longitude: siteData.longitude
-        }
-      );
-      
-      if (createError) {
-        console.error('Error from Supabase when creating site:', createError);
-        if (createdSite) {
-          toast.success('Obra creada exitosamente');
-          onSiteCreated(
-            createdSite.id, 
-            siteData.name, 
-            siteData.location, 
-            siteData.latitude || undefined, 
-            siteData.longitude || undefined
-          );
-          return;
-        }
-        throw createError;
-      }
-      
-      if (!createdSite) {
-        console.log('No createdSite data received but also no error. Attempting to verify creation...');
-        
-        // Try to retrieve the site that might have been created
-        try {
-          const recentSites = await clientService.getClientSites(clientId);
-          const newSite = recentSites.find(site => site.name === siteData.name);
-          
-          if (newSite) {
-            console.log('Site was found in database despite missing response data:', newSite);
-            toast.success('Obra creada exitosamente');
-            onSiteCreated(
-              newSite.id, 
-              siteData.name, 
-              newSite.location || siteData.location, 
-              newSite.latitude || siteData.latitude || undefined, 
-              newSite.longitude || siteData.longitude || undefined
-            );
-            return;
-          }
-        } catch (verifyError) {
-          console.error('Error verifying site creation:', verifyError);
-        }
-        
-        // If we still can't find the site, throw the original error
+      const createdSite = await clientService.createSite(clientId, {
+        name: siteData.name,
+        location: siteData.location,
+        access_restrictions: siteData.access_restrictions,
+        special_conditions: siteData.special_conditions,
+        is_active: siteData.is_active,
+        latitude: siteData.latitude,
+        longitude: siteData.longitude,
+      });
+
+      if (!createdSite?.id) {
         throw new Error('No se recibieron datos de la obra creada');
       }
-      
-      toast.success('Obra creada exitosamente');
+
+      toast.success(MESSAGES.sitePendingAfterCreate);
       onSiteCreated(
-        createdSite.id, 
-        siteData.name, 
-        siteData.location, 
-        siteData.latitude || undefined, 
+        createdSite.id,
+        siteData.name,
+        siteData.location,
+        siteData.latitude || undefined,
         siteData.longitude || undefined
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error creating construction site:', err);
-      setError(err.message || 'Error al crear la obra');
-      
-      try {
-        const checkSites = await clientService.getClientSites(clientId);
-        const possiblyCreatedSite = checkSites.find(site => site.name === siteData.name);
-        if (possiblyCreatedSite) {
-          toast.success('La obra parece haberse creado correctamente a pesar del error.');
-          onSiteCreated(
-            possiblyCreatedSite.id, 
-            siteData.name,
-            possiblyCreatedSite.location,
-            possiblyCreatedSite.latitude || undefined,
-            possiblyCreatedSite.longitude || undefined
-          );
-        }
-      } catch (checkError) {
-        console.error('Error checking if site was created:', checkError);
-      }
+      setError(err instanceof Error ? err.message : 'Error al crear la obra');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (!isClientApproved) {
+    return (
+      <CommercialWorkflowCallout title="Cliente sin autorizar">
+        {MESSAGES.obraRequiresApprovedClient}
+      </CommercialWorkflowCallout>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full">
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
+          <CommercialWorkflowCallout variant="info" showGovernanceLink={false}>
+            La obra quedará <strong>pendiente de autorización</strong> (pestaña Obras en Finanzas). Solo las obras
+            aprobadas pueden usarse en cotizaciones.
+          </CommercialWorkflowCallout>
+
           {error && (
             <div className="bg-red-50 text-red-600 p-3 rounded-md border border-red-200">
               {error}
@@ -605,31 +567,13 @@ export default function ConstructionSiteForm({
       
       {/* Fixed footer with buttons - always visible */}
       <div className="flex-shrink-0 border-t border-gray-200 pt-4 mt-0 bg-white">
-        <div className="flex flex-col sm:flex-row gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="w-full sm:w-auto px-4 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 text-sm"
-          >
+        <div className="flex flex-col sm:flex-row gap-2 justify-end">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
             Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full sm:w-auto px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50 text-sm"
-            style={{ border: '0' }}
-          >
-            {isSubmitting ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Creando...
-              </span>
-            ) : 'Crear Obra'}
-          </button>
+          </Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creando...' : 'Crear Obra'}
+          </Button>
         </div>
       </div>
     </form>
