@@ -53,7 +53,7 @@ export function PersonalizedDashboardHeader({
               </p>
             )}
           </motion.div>
-        </motion.div>
+        </div>
       </motion.div>
       {lastUpdated && (
         <p className="text-footnote text-muted-foreground mt-3">

@@ -27,7 +27,7 @@ export function RoleQuickActions({ actions }: RoleQuickActionsProps) {
               {action.description && (
                 <p className="text-footnote text-muted-foreground mt-0.5">{action.description}</p>
               )}
-            </motion.div>
+            </div>
             <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
           </Link>
         ))}
