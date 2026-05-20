@@ -22,7 +22,7 @@ import { InformePreview } from '@/components/quality/informes/InformePreview';
 import { InformeFirmaDialog } from '@/components/quality/informes/InformeFirmaDialog';
 import { evaluateInformeChecklist, checklistReady, requiredUFromMuestreoRow } from '@/lib/quality/informeChecklist';
 import type { InformeChecklistItem, InformeSnapshot } from '@/types/informe-ensayo';
-import type { EmitFirmaInput } from '@/services/informeEnsayoService';
+import type { EmitFirmaInput } from '@/types/informe-ensayo';
 import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';

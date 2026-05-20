@@ -4,6 +4,13 @@ export type InformeEstado = 'borrador' | 'emitido' | 'anulado';
 export type InformeFirmaRol = 'elaboro' | 'reviso' | 'autorizo';
 export type MuestreadoPor = 'LABORATORIO' | 'CLIENTE';
 
+export type EmitFirmaInput = {
+  rol: InformeFirmaRol;
+  signer_name: string;
+  signer_user_id?: string;
+  cedula_profesional?: string;
+};
+
 export type InformeUncertaintyEntry = {
   measurand_codigo: MeasurandCodigo;
   measurand_nombre: string;

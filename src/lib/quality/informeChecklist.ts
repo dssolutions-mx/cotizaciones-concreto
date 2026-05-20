@@ -1,5 +1,5 @@
 import type { InformeChecklistItem, InformeSnapshot, LaboratorioAcreditacionConfig } from '@/types/informe-ensayo';
-import { requiredMeasurandsForMuestreo } from '@/lib/quality/buildInformeUncertaintySnapshot';
+import { requiredMeasurandsForMuestreo } from '@/lib/quality/informeMeasurands';
 
 export function evaluateInformeChecklist(input: {
   muestreo: {

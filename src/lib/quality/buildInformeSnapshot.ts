@@ -8,9 +8,11 @@ import {
 } from '@/lib/quality/informeConformidad';
 import {
   buildInformeUncertaintySnapshot,
+} from '@/lib/quality/buildInformeUncertaintySnapshot';
+import {
   fcMeasurandForTipo,
   requiredMeasurandsForMuestreo,
-} from '@/lib/quality/buildInformeUncertaintySnapshot';
+} from '@/lib/quality/informeMeasurands';
 import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 import type {
   InformeFreshResultRow,

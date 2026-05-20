@@ -3,9 +3,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { buildInformeSnapshot, type BuildInformeInput } from '@/lib/quality/buildInformeSnapshot';
 import {
   buildInformeUncertaintySnapshot,
-  requiredMeasurandsForMuestreo,
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
-import type { InformeFirmaRol, InformeSnapshot, LaboratorioAcreditacionConfig } from '@/types/informe-ensayo';
+import { requiredMeasurandsForMuestreo } from '@/lib/quality/informeMeasurands';
+import type { InformeFirmaRol, InformeSnapshot, LaboratorioAcreditacionConfig, EmitFirmaInput } from '@/types/informe-ensayo';
+
+export type { EmitFirmaInput };
 
 const QUALITY_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'PLANT_MANAGER'];
 
@@ -203,13 +205,6 @@ export async function listInformes(params: { plantId?: string; limit?: number })
   }
   return data ?? [];
 }
-
-export type EmitFirmaInput = {
-  rol: InformeFirmaRol;
-  signer_name: string;
-  signer_user_id?: string;
-  cedula_profesional?: string;
-};
 
 export async function emitInforme(params: {
   muestreoId: string;
