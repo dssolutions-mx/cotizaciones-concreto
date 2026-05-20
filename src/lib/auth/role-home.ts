@@ -24,10 +24,11 @@ export const ROLE_HOME: Record<UserRole, RoleHomeDefinition> = {
     homeDescription: 'Control de producción como espacio principal; resumen con pedidos de hoy.',
   },
   ADMIN_OPERATIONS: {
-    defaultPath: '/production-control',
-    dashboardVariant: 'operations',
-    dashboardNavLabel: 'Resumen operativo',
-    homeDescription: 'Inventario y planta primero; resumen con pedidos y KPIs operativos.',
+    defaultPath: '/finanzas/procurement',
+    dashboardVariant: 'standard',
+    dashboardNavLabel: 'Resumen',
+    homeDescription:
+      'Centro de compras y salud financiera-operativa (procurement). RH sigue disponible en el menú.',
   },
   CREDIT_VALIDATOR: {
     defaultPath: '/finanzas/credito-validacion',
@@ -36,9 +37,11 @@ export const ROLE_HOME: Record<UserRole, RoleHomeDefinition> = {
     homeDescription: 'Validación de crédito como entrada; dashboard con cartera y pendientes.',
   },
   ADMINISTRATIVE: {
-    defaultPath: '/finanzas',
+    defaultPath: '/rh/remisiones-semanal',
     dashboardVariant: 'standard',
-    homeDescription: 'Finanzas y cartera como espacio principal.',
+    dashboardNavLabel: 'Resumen',
+    homeDescription:
+      'Reporte semanal de remisiones (RH). Finanzas y CxP siguen en el menú cuando se necesiten.',
   },
   SALES_AGENT: {
     defaultPath: '/comercial',

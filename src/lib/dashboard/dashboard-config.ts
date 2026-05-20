@@ -92,10 +92,11 @@ const BASE_CONFIG: Record<UserRole, Omit<RoleDashboardConfig, 'subtitle' | 'show
   },
   ADMINISTRATIVE: {
     roleLabel: ROLE_LABELS.ADMINISTRATIVE,
-    metrics: ['pendingCreditOrders', 'todayOrders', 'totalOutstandingBalance'],
+    metrics: ['todayOrders', 'monthlySales'],
     quickActions: [
-      { href: '/finanzas', label: 'Finanzas', description: 'CxC y reportes' },
-      { href: '/orders', label: 'Pedidos', description: 'Operación del día' },
+      { href: '/rh/remisiones-semanal', label: 'Remisiones semanal', description: 'Reporte RH de la semana' },
+      { href: '/production-control/reloj-checador', label: 'Reloj checador', description: 'Asistencia y tiempos' },
+      { href: '/finanzas', label: 'Finanzas', description: 'CxP, cartera y reportes' },
     ],
     showSalesChart: false,
     showQuotesList: false,
@@ -103,12 +104,12 @@ const BASE_CONFIG: Record<UserRole, Omit<RoleDashboardConfig, 'subtitle' | 'show
   },
   ADMIN_OPERATIONS: {
     roleLabel: ROLE_LABELS.ADMIN_OPERATIONS,
-    metrics: ['todayOrders', 'monthlySales', 'pendingCreditOrders'],
+    metrics: ['pendingCreditOrders', 'todayOrders', 'monthlySales'],
     quickActions: [
-      { href: '/production-control', label: 'Control de producción', description: 'Inventario y alertas' },
-      { href: '/orders', label: 'Pedidos', description: 'Programación diaria' },
-      { href: '/finanzas', label: 'Finanzas', description: 'Indicadores y cartera' },
-      { href: '/rh', label: 'RH', description: 'Remisiones y personal' },
+      { href: '/finanzas/procurement', label: 'Centro de compras', description: 'Procurement y POs' },
+      { href: '/finanzas/proveedores/grupos', label: 'Proveedores', description: 'Grupos y catálogo' },
+      { href: '/finanzas/ventas-diarias', label: 'Ventas diarias', description: 'Operación y pagos' },
+      { href: '/rh/remisiones-semanal', label: 'Remisiones semanal', description: 'Vista RH cuando aplique' },
     ],
     showSalesChart: false,
     showQuotesList: false,
@@ -191,7 +192,9 @@ export function getRoleDashboardConfig(
   } else if (role === 'CREDIT_VALIDATOR') {
     subtitle = 'Créditos pendientes y cartera — tu validación vive en Finanzas';
   } else if (role === 'ADMINISTRATIVE') {
-    subtitle = 'Indicadores financieros y operación del día';
+    subtitle = 'Enfoque RH: remisiones semanales y apoyo operativo';
+  } else if (role === 'ADMIN_OPERATIONS') {
+    subtitle = 'Compras, proveedores y salud operativa-financiera';
   } else if (role === 'SALES_AGENT' || role === 'EXTERNAL_SALES_AGENT') {
     subtitle = 'Pipeline comercial: cotizaciones, clientes y seguimiento';
   } else if (accessLevel === 'PLANT') {
@@ -217,7 +220,7 @@ export function getRoleDashboardConfig(
     showPlantComparison = true;
   }
 
-  if (variant === 'operations' && (role === 'ADMIN_OPERATIONS' || role === 'EXECUTIVE')) {
+  if (variant === 'operations' && role === 'EXECUTIVE') {
     showPlantComparison = showPlantComparison || plantCount > 1;
   }
 

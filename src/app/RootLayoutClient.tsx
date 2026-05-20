@@ -464,7 +464,7 @@ const CANONICAL_NAV_ITEMS: NavItemDef[] = [
   { href: '/masters/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
   { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'] },
-  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
   { href: '/admin', label: 'Administración', IconComponent: UserCog, roles: ['EXECUTIVE'] },
@@ -481,11 +481,25 @@ function getNavItemsForRole(role: string | undefined): Array<{ href: string; lab
     })
   );
 
-  // Operations roles: production hub first in the sidebar
-  if (role === 'DOSIFICADOR' || role === 'ADMIN_OPERATIONS') {
+  // Dosificador: production hub first
+  if (role === 'DOSIFICADOR') {
     const production = items.find((i) => i.href === '/production-control');
     const rest = items.filter((i) => i.href !== '/production-control');
     if (production) items = [production, ...rest];
+  }
+
+  // Admin operaciones: finanzas / procurement first
+  if (role === 'ADMIN_OPERATIONS') {
+    const finanzas = items.find((i) => i.href === '/finanzas');
+    const rest = items.filter((i) => i.href !== '/finanzas');
+    if (finanzas) items = [finanzas, ...rest];
+  }
+
+  // Administrativo (RH): remisiones hub first via RH entry
+  if (role === 'ADMINISTRATIVE') {
+    const rh = items.find((i) => i.href === '/rh');
+    const rest = items.filter((i) => i.href !== '/rh');
+    if (rh) items = [rh, ...rest];
   }
 
   const hasQuality = items.some((i) => i.href === '/quality');
