@@ -3,22 +3,10 @@
 import React, { useEffect, useMemo, memo } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Icon } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { DeliveryPoint } from '@/services/locationReportService';
 import { DEFAULT_MAP_CENTER } from '@/config/maps';
 import { formatCurrency, formatNumber } from '@/lib/utils';
-
-const fixLeafletIcon = () => {
-  if (typeof window !== 'undefined') {
-    delete (Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
-    Icon.Default.mergeOptions({
-      iconRetinaUrl: '/images/marker-icon-2x.png',
-      iconUrl: '/images/marker-icon.png',
-      shadowUrl: '/images/marker-shadow.png',
-    });
-  }
-};
 
 export type MapMetric = 'volume' | 'amount' | 'orders';
 
@@ -92,6 +80,8 @@ export interface DeliveryPointMapProps {
   height?: string;
   className?: string;
   fitBounds?: boolean;
+  /** When set, caps rendered markers for performance */
+  maxMarkers?: number;
 }
 
 const DEFAULT_CENTER: [number, number] = [
@@ -107,11 +97,8 @@ function DeliveryPointMapInner({
   height = '400px',
   className = '',
   fitBounds = true,
+  maxMarkers = 300,
 }: DeliveryPointMapProps) {
-  useEffect(() => {
-    fixLeafletIcon();
-  }, []);
-
   const { maxMetric, palette } = useMemo(() => {
     const values = points.map((p) => getMetricValue(p, metric));
     const max = Math.max(1, ...values);
@@ -126,14 +113,12 @@ function DeliveryPointMapInner({
 
   const hasPoints = points.length > 0;
 
-  // Cap points for performance (300+ CircleMarkers can cause lag)
-  const MAX_MARKERS = 300;
   const displayPoints =
-    points.length <= MAX_MARKERS
+    points.length <= maxMarkers
       ? points
       : [...points]
           .sort((a, b) => getMetricValue(b, metric) - getMetricValue(a, metric))
-          .slice(0, MAX_MARKERS);
+          .slice(0, maxMarkers);
 
   return (
     <div className={`delivery-point-map ${className}`} style={{ height }}>
