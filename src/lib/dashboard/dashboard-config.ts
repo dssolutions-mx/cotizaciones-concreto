@@ -1,4 +1,5 @@
 import type { UserRole } from '@/store/auth/types';
+import { getDashboardVariant, type DashboardVariant } from '@/lib/auth/role-home';
 import type { UserPlantAccess } from '@/types/plant';
 
 export type DashboardMetricKey =
@@ -19,6 +20,7 @@ export interface DashboardQuickAction {
 export interface RoleDashboardConfig {
   roleLabel: string;
   subtitle: string;
+  variant: DashboardVariant;
   metrics: DashboardMetricKey[];
   quickActions: DashboardQuickAction[];
   showSalesChart: boolean;
@@ -46,9 +48,9 @@ const BASE_CONFIG: Record<UserRole, Omit<RoleDashboardConfig, 'subtitle' | 'show
     roleLabel: ROLE_LABELS.DOSIFICADOR,
     metrics: ['todayOrders', 'monthlySales'],
     quickActions: [
+      { href: '/production-control', label: 'Control de producción', description: 'Materiales y dosificación' },
       { href: '/orders', label: 'Pedidos del día', description: 'Programación y entregas' },
       { href: '/orders?tab=calendar', label: 'Calendario', description: 'Vista semanal' },
-      { href: '/production-control', label: 'Control de producción', description: 'Materiales y planta' },
     ],
     showSalesChart: false,
     showQuotesList: false,
@@ -103,11 +105,12 @@ const BASE_CONFIG: Record<UserRole, Omit<RoleDashboardConfig, 'subtitle' | 'show
     roleLabel: ROLE_LABELS.ADMIN_OPERATIONS,
     metrics: ['todayOrders', 'monthlySales', 'pendingCreditOrders'],
     quickActions: [
-      { href: '/production-control', label: 'Producción', description: 'Inventario y planta' },
+      { href: '/production-control', label: 'Control de producción', description: 'Inventario y alertas' },
       { href: '/orders', label: 'Pedidos', description: 'Programación diaria' },
-      { href: '/finanzas', label: 'Finanzas', description: 'Indicadores' },
+      { href: '/finanzas', label: 'Finanzas', description: 'Indicadores y cartera' },
+      { href: '/rh', label: 'RH', description: 'Remisiones y personal' },
     ],
-    showSalesChart: true,
+    showSalesChart: false,
     showQuotesList: false,
     showApprovals: false,
   },
@@ -175,11 +178,23 @@ export function getRoleDashboardConfig(
   plantCount: number
 ): RoleDashboardConfig {
   const base = BASE_CONFIG[(role as UserRole) ?? 'EXECUTIVE'] ?? BASE_CONFIG.EXECUTIVE;
+  const variant = getDashboardVariant(role);
 
   let subtitle = 'Resumen operativo de tu ámbito';
   let showPlantComparison = false;
 
-  if (accessLevel === 'PLANT') {
+  if (variant === 'operations') {
+    subtitle =
+      role === 'DOSIFICADOR'
+        ? 'Resumen del día antes de entrar a producción — pedidos de hoy y acceso directo al hub'
+        : 'Resumen operativo: pedidos, planta e inventario en un vistazo';
+  } else if (role === 'CREDIT_VALIDATOR') {
+    subtitle = 'Créditos pendientes y cartera — tu validación vive en Finanzas';
+  } else if (role === 'ADMINISTRATIVE') {
+    subtitle = 'Indicadores financieros y operación del día';
+  } else if (role === 'SALES_AGENT' || role === 'EXTERNAL_SALES_AGENT') {
+    subtitle = 'Pipeline comercial: cotizaciones, clientes y seguimiento';
+  } else if (accessLevel === 'PLANT') {
     subtitle = 'Vista enfocada en tu planta asignada';
   } else if (accessLevel === 'BUSINESS_UNIT' && plantCount > 1) {
     subtitle = `Comparativo de tus ${plantCount} plantas en la unidad de negocio`;
@@ -202,8 +217,13 @@ export function getRoleDashboardConfig(
     showPlantComparison = true;
   }
 
+  if (variant === 'operations' && (role === 'ADMIN_OPERATIONS' || role === 'EXECUTIVE')) {
+    showPlantComparison = showPlantComparison || plantCount > 1;
+  }
+
   return {
     ...base,
+    variant,
     subtitle,
     showPlantComparison,
   };

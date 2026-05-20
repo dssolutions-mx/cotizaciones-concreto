@@ -65,6 +65,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BotIdClientGate } from '@/components/security/BotIdClientGate';
 import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
+import { getDashboardNavLabel } from '@/lib/auth/role-home';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -458,23 +459,35 @@ type NavItemDef = {
 const COMERCIAL_ROLES = ['CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'];
 
 const CANONICAL_NAV_ITEMS: NavItemDef[] = [
-  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
   { href: '/masters/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
   { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'] },
   { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
-  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
   { href: '/admin', label: 'Administración', IconComponent: UserCog, roles: ['EXECUTIVE'] },
 ];
 
 function getNavItemsForRole(role: string | undefined): Array<{ href: string; label: string; IconComponent: React.ElementType }> {
   if (!role) return [];
-  const items = CANONICAL_NAV_ITEMS
-    .filter((item) => item.roles.includes(role))
-    .map(({ href, label, IconComponent }) => ({ href, label, IconComponent }));
-  // Remove top-level Recipes when Quality section exists (recetas in quality submenu)
+  const dashboardLabel = getDashboardNavLabel(role);
+  let items = CANONICAL_NAV_ITEMS.filter((item) => item.roles.includes(role)).map(
+    ({ href, label, IconComponent }) => ({
+      href,
+      label: href === '/dashboard' ? dashboardLabel : label,
+      IconComponent,
+    })
+  );
+
+  // Operations roles: production hub first in the sidebar
+  if (role === 'DOSIFICADOR' || role === 'ADMIN_OPERATIONS') {
+    const production = items.find((i) => i.href === '/production-control');
+    const rest = items.filter((i) => i.href !== '/production-control');
+    if (production) items = [production, ...rest];
+  }
+
   const hasQuality = items.some((i) => i.href === '/quality');
   if (hasQuality) {
     return items.filter((i) => i.href !== '/masters/recipes');

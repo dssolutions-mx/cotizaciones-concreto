@@ -19,6 +19,7 @@ import { ApprovalTasksSection } from '@/components/dashboard/ApprovalTasksSectio
 import { PersonalizedDashboardHeader } from '@/components/dashboard/PersonalizedDashboardHeader';
 import { RoleQuickActions } from '@/components/dashboard/RoleQuickActions';
 import { PlantComparisonTable } from '@/components/dashboard/PlantComparisonTable';
+import { OperationsHubDashboard } from '@/components/dashboard/OperationsHubDashboard';
 import { Badge } from '@/components/ui/badge';
 import {
   LineChart,
@@ -412,8 +413,34 @@ function DashboardContent() {
     );
   }
 
+  if (config.variant === 'operations') {
+    return (
+      <OperationsHubDashboard
+        config={config}
+        scope={scope}
+        role={role}
+        firstName={profile?.first_name}
+        plantId={plantIdForApi ?? currentPlant?.id ?? null}
+        isGlobalAdmin={isGlobalAdmin}
+        selectedPlantId={currentPlant?.id}
+        onSelectPlant={
+          scope.accessLevel === 'BUSINESS_UNIT' || isGlobalAdmin
+            ? (id) => switchPlant(id)
+            : undefined
+        }
+        metrics={{
+          todayOrders: Number(metricsSource?.todayOrders ?? 0),
+          monthlySales: Number(metricsSource?.monthlySales ?? 0),
+          pendingCreditOrders: Number(metricsSource?.pendingCreditOrders ?? 0),
+        }}
+        metricsLoading={metricsLoading}
+        lastUpdated={dashboardData?.lastUpdated}
+      />
+    );
+  }
+
   return (
-    <div className="p-6">
+    <motion.div className="p-6">
       <PersonalizedDashboardHeader
         firstName={profile?.first_name}
         config={config}
@@ -486,7 +513,7 @@ function DashboardContent() {
           </motion.div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
