@@ -257,6 +257,7 @@ export async function fetchMuestreoById(id: string) {
           construction_site,
           delivery_date,
           delivery_time,
+          elemento,
           clients(
             id,
             business_name

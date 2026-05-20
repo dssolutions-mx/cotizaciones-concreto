@@ -25,6 +25,7 @@ export interface OrderCreationParams {
   delivery_time: string;
   requires_invoice: boolean;
   special_requirements: string | null;
+  elemento?: string | null;
   total_amount: number;
   order_status: string;
   credit_status: string;
@@ -128,6 +129,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       delivery_time: orderData.delivery_time,
       requires_invoice: orderData.requires_invoice,
       special_requirements: orderData.special_requirements,
+      elemento: orderData.elemento ?? null,
       total_amount: orderData.total_amount,
       order_status: orderData.order_status,
       credit_status: orderData.credit_status,

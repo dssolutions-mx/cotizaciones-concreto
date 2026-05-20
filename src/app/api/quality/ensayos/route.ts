@@ -51,6 +51,10 @@ export async function POST(request: NextRequest) {
       porcentaje_cumplimiento: data.porcentaje_cumplimiento,
       tiempo_desde_carga: data.tiempo_desde_carga || null,
       observaciones: data.observaciones || '',
+      temp_laboratorio_c: data.temp_laboratorio_c ?? null,
+      humedad_relativa_lab: data.humedad_relativa_lab ?? null,
+      capping_type: data.capping_type ?? null,
+      capping_norma: data.capping_norma ?? null,
       created_by: data.created_by
     };
 

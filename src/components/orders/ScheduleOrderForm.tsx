@@ -22,6 +22,7 @@ import {
 } from '@/lib/maps/deliveryCoordinates';
 import { ChevronRight, ChevronLeft, CheckCircle2, Circle, MapPin } from 'lucide-react';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
+import ElementoField from '@/components/client-portal/orders/ElementoField';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
 
 interface Client {
@@ -141,6 +142,7 @@ export default function ScheduleOrderForm({
   const [deliveryTime, setDeliveryTime] = useState<string>('10:00');
   const [requiresInvoice, setRequiresInvoice] = useState<boolean>(false);
   const [specialRequirements, setSpecialRequirements] = useState<string>('');
+  const [elemento, setElemento] = useState<string>('');
 
   // Coordinates for delivery location
   const [latitude, setLatitude] = useState<string>('');
@@ -1318,6 +1320,7 @@ export default function ScheduleOrderForm({
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
         special_requirements: specialRequirements || null,
+        elemento: elemento.trim() || null,
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
@@ -2488,6 +2491,14 @@ export default function ScheduleOrderForm({
             <div>
               <h3 className="font-medium mb-3">Opciones Adicionales</h3>
               
+              <div className="mb-4">
+                <ElementoField
+                  value={elemento}
+                  onChange={setElemento}
+                  idPrefix="internal-schedule-elemento"
+                />
+              </div>
+
               <div>
                 <label htmlFor="specialRequirements" className="block text-sm font-medium mb-1">
                   Requisitos Especiales (opcional)

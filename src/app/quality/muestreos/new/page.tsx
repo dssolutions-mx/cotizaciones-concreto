@@ -71,6 +71,7 @@ import RemisionInfoCard from '@/components/quality/muestreos/RemisionInfoCard';
 import LinkedMuestreoHeader from '@/components/quality/muestreos/LinkedMuestreoHeader';
 import OrdersStep from '@/components/quality/muestreos/OrdersStep';
 import { muestreoFormSchema, MuestreoFormValues } from '@/components/quality/muestreos/newMuestreoSchema';
+import InformeAccreditedFields from '@/components/quality/muestreos/InformeAccreditedFields';
 import { adjustDateForTimezone, addDaysSafe, computeAgeDays, formatAgeSummary, PlannedSample } from '@/components/quality/muestreos/dateUtils';
 import { DateRange } from "react-day-picker";
 import RemisionesStep from '@/components/quality/muestreos/RemisionesStep';
@@ -144,6 +145,11 @@ export default function NuevoMuestreoPage() {
       numero_vigas: 0,
       manual_reference: '',
       contenido_aire: undefined,
+      muestreado_por: 'LABORATORIO',
+      fecha_recepcion_lab: new Date().toISOString().slice(0, 10),
+      humedad_relativa_obra: undefined,
+      condiciones_climaticas: '',
+      ubicacion_detalle: '',
     },
   });
   const lastBaseDateRef = useRef<Date | null>((() => {
@@ -944,6 +950,8 @@ export default function NuevoMuestreoPage() {
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
 
+                        <InformeAccreditedFields form={form} />
+
                         {/* EMA — Equipo utilizado */}
                         <EquipoUtilizadoPicker
                           ref={equipoPickerRef}
@@ -1235,6 +1243,8 @@ export default function NuevoMuestreoPage() {
                         />
                         
                         {/* Evidencia Fotográfica removida por no usarse */}
+
+                        <InformeAccreditedFields form={form} />
 
                         {/* EMA — Equipo utilizado */}
                         <EquipoUtilizadoPicker
