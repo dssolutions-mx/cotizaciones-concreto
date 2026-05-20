@@ -11,7 +11,8 @@ import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
 import SiteAccessValidation, { SiteAccessRating, SiteValidationState } from '@/components/orders/SiteAccessValidation';
 import NearbyDeliveriesPanel from '@/components/orders/NearbyDeliveriesPanel';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { GlassCard } from '@/components/ui/GlassCard';
+import CommercialStickyActionBar from '@/components/commercial/CommercialStickyActionBar';
+import { commercialPanelClass, commercialHubOutlineNeutralClass, commercialHubPrimaryButtonClass } from '@/components/commercial/commercialHubUi';
 import { cn } from '@/lib/utils';
 import { fetchApprovedPumpUnitPrice } from '@/lib/pumpPricing';
 import {
@@ -95,6 +96,7 @@ export default function ScheduleOrderForm({
   
   // Step tracking (1=Planta, 2=Cliente, 3=Obra, 4=Productos)
   const [currentStep, setCurrentStep] = useState(1);
+  const formRef = React.useRef<HTMLFormElement>(null);
   
   // Plant for this order (Step 1) — used for efficient quote loading
   const [orderPlantId, setOrderPlantId] = useState<string | null>(null);
@@ -1590,7 +1592,7 @@ export default function ScheduleOrderForm({
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
           </div>
         ) : (
-        <form onSubmit={handleCreateOrder} className="space-y-6">
+        <form ref={formRef} id="schedule-order-form" onSubmit={handleCreateOrder} className="space-y-6">
           {/* Invoice requirement - Made mandatory with radio buttons */}
           <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg shadow-sm">
             <h4 className="text-base font-bold text-gray-800 mb-3">¿Requiere Factura?</h4>
@@ -2613,7 +2615,7 @@ export default function ScheduleOrderForm({
   return (
     <div className="max-w-6xl mx-auto space-y-8">
       {/* Enhanced Step Indicator with Glass */}
-      <GlassCard variant="thick" className="p-6">
+      <div className={cn(commercialPanelClass)}>
         <div className="flex items-center justify-between">
           {steps.map((step, index) => {
             const isActive = currentStep === step.number;
@@ -2634,9 +2636,9 @@ export default function ScheduleOrderForm({
                 >
                   <div className={cn(
                     'relative h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300',
-                    isActive && 'glass-interactive border-2 border-systemBlue shadow-lg shadow-systemBlue/50 scale-110',
-                    isCompleted && 'bg-systemGreen text-white',
-                    !isActive && !isCompleted && 'glass-thin border border-gray-300 text-gray-500'
+                    isActive && 'border-2 border-sky-700 bg-sky-700 text-white shadow-md scale-110',
+                    isCompleted && 'bg-emerald-600 text-white',
+                    !isActive && !isCompleted && 'border border-stone-300 bg-white text-stone-500'
                   )}>
                     {isCompleted ? (
                       <CheckCircle2 className="h-6 w-6" />
@@ -2673,7 +2675,7 @@ export default function ScheduleOrderForm({
             );
           })}
         </div>
-      </GlassCard>
+      </div>
 
       {/* Step content with Focus Mode */}
       <AnimatePresence mode="wait">
@@ -2684,13 +2686,13 @@ export default function ScheduleOrderForm({
           exit={{ opacity: 0, x: -20 }}
           transition={{ duration: 0.3 }}
         >
-          <GlassCard variant="thick" className="p-8 min-h-[600px]">
+          <div className={cn(commercialPanelClass, 'min-h-[600px]')}>
             {/* Navigation buttons */}
             <div className="flex justify-between items-center mb-6">
               {currentStep > 1 && (
                 <motion.button
                   onClick={() => setCurrentStep(currentStep - 1)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors"
+                  className={cn('flex items-center gap-2 min-h-11 px-4 py-2 rounded-lg font-medium bg-white text-stone-900 hover:bg-stone-50 border border-stone-200', commercialHubOutlineNeutralClass)}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >
@@ -2738,9 +2740,20 @@ export default function ScheduleOrderForm({
               {currentStep === 3 && renderSiteSelection()}
               {currentStep === 4 && renderOrderDetails()}
             </div>
-          </GlassCard>
+          </div>
         </motion.div>
       </AnimatePresence>
+      {currentStep === 4 && (
+        <CommercialStickyActionBar
+          className="md:hidden"
+          primaryLabel={isSubmitting ? 'Creando orden...' : 'Crear Orden'}
+          onPrimary={() => formRef.current?.requestSubmit()}
+          primaryDisabled={isSubmitting}
+          primaryLoading={isSubmitting}
+          secondaryLabel="Atrás"
+          onSecondary={() => setCurrentStep(3)}
+        />
+      )}
     </div>
   );
 } 

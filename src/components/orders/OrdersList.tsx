@@ -11,6 +11,7 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { OrderCard2 } from './OrderCard2';
 import { cn, formatTimestamp } from '@/lib/utils';
 import Link from 'next/link';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
 
 type DeliveredFilter = 'all' | 'delivered' | 'pending';
 
@@ -1270,7 +1271,7 @@ export default function OrdersList({
       
       {/* List filters moved to OrdersNavigation (single unified card) when onSearchQueryChange provided */}
       {!onSearchQueryChange && (
-        <div className="glass-thin rounded-2xl border border-white/20 p-4">
+        <div className={commercialPanelClass}>
           <div className="mb-4">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Buscar órdenes</h3>
             <form onSubmit={handleSearchQuerySubmit} className="flex flex-wrap gap-2">
@@ -1280,7 +1281,7 @@ export default function OrdersList({
                   value={searchQuery}
                   onChange={handleSearchQueryChange}
                   placeholder="Buscar por número de orden, cliente, sitio, estado, fecha, hora..."
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin placeholder:text-muted-foreground"
+                  className="w-full min-h-11 px-3 py-2 rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-sky-600/30 focus:border-sky-600 placeholder:text-stone-400"
                 />
               </div>
               <button
@@ -1307,7 +1308,7 @@ export default function OrdersList({
               <select
                 value={creatorFilter}
                 onChange={(e) => setCreatorFilter(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 glass-thin"
+                className="w-full min-h-11 px-3 py-2 rounded-lg border border-stone-200 bg-white focus:outline-none focus:ring-2 focus:ring-sky-600/30 focus:border-sky-600"
               >
                 <option value="all">Todos los creadores</option>
                 {availableCreators.map(creator => (
@@ -1377,7 +1378,7 @@ export default function OrdersList({
       )}
       
       {filteredOrders.length === 0 ? (
-        <div className="text-center p-12 glass-base rounded-2xl">
+        <div className={cn(commercialPanelClass, 'text-center py-12')}>
           <div className="text-gray-400 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -1412,31 +1413,26 @@ export default function OrdersList({
           {Object.keys(groupedOrders).map(groupKey => {
             const group = groupedOrders[groupKey];
             const isPriorityGroup = ['mañana', 'hoy', 'ayer', 'anteayer'].includes(groupKey);
-            const headerClass = isPriorityGroup 
-? "glass-thin rounded-t-2xl px-4 py-3 border-b border-gray-200/50 font-bold text-lg"
-              : "glass-thin rounded-t-2xl px-4 py-3 border-b border-gray-200/50";
-              
             return (
               <motion.div
                 key={groupKey}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="glass-thick rounded-2xl overflow-hidden shadow-lg mb-6"
+                className={cn(commercialPanelClass, 'overflow-hidden mb-6 p-0')}
               >
                 <motion.div
                   className={cn(
-                    'glass-thin rounded-t-2xl px-6 py-4 flex justify-between items-center cursor-pointer',
-                    isPriorityGroup && 'bg-systemBlue/20'
+                    'px-4 md:px-6 py-4 flex justify-between items-center cursor-pointer border-b border-stone-200 bg-stone-50/80',
+                    isPriorityGroup && 'bg-sky-50'
                   )}
                   onClick={() => toggleGroupExpand(groupKey)}
-                  whileHover={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
-                >
+                  >
                   <h3 className={cn(
-                    'font-bold text-gray-900 dark:text-gray-100',
+                    'font-bold text-stone-900',
                     isPriorityGroup ? 'text-xl uppercase tracking-wide' : 'text-lg'
                   )}>
                     {group.formattedDate}
-                    <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                    <span className="ml-2 text-sm font-normal text-stone-500">
                       ({group.orders.length})
                     </span>
                   </h3>

@@ -30,7 +30,13 @@ import {
 } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Copy, CalculatorIcon, Beaker } from 'lucide-react';
+import { Copy, CalculatorIcon, Beaker, MoreHorizontal } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import QualityOverview from './QualityOverview';
 import CreditContextPanel from '@/components/credit/CreditContextPanel';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +47,8 @@ import { toast } from 'sonner';
 
 // Regex to parse additional product from product_type; captures last (Code) to handle names with parentheses
 const ADDL_PRODUCT_REGEX = /PRODUCTO ADICIONAL: (.+) \(([^)]+)\)$/;
+
+const ORDER_PANEL_CLASS = 'rounded-lg border border-stone-200 bg-white p-4 md:p-6';
 
 /** m³ that drive billing for dedicated vacío lines (kept equal to `volume` in normal operation). */
 function dedicatedVacioBillingM3(
@@ -1971,90 +1979,139 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       : order?.order_status === 'cancelled'
         ? 'No se puede eliminar una orden cancelada'
         : '';
-    
-    // Menu of actions
-    return (
-      <div className="flex flex-wrap gap-2 mb-6 justify-end">
-        {/* Edit Order button */}
-        {canEditOrder && !isEditing && (
-          <Button
-            variant="glassProminent"
-            size="capsule"
-            onClick={handleEditClick}
-            className="text-sm"
-          >
-            Editar Orden
-          </Button>
+    const showPaymentAction = shouldShowFinancialInfo() && !!order?.client_id;
+    const canRecalc = hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]);
+    const canRegisterPayment = hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]);
+    const hasOverflowActions = canRecalc || deleteAuthorized || (showPaymentAction && canRegisterPayment);
+
+    const editButton = canEditOrder && !isEditing ? (
+      <Button
+        variant="primary"
+        size="capsule"
+        onClick={handleEditClick}
+        className="text-sm"
+      >
+        Editar Orden
+      </Button>
+    ) : null;
+
+    const recalcButton = (
+      <RoleProtectedButton
+        allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
+        onClick={handleRecalculateAmount}
+        disabled={isRecalculating}
+        className="rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center bg-white hover:bg-stone-50 text-stone-800 border border-stone-200 shadow-sm"
+        showDisabled={true}
+        disabledMessage="No tienes permiso para recalcular"
+      >
+        {isRecalculating ? (
+          <>
+            <span className="animate-spin mr-2">◌</span>
+            Recalculando...
+          </>
+        ) : (
+          <>
+            <CalculatorIcon className="w-4 h-4 mr-2" />
+            Recalcular
+          </>
         )}
-        
-        {/* Recalculate button with role protection */}
-        <RoleProtectedButton
-          allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
-          onClick={handleRecalculateAmount}
-          disabled={isRecalculating}
-          className="glass-thin text-gray-800 dark:text-gray-100 border border-white/30 dark:border-white/10 rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center"
-          showDisabled={true}
-          disabledMessage="No tienes permiso para recalcular"
+      </RoleProtectedButton>
+    );
+
+    const deleteButton = deleteAuthorized ? (
+      isCreator ? (
+        <Button
+          variant="danger"
+          size="capsule"
+          onClick={() => setShowConfirmDelete(true)}
+          disabled={isDeleting || deleteDisabled}
+          title={deleteDisabled ? deleteDisabledReason : undefined}
+          className="text-sm disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {isRecalculating ? (
-            <>
-              <span className="animate-spin mr-2">◌</span>
-              Recalculando...
-            </>
-          ) : (
-            <>
-              <CalculatorIcon className="w-4 h-4 mr-2" />
-              Recalcular
-            </>
-          )}
+          {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+        </Button>
+      ) : (
+        <RoleProtectedButton
+          allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+          onClick={() => setShowConfirmDelete(true)}
+          disabled={isDeleting || deleteDisabled}
+          showDisabled={true}
+          disabledMessage={deleteDisabled ? deleteDisabledReason : 'No tienes permiso para eliminar'}
+          className="rounded-full h-10 px-4 py-2.5 text-sm font-medium bg-red-600 text-white hover:bg-red-700 shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
         </RoleProtectedButton>
-        
-        {/* Delete Order button */}
-        {deleteAuthorized && (
-          isCreator ? (
-            <Button
-              variant="danger"
-              size="capsule"
-              onClick={() => setShowConfirmDelete(true)}
-              disabled={isDeleting || deleteDisabled}
-              title={deleteDisabled ? deleteDisabledReason : undefined}
-              className="text-sm disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
-            </Button>
-          ) : (
-            <RoleProtectedButton
-              allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
-              onClick={() => setShowConfirmDelete(true)}
-              disabled={isDeleting || deleteDisabled}
-              showDisabled={true}
-              disabledMessage={deleteDisabled ? deleteDisabledReason : 'No tienes permiso para eliminar'}
-              className="rounded-full h-10 px-4 py-2.5 text-sm font-medium bg-red-600 text-white hover:bg-red-700 shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
-            </RoleProtectedButton>
-          )
-        )}
-        
-        {/* Allow adding payments for roles with FINANCE permission */}
-        {shouldShowFinancialInfo() && order?.client_id && (
-          <RoleProtectedButton
-            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]}
-            onClick={() => setIsPaymentDialogOpen(true)}
-            className="glass-thin text-gray-800 dark:text-gray-100 border border-white/30 dark:border-white/10 rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center"
-          >
-            Registrar Pago
-          </RoleProtectedButton>
-        )}
+      )
+    ) : null;
+
+    const paymentButton = showPaymentAction ? (
+      <RoleProtectedButton
+        allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]}
+        onClick={() => setIsPaymentDialogOpen(true)}
+        className="rounded-full h-10 px-4 py-2.5 text-sm font-medium inline-flex items-center justify-center bg-white hover:bg-stone-50 text-stone-800 border border-stone-200 shadow-sm"
+      >
+        Registrar Pago
+      </RoleProtectedButton>
+    ) : null;
+
+    return (
+      <div className="mb-6 flex justify-end gap-2">
+        <div className="hidden md:flex flex-wrap gap-2 justify-end">
+          {editButton}
+          {recalcButton}
+          {deleteButton}
+          {paymentButton}
+        </div>
+
+        <div className="flex md:hidden items-center gap-2">
+          {editButton}
+          {hasOverflowActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="border-stone-200" aria-label="Más acciones">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {canRecalc && (
+                  <DropdownMenuItem
+                    disabled={isRecalculating}
+                    onClick={() => {
+                      if (!isRecalculating) handleRecalculateAmount();
+                    }}
+                  >
+                    {isRecalculating ? 'Recalculando...' : 'Recalcular'}
+                  </DropdownMenuItem>
+                )}
+                {deleteAuthorized && (
+                  <DropdownMenuItem
+                    disabled={isDeleting || deleteDisabled}
+                    onClick={() => {
+                      if (!isDeleting && !deleteDisabled) setShowConfirmDelete(true);
+                    }}
+                    className="text-red-600 focus:text-red-600"
+                  >
+                    {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+                  </DropdownMenuItem>
+                )}
+                {showPaymentAction && canRegisterPayment && (
+                  <DropdownMenuItem onClick={() => setIsPaymentDialogOpen(true)}>
+                    Registrar Pago
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Header with Glass Design */}
-      <div className="mb-6">
-        <div className="glass-thick rounded-2xl p-6 shadow-lg">
+    <div className="min-w-0 space-y-6">
+      {/* Header */}
+      <div>
+        <div className={ORDER_PANEL_CLASS}>
           <div className="flex justify-between items-start gap-4">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-2">
@@ -2156,8 +2213,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       ) : order ? (
         <>
           <div className="mb-6">
-            {/* Glass Tab Navigation */}
-            <div role="tablist" aria-label="Secciones de la orden" className="glass-thin rounded-2xl p-1.5 inline-flex gap-1 shadow-md">
+            <div className="-mx-1 overflow-x-auto px-1 snap-x snap-mandatory">
+              <div
+                role="tablist"
+                aria-label="Secciones de la orden"
+                className="inline-flex h-auto min-h-10 w-max max-w-full gap-1 bg-stone-200/60 p-1 rounded-lg"
+              >
               {(['details', 'remisiones', 'calidad'] as const).map((tab, index) => {
                 const isActive = activeTab === tab;
                 const labels = { details: 'Detalles de Orden', remisiones: 'Remisiones', calidad: 'Calidad' };
@@ -2181,19 +2242,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         setActiveTab(next);
                       }
                     }}
-                    className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                      isActive ? 'bg-systemBlue text-white shadow-md' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
+                    className={`snap-start shrink-0 min-h-10 px-3 sm:px-4 py-2 text-sm font-medium rounded-md whitespace-nowrap transition-colors ${
+                      isActive ? 'bg-stone-900 text-white' : 'text-stone-700 hover:text-stone-900'
                     }`}
                   >
                     {labels[tab]}
                   </button>
                 );
               })}
+              </div>
             </div>
                   
             {activeTab === 'details' ? (
               <div id="order-panel-details" role="tabpanel" aria-labelledby="order-tab-details" className="mt-6">
-                <div className="glass-thick rounded-2xl p-6 shadow-lg">
+                <div className={ORDER_PANEL_CLASS}>
                   <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Estado de la Orden</h3>
                   
                   {/* Fiscal Status Indicator */}
@@ -2338,7 +2400,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   )}
                 </div>
 
-                <div className="mt-6 glass-thick rounded-2xl p-6 shadow-lg overflow-hidden">
+                <div className={`mt-6 ${ORDER_PANEL_CLASS} overflow-hidden`}>
                   <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Información de Entrega</h3>
                   <dl className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
                     <div className="sm:col-span-1">
@@ -2424,8 +2486,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   )}
                 </div>
 
-                <div className="mt-6 glass-thick rounded-2xl shadow-lg overflow-hidden">
-                  <div className="px-6 py-4 border-b border-white/20">
+                <div className={`mt-6 ${ORDER_PANEL_CLASS} overflow-hidden p-0`}>
+                  <div className="px-4 py-4 md:px-6 md:py-4 border-b border-stone-200">
                     <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Productos</h3>
                   </div>
                   <div className="overflow-x-auto">
@@ -3299,7 +3361,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
           {/* Información Financiera: only in Details tab (not Remisiones or Calidad) */}
           {shouldShowFinancialInfo() && activeTab === 'details' && (
-            <div className="mt-6 glass-thick rounded-2xl p-6 shadow-lg overflow-hidden">
+            <div className={`mt-6 ${ORDER_PANEL_CLASS} overflow-hidden`}>
               <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Información Financiera</h2>
               <OrderDetailsBalance
                 orderId={orderId}
@@ -3311,7 +3373,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           )}
         </>
       ) : (
-        <div className="glass-base rounded-2xl p-12 text-center">
+        <div className={`${ORDER_PANEL_CLASS} p-12 text-center`}>
           <p className="text-lg text-gray-600 dark:text-gray-400">Orden no encontrada</p>
         </div>
       )}

@@ -59,6 +59,13 @@ import { ClientPortalUsersSection } from '@/components/admin/client-portal/Clien
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import { ExportClientResearchButton } from '@/components/finanzas/ExportClientResearchButton';
 import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
+import CommercialTabRail from '@/components/commercial/CommercialTabRail';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -88,31 +95,246 @@ const LocationSearchBox = dynamic(
   { ssr: false }
 );
 
-// Custom Switch component since @/components/ui/switch doesn't exist
-const Switch = ({ checked, onCheckedChange, disabled }: { 
-  checked: boolean; 
-  onCheckedChange: (checked: boolean) => void; 
-  disabled?: boolean 
-}) => {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => !disabled && onCheckedChange(!checked)}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors 
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 
-                 ${checked ? 'bg-green-500' : 'bg-gray-200'} 
-                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out
-                   ${checked ? 'translate-x-5' : 'translate-x-0'}`}
-      />
-    </button>
-  );
-};
+// REMOVED_INLINE_NEW_SITE_FORM_MARKER
+function NewSiteForm_REMOVED({ clientId, isClientApproved, onSiteAdded }: { 
+  clientId: string; 
+  isClientApproved: boolean; 
+  onSiteAdded: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [siteData, setSiteData] = useState({
+    name: '',
+    location: '',
+    access_restrictions: '',
+    special_conditions: '',
+    is_active: true,
+    latitude: null as number | null,
+    longitude: null as number | null
+  });
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setSiteData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Memoized callback for map location selection to prevent excessive re-renders
+  const handleLocationSelect = useCallback((lat: number, lng: number) => {
+    setSiteData(prev => {
+      // Only update if values actually changed
+      if (prev.latitude === lat && prev.longitude === lng) {
+        return prev;
+      }
+      return {
+        ...prev,
+        latitude: lat,
+        longitude: lng
+      };
+    });
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!siteData.name.trim()) {
+      toast.error('El nombre de la obra es obligatorio');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await clientService.createSite(clientId, siteData);
+      setSiteData({
+        name: '',
+        location: '',
+        access_restrictions: '',
+        special_conditions: '',
+        is_active: true,
+        latitude: null,
+        longitude: null
+      });
+      setShowForm(false);
+      onSiteAdded();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al crear la obra';
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!isClientApproved) {
+    return (
+      <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+        <p className="text-sm text-amber-800">
+          Este cliente debe ser autorizado antes de poder agregar obras. Solicita la aprobación en{' '}
+          <Link href="/finanzas/gobierno-precios" className="font-medium underline hover:text-amber-900">
+            Finanzas → Autorización de Clientes
+          </Link>
+          .
+        </p>
+      </div>
+    );
+  }
+
+  if (!showForm) {
+    return (
+      <div className="mt-6">
+        <RoleProtectedButton
+          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+          onClick={() => setShowForm(true)}
+          asChild
+        >
+          <Button className="flex items-center gap-1">
+            <Plus className="h-4 w-4" />
+            <span>Agregar Nueva Obra</span>
+          </Button>
+        </RoleProtectedButton>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(commercialPanelClass, 'mt-6')}>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-medium text-stone-900">Nueva Obra</h3>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowForm(false)}
+        >
+          <X className="h-4 w-4" />
+          <span>Cancelar</span>
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="mb-3">
+          <label htmlFor="site_name" className="block text-sm font-medium text-gray-700 mb-1">
+            Nombre de la Obra *
+          </label>
+          <input
+            type="text"
+            id="site_name"
+            name="name"
+            value={siteData.name}
+            onChange={handleChange}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor="site_location" className="block text-sm font-medium text-gray-700 mb-1">
+            Ubicación
+          </label>
+          <input
+            type="text"
+            id="site_location"
+            name="location"
+            value={siteData.location}
+            onChange={handleChange}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor="site_access_restrictions" className="block text-sm font-medium text-gray-700 mb-1">
+            Restricciones de Acceso
+          </label>
+          <textarea
+            id="site_access_restrictions"
+            name="access_restrictions"
+            value={siteData.access_restrictions}
+            onChange={handleChange}
+            rows={2}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor="site_special_conditions" className="block text-sm font-medium text-gray-700 mb-1">
+            Condiciones Especiales
+          </label>
+          <textarea
+            id="site_special_conditions"
+            name="special_conditions"
+            value={siteData.special_conditions}
+            onChange={handleChange}
+            rows={2}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Estado de la Obra
+          </label>
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="is_active"
+              name="is_active"
+              checked={siteData.is_active}
+              onChange={(e) => {
+                setSiteData(prev => ({
+                  ...prev,
+                  is_active: e.target.checked
+                }));
+              }}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <label htmlFor="is_active" className="ml-2 text-sm text-gray-700">
+              Obra Activa
+            </label>
+          </div>
+        </div>
+      </div>
+      
+      {/* Map for selecting coordinates */}
+      <div className="mt-4 mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Ubicación en el Mapa
+        </label>
+        <p className="text-sm text-gray-500 mb-2">
+          Haz clic en el mapa para seleccionar las coordenadas exactas de la obra
+        </p>
+        <GoogleMapWrapper>
+          <GoogleMapSelector 
+            onSelectLocation={handleLocationSelect} 
+            height="400px"
+            initialPosition={siteData.latitude && siteData.longitude ? 
+              { lat: siteData.latitude, lng: siteData.longitude } : null}
+          />
+        </GoogleMapWrapper>
+        
+        {/* Display coordinates if selected */}
+        {siteData.latitude && siteData.longitude && (
+          <div className="mt-2 text-sm">
+            <p>Coordenadas seleccionadas: {siteData.latitude.toFixed(6)}, {siteData.longitude.toFixed(6)}</p>
+          </div>
+        )}
+      </div>
+      
+      <div className="flex justify-end mt-4">
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          className="flex items-center gap-1"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Guardando...' : (
+            <>
+              <Plus className="h-4 w-4" />
+              <span>Guardar Obra</span>
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
 // Componente para editar sitios existentes
 function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: ConstructionSite, clientId: string, onSiteUpdated: () => void, onCancel: () => void }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -186,9 +408,9 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
   };
 
   return (
-    <div className="mt-6 bg-gray-50 p-4 rounded-md">
+    <div className={cn(commercialPanelClass, 'mt-6')}>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Editar Obra: {site.name}</h3>
+        <h3 className="text-lg font-medium text-stone-900">Editar Obra: {site.name}</h3>
         <Button
           type="button"
           variant="ghost"
@@ -1882,8 +2104,8 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
-      <Card className="overflow-x-auto">
+    <div className="space-y-6 min-w-0">
+      <Card className={cn(commercialPanelClass, 'overflow-x-auto shadow-sm')}>
         <CardHeader>
           <div className="flex justify-between items-start">
             <div className="space-y-1">
@@ -1984,18 +2206,17 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             balances={balances}
           />
           <Tabs defaultValue="payments" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="payments">Pagos</TabsTrigger>
-              <TabsTrigger value="adjustments">Ajustes de Saldo</TabsTrigger>
-              <RoleProtectedButton
-                allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
-                asChild
-              >
-                <TabsTrigger value="portal-users">Usuarios del Portal</TabsTrigger>
-              </RoleProtectedButton>
-            </TabsList>
-            
-            <TabsContent value="payments">
+            <CommercialTabRail
+              tabs={[
+                { id: 'payments', label: 'Pagos' },
+                { id: 'adjustments', label: 'Ajustes de Saldo' },
+                { id: 'portal-users', label: 'Usuarios del Portal' },
+              ]}
+              className="mb-4"
+            />
+
+            <TabsContent value="payments" className="mt-0">
+              <div className={cn(commercialPanelClass)}>
               <div className="flex justify-end mb-3">
                 <ClientPaymentManagerModal
                   clientId={clientId}
@@ -2006,20 +2227,22 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 />
               </div>
               <ClientPaymentsList payments={payments} />
+              </div>
             </TabsContent>
-            
-            <TabsContent value="adjustments">
-              <BalanceAdjustmentHistory clientId={clientId} />
+
+            <TabsContent value="adjustments" className="mt-0">
+              <div className={cn(commercialPanelClass)}>
+                <BalanceAdjustmentHistory clientId={clientId} />
+              </div>
             </TabsContent>
-            
-            <RoleProtectedButton
-              allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
-              asChild
-            >
-              <TabsContent value="portal-users">
-                <ClientPortalUsersSection clientId={clientId} />
-              </TabsContent>
-            </RoleProtectedButton>
+
+            <TabsContent value="portal-users" className="mt-0">
+              <RoleProtectedSection allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} action="gestionar usuarios del portal">
+                <div className={cn(commercialPanelClass)}>
+                  <ClientPortalUsersSection clientId={clientId} />
+                </div>
+              </RoleProtectedSection>
+            </TabsContent>
           </Tabs>
         </div>
       </div>
@@ -2085,9 +2308,9 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         </section>
       )}
 
-      <Card>
+      <Card className={cn(commercialPanelClass, 'shadow-sm')}>
          <CardHeader>
-           <CardTitle>Obras registradas</CardTitle>
+           <CardTitle className="text-stone-900">Obras registradas</CardTitle>
            <CardDescription>
              {client && isClientApprovedStatus((client as { approval_status?: string }).approval_status)
                ? 'Registre obras con ubicación en mapa. Cada obra debe aprobarse en Finanzas antes de usarse en cotizaciones y pedidos.'
@@ -2220,9 +2443,9 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
          </CardContent>
       </Card>
 
-      <Card className="overflow-x-auto">
+      <Card className={cn(commercialPanelClass, 'overflow-x-auto shadow-sm')}>
         <CardHeader>
-          <CardTitle>Pedidos Relacionados</CardTitle>
+          <CardTitle className="text-stone-900">Pedidos Relacionados</CardTitle>
           <CardDescription>Lista de pedidos asociados a este cliente</CardDescription>
         </CardHeader>
         <CardContent>

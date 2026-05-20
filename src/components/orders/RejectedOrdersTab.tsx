@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { usePlantAwareRejectedOrders } from '@/hooks/usePlantAwareRejectedOrders';
 import { OrderWithClient } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 // Define an extended type for orders with groupDate
 interface OrderWithGroupDate extends OrderWithClient {
@@ -79,7 +81,7 @@ export default function RejectedOrdersTab() {
 
   if (loading) {
     return (
-      <div className="glass-base rounded-2xl p-8 flex justify-center">
+      <div className={cn(commercialPanelClass, 'flex justify-center')}>
         <span className="text-muted-foreground">Cargando órdenes rechazadas...</span>
       </div>
     );
@@ -87,7 +89,7 @@ export default function RejectedOrdersTab() {
 
   if (error) {
     return (
-      <div className="glass-base rounded-2xl p-6 border border-red-200/50">
+      <div className={cn(commercialPanelClass, 'border-red-200')}>
         <p className="text-red-600 dark:text-red-400">{error}</p>
       </div>
     );
@@ -95,7 +97,7 @@ export default function RejectedOrdersTab() {
 
   if (orders.length === 0) {
     return (
-      <div className="glass-base rounded-2xl p-12 text-center">
+      <div className={cn(commercialPanelClass, 'text-center py-12')}>
         <p className="text-muted-foreground">No hay órdenes rechazadas.</p>
       </div>
     );
@@ -120,17 +122,17 @@ export default function RejectedOrdersTab() {
     <div className="space-y-8">
       {sortedDates.map(date => (
         <div key={date} className="mb-6">
-          <h2 className="text-lg font-semibold mb-3 glass-thin p-2 rounded-xl">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-700 px-1">
             {formatDate(date)}
           </h2>
           <div className="space-y-4">
             {ordersByDate[date].map((order) => (
-              <div key={order.id} className="glass-base rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+              <div key={order.id} className={cn(commercialPanelClass, 'p-0 hover:shadow-md transition-shadow')}>
                 <div className="p-4">
                   <div className="flex flex-col md:flex-row justify-between">
                     <div className="flex-1">
                       <h3 className="font-semibold text-lg">{order.clients?.business_name || 'Cliente no disponible'}</h3>
-                      <p className="text-sm text-gray-600">Código: {order.clients?.client_code || 'N/A'}</p>
+                      <p className="text-sm text-stone-600">Código: {order.clients?.client_code || 'N/A'}</p>
                       <p className="text-sm">
                         Entrega: {formatDate(order.delivery_date)} a las {formatTime(order.delivery_time)}
                       </p>

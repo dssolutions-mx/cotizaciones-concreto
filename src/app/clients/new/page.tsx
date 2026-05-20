@@ -22,6 +22,21 @@ import { LiveDuplicateSuggestions } from '@/components/clients/LiveDuplicateSugg
 import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
 import { COMMERCIAL_WORKFLOW_STEPS, MESSAGES } from '@/lib/commercial/workflow';
 import { toast } from 'sonner';
+import CommercialWorkspaceLayout from '@/components/commercial/CommercialWorkspaceLayout';
+import CommercialStickyActionBar from '@/components/commercial/CommercialStickyActionBar';
+import {
+  commercialHubOutlineNeutralClass,
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+  commercialSectionTitleClass,
+} from '@/components/commercial/commercialHubUi';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
 
 export default function NewClientPage() {
   const router = useRouter();
@@ -75,6 +90,7 @@ export default function NewClientPage() {
     return () => { cancelled = true; };
   }, [debouncedBusinessName, formData.requires_invoice, formData.client_code, suggestedCashCode]);
 
+
   function getCreatorInitials(): string {
     const fn = (profile as { first_name?: string } | null)?.first_name?.trim().slice(0, 1) || '';
     const ln = (profile as { last_name?: string } | null)?.last_name?.trim().slice(0, 1) || '';
@@ -122,6 +138,7 @@ export default function NewClientPage() {
       }));
     }
   };
+
 
   const doCreateClient = async () => {
     const clientCode = formData.requires_invoice
@@ -195,27 +212,25 @@ export default function NewClientPage() {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="mb-6">
-        <Link 
-          href="/clients" 
-          className="text-blue-600 hover:text-blue-800 mb-4 inline-block"
-        >
+    <CommercialWorkspaceLayout
+      title="Crear Nuevo Cliente"
+      subtitle={`Registra un cliente. ${COMMERCIAL_WORKFLOW_STEPS}`}
+      breadcrumb={
+        <Link href="/clients" className="text-sm text-sky-700 hover:text-sky-800 font-medium">
           ← Volver a clientes
         </Link>
-        <h1 className="text-2xl font-bold">Crear Nuevo Cliente</h1>
-        <p className="text-sm text-muted-foreground mt-1">{COMMERCIAL_WORKFLOW_STEPS}</p>
-      </div>
+      }
+    >
       
       {error && (
-        <div className="bg-red-50 text-red-700 p-4 rounded-md mb-6">
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 mb-4">
           {error}
         </div>
       )}
       
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <form onSubmit={handleSubmit}>
-          <h2 className="text-xl font-semibold mb-4">Información del Cliente</h2>
+      <form id="new-client-form" onSubmit={handleSubmit} className="space-y-5 pb-28">
+        <section className={cn(commercialPanelClass)}>
+          <h2 className={cn(commercialSectionTitleClass, 'mb-4')}>Información del Cliente</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Datos básicos */}
             <div className="mb-4">
@@ -228,7 +243,7 @@ export default function NewClientPage() {
                 name="business_name"
                 value={formData.business_name}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 required
               />
               {debouncedBusinessName.length >= 3 && (
@@ -278,7 +293,7 @@ export default function NewClientPage() {
                   name="client_code"
                   value={formData.client_code}
                   onChange={handleChange}
-                  className="w-full p-2 border border-gray-300 rounded-md"
+                  className="min-h-11 border-stone-200"
                   required
                   placeholder="Ej: XAXX010101000"
                 />
@@ -311,7 +326,7 @@ export default function NewClientPage() {
                 value={formData.address}
                 onChange={handleChange}
                 rows={3}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               />
             </div>
             
@@ -325,7 +340,7 @@ export default function NewClientPage() {
                 name="contact_name"
                 value={formData.contact_name}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 required
               />
             </div>
@@ -340,7 +355,7 @@ export default function NewClientPage() {
                 name="email"
                 value={formData.email || ''}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 placeholder="ejemplo@dominio.com"
               />
             </div>
@@ -386,7 +401,7 @@ export default function NewClientPage() {
                 name="credit_status"
                 value={formData.credit_status}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="ACTIVE">Activo</option>
                 <option value="SUSPENDED">Suspendido</option>
@@ -403,7 +418,7 @@ export default function NewClientPage() {
                 name="client_type"
                 value={formData.client_type}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="normal">Cliente normal</option>
                 <option value="de_la_casa">Cliente de la casa</option>
@@ -428,7 +443,7 @@ export default function NewClientPage() {
                     client_type: value ? 'asignado' : prev.client_type,
                   }));
                 }}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="">Sin asignar</option>
                 {users.map(u => (
@@ -438,35 +453,32 @@ export default function NewClientPage() {
             </div>
           </div>
           
-          <div className="mt-8 border-t border-gray-200 pt-6">
-            <h2 className="text-xl font-semibold mb-3">Obras</h2>
+          </section>
+
+          <section className={cn(commercialPanelClass)}>
+            <h2 className={cn(commercialSectionTitleClass, \'mb-4\')}>Obras</h2>
             <CommercialWorkflowCallout variant="info" title="Obras después de autorizar el cliente">
               <p className="mb-2">{COMMERCIAL_WORKFLOW_STEPS}</p>
               <p>
-                Las obras se registran desde el detalle del cliente, una vez que Finanzas haya{' '}
+                Las obras se registran desde el detalle del cliente, una vez que Finanzas haya{\' \'}
                 <strong>autorizado</strong> al cliente. Cada obra también requiere autorización antes de
                 usarse en cotizaciones.
               </p>
             </CommercialWorkflowCallout>
-          </div>
+          </section>
+      </form>
 
-          <div className="mt-6 flex justify-end">
-            <Link 
-              href="/clients" 
-              className="bg-gray-300 text-gray-800 px-4 py-2 rounded mr-2 hover:bg-gray-400"
-            >
-              Cancelar
-            </Link>
-            <button
-              type="submit"
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-green-300"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Guardando...' : 'Guardar Cliente'}
-            </button>
-          </div>
-        </form>
-      </div>
+      <CommercialStickyActionBar
+        primaryLabel={isSubmitting ? 'Guardando...' : 'Guardar Cliente'}
+        onPrimary={() => {
+          const form = document.getElementById('new-client-form') as HTMLFormElement | null;
+          form?.requestSubmit();
+        }}
+        primaryDisabled={isSubmitting}
+        primaryLoading={isSubmitting}
+        secondaryLabel="Cancelar"
+        onSecondary={() => router.push('/clients')}
+      />
 
       <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
         <AlertDialogContent>
@@ -499,6 +511,6 @@ export default function NewClientPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CommercialWorkspaceLayout>
   );
 } 

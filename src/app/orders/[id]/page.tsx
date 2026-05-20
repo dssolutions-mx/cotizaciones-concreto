@@ -6,7 +6,6 @@ import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle2, AlertCircle, XCircle, ChevronRight } from 'lucide-react';
 import OrderDetailClient from '@/components/orders/OrderDetailClient';
-import { GlassDashboardLayout } from '@/components/orders/GlassDashboardLayout';
 
 // Component to show success/error messages when redirected from email actions
 function ActionMessage() {
@@ -18,7 +17,7 @@ function ActionMessage() {
   const alertContent = {
     approved: {
       icon: CheckCircle2,
-      className: 'mb-6 glass-base rounded-2xl border-green-200/50',
+      className: 'mb-6 rounded-lg border border-green-200 bg-white p-4',
       iconClass: 'text-green-600',
       titleClass: 'text-green-800',
       descClass: 'text-green-700',
@@ -27,7 +26,7 @@ function ActionMessage() {
     },
     rejected: {
       icon: XCircle,
-      className: 'mb-6 glass-base rounded-2xl border-red-200/50',
+      className: 'mb-6 rounded-lg border border-red-200 bg-white p-4',
       iconClass: 'text-red-600',
       titleClass: 'text-red-800',
       descClass: 'text-red-700',
@@ -36,7 +35,7 @@ function ActionMessage() {
     },
     error: {
       icon: AlertCircle,
-      className: 'mb-6 glass-base rounded-2xl border-amber-200/50',
+      className: 'mb-6 rounded-lg border border-amber-200 bg-white p-4',
       iconClass: 'text-amber-600',
       titleClass: 'text-amber-800',
       descClass: 'text-amber-700',
@@ -62,7 +61,6 @@ function ActionMessage() {
   );
 }
 
-// Main component that renders ActionMessage and OrderDetailClient with layout
 export default function OrderDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = React.use(params);
   const { id } = unwrappedParams;
@@ -70,19 +68,16 @@ export default function OrderDetailsPage({ params }: { params: Promise<{ id: str
   const shortId = id.length >= 8 ? `${id.substring(0, 8)}…` : id;
 
   return (
-    <GlassDashboardLayout
-      header={
-        <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Link href="/orders" className="hover:text-foreground transition-colors">
-            Pedidos
-          </Link>
-          <ChevronRight className="h-4 w-4 shrink-0" />
-          <span className="text-foreground font-medium">Orden #{shortId}</span>
-        </nav>
-      }
-    >
+    <div className="min-w-0 space-y-6">
+      <nav className="flex items-center gap-2 text-sm text-stone-500">
+        <Link href="/orders" className="hover:text-stone-900 transition-colors">
+          Pedidos
+        </Link>
+        <ChevronRight className="h-4 w-4 shrink-0" />
+        <span className="text-stone-900 font-medium">Orden #{shortId}</span>
+      </nav>
       <ActionMessage />
       <OrderDetailClient orderId={id} />
-    </GlassDashboardLayout>
+    </div>
   );
 }

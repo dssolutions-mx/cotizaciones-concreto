@@ -32,6 +32,8 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 export default function CreditValidationTab() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
@@ -251,19 +253,23 @@ export default function CreditValidationTab() {
   }
 
   if (loading) {
-    return <div className="flex justify-center p-4">Cargando órdenes...</div>;
+    return <div className={cn(commercialPanelClass, 'text-center text-stone-500')}>Cargando órdenes...</div>;
   }
 
   if (error) {
-    return <div className="text-red-500 p-4">{error}</div>;
+    return <div className={cn(commercialPanelClass, 'text-red-600')}>{error}</div>;
   }
 
   if (localError) {
-    return <div className="text-red-500 p-4">{localError}</div>;
+    return <div className={cn(commercialPanelClass, 'text-red-600')}>{localError}</div>;
   }
 
   if (orders.length === 0) {
-    return <div className="text-center p-4">No hay órdenes pendientes de validación de crédito.</div>;
+    return (
+      <div className={cn(commercialPanelClass, 'text-center text-stone-500')}>
+        No hay órdenes pendientes de validación de crédito.
+      </div>
+    );
   }
 
   return (
@@ -277,10 +283,10 @@ export default function CreditValidationTab() {
         return (
           <div
             key={`credit-validation-${order.id}`}
-            className="border rounded-xl bg-white hover:shadow-md transition-all duration-200 overflow-hidden"
+            className={cn(commercialPanelClass, 'p-0 hover:shadow-md transition-shadow overflow-hidden')}
           >
             {/* Card Header - Client Info and Status */}
-            <div className="px-6 py-4 border-b bg-gray-50/50">
+            <div className="px-4 md:px-6 py-4 border-b border-stone-200 bg-stone-50/80">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-lg text-foreground truncate">
@@ -371,7 +377,7 @@ export default function CreditValidationTab() {
             </div>
 
             {/* Card Footer - Actions */}
-            <div className="px-6 py-4 bg-gray-50/50 border-t flex items-center justify-between gap-3">
+            <div className="px-4 md:px-6 py-4 bg-stone-50/80 border-t border-stone-200 flex items-center justify-between gap-3">
               <Button
                 variant="ghost"
                 size="sm"

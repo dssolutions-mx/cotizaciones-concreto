@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,
@@ -22,8 +23,15 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, cn } from '@/lib/utils';
 import { Search, Eye, Pencil, Trash2 } from 'lucide-react';
+import CommercialWorkspaceLayout from '@/components/commercial/CommercialWorkspaceLayout';
+import CommercialResponsiveTable from '@/components/commercial/CommercialResponsiveTable';
+import {
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+  commercialCardClass,
+} from '@/components/commercial/commercialHubUi';
 
 interface Client {
   id: string;
@@ -45,6 +53,98 @@ const creditStatusLabels: Record<string, string> = {
 
 function formatCreditStatus(status: string) {
   return creditStatusLabels[status?.toLowerCase()] ?? status ?? '—';
+}
+
+type FilterChipProps = {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+};
+
+function FilterChip({ label, active, onClick }: FilterChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'min-h-10 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+        active
+          ? 'bg-stone-900 text-white'
+          : 'bg-white border border-stone-200 text-stone-700 hover:bg-stone-50'
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ClientRowActions({
+  client,
+  router,
+  isDeleting,
+  onDelete,
+}: {
+  client: Client;
+  router: ReturnType<typeof useRouter>;
+  isDeleting: boolean;
+  onDelete: (id: string, name: string) => void;
+}) {
+  return (
+    <TooltipProvider>
+      <div className="flex justify-end gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              onClick={() => router.push(`/clients/${client.id}`)}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Ver</TooltipContent>
+        </Tooltip>
+
+        <RoleProtectedButton
+          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+          onClick={() => router.push(`/clients/${client.id}/edit`)}
+          showDisabled={true}
+          asChild
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-9 w-9">
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Editar</TooltipContent>
+          </Tooltip>
+        </RoleProtectedButton>
+
+        <RoleProtectedButton
+          allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+          onClick={() => onDelete(client.id, client.business_name)}
+          disabled={isDeleting}
+          showDisabled={true}
+          asChild
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Eliminar</TooltipContent>
+          </Tooltip>
+        </RoleProtectedButton>
+      </div>
+    </TooltipProvider>
+  );
 }
 
 export default function ClientsPage() {
@@ -95,7 +195,7 @@ export default function ClientsPage() {
   };
 
   const handleDeleteConfirm = async () => {
-    const { clientId, businessName } = deleteDialog;
+    const { clientId } = deleteDialog;
     try {
       setIsDeleting(true);
       const { default: clientService } = await import('@/lib/supabase/clients');
@@ -130,150 +230,188 @@ export default function ClientsPage() {
     return true;
   });
 
-  return (
-    <div className="container mx-auto p-6">
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h1 className="text-large-title text-gray-900">Clientes</h1>
-          <p className="text-footnote text-muted-foreground mt-1">
-            Flujo: Crear cliente → Aprobar cliente → Obras → Cotizar → Orden → Crédito
-          </p>
-        </div>
-        <RoleProtectedButton
-          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT', 'CREDIT_VALIDATOR']}
-          onClick={() => router.push('/clients/new')}
-          className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-          showDisabled={true}
-        >
-          Crear Nuevo Cliente
-        </RoleProtectedButton>
+  const stickyToolbar = (
+    <div className={cn(commercialPanelClass, 'p-4 space-y-4 shadow-sm')}>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+        <Input
+          type="search"
+          placeholder="Buscar cliente por nombre o código..."
+          className="min-h-11 pl-10 bg-white border-stone-200"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
       </div>
-
-      {toastMessage && (
-        <div
-          className={`mb-4 px-4 py-3 rounded-lg ${
-            toastMessage.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}
-        >
-          {toastMessage.text}
-        </div>
-      )}
-
-      <div className="mb-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Buscar cliente por nombre o código..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="space-y-3 mb-6">
-        <div className="flex flex-wrap gap-2">
-          <span className="text-footnote text-muted-foreground mr-2 self-center">Aprobación:</span>
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-medium uppercase tracking-wide text-stone-500 mr-1">Aprobación</span>
           {[
             { value: 'all' as const, label: 'Todos' },
             { value: 'pending' as const, label: 'Pendiente' },
             { value: 'approved' as const, label: 'Aprobado' },
           ].map((opt) => (
-            <button
+            <FilterChip
               key={opt.value}
+              label={opt.label}
+              active={approvalFilter === opt.value}
               onClick={() => setApprovalFilter(opt.value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                approvalFilter === opt.value ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
-              }`}
-            >
-              {opt.label}
-            </button>
+            />
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <span className="text-footnote text-muted-foreground mr-2 self-center">Crédito:</span>
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs font-medium uppercase tracking-wide text-stone-500 mr-1">Crédito</span>
           {[
             { value: 'all' as const, label: 'Todos' },
             { value: 'approved' as const, label: 'Aprobado' },
             { value: 'pending' as const, label: 'Pendiente' },
             { value: 'rejected' as const, label: 'Sin crédito' },
           ].map((opt) => (
-            <button
+            <FilterChip
               key={opt.value}
+              label={opt.label}
+              active={creditFilter === opt.value}
               onClick={() => setCreditFilter(opt.value)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                creditFilter === opt.value ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'
-              }`}
-            >
-              {opt.label}
-            </button>
+            />
           ))}
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <CommercialWorkspaceLayout
+      title="Clientes"
+      subtitle="Flujo: Crear cliente → Aprobar cliente → Obras → Cotizar → Orden → Crédito"
+      maxWidth="1600"
+      headerActions={
+        <RoleProtectedButton
+          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT', 'CREDIT_VALIDATOR']}
+          onClick={() => router.push('/clients/new')}
+          className={cn('min-h-11 px-4 py-2 rounded-md text-sm font-medium', commercialHubPrimaryButtonClass)}
+          showDisabled={true}
+        >
+          Crear Nuevo Cliente
+        </RoleProtectedButton>
+      }
+      stickyHeaderExtra={stickyToolbar}
+    >
+      {toastMessage && (
+        <div
+          className={cn(
+            'px-4 py-3 rounded-lg text-sm border',
+            toastMessage.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              : 'bg-red-50 text-red-800 border-red-200'
+          )}
+        >
+          {toastMessage.text}
+        </div>
+      )}
 
       {loading || isDeleting ? (
-        <div className="bg-white shadow-md rounded-lg p-6 text-center">
+        <div className={cn(commercialPanelClass, 'text-center py-12')}>
           <div
-            className="animate-spin inline-block w-6 h-6 border-[3px] border-current border-t-transparent text-gray-400 rounded-full"
+            className="animate-spin inline-block w-6 h-6 border-[3px] border-current border-t-transparent text-stone-400 rounded-full"
             role="status"
           >
             <span className="sr-only">Cargando...</span>
           </div>
-          <p className="mt-2 text-gray-600">
+          <p className="mt-2 text-stone-600">
             {isDeleting ? 'Eliminando cliente...' : 'Cargando clientes...'}
           </p>
         </div>
       ) : error ? (
-        <div className="bg-white shadow-md rounded-lg p-6 text-center">
-          <p className="text-red-500">{error}</p>
-        </div>
+        <div className={cn(commercialPanelClass, 'text-center py-12 text-red-600')}>{error}</div>
       ) : filteredClients.length === 0 ? (
-        <div className="bg-white shadow-md rounded-lg p-6 text-center">
-          <p className="text-gray-600">
-            {clients.length === 0
-              ? 'No hay clientes registrados.'
-              : 'No se encontraron clientes con ese criterio de búsqueda.'}
-          </p>
+        <div className={cn(commercialPanelClass, 'text-center py-12 text-stone-600')}>
+          {clients.length === 0
+            ? 'No hay clientes registrados.'
+            : 'No se encontraron clientes con ese criterio de búsqueda.'}
         </div>
       ) : (
-        <div className="glass-base rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border/50">
-              <thead className="bg-muted/50">
+        <CommercialResponsiveTable
+          rows={filteredClients}
+          emptyMessage="No hay clientes"
+          renderMobileCard={(client) => (
+            <div
+              key={client.id}
+              className={cn(commercialCardClass, 'p-4 min-h-12 flex flex-col gap-3')}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-medium text-stone-500">{client.client_code}</p>
+                  <Link
+                    href={`/clients/${client.id}`}
+                    className="text-base font-semibold text-stone-900 hover:text-sky-700"
+                  >
+                    {client.business_name}
+                  </Link>
+                </div>
+                <ClientRowActions
+                  client={client}
+                  router={router}
+                  isDeleting={isDeleting}
+                  onDelete={handleDeleteClick}
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <Badge
+                  variant={client.approval_status === 'APPROVED' ? 'success' : 'warning'}
+                  className="text-xs"
+                >
+                  {client.approval_status === 'APPROVED' ? 'Aprobado' : 'Pendiente aprob.'}
+                </Badge>
+                <Badge variant="outline" className="text-xs text-stone-600">
+                  {formatCreditStatus(client.credit_status)}
+                </Badge>
+                {client.sites_count > 0 && (
+                  <span className="text-xs text-stone-500 self-center">
+                    {client.sites_count} obra{client.sites_count !== 1 ? 's' : ''}
+                    {client.sites_pending_count > 0 && ` (+${client.sites_pending_count} pend.)`}
+                  </span>
+                )}
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-stone-500">Saldo</span>
+                <span className={cn('font-semibold', client.current_balance > 0 ? 'text-red-600' : 'text-stone-700')}>
+                  {formatCurrency(client.current_balance)}
+                </span>
+              </div>
+            </div>
+          )}
+          desktopTable={
+            <table className="min-w-full divide-y divide-stone-200">
+              <thead className="bg-stone-50">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Código
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Cliente
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Estado
-                  </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Saldo
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Crédito
-                  </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                    Acciones
-                  </th>
+                  {['Código', 'Cliente', 'Estado', 'Saldo', 'Crédito', 'Acciones'].map((h, i) => (
+                    <th
+                      key={h}
+                      className={cn(
+                        'px-4 py-3 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider',
+                        i >= 3 && i <= 4 && 'text-right',
+                        i === 5 && 'text-right'
+                      )}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/50">
+              <tbody className="divide-y divide-stone-100 bg-white">
                 {filteredClients.map((client) => (
-                  <tr key={client.id} className="hover:bg-muted/30 transition-colors duration-150">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
+                  <tr key={client.id} className="hover:bg-stone-50/80 transition-colors">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-stone-800">
                       {client.client_code}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Link href={`/clients/${client.id}`} className="text-callout text-gray-900 hover:text-primary hover:underline">
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="text-sm font-medium text-stone-900 hover:text-sky-700 hover:underline"
+                      >
                         {client.business_name}
                       </Link>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap">
                       <div className="flex flex-wrap gap-1">
                         <Badge
                           variant={client.approval_status === 'APPROVED' ? 'success' : 'warning'}
@@ -282,7 +420,7 @@ export default function ClientsPage() {
                           {client.approval_status === 'APPROVED' ? 'Aprobado' : 'Pendiente aprob.'}
                         </Badge>
                         {client.sites_count > 0 && (
-                          <span className="text-footnote text-muted-foreground">
+                          <span className="text-xs text-stone-500 self-center">
                             {client.sites_count} obra{client.sites_count !== 1 ? 's' : ''}
                             {client.sites_pending_count > 0 && (
                               <Badge variant="secondary" className="ml-1 text-xs">
@@ -293,108 +431,64 @@ export default function ClientsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                      <span className={client.current_balance > 0 ? 'text-red-600' : 'text-gray-600'}>
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-right font-medium">
+                      <span className={client.current_balance > 0 ? 'text-red-600' : 'text-stone-600'}>
                         {formatCurrency(client.current_balance)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-4 py-4 whitespace-nowrap text-sm text-right text-stone-600">
                       {formatCreditStatus(client.credit_status)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end gap-1">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => router.push(`/clients/${client.id}`)}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Ver</TooltipContent>
-                          </Tooltip>
-
-                          <RoleProtectedButton
-                            allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-                            onClick={() => router.push(`/clients/${client.id}/edit`)}
-                            showDisabled={true}
-                            asChild
-                          >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Editar</TooltipContent>
-                            </Tooltip>
-                          </RoleProtectedButton>
-
-                          <RoleProtectedButton
-                            allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
-                            onClick={() => handleDeleteClick(client.id, client.business_name)}
-                            disabled={isDeleting}
-                            showDisabled={true}
-                            asChild
-                          >
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Eliminar</TooltipContent>
-                            </Tooltip>
-                          </RoleProtectedButton>
-                        </TooltipProvider>
-                      </div>
+                    <td className="px-4 py-4 whitespace-nowrap text-right">
+                      <ClientRowActions
+                        client={client}
+                        router={router}
+                        isDeleting={isDeleting}
+                        onDelete={handleDeleteClick}
+                      />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
+          }
+        />
       )}
 
       <RoleProtectedSection allowedRoles={['EXECUTIVE']} action="ver estadísticas avanzadas de clientes" className="mt-8">
-        <div>
-          <h2 className="text-title-3 text-gray-800 mb-4">Estadísticas de Clientes (Solo Ejecutivos)</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="glass-base rounded-2xl p-6">
-              <h3 className="text-footnote text-muted-foreground">Total de Clientes</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{filteredClients.length}</p>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-600 mb-4">
+          Estadísticas de Clientes (Solo Ejecutivos)
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { label: 'Total de Clientes', value: filteredClients.length },
+            {
+              label: 'Clientes con Crédito Aprobado',
+              value: filteredClients.filter((c) => c.credit_status?.toLowerCase() === 'approved').length,
+            },
+            {
+              label: 'Clientes con Saldo Pendiente',
+              value: filteredClients.filter((c) => c.current_balance > 0).length,
+            },
+          ].map((stat) => (
+            <div key={stat.label} className={cn(commercialPanelClass)}>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-stone-500">{stat.label}</h3>
+              <p className="text-2xl font-bold text-stone-900 mt-1">{stat.value}</p>
             </div>
-            <div className="glass-base rounded-2xl p-6">
-              <h3 className="text-footnote text-muted-foreground">Clientes con Crédito Aprobado</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {filteredClients.filter((c) => c.credit_status?.toLowerCase() === 'approved').length}
-              </p>
-            </div>
-            <div className="glass-base rounded-2xl p-6">
-              <h3 className="text-footnote text-muted-foreground">Clientes con Saldo Pendiente</h3>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {filteredClients.filter((c) => c.current_balance > 0).length}
-              </p>
-            </div>
-          </div>
+          ))}
         </div>
       </RoleProtectedSection>
 
-      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => !open && setDeleteDialog({ open: false, clientId: '', businessName: '' })}>
+      <AlertDialog
+        open={deleteDialog.open}
+        onOpenChange={(open) => !open && setDeleteDialog({ open: false, clientId: '', businessName: '' })}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar eliminación</AlertDialogTitle>
             <AlertDialogDescription>
-              ¿Estás seguro de eliminar el cliente "{deleteDialog.businessName}"? Esta acción no se puede deshacer.
+              ¿Estás seguro de eliminar el cliente &quot;{deleteDialog.businessName}&quot;? Esta acción no se puede
+              deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -405,6 +499,6 @@ export default function ClientsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CommercialWorkspaceLayout>
   );
 }
