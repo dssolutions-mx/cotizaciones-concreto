@@ -24,6 +24,8 @@ import MuestreoDetailHeader from '@/components/quality/muestreos/detail/Muestreo
 import MuestreoMainCard from '@/components/quality/muestreos/detail/MuestreoMainCard'
 import MuestreoEnvironmentalCard from '@/components/quality/muestreos/detail/MuestreoEnvironmentalCard'
 import MuestreoSampleSummaryCard from '@/components/quality/muestreos/detail/MuestreoSampleSummaryCard'
+import InformeEmissionPanel from '@/components/quality/informes/InformeEmissionPanel'
+import MuestreoInformeFieldsCard from '@/components/quality/muestreos/detail/MuestreoInformeFieldsCard'
 import CrossPlantProductionCard, {
   type ProductionRemision,
 } from '@/components/quality/muestreos/detail/CrossPlantProductionCard'
@@ -71,6 +73,7 @@ export default function MuestreoDetailPage() {
   const [productionRemision, setProductionRemision] = useState<ProductionRemision | null>(null)
   const [emaInstrumentos, setEmaInstrumentos] = useState<MuestreoInstrumentoRow[]>([])
   const [emaInstrumentosLoading, setEmaInstrumentosLoading] = useState(false)
+  const [ensayoHasEquipment, setEnsayoHasEquipment] = useState(false)
   const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
 
   const fetchMuestreoDetails = useCallback(async () => {
@@ -106,6 +109,21 @@ export default function MuestreoDetailPage() {
         .then((j) => setEmaInstrumentos(Array.isArray(j.data) ? j.data : []))
         .catch(() => setEmaInstrumentos([]))
         .finally(() => setEmaInstrumentosLoading(false))
+
+      const garantiaEnsayoIds = (data?.muestras ?? [])
+        .filter((m) => m.is_edad_garantia)
+        .flatMap((m) => (m.ensayos ?? []).map((e) => e.id))
+        .filter(Boolean)
+      if (garantiaEnsayoIds.length === 0) {
+        setEnsayoHasEquipment(false)
+      } else {
+        void supabase
+          .from('ensayo_instrumentos')
+          .select('id', { count: 'exact', head: true })
+          .in('ensayo_id', garantiaEnsayoIds)
+          .then(({ count }) => setEnsayoHasEquipment((count ?? 0) > 0))
+          .catch(() => setEnsayoHasEquipment(false))
+      }
 
       const cpRemisionId = (data?.remision as { cross_plant_billing_remision_id?: string | null })
         ?.cross_plant_billing_remision_id
@@ -407,6 +425,8 @@ export default function MuestreoDetailPage() {
                 cubosEnsayados={cubos.filter((c) => c.estado === 'ENSAYADO').length}
                 firstEnsayoId={firstEnsayoId}
               />
+              <MuestreoInformeFieldsCard muestreo={muestreo} onSaved={() => void fetchMuestreoDetails()} />
+              <InformeEmissionPanel muestreo={muestreo} ensayoHasEquipment={ensayoHasEquipment} />
             </div>
 
             {productionRemision && (

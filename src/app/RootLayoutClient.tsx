@@ -344,6 +344,7 @@ const QUALITY_SECTIONS: QualitySection[] = [
     items: [
       { title: 'Muestreos', href: '/quality/muestreos', IconComponent: Beaker },
       { title: 'Ensayos', href: '/quality/ensayos', IconComponent: FlaskConical },
+      { title: 'Informes emitidos', href: '/quality/informes', IconComponent: Clipboard },
       { title: 'Control en obra', href: '/quality/site-checks/new', IconComponent: ClipboardCheck },
       { title: 'Reportes', href: '/quality/reportes', IconComponent: Clipboard, excludeRestrictedPlants: true },
     ],
@@ -359,6 +360,7 @@ const QUALITY_SECTIONS: QualitySection[] = [
       { title: 'Conjuntos', href: '/quality/conjuntos', IconComponent: BookOpen },
       { title: 'Plantillas', href: '/quality/plantillas', IconComponent: ClipboardList },
       { title: 'Paquetes', href: '/quality/paquetes', IconComponent: Package },
+      { title: 'Incertidumbre', href: '/quality/ema/incertidumbre', IconComponent: FlaskConical },
     ],
   },
   {

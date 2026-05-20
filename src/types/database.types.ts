@@ -3780,6 +3780,10 @@ export type Database = {
           resistencia_corregida: number | null
           specimen_type_spec_id: string | null
           tiempo_desde_carga: string | null
+          temp_laboratorio_c: number | null
+          humedad_relativa_lab: number | null
+          capping_type: string | null
+          capping_norma: string | null
           updated_at: string | null
         }
         Insert: {
@@ -3802,6 +3806,10 @@ export type Database = {
           resistencia_corregida?: number | null
           specimen_type_spec_id?: string | null
           tiempo_desde_carga?: string | null
+          temp_laboratorio_c?: number | null
+          humedad_relativa_lab?: number | null
+          capping_type?: string | null
+          capping_norma?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -3824,6 +3832,10 @@ export type Database = {
           resistencia_corregida?: number | null
           specimen_type_spec_id?: string | null
           tiempo_desde_carga?: string | null
+          temp_laboratorio_c?: number | null
+          humedad_relativa_lab?: number | null
+          capping_type?: string | null
+          capping_norma?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -7336,6 +7348,11 @@ export type Database = {
           sampling_notes: string | null
           sampling_type: string | null
           sync_status: string | null
+          muestreado_por: string | null
+          humedad_relativa_obra: number | null
+          condiciones_climaticas: string | null
+          fecha_recepcion_lab: string | null
+          ubicacion_detalle: string | null
           temperatura_ambiente: number | null
           temperatura_concreto: number | null
           updated_at: string | null
@@ -7363,6 +7380,11 @@ export type Database = {
           sampling_notes?: string | null
           sampling_type?: string | null
           sync_status?: string | null
+          muestreado_por?: string | null
+          humedad_relativa_obra?: number | null
+          condiciones_climaticas?: string | null
+          fecha_recepcion_lab?: string | null
+          ubicacion_detalle?: string | null
           temperatura_ambiente?: number | null
           temperatura_concreto?: number | null
           updated_at?: string | null
@@ -7390,6 +7412,11 @@ export type Database = {
           sampling_notes?: string | null
           sampling_type?: string | null
           sync_status?: string | null
+          muestreado_por?: string | null
+          humedad_relativa_obra?: number | null
+          condiciones_climaticas?: string | null
+          fecha_recepcion_lab?: string | null
+          ubicacion_detalle?: string | null
           temperatura_ambiente?: number | null
           temperatura_concreto?: number | null
           updated_at?: string | null
@@ -12399,6 +12426,7 @@ export type Database = {
           is_active: boolean | null
           is_portal_user: boolean
           last_name: string | null
+          cedula_profesional: string | null
           plant_id: string | null
           role: string
           updated_at: string | null
