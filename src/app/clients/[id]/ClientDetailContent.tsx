@@ -9,7 +9,7 @@ import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import PaymentForm from '@/components/clients/PaymentForm';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
-import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import { ClientDetailNewSitePanel } from '@/components/clients/ClientDetailNewSitePanel';
 import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
 import { Button } from "@/components/ui/button";
 import {
@@ -111,241 +111,6 @@ const Switch = ({ checked, onCheckedChange, disabled }: {
     </button>
   );
 };
-
-// Componente para nuevos sitios (solo visible si el cliente está autorizado)
-function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: { 
-  clientId: string; 
-  isClientApproved: boolean; 
-  onSiteAdded: () => void;
-}) {
-  const [showForm, setShowForm] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [siteData, setSiteData] = useState({
-    name: '',
-    location: '',
-    access_restrictions: '',
-    special_conditions: '',
-    is_active: true,
-    latitude: null as number | null,
-    longitude: null as number | null
-  });
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setSiteData(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
-
-  // Memoized callback for map location selection to prevent excessive re-renders
-  const handleLocationSelect = useCallback((lat: number, lng: number) => {
-    setSiteData(prev => {
-      // Only update if values actually changed
-      if (prev.latitude === lat && prev.longitude === lng) {
-        return prev;
-      }
-      return {
-        ...prev,
-        latitude: lat,
-        longitude: lng
-      };
-    });
-  }, []);
-
-  const handleSubmit = async () => {
-    if (!siteData.name.trim()) {
-      toast.error('El nombre de la obra es obligatorio');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await clientService.createSite(clientId, siteData);
-      setSiteData({
-        name: '',
-        location: '',
-        access_restrictions: '',
-        special_conditions: '',
-        is_active: true,
-        latitude: null,
-        longitude: null
-      });
-      setShowForm(false);
-      onSiteAdded();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Error al crear la obra';
-      toast.error(errorMessage);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (!isClientApproved) {
-    return (
-      <CommercialWorkflowCallout className="mt-6" title="Cliente sin autorizar">
-        Este cliente debe ser autorizado antes de poder agregar obras.
-      </CommercialWorkflowCallout>
-    );
-  }
-
-  if (!showForm) {
-    return (
-      <div className="mt-6">
-        <RoleProtectedButton
-          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-          onClick={() => setShowForm(true)}
-          asChild
-        >
-          <Button className="flex items-center gap-1">
-            <Plus className="h-4 w-4" />
-            <span>Agregar Nueva Obra</span>
-          </Button>
-        </RoleProtectedButton>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-6 bg-gray-50 p-4 rounded-md">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Nueva Obra</h3>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowForm(false)}
-        >
-          <X className="h-4 w-4" />
-          <span>Cancelar</span>
-        </Button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="mb-3">
-          <label htmlFor="site_name" className="block text-sm font-medium text-gray-700 mb-1">
-            Nombre de la Obra *
-          </label>
-          <input
-            type="text"
-            id="site_name"
-            name="name"
-            value={siteData.name}
-            onChange={handleChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-        </div>
-        
-        <div className="mb-3">
-          <label htmlFor="site_location" className="block text-sm font-medium text-gray-700 mb-1">
-            Ubicación
-          </label>
-          <input
-            type="text"
-            id="site_location"
-            name="location"
-            value={siteData.location}
-            onChange={handleChange}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-        </div>
-        
-        <div className="mb-3">
-          <label htmlFor="site_access_restrictions" className="block text-sm font-medium text-gray-700 mb-1">
-            Restricciones de Acceso
-          </label>
-          <textarea
-            id="site_access_restrictions"
-            name="access_restrictions"
-            value={siteData.access_restrictions}
-            onChange={handleChange}
-            rows={2}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-        </div>
-        
-        <div className="mb-3">
-          <label htmlFor="site_special_conditions" className="block text-sm font-medium text-gray-700 mb-1">
-            Condiciones Especiales
-          </label>
-          <textarea
-            id="site_special_conditions"
-            name="special_conditions"
-            value={siteData.special_conditions}
-            onChange={handleChange}
-            rows={2}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-        </div>
-
-        <div className="mb-3">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Estado de la Obra
-          </label>
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="is_active"
-              name="is_active"
-              checked={siteData.is_active}
-              onChange={(e) => {
-                setSiteData(prev => ({
-                  ...prev,
-                  is_active: e.target.checked
-                }));
-              }}
-              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-            />
-            <label htmlFor="is_active" className="ml-2 text-sm text-gray-700">
-              Obra Activa
-            </label>
-          </div>
-        </div>
-      </div>
-      
-      {/* Map for selecting coordinates */}
-      <div className="mt-4 mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Ubicación en el Mapa
-        </label>
-        <p className="text-sm text-gray-500 mb-2">
-          Haz clic en el mapa para seleccionar las coordenadas exactas de la obra
-        </p>
-        <GoogleMapWrapper>
-          <GoogleMapSelector 
-            onSelectLocation={handleLocationSelect} 
-            height="400px"
-            initialPosition={siteData.latitude && siteData.longitude ? 
-              { lat: siteData.latitude, lng: siteData.longitude } : null}
-          />
-        </GoogleMapWrapper>
-        
-        {/* Display coordinates if selected */}
-        {siteData.latitude && siteData.longitude && (
-          <div className="mt-2 text-sm">
-            <p>Coordenadas seleccionadas: {siteData.latitude.toFixed(6)}, {siteData.longitude.toFixed(6)}</p>
-          </div>
-        )}
-      </div>
-      
-      <div className="flex justify-end mt-4">
-        <Button
-          type="button"
-          onClick={handleSubmit}
-          className="flex items-center gap-1"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? 'Guardando...' : (
-            <>
-              <Plus className="h-4 w-4" />
-              <span>Guardar Obra</span>
-            </>
-          )}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 // Componente para editar sitios existentes
 function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: ConstructionSite, clientId: string, onSiteUpdated: () => void, onCancel: () => void }) {
@@ -2430,10 +2195,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 onCancel={() => setEditingSite(null)}
               />
             )}
-            <NewSiteForm 
-              clientId={clientId} 
-              isClientApproved={(client as { approval_status?: string })?.approval_status === 'APPROVED'} 
-              onSiteAdded={loadData} 
+            <ClientDetailNewSitePanel
+              clientId={clientId}
+              isClientApproved={(client as { approval_status?: string })?.approval_status === 'APPROVED'}
+              onSiteAdded={loadData}
+              hidden={!!editingSite}
             />
          </CardContent>
       </Card>
