@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
@@ -55,7 +55,16 @@ const CATEGORY_OPTIONS = [
 
 type ViewFilter = 'all' | 'attention';
 
-export default function MaterialesCostoHubPage() {
+function MaterialesCostoHubLoading() {
+  return (
+    <div className="flex items-center justify-center py-20 gap-2 text-stone-400">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <span className="text-sm">Cargando centro de costos…</span>
+    </div>
+  );
+}
+
+function MaterialesCostoHubContent() {
   const { currentPlant } = usePlantContext();
   const { profile } = useAuthBridge();
   const searchParams = useSearchParams();
@@ -347,5 +356,13 @@ export default function MaterialesCostoHubPage() {
         )}
       </div>
     </RoleProtectedSection>
+  );
+}
+
+export default function MaterialesCostoHubPage() {
+  return (
+    <Suspense fallback={<MaterialesCostoHubLoading />}>
+      <MaterialesCostoHubContent />
+    </Suspense>
   );
 }

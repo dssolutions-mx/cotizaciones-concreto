@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
@@ -63,7 +63,16 @@ type TrendResponse = {
   to: string;
 };
 
-export default function MaterialCostDetailPage() {
+function MaterialCostDetailLoading() {
+  return (
+    <div className="flex justify-center py-16 gap-2 text-stone-400">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <span className="text-sm">Cargando detalle…</span>
+    </div>
+  );
+}
+
+function MaterialCostDetailContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const materialId = params.id as string;
@@ -353,6 +362,14 @@ export default function MaterialCostDetailPage() {
         )}
       </div>
     </RoleProtectedSection>
+  );
+}
+
+export default function MaterialCostDetailPage() {
+  return (
+    <Suspense fallback={<MaterialCostDetailLoading />}>
+      <MaterialCostDetailContent />
+    </Suspense>
   );
 }
 
