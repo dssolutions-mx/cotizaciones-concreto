@@ -9,26 +9,30 @@ export default function CommercialWorkspaceLayout({
   subtitle,
   breadcrumb,
   headerActions,
-  stickyHeaderExtra,
+  toolbar,
   children,
   maxWidth = '1600',
+  /** @deprecated Prefer `toolbar` — scrolls with content instead of sticky chrome. */
+  stickyHeaderExtra,
 }: {
   title: string
   subtitle?: string
   breadcrumb?: ReactNode
   headerActions?: ReactNode
-  stickyHeaderExtra?: ReactNode
+  toolbar?: ReactNode
   children: ReactNode
   maxWidth?: '6xl' | '1600'
+  stickyHeaderExtra?: ReactNode
 }) {
   const containerMax =
     maxWidth === '1600' ? 'max-w-[min(1600px,100%)]' : 'max-w-6xl'
 
-  return (
-    <div className={cn('mx-auto w-full min-w-0 space-y-5', containerMax)}>
-      {breadcrumb ? <div className="min-w-0">{breadcrumb}</div> : null}
+  const toolbarNode = toolbar ?? stickyHeaderExtra
 
-      <div className="sticky top-0 z-20 -mx-4 md:-mx-6 px-4 md:px-6 pt-1 pb-3 bg-[#f5f3f0]/95 backdrop-blur-sm border-b border-stone-200/70">
+  return (
+    <div className={cn('mx-auto w-full min-w-0', containerMax)}>
+      <header className="space-y-3 pb-1">
+        {breadcrumb ? <div className="min-w-0">{breadcrumb}</div> : null}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
@@ -42,10 +46,11 @@ export default function CommercialWorkspaceLayout({
             <div className="flex flex-wrap items-center gap-2 shrink-0">{headerActions}</div>
           ) : null}
         </div>
-        {stickyHeaderExtra ? <div className="mt-3">{stickyHeaderExtra}</div> : null}
-      </div>
+      </header>
 
-      <div className="min-w-0">{children}</div>
+      {toolbarNode ? <div className="mb-3 min-w-0">{toolbarNode}</div> : null}
+
+      <div className="min-w-0 space-y-3">{children}</div>
     </div>
   )
 }

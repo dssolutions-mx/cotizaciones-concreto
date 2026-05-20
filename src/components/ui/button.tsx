@@ -24,6 +24,9 @@ const buttonVariants = cva(
         destructive:
           "bg-systemRed text-white hover:bg-systemRed/90 shadow-sm hover:shadow-none hover:translate-y-0",
         danger: "bg-red-600 text-white hover:bg-red-700 shadow-md border-0",
+        hub: "bg-sky-700 text-white hover:bg-sky-800 active:bg-sky-900 shadow-sm border border-transparent focus-visible:ring-2 focus-visible:ring-sky-700/40 focus-visible:ring-offset-2",
+        hubOutline:
+          "border border-stone-300 bg-white text-stone-900 shadow-none hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-stone-400/35 focus-visible:ring-offset-2",
       },
       size: {
         // Use text-sm / text-base — NOT text-body / text-footnote / text-callout. Those custom

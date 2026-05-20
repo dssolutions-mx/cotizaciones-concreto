@@ -366,19 +366,13 @@ const OrdersNavigation = memo(function OrdersNavigation({
     </div>
   );
 
-  const listFilterFields = showListFilters ? (
-    <div className="space-y-3 md:flex md:flex-wrap md:items-center md:gap-3 md:space-y-0 md:pt-0 pt-3 border-t border-stone-200">
-      <input
-        type="text"
-        value={searchQuery}
-        onChange={(e) => onSearchQueryChange?.(e.target.value)}
-        placeholder="Buscar por orden, cliente, obra, estado..."
-        className={cn(filterInputClass, 'md:flex-1 md:min-w-[200px]')}
-      />
+  const listFiltersInSheet = showListFilters ? (
+    <div className="space-y-4">
+      {estadoCreditoFilters}
       <select
         value={creatorFilter}
         onChange={(e) => onCreatorFilterChange?.(e.target.value)}
-        className={cn(filterInputClass, 'md:min-w-[160px] md:w-auto')}
+        className={cn(filterInputClass, 'w-full')}
       >
         <option value="all">Todos los creadores</option>
         {availableCreators.map((c) => (
@@ -437,24 +431,19 @@ const OrdersNavigation = memo(function OrdersNavigation({
     </div>
   );
 
-  const desktopFilters = showFilters ? (
-    <div className="space-y-3 border-t border-stone-200 pt-4">
-      {estadoCreditoFilters}
-      {listFilterFields}
-      {activeFilterChips}
-    </div>
-  ) : null;
+  const calendarDesktopFilters =
+    showFilters && currentTab === 'calendar' ? (
+      <div className="flex flex-wrap items-center gap-2">{estadoCreditoFilters}</div>
+    ) : null;
 
-  const mobileFilters = showFilters ? (
-    <div className="space-y-4">
-      {estadoCreditoFilters}
-      {listFilterFields}
-    </div>
-  ) : null;
+  const calendarSheetFilters =
+    showFilters && currentTab === 'calendar' ? (
+      <div className="space-y-4">{estadoCreditoFilters}</div>
+    ) : null;
 
   return (
-    <div className={cn(commercialPanelClass, 'overflow-visible p-4 md:p-5 space-y-4')}>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+    <div className={cn(commercialPanelClass, 'overflow-visible p-3 md:p-4 space-y-3')}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex-1 min-w-0">
           <Tabs value={currentTab} onValueChange={(v) => navigate(v as OrderTab)}>
             <CommercialTabRail tabs={tabRailItems} />
@@ -463,8 +452,9 @@ const OrdersNavigation = memo(function OrdersNavigation({
         {canCreateOrders && currentTab !== 'create' && (
           <Button
             type="button"
+            variant="hub"
             onClick={() => navigate('create')}
-            className={cn('shrink-0 min-h-11 gap-2', commercialHubPrimaryButtonClass)}
+            className="shrink-0 min-h-10 gap-2"
           >
             <PlusIcon className="h-4 w-4" />
             <span className="hidden sm:inline">Crear Orden</span>
@@ -472,14 +462,40 @@ const OrdersNavigation = memo(function OrdersNavigation({
           </Button>
         )}
       </div>
-      {showFilters && (
+
+      {showListFilters && (
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => onSearchQueryChange?.(e.target.value)}
+            placeholder="Buscar orden, cliente, obra…"
+            className={cn(filterInputClass, 'flex-1 min-h-10')}
+          />
+          <CommercialFilterBar
+            sheetOnly
+            desktopFilters={null}
+            mobileFilters={listFiltersInSheet}
+            hasActiveFilters={hasActiveFilters}
+            onClear={handleClearFilters}
+            mobileTitle="Filtros"
+            className="sm:w-auto w-full"
+          />
+        </div>
+      )}
+
+      {showFilters && !showListFilters && (
         <CommercialFilterBar
-          desktopFilters={desktopFilters}
-          mobileFilters={mobileFilters}
+          desktopFilters={calendarDesktopFilters}
+          mobileFilters={calendarSheetFilters}
           hasActiveFilters={hasActiveFilters}
           onClear={handleClearFilters}
-          mobileTitle="Filtros de pedidos"
+          mobileTitle="Filtros"
         />
+      )}
+
+      {hasActiveFilters && (
+        <div className="flex flex-wrap items-center gap-2">{activeFilterChips}</div>
       )}
     </div>
   );

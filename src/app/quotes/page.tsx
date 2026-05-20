@@ -18,7 +18,7 @@ import {
   CommercialTabRail,
   CommercialFilterBar,
 } from '@/components/commercial';
-import { commercialHubOutlineNeutralClass } from '@/components/commercial/commercialHubUi';
+import { commercialHubOutlineNeutralClass, commercialPanelClass } from '@/components/commercial/commercialHubUi';
 import { cn } from '@/lib/utils';
 
 // Define tab types
@@ -342,7 +342,7 @@ function QuotesContent() {
       <QuotesActionBanner />
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <div className="flex flex-col gap-4 mb-6">
+        <div className={cn(commercialPanelClass, 'space-y-3 mb-4 p-3 md:p-4')}>
           <CommercialTabRail
             tabs={TABS.map((tab) => ({
               id: tab.id,
@@ -363,7 +363,7 @@ function QuotesContent() {
         </div>
 
         <TabsContent value={activeTab} className="mt-0 outline-none">
-          <div className="min-h-[600px]">
+          <div className="min-h-0">
             <ActiveTabComponent
               key={`${activeTab}-${refreshTrigger}`}
               onDataSaved={handleDataSaved}
