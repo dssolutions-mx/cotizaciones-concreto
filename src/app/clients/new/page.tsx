@@ -19,6 +19,20 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from '@/components/clients/LiveDuplicateSuggestions';
+import CommercialWorkspaceLayout from '@/components/commercial/CommercialWorkspaceLayout';
+import CommercialStickyActionBar from '@/components/commercial/CommercialStickyActionBar';
+import {
+  commercialHubOutlineNeutralClass,
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+  commercialSectionTitleClass,
+} from '@/components/commercial/commercialHubUi';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 // Interfaz para sitios de construcción (obras)
 interface ConstructionSite {
@@ -243,26 +257,25 @@ export default function NewClientPage() {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="mb-6">
-        <Link 
-          href="/clients" 
-          className="text-blue-600 hover:text-blue-800 mb-4 inline-block"
-        >
+    <CommercialWorkspaceLayout
+      title="Crear Nuevo Cliente"
+      subtitle="Registra un cliente y sus obras iniciales"
+      breadcrumb={
+        <Link href="/clients" className="text-sm text-sky-700 hover:text-sky-800 font-medium">
           ← Volver a clientes
         </Link>
-        <h1 className="text-2xl font-bold">Crear Nuevo Cliente</h1>
-      </div>
+      }
+    >
       
       {error && (
-        <div className="bg-red-50 text-red-700 p-4 rounded-md mb-6">
+        <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 mb-4">
           {error}
         </div>
       )}
       
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <form onSubmit={handleSubmit}>
-          <h2 className="text-xl font-semibold mb-4">Información del Cliente</h2>
+      <form id="new-client-form" onSubmit={handleSubmit} className="space-y-5 pb-28">
+        <section className={cn(commercialPanelClass)}>
+          <h2 className={cn(commercialSectionTitleClass, 'mb-4')}>Información del Cliente</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Datos básicos */}
             <div className="mb-4">
@@ -275,7 +288,7 @@ export default function NewClientPage() {
                 name="business_name"
                 value={formData.business_name}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 required
               />
               {debouncedBusinessName.length >= 3 && (
@@ -325,7 +338,7 @@ export default function NewClientPage() {
                   name="client_code"
                   value={formData.client_code}
                   onChange={handleChange}
-                  className="w-full p-2 border border-gray-300 rounded-md"
+                  className="min-h-11 border-stone-200"
                   required
                   placeholder="Ej: XAXX010101000"
                 />
@@ -358,7 +371,7 @@ export default function NewClientPage() {
                 value={formData.address}
                 onChange={handleChange}
                 rows={3}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               />
             </div>
             
@@ -372,7 +385,7 @@ export default function NewClientPage() {
                 name="contact_name"
                 value={formData.contact_name}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 required
               />
             </div>
@@ -387,7 +400,7 @@ export default function NewClientPage() {
                 name="email"
                 value={formData.email || ''}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
                 placeholder="ejemplo@dominio.com"
               />
             </div>
@@ -433,7 +446,7 @@ export default function NewClientPage() {
                 name="credit_status"
                 value={formData.credit_status}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="ACTIVE">Activo</option>
                 <option value="SUSPENDED">Suspendido</option>
@@ -450,7 +463,7 @@ export default function NewClientPage() {
                 name="client_type"
                 value={formData.client_type}
                 onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="normal">Cliente normal</option>
                 <option value="de_la_casa">Cliente de la casa</option>
@@ -475,7 +488,7 @@ export default function NewClientPage() {
                     client_type: value ? 'asignado' : prev.client_type,
                   }));
                 }}
-                className="w-full p-2 border border-gray-300 rounded-md"
+                className="min-h-11 border-stone-200"
               >
                 <option value="">Sin asignar</option>
                 {users.map(u => (
@@ -485,23 +498,25 @@ export default function NewClientPage() {
             </div>
           </div>
           
-          {/* Sección de Obras */}
-          <div className="mt-8 border-t border-gray-200 pt-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Obras</h2>
-              <button
+          </section>
+
+          <section className={cn(commercialPanelClass)}>
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+              <h2 className={commercialSectionTitleClass}>Obras</h2>
+              <Button
                 type="button"
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                variant="outline"
+                className={cn('min-h-11', commercialHubOutlineNeutralClass)}
                 onClick={() => setShowSiteForm(true)}
               >
                 Agregar Obra
-              </button>
+              </Button>
             </div>
             
             {sites.length === 0 ? (
               <p className="text-gray-500">No hay obras agregadas. Puedes agregar obras para este cliente.</p>
             ) : (
-              <div className="bg-gray-50 p-4 rounded-md mb-6">
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 mb-6">
                 <h3 className="font-medium mb-2">Obras Agregadas:</h3>
                 <ul className="divide-y divide-gray-200">
                   {sites.map((site, index) => (
@@ -544,7 +559,7 @@ export default function NewClientPage() {
             
             {/* Formulario para agregar obra */}
             {showSiteForm && (
-              <div className="bg-gray-50 p-4 rounded-md mb-6">
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 mb-6">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-medium">Nueva Obra</h3>
                   <button
@@ -567,7 +582,7 @@ export default function NewClientPage() {
                       name="name"
                       value={currentSite.name}
                       onChange={handleSiteChange}
-                      className="w-full p-2 border border-gray-300 rounded-md"
+                      className="min-h-11 border-stone-200"
                     />
                   </div>
                   
@@ -581,7 +596,7 @@ export default function NewClientPage() {
                       name="location"
                       value={currentSite.location}
                       onChange={handleSiteChange}
-                      className="w-full p-2 border border-gray-300 rounded-md"
+                      className="min-h-11 border-stone-200"
                     />
                   </div>
                   
@@ -595,7 +610,7 @@ export default function NewClientPage() {
                       value={currentSite.access_restrictions}
                       onChange={handleSiteChange}
                       rows={2}
-                      className="w-full p-2 border border-gray-300 rounded-md"
+                      className="min-h-11 border-stone-200"
                     />
                   </div>
                   
@@ -609,7 +624,7 @@ export default function NewClientPage() {
                       value={currentSite.special_conditions}
                       onChange={handleSiteChange}
                       rows={2}
-                      className="w-full p-2 border border-gray-300 rounded-md"
+                      className="min-h-11 border-stone-200"
                     />
                   </div>
 
@@ -639,35 +654,30 @@ export default function NewClientPage() {
                 </div>
                 
                 <div className="mt-4 flex justify-end">
-                  <button
+                  <Button
                     type="button"
                     onClick={handleAddSite}
-                    className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    className={cn('min-h-11', commercialHubPrimaryButtonClass)}
                   >
                     Agregar Obra
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
-          </div>
-          
-          <div className="mt-6 flex justify-end">
-            <Link 
-              href="/clients" 
-              className="bg-gray-300 text-gray-800 px-4 py-2 rounded mr-2 hover:bg-gray-400"
-            >
-              Cancelar
-            </Link>
-            <button
-              type="submit"
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:bg-green-300"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Guardando...' : 'Guardar Cliente'}
-            </button>
-          </div>
-        </form>
-      </div>
+          </section>
+      </form>
+
+      <CommercialStickyActionBar
+        primaryLabel={isSubmitting ? 'Guardando...' : 'Guardar Cliente'}
+        onPrimary={() => {
+          const form = document.getElementById('new-client-form') as HTMLFormElement | null;
+          form?.requestSubmit();
+        }}
+        primaryDisabled={isSubmitting}
+        primaryLoading={isSubmitting}
+        secondaryLabel="Cancelar"
+        onSecondary={() => router.push('/clients')}
+      />
 
       <AlertDialog open={showDuplicateDialog} onOpenChange={setShowDuplicateDialog}>
         <AlertDialogContent>
@@ -700,6 +710,6 @@ export default function NewClientPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CommercialWorkspaceLayout>
   );
 } 

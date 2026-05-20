@@ -19,6 +19,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from './LiveDuplicateSuggestions';
 import { validateClientForm } from '@/lib/validation/clientValidation';
+import { commercialPanelClass, commercialSectionTitleClass } from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 interface ClientCreationFormProps {
   onClientCreated: (clientId: string, clientName: string) => void;
@@ -208,7 +210,8 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
+    <div className={cn(commercialPanelClass, 'p-4 md:p-6')}>
+      <h2 className={cn(commercialSectionTitleClass, 'mb-4')}>Nuevo cliente</h2>
       {error && (
         <div className="bg-red-50 text-red-600 p-3 rounded-md mb-4 border border-red-200">
           {error}
@@ -228,7 +231,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               required
               value={formData.business_name}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             />
             {debouncedBusinessName.length >= 3 && (
               <div className="mt-2.5">
@@ -279,7 +282,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               required
               value={formData.client_code}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
               placeholder="Ej: XAXX010101000"
             />
             <p className="text-xs text-gray-500 mt-1">El RFC es el código único del cliente (obligatorio para facturación)</p>
@@ -310,7 +313,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               name="client_type"
               value={formData.client_type}
               onChange={(e) => setFormData(prev => ({ ...prev, client_type: e.target.value as any }))}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             >
               <option value="normal">Cliente normal</option>
               <option value="de_la_casa">Cliente de la casa</option>
@@ -334,7 +337,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
                   client_type: value ? 'asignado' : prev.client_type
                 }));
               }}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             >
               <option value="">Sin asignar</option>
               {users.map(u => (
@@ -357,7 +360,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               name="credit_status"
               value={formData.credit_status}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             >
               <option value="ACTIVE">Activo</option>
               <option value="SUSPENDED">Suspendido</option>
@@ -378,7 +381,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               required
               value={formData.contact_name}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             />
           </div>
           <div>
@@ -391,7 +394,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               type="email"
               value={formData.email}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
             />
           </div>
           
@@ -406,7 +409,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               required
               value={formData.phone}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              className="min-h-11 border-stone-200"
               placeholder="Ej: 55 1234 5678"
             />
           </div>
@@ -422,7 +425,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
             value={formData.address}
             onChange={handleChange}
             rows={2}
-            className="w-full p-2 border border-gray-300 rounded-md"
+            className="min-h-11 border-stone-200"
           />
         </div>
         

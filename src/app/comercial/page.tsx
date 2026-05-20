@@ -1,9 +1,23 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { Users, ClipboardList, DollarSign, ShieldCheck, CreditCard, ExternalLink } from 'lucide-react';
+import {
+  Users,
+  ClipboardList,
+  DollarSign,
+  ShieldCheck,
+  CreditCard,
+  ExternalLink,
+} from 'lucide-react';
 import { createServiceClient } from '@/lib/supabase/server';
 import { orderService } from '@/lib/supabase/orders';
 import { format } from 'date-fns';
+import CommercialNavCard from '@/components/commercial/CommercialNavCard';
+import {
+  commercialPanelClass,
+  commercialSectionTitleClass,
+  commercialHubSummaryStatusMap,
+} from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 export const revalidate = 60;
 export const dynamic = 'force-dynamic';
@@ -43,18 +57,15 @@ async function ComercialPendingActions() {
         .in('status', ['DRAFT', 'PENDING_APPROVAL'])
         .order('created_at', { ascending: false })
         .limit(5),
-      orderService.getOrders(
-        { creditStatus: 'pending', limit: 5 },
-        serviceClient
-      ),
+      orderService.getOrders({ creditStatus: 'pending', limit: 5 }, serviceClient),
     ]);
 
-    pendingQuotes = (quotesResult.data || []).map((q: any) => {
-      const totalAmount = (q.quote_details as any)?.reduce(
-        (sum: number, d: { total_amount?: number }) =>
-          sum + (Number(d.total_amount) || 0),
-        0
-      ) || 0;
+    pendingQuotes = (quotesResult.data || []).map((q: { id: string; created_at: string; clients?: { business_name?: string } | null; quote_details?: { total_amount?: number }[] }) => {
+      const totalAmount =
+        (q.quote_details || []).reduce(
+          (sum, d) => sum + (Number(d.total_amount) || 0),
+          0
+        ) || 0;
       return {
         id: q.id,
         client: q.clients?.business_name || 'Desconocido',
@@ -63,7 +74,7 @@ async function ComercialPendingActions() {
       };
     });
 
-    pendingOrders = (ordersResult.data || []).slice(0, 5).map((o: any) => ({
+    pendingOrders = (ordersResult.data || []).slice(0, 5).map((o: PendingOrder) => ({
       id: o.id,
       order_number: o.order_number,
       clients: o.clients,
@@ -78,31 +89,33 @@ async function ComercialPendingActions() {
   const hasPending = pendingQuotes.length > 0 || pendingOrders.length > 0;
 
   return (
-    <div className="glass-base rounded-2xl p-6 h-fit">
-      <h2 className="text-title-3 text-gray-800 mb-4">Acciones Pendientes</h2>
+    <div className={cn(commercialPanelClass, 'h-fit')}>
+      <h2 className={cn(commercialSectionTitleClass, 'mb-4')}>Acciones pendientes</h2>
       {!hasPending ? (
-        <p className="text-footnote text-muted-foreground">No hay acciones pendientes</p>
+        <p className="text-sm text-stone-500">No hay acciones pendientes</p>
       ) : (
         <div className="space-y-4">
           {pendingQuotes.length > 0 && (
             <div>
-              <p className="text-footnote font-medium text-muted-foreground mb-2">
+              <p className="text-sm font-medium text-stone-600 mb-2">
                 {pendingQuotes.length} cotización(es) pendiente(s)
               </p>
-              <ul className="space-y-2 max-h-48 overflow-y-auto">
+              <ul className="space-y-1 max-h-48 overflow-y-auto">
                 {pendingQuotes.map((q) => (
                   <li key={q.id}>
                     <Link
                       href={`/quotes?tab=pending&id=${q.id}`}
-                      className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-muted/50 transition-colors"
+                      className="flex min-h-12 items-center justify-between gap-2 py-2 px-3 rounded-lg hover:bg-stone-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
                     >
-                      <div>
-                        <p className="text-callout text-gray-900">{q.client}</p>
-                        <p className="text-footnote text-muted-foreground">{q.date}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-900 truncate">{q.client}</p>
+                        <p className="text-xs text-stone-500">{q.date}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-callout font-medium">{q.amount}</span>
-                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-sm font-semibold tabular-nums text-stone-900">
+                          {q.amount}
+                        </span>
+                        <ExternalLink className="h-4 w-4 text-stone-400" />
                       </div>
                     </Link>
                   </li>
@@ -110,22 +123,22 @@ async function ComercialPendingActions() {
               </ul>
               <Link
                 href="/quotes?tab=pending"
-                className="text-footnote text-primary hover:underline mt-2 inline-block"
+                className="text-sm text-sky-800 hover:text-sky-900 font-medium mt-2 inline-block"
               >
                 Ver todas →
               </Link>
             </div>
           )}
           {pendingOrders.length > 0 && (
-            <div className={pendingQuotes.length > 0 ? 'pt-4 border-t border-border/50' : ''}>
-              <p className="text-footnote font-medium text-muted-foreground mb-2">
-                + {pendingOrders.length} orden(es) crédito pendiente(s)
+            <div className={pendingQuotes.length > 0 ? 'pt-4 border-t border-stone-200' : ''}>
+              <p className="text-sm font-medium text-stone-600 mb-2">
+                {pendingQuotes.length > 0 ? '+ ' : ''}
+                {pendingOrders.length} orden(es) crédito pendiente(s)
               </p>
-              <ul className="space-y-2 max-h-40 overflow-y-auto">
+              <ul className="space-y-1 max-h-40 overflow-y-auto">
                 {pendingOrders.map((o) => {
-                  const clientName = (o.clients as any)?.business_name || 'Desconocido';
-                  const amount =
-                    o.final_amount ?? o.preliminary_amount ?? 0;
+                  const clientName = o.clients?.business_name || 'Desconocido';
+                  const amount = o.final_amount ?? o.preliminary_amount ?? 0;
                   const date = o.created_at
                     ? format(new Date(o.created_at), 'dd/MM/yyyy')
                     : '—';
@@ -133,13 +146,15 @@ async function ComercialPendingActions() {
                     <li key={o.id}>
                       <Link
                         href={`/finanzas/credito-validacion?order=${o.id}`}
-                        className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-muted/50 transition-colors"
+                        className="flex min-h-12 items-center justify-between gap-2 py-2 px-3 rounded-lg hover:bg-stone-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
                       >
-                        <div>
-                          <p className="text-callout text-gray-900">{clientName}</p>
-                          <p className="text-footnote text-muted-foreground">{date}</p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-stone-900 truncate">
+                            {clientName}
+                          </p>
+                          <p className="text-xs text-stone-500">{date}</p>
                         </div>
-                        <span className="text-callout font-medium">
+                        <span className="text-sm font-semibold tabular-nums text-stone-900 shrink-0">
                           ${amount.toLocaleString('es-MX')}
                         </span>
                       </Link>
@@ -149,7 +164,7 @@ async function ComercialPendingActions() {
               </ul>
               <Link
                 href="/finanzas/credito-validacion"
-                className="text-footnote text-primary hover:underline mt-2 inline-block"
+                className="text-sm text-sky-800 hover:text-sky-900 font-medium mt-2 inline-block"
               >
                 Ver todas →
               </Link>
@@ -158,6 +173,42 @@ async function ComercialPendingActions() {
         </div>
       )}
     </div>
+  );
+}
+
+function KpiCard({
+  href,
+  label,
+  value,
+  hint,
+  status = 'neutral',
+  icon: Icon,
+}: {
+  href: string;
+  label: string;
+  value?: string | number;
+  hint: string;
+  status?: keyof typeof commercialHubSummaryStatusMap;
+  icon: typeof ClipboardList;
+}) {
+  const styles = commercialHubSummaryStatusMap[status];
+  return (
+    <Link href={href} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 rounded-lg">
+      <div className={cn('rounded-lg border px-4 py-3 h-full hover:opacity-95 transition-opacity', styles.card)}>
+        <div className="flex items-start gap-3">
+          <div className="rounded-lg bg-white/80 border border-stone-200/80 p-2 shrink-0">
+            <Icon className={cn('h-5 w-5', styles.label)} />
+          </div>
+          <div className="min-w-0">
+            <p className={cn('text-xs font-medium uppercase tracking-wide', styles.label)}>{label}</p>
+            {value !== undefined ? (
+              <p className={cn('text-xl font-semibold tabular-nums mt-0.5', styles.value)}>{value}</p>
+            ) : null}
+            <p className="text-xs text-stone-500 mt-0.5">{hint}</p>
+          </div>
+        </div>
+      </div>
+    </Link>
   );
 }
 
@@ -183,42 +234,31 @@ async function ComercialMetrics() {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Link href="/quotes?tab=pending">
-        <div className="glass-base rounded-2xl p-5 flex items-center gap-4 hover:bg-white/80 transition-colors h-full">
-          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
-            <ClipboardList className="h-5 w-5 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Cotizaciones Pendientes</p>
-            <p className="text-xl font-bold text-gray-900">{pendingQuotesCount}</p>
-            <p className="text-footnote text-muted-foreground">Por aprobar o en borrador</p>
-          </div>
-        </div>
-      </Link>
-      <Link href="/finanzas/clientes">
-        <div className="glass-base rounded-2xl p-5 flex items-center gap-4 hover:bg-white/80 transition-colors h-full">
-          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
-            <CreditCard className="h-5 w-5 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Cartera CxC</p>
-            <p className="text-footnote text-muted-foreground">Saldos y aging de clientes</p>
-          </div>
-        </div>
-      </Link>
-      <Link href="/finanzas/credito-validacion">
-        <div className="glass-base rounded-2xl p-5 flex items-center gap-4 hover:bg-white/80 transition-colors h-full">
-          <div className="rounded-xl bg-primary/10 p-2 shrink-0">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Crédito Pendiente</p>
-            <p className="text-xl font-bold text-gray-900">{pendingCreditOrdersCount}</p>
-            <p className="text-footnote text-muted-foreground">Por validar</p>
-          </div>
-        </div>
-      </Link>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <KpiCard
+        href="/quotes?tab=pending"
+        label="Cotizaciones"
+        value={pendingQuotesCount}
+        hint="Por aprobar"
+        status={pendingQuotesCount > 0 ? 'warning' : 'neutral'}
+        icon={ClipboardList}
+      />
+      <KpiCard
+        href="/finanzas/credito-validacion"
+        label="Crédito"
+        value={pendingCreditOrdersCount}
+        hint="Por validar"
+        status={pendingCreditOrdersCount > 0 ? 'warning' : 'neutral'}
+        icon={ShieldCheck}
+      />
+      <div className="col-span-2 sm:col-span-2">
+        <KpiCard
+          href="/finanzas/clientes"
+          label="Cartera CxC"
+          hint="Saldos y aging"
+          icon={CreditCard}
+        />
+      </div>
     </div>
   );
 }
@@ -229,80 +269,86 @@ const quickNavCards = [
     href: '/clients',
     icon: Users,
     subtitle: 'Catálogo y gestión de clientes',
+    tint: 'sky' as const,
   },
   {
     title: 'Cotizaciones',
     href: '/quotes',
     icon: ClipboardList,
     subtitle: 'Crear y aprobar cotizaciones',
+    tint: 'emerald' as const,
   },
   {
     title: 'Precios',
     href: '/prices',
     icon: DollarSign,
     subtitle: 'Listas de precios y productos',
+    tint: 'violet' as const,
   },
   {
     title: 'Autorización',
     href: '/finanzas/gobierno-precios',
     icon: ShieldCheck,
     subtitle: 'Gobierno de precios',
+    tint: 'amber' as const,
   },
   {
     title: 'Crédito',
     href: '/finanzas/credito-validacion',
     icon: CreditCard,
     subtitle: 'Validación de crédito',
+    tint: 'stone' as const,
   },
 ];
 
 export default function ComercialHubPage() {
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-large-title text-gray-900">Centro Comercial</h1>
-        <p className="text-muted-foreground mt-1 text-footnote">
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
+          Centro Comercial
+        </h1>
+        <p className="text-sm text-stone-500 mt-1">
           Clientes, cotizaciones, precios y autorizaciones
         </p>
-      </div>
+      </header>
 
-      {/* Metrics row - compact glass cards */}
-      <div className="mb-8">
-        <Suspense fallback={<div className="h-24 animate-pulse glass-base rounded-2xl" />}>
-          <ComercialMetrics />
-        </Suspense>
-      </div>
-
-      {/* Main layout: Quick Nav prominent, Pending Actions alongside */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <h2 className="text-title-3 text-gray-800 mb-4">Accesos Rápidos</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {quickNavCards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <Link key={card.href} href={card.href}>
-                  <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
-                    <div className="rounded-xl bg-primary/10 p-2 shrink-0">
-                      <Icon className="h-6 w-6 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-title-3 text-gray-900">{card.title}</h3>
-                      <p className="text-footnote text-muted-foreground mt-1">
-                        {card.subtitle}
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+      <Suspense
+        fallback={
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-20 animate-pulse rounded-lg bg-stone-200/60" />
+            ))}
           </div>
-        </div>
-        <div className="lg:col-span-1">
-          <Suspense fallback={<div className="h-64 animate-pulse glass-base rounded-2xl" />}>
+        }
+      >
+        <ComercialMetrics />
+      </Suspense>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <section className="lg:col-span-2 space-y-3">
+          <h2 className={commercialSectionTitleClass}>Accesos rápidos</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {quickNavCards.map((card) => (
+              <CommercialNavCard
+                key={card.href}
+                href={card.href}
+                title={card.title}
+                subtitle={card.subtitle}
+                icon={card.icon}
+                tint={card.tint}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="lg:col-span-1">
+          <Suspense
+            fallback={<div className="h-64 animate-pulse rounded-lg bg-stone-200/60" />}
+          >
             <ComercialPendingActions />
           </Suspense>
-        </div>
+        </section>
       </div>
     </div>
   );

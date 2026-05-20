@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { GmpPlaceSelectEventDetail, GmpPlaceResult } from '@/types/google.maps';
+import { commercialPanelClass, commercialHubPrimaryButtonClass, commercialHubOutlineNeutralClass } from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 // Dynamically import map component with no SSR
 const GoogleMapSelector = dynamic(
@@ -441,7 +443,7 @@ export default function ConstructionSiteForm({
           )}
           
           {/* Datos básicos de la obra */}
-          <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <div className={cn(commercialPanelClass)}>
           <h3 className="text-sm font-medium text-gray-800 mb-4 flex items-center gap-2">
             <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
@@ -461,7 +463,7 @@ export default function ConstructionSiteForm({
                 required
                 value={siteData.name}
                 onChange={handleChange}
-                className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="min-h-11 border-stone-200 focus-visible:ring-sky-700/30"
               />
             </div>
             
@@ -475,7 +477,7 @@ export default function ConstructionSiteForm({
                 type="text"
                 value={siteData.location}
                 onChange={handleChange}
-                className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="min-h-11 border-stone-200 focus-visible:ring-sky-700/30"
               />
             </div>
             
@@ -486,7 +488,7 @@ export default function ConstructionSiteForm({
                 type="checkbox"
                 checked={siteData.is_active}
                 onChange={handleCheckboxChange}
-                className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                className="h-4 w-4 text-sky-700 focus-visible:ring-sky-700/30 border-stone-300 rounded"
               />
               <label htmlFor="is_active" className="text-sm text-gray-700">
                 Obra Activa
@@ -515,7 +517,7 @@ export default function ConstructionSiteForm({
                 value={siteData.access_restrictions}
                 onChange={handleChange}
                 rows={2}
-                className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="min-h-11 border-stone-200 focus-visible:ring-sky-700/30"
               />
             </div>
             
@@ -529,14 +531,14 @@ export default function ConstructionSiteForm({
                 value={siteData.special_conditions}
                 onChange={handleChange}
                 rows={2}
-                className="w-full p-2.5 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="min-h-11 border-stone-200 focus-visible:ring-sky-700/30"
               />
             </div>
           </div>
         </div>
         
         {/* Map for selecting coordinates */}
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <div className="bg-white rounded-lg border border-stone-200 p-4">
           <div>
             <h3 className="text-sm font-medium text-gray-800 mb-2 flex items-center gap-2">
               <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -563,7 +565,7 @@ export default function ConstructionSiteForm({
               return null;
             })()}
 
-            <div className="h-[150px] sm:h-[250px] rounded-md overflow-hidden border border-gray-300 shadow-sm">
+            <div className="h-[150px] sm:h-[250px] rounded-md overflow-hidden border border-stone-200 shadow-sm">
               {isMounted ? (
                 <GoogleMapWrapper>
                   <GoogleMapSelector 
@@ -578,7 +580,7 @@ export default function ConstructionSiteForm({
               ) : (
                 <div className="h-full flex items-center justify-center bg-gray-100">
                   <div className="text-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500 mx-auto mb-2"></div>
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-700 mx-auto mb-2"></div>
                     <p className="text-gray-600">Cargando mapa...</p>
                   </div>
                 </div>
@@ -604,21 +606,21 @@ export default function ConstructionSiteForm({
       </div>
       
       {/* Fixed footer with buttons - always visible */}
-      <div className="flex-shrink-0 border-t border-gray-200 pt-4 mt-0 bg-white">
+      <div className="flex-shrink-0 border-t border-stone-200 pt-4 mt-0 bg-[#f5f3f0]/95">
         <div className="flex flex-col sm:flex-row gap-2">
-          <button
+          <Button
             type="button"
+            variant="outline"
             onClick={onCancel}
             disabled={isSubmitting}
-            className="w-full sm:w-auto px-4 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 text-sm"
+            className={cn('w-full sm:w-auto min-h-11', commercialHubOutlineNeutralClass)}
           >
             Cancelar
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={isSubmitting}
-            className="w-full sm:w-auto px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50 text-sm"
-            style={{ border: '0' }}
+            className={cn('w-full sm:w-auto min-h-11', commercialHubPrimaryButtonClass)}
           >
             {isSubmitting ? (
               <span className="flex items-center justify-center">
@@ -629,7 +631,7 @@ export default function ConstructionSiteForm({
                 Creando...
               </span>
             ) : 'Crear Obra'}
-          </button>
+          </Button>
         </div>
       </div>
     </form>

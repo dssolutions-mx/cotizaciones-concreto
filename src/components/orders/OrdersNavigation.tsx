@@ -1,8 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
-import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { Tabs } from '@/components/ui/tabs';
+import CommercialTabRail from '@/components/commercial/CommercialTabRail';
+import CommercialFilterBar from '@/components/commercial/CommercialFilterBar';
+import {
+  commercialHubOutlineNeutralClass,
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+} from '@/components/commercial/commercialHubUi';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +23,6 @@ import {
   CheckCircledIcon,
   CrossCircledIcon,
   ListBulletIcon,
-  MixerHorizontalIcon,
   PlusIcon,
 } from '@radix-ui/react-icons';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -56,6 +62,9 @@ interface OrdersNavigationProps {
   onDeliveredFilterChange?: (value: 'all' | 'delivered' | 'pending') => void;
   availableCreators?: CreatorOption[];
 }
+
+const filterInputClass =
+  'min-h-11 w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-sky-600/30 focus:border-sky-600';
 
 /**
  * Fetches the count of orders pending validation from the API
@@ -293,7 +302,14 @@ const OrdersNavigation = memo(function OrdersNavigation({
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-           <Button variant="outline" size="sm" className="flex items-center gap-1.5 whitespace-nowrap">
+           <Button
+             type="button"
+             variant="outline"
+             className={cn(
+               'min-h-11 flex items-center gap-1.5 whitespace-nowrap text-sm',
+               commercialHubOutlineNeutralClass
+             )}
+           >
               {label}: {value}
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 opacity-50"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
            </Button>
@@ -313,273 +329,161 @@ const OrdersNavigation = memo(function OrdersNavigation({
     );
   });
 
-  const [isFilterExpanded, setIsFilterExpanded] = useState(true);
-
-  const showFilters = (currentTab === 'list' || currentTab === 'calendar');
+  const showFilters = currentTab === 'list' || currentTab === 'calendar';
   const showListFilters = currentTab === 'list' && onSearchQueryChange;
 
-  return (
-    <div className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-visible relative z-10">
-      {/* Integrated Top Bar: Tabs + Crear Orden */}
-      <div className="flex items-center justify-between gap-3 flex-wrap p-4">
-        <div className="flex-1 flex justify-center min-w-0">
-          <div role="tablist" className="glass-thin rounded-full p-1.5 inline-flex gap-1 shadow-md max-w-full overflow-x-auto">
-            {tabs.map((tab, index) => {
-              const isActive = currentTab === tab.id;
-              return (
-                <motion.button
-                  key={tab.id}
-                  id={`orders-tab-${tab.id}`}
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-controls={`orders-panel-${tab.id}`}
-                  tabIndex={isActive ? 0 : -1}
-                  onClick={() => navigate(tab.id)}
-                  onKeyDown={(e) => {
-                    let nextTab: OrderTab | null = null;
-                    if (e.key === 'ArrowLeft') nextTab = tabs[Math.max(0, index - 1)]?.id ?? tab.id;
-                    else if (e.key === 'ArrowRight') nextTab = tabs[Math.min(tabs.length - 1, index + 1)]?.id ?? tab.id;
-                    else if (e.key === 'Home') nextTab = tabs[0]?.id ?? tab.id;
-                    else if (e.key === 'End') nextTab = tabs[tabs.length - 1]?.id ?? tab.id;
-                    if (nextTab && nextTab !== currentTab) {
-                      e.preventDefault();
-                      navigate(nextTab);
-                    }
-                  }}
-                  className={cn(
-                    'relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
-                    'flex items-center gap-2 whitespace-nowrap z-0',
-                    isActive
-                      ? 'text-white'
-                      : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
-                  )}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute inset-0 rounded-full shadow-lg"
-                      style={{ 
-                        backgroundColor: 'rgb(0, 122, 255)', // systemBlue - fully opaque
-                        opacity: 1
-                      }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-2">
-                    <tab.icon className={cn('h-4 w-4', isActive ? 'text-white' : '')} />
-                    <span className={cn(
-                      isActive ? 'text-white font-semibold' : '',
-                      'hidden sm:inline'
-                    )}>
-                      {tab.label}
-                    </span>
-                    <span className={cn(
-                      isActive ? 'text-white font-semibold' : '',
-                      'sm:hidden'
-                    )}>
-                      {tab.label.substring(0, 4)}
-                    </span>
-                    {tab.id === 'credit' && tab.badge !== undefined && tab.badge > 0 && (
-                      <span className={cn(
-                        'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-                        isActive
-                          ? 'bg-white/30 text-white border border-white/20'
-                          : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                      )}>
-                        {tab.badge}
-                      </span>
-                    )}
-                  </span>
-                </motion.button>
-              );
-            })}
-          </div>
-        </div>
+  const hasActiveFilters =
+    estadoFilter !== 'todos' ||
+    creditoFilter !== 'todos' ||
+    (showListFilters &&
+      (!!searchQuery || creatorFilter !== 'all' || deliveredFilter !== 'all'));
 
-        {/* Create Order button */}
-        {canCreateOrders && currentTab !== 'create' && (
-          <motion.div
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="shrink-0"
+  const tabRailItems = tabs.map((tab) => ({
+    id: tab.id,
+    label:
+      tab.id === 'credit' && tab.badge !== undefined && tab.badge > 0
+        ? `${tab.label} (${tab.badge})`
+        : tab.label,
+    icon: <tab.icon className="h-4 w-4 shrink-0" aria-hidden />,
+  }));
+
+  const estadoCreditoFilters = (
+    <div className="flex flex-wrap items-center gap-2">
+      <StableDropdownMenu
+        label="Estado"
+        value={estadoFilterValue}
+        options={statuses}
+        currentValue={estadoFilter}
+        onSelect={(value) => handleFilterChange('estado', value)}
+      />
+      <StableDropdownMenu
+        label="Crédito"
+        value={creditoFilterValue}
+        options={creditStatuses}
+        currentValue={creditoFilter}
+        onSelect={(value) => handleFilterChange('credito', value)}
+      />
+    </div>
+  );
+
+  const listFilterFields = showListFilters ? (
+    <div className="space-y-3 md:flex md:flex-wrap md:items-center md:gap-3 md:space-y-0 md:pt-0 pt-3 border-t border-stone-200">
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={(e) => onSearchQueryChange?.(e.target.value)}
+        placeholder="Buscar por orden, cliente, obra, estado..."
+        className={cn(filterInputClass, 'md:flex-1 md:min-w-[200px]')}
+      />
+      <select
+        value={creatorFilter}
+        onChange={(e) => onCreatorFilterChange?.(e.target.value)}
+        className={cn(filterInputClass, 'md:min-w-[160px] md:w-auto')}
+      >
+        <option value="all">Todos los creadores</option>
+        {availableCreators.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      <div className="flex flex-wrap gap-2">
+        {(['all', 'delivered', 'pending'] as const).map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => onDeliveredFilterChange?.(opt)}
+            className={cn(
+              'min-h-11 px-3 py-2 text-sm rounded-lg border transition-colors',
+              deliveredFilter === opt
+                ? opt === 'all'
+                  ? 'bg-stone-200 text-stone-900 border-stone-300'
+                  : opt === 'delivered'
+                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+            )}
           >
-            <Button
-              variant="ghost"
-              onClick={() => navigate('create')}
-              className="!text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100 border-0 hover:brightness-95 bg-systemGreen hover:bg-systemGreen"
-            >
-              <PlusIcon className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Crear Orden</span>
-              <span className="sm:hidden">Crear</span>
-            </Button>
-          </motion.div>
-        )}
+            {opt === 'all' ? 'Todos' : opt === 'delivered' ? 'Entregados' : 'Pendientes'}
+          </button>
+        ))}
       </div>
+    </div>
+  ) : null;
 
-      {/* Integrated Filter Section - Same card, below tabs */}
-      {showFilters && (
-        <div className="border-t border-white/20 px-6 py-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-              <MixerHorizontalIcon className="h-5 w-5" />
-              <span>Filtros</span>
-            </div>
-            <button
-              onClick={() => setIsFilterExpanded(!isFilterExpanded)}
-              className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
-              aria-expanded={isFilterExpanded}
-              aria-controls="orders-filter-content"
-            >
-              {isFilterExpanded ? 'Ocultar' : 'Mostrar'}
-            </button>
-          </div>
-
-          <motion.div
-            id="orders-filter-content"
-            initial={false}
-            animate={{ height: isFilterExpanded ? 'auto' : 0, opacity: isFilterExpanded ? 1 : 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="space-y-4 pt-2 px-4 pb-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  {/* Estado Filter */}
-                  <StableDropdownMenu
-                    label="Estado"
-                    value={estadoFilterValue}
-                    options={statuses}
-                    currentValue={estadoFilter}
-                    onSelect={(value) => handleFilterChange('estado', value)}
-                  />
-
-                  {/* Crédito Filter */}
-                  <StableDropdownMenu
-                    label="Crédito"
-                    value={creditoFilterValue}
-                    options={creditStatuses}
-                    currentValue={creditoFilter}
-                    onSelect={(value) => handleFilterChange('credito', value)}
-                  />
-                </div>
-
-                {/* List-specific filters: Search, Creador, Entrega - unified in same card */}
-                {showListFilters && (
-                  <div className="space-y-4 pt-4 border-t border-white/20 min-w-0 overflow-visible">
-                    <div className="flex flex-wrap gap-4 items-center min-w-0">
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => onSearchQueryChange?.(e.target.value)}
-                        placeholder="Buscar por orden, cliente, obra, estado..."
-                        className="flex-1 min-w-[200px] px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 glass-thin placeholder:text-muted-foreground"
-                      />
-                      <select
-                        value={creatorFilter}
-                        onChange={(e) => onCreatorFilterChange?.(e.target.value)}
-                        className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 glass-thin min-w-[160px]"
-                      >
-                        <option value="all">Todos los creadores</option>
-                        {availableCreators.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                      <div className="flex gap-2">
-                        {(['all', 'delivered', 'pending'] as const).map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => onDeliveredFilterChange?.(opt)}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                              deliveredFilter === opt
-                                ? opt === 'all' ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600'
-                                : opt === 'delivered' ? 'bg-green-100 text-green-800 border border-green-300 dark:border-green-600'
-                                : 'bg-yellow-100 text-yellow-800 border border-yellow-300 dark:border-yellow-600'
-                                : 'glass-thin border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:glass-interactive'
-                            }`}
-                          >
-                            {opt === 'all' ? 'Todos' : opt === 'delivered' ? 'Entregados' : 'Pendientes'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Active Filter Chips */}
-                <div className="flex flex-wrap gap-3 min-w-0">
-                  {estadoFilter !== 'todos' && (
-                    <FilterChip
-                      label="Estado"
-                      value={estadoFilterValue}
-                      onRemove={() => handleFilterChange('estado', 'todos')}
-                    />
-                  )}
-                  {creditoFilter !== 'todos' && (
-                    <FilterChip
-                      label="Crédito"
-                      value={creditoFilterValue}
-                      onRemove={() => handleFilterChange('credito', 'todos')}
-                    />
-                  )}
-                  {showListFilters && searchQuery && (
-                    <FilterChip
-                      label="Búsqueda"
-                      value={searchQuery}
-                      onRemove={() => onSearchQueryChange?.('')}
-                    />
-                  )}
-                  {showListFilters && creatorFilter !== 'all' && (
-                    <FilterChip
-                      label="Creador"
-                      value={availableCreators.find((c) => c.id === creatorFilter)?.name || creatorFilter}
-                      onRemove={() => onCreatorFilterChange?.('all')}
-                    />
-                  )}
-                  {showListFilters && deliveredFilter !== 'all' && (
-                    <FilterChip
-                      label="Entrega"
-                      value={deliveredFilter === 'delivered' ? 'Entregados' : 'Pendientes'}
-                      onRemove={() => onDeliveredFilterChange?.('all')}
-                    />
-                  )}
-                </div>
-            </div>
-          </motion.div>
-
-          {/* Always show active filters as chips when collapsed */}
-          {!isFilterExpanded && (estadoFilter !== 'todos' || creditoFilter !== 'todos' || (showListFilters && (!!searchQuery || creatorFilter !== 'all' || deliveredFilter !== 'all'))) && (
-            <div className="flex flex-wrap gap-3 px-4 pt-2 pb-4">
-              {estadoFilter !== 'todos' && (
-                <FilterChip
-                  label="Estado"
-                  value={estadoFilterValue}
-                  onRemove={() => handleFilterChange('estado', 'todos')}
-                />
-              )}
-              {creditoFilter !== 'todos' && (
-                <FilterChip
-                  label="Crédito"
-                  value={creditoFilterValue}
-                  onRemove={() => handleFilterChange('credito', 'todos')}
-                />
-              )}
-              {showListFilters && searchQuery && (
-                <FilterChip label="Búsqueda" value={searchQuery} onRemove={() => onSearchQueryChange?.('')} />
-              )}
-              {showListFilters && creatorFilter !== 'all' && (
-                <FilterChip label="Creador" value={availableCreators.find((c) => c.id === creatorFilter)?.name || creatorFilter} onRemove={() => onCreatorFilterChange?.('all')} />
-              )}
-              {showListFilters && deliveredFilter !== 'all' && (
-                <FilterChip label="Entrega" value={deliveredFilter === 'delivered' ? 'Entregados' : 'Pendientes'} onRemove={() => onDeliveredFilterChange?.('all')} />
-              )}
-            </div>
-          )}
-        </div>
+  const activeFilterChips = (
+    <div className="flex flex-wrap gap-2 min-w-0">
+      {estadoFilter !== 'todos' && (
+        <FilterChip label="Estado" value={estadoFilterValue} onRemove={() => handleFilterChange('estado', 'todos')} />
+      )}
+      {creditoFilter !== 'todos' && (
+        <FilterChip label="Crédito" value={creditoFilterValue} onRemove={() => handleFilterChange('credito', 'todos')} />
+      )}
+      {showListFilters && searchQuery && (
+        <FilterChip label="Búsqueda" value={searchQuery} onRemove={() => onSearchQueryChange?.('')} />
+      )}
+      {showListFilters && creatorFilter !== 'all' && (
+        <FilterChip
+          label="Creador"
+          value={availableCreators.find((c) => c.id === creatorFilter)?.name || creatorFilter}
+          onRemove={() => onCreatorFilterChange?.('all')}
+        />
+      )}
+      {showListFilters && deliveredFilter !== 'all' && (
+        <FilterChip
+          label="Entrega"
+          value={deliveredFilter === 'delivered' ? 'Entregados' : 'Pendientes'}
+          onRemove={() => onDeliveredFilterChange?.('all')}
+        />
       )}
     </div>
   );
+
+  const desktopFilters = showFilters ? (
+    <div className="space-y-3 border-t border-stone-200 pt-4">
+      {estadoCreditoFilters}
+      {listFilterFields}
+      {activeFilterChips}
+    </div>
+  ) : null;
+
+  const mobileFilters = showFilters ? (
+    <div className="space-y-4">
+      {estadoCreditoFilters}
+      {listFilterFields}
+    </div>
+  ) : null;
+
+  return (
+    <div className={cn(commercialPanelClass, 'overflow-visible p-4 md:p-5 space-y-4')}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <Tabs value={currentTab} onValueChange={(v) => navigate(v as OrderTab)}>
+            <CommercialTabRail tabs={tabRailItems} />
+          </Tabs>
+        </div>
+        {canCreateOrders && currentTab !== 'create' && (
+          <Button
+            type="button"
+            onClick={() => navigate('create')}
+            className={cn('shrink-0 min-h-11 gap-2', commercialHubPrimaryButtonClass)}
+          >
+            <PlusIcon className="h-4 w-4" />
+            <span className="hidden sm:inline">Crear Orden</span>
+            <span className="sm:hidden">Crear</span>
+          </Button>
+        )}
+      </div>
+      {showFilters && (
+        <CommercialFilterBar
+          desktopFilters={desktopFilters}
+          mobileFilters={mobileFilters}
+          hasActiveFilters={hasActiveFilters}
+          onClear={handleClearFilters}
+          mobileTitle="Filtros de pedidos"
+        />
+      )}
+    </div>
+  );
+
 });
 
 export default OrdersNavigation;

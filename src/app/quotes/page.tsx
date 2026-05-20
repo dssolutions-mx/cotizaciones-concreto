@@ -7,17 +7,19 @@ import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
 import ApprovedQuotesTab from '@/components/quotes/ApprovedQuotesTab';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
-import { Container } from '@/components/ui/Container';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Card } from '@/components/ui/card';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
-import { Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import {
+  CommercialWorkspaceLayout,
+  CommercialTabRail,
+  CommercialFilterBar,
+} from '@/components/commercial';
+import { commercialHubOutlineNeutralClass } from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 // Define tab types
 type TabId = 'pending' | 'approved' | 'create';
@@ -66,21 +68,21 @@ function QuotesActionBanner() {
     action === 'approved'
       ? {
           icon: CheckCircle,
-          className: 'mb-6 border-green-200/50 bg-green-50',
+          className: 'mb-6 border-emerald-200 bg-emerald-50',
           title: alreadyProcessed ? 'Cotización ya aprobada' : 'Cotización aprobada',
           desc: 'La cotización fue aprobada correctamente desde el correo electrónico.',
         }
       : action === 'rejected'
         ? {
             icon: XCircle,
-            className: 'mb-6 border-red-200/50 bg-red-50',
+            className: 'mb-6 border-red-200 bg-red-50',
             title: alreadyProcessed ? 'Cotización ya rechazada' : 'Cotización rechazada',
             desc: 'La cotización fue rechazada desde el correo electrónico.',
           }
         : action === 'error'
           ? {
               icon: AlertCircle,
-              className: 'mb-6 border-amber-200/50 bg-amber-50',
+              className: 'mb-6 border-amber-200 bg-amber-50',
               title: 'Error en la acción',
               desc:
                 reason === 'token_expired'
@@ -102,13 +104,16 @@ function QuotesActionBanner() {
   );
 }
 
+const statusSelectClass =
+  'h-10 w-full sm:w-48 border-stone-300 bg-white text-stone-900 focus:ring-sky-700/30';
+
 // QuotesContent component to handle searchParams and navigation
 function QuotesContent() {
   const { profile, hasRole } = useAuthBridge();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
-  
+
   // Get the active tab from URL or default to 'pending'
   // When ?id= is present, force pending tab so the quote detail modal can open
   const quoteIdFromUrl = searchParams.get('id');
@@ -122,67 +127,95 @@ function QuotesContent() {
   const getRoleTabs = (): TabDefinition[] => {
     // Initialize empty tabs array - will be populated based on role
     let roleTabs: TabDefinition[] = [];
-    
+
     // SALES_AGENT can see pending quotes, approved quotes, and create quotes
     if (hasRole(['SALES_AGENT', 'EXTERNAL_SALES_AGENT'])) {
       roleTabs = [
-        { 
-          id: 'create', 
-          name: 'Crear Cotización', 
+        {
+          id: 'create',
+          name: 'Crear Cotización',
           component: QuoteBuilder,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          ),
         },
-        { 
-          id: 'pending', 
-          name: 'Pendientes', 
+        {
+          id: 'pending',
+          name: 'Pendientes',
           component: PendingApprovalTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-          </svg>
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
+              />
+            </svg>
+          ),
         },
-        { 
-          id: 'approved', 
-          name: 'Aprobadas', 
+        {
+          id: 'approved',
+          name: 'Aprobadas',
           component: ApprovedQuotesTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-        }
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+              />
+            </svg>
+          ),
+        },
       ];
     }
-    
+
     // PLANT_MANAGER, EXECUTIVE, and CREDIT_VALIDATOR can see all tabs
     if (hasRole(['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR'])) {
       roleTabs = [
-        { 
-          id: 'create', 
-          name: 'Crear Cotización', 
+        {
+          id: 'create',
+          name: 'Crear Cotización',
           component: QuoteBuilder,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          ),
         },
-        { 
-          id: 'pending', 
-          name: 'Pendientes', 
+        {
+          id: 'pending',
+          name: 'Pendientes',
           component: PendingApprovalTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
-          </svg>
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
+              />
+            </svg>
+          ),
         },
-        { 
-          id: 'approved', 
-          name: 'Aprobadas', 
+        {
+          id: 'approved',
+          name: 'Aprobadas',
           component: ApprovedQuotesTab,
-          icon: <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-        }
+          icon: (
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+              />
+            </svg>
+          ),
+        },
       ];
     }
-    
+
     return roleTabs;
   };
 
@@ -190,19 +223,22 @@ function QuotesContent() {
   const TABS = getRoleTabs();
 
   // Handle filter changes (only for status - client filter is managed by child components)
-  const handleFilterChange = useCallback((filterType: string, value: string) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set(filterType, value);
-    params.set('tab', activeTab);
-    // Don't sync clientFilter to URL - it causes lag
-    if (filterType !== 'cliente') {
-      router.push(`${pathname}?${params.toString()}`);
-    }
-  }, [searchParams, activeTab, pathname, router]);
+  const handleFilterChange = useCallback(
+    (filterType: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set(filterType, value);
+      params.set('tab', activeTab);
+      // Don't sync clientFilter to URL - it causes lag
+      if (filterType !== 'cliente') {
+        router.push(`${pathname}?${params.toString()}`);
+      }
+    },
+    [searchParams, activeTab, pathname, router]
+  );
 
   // If the active tab is not available for the current role, redirect to the first available tab
   useEffect(() => {
-    if (TABS.length > 0 && !TABS.some(tab => tab.id === activeTab)) {
+    if (TABS.length > 0 && !TABS.some((tab) => tab.id === activeTab)) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', TABS[0].id);
       router.push(`${pathname}?${params.toString()}`);
@@ -220,21 +256,21 @@ function QuotesContent() {
   }, [quoteIdFromUrl, pathname, router, searchParams]);
 
   const handleDataSaved = () => {
-    setRefreshTrigger(prev => prev + 1);
+    setRefreshTrigger((prev) => prev + 1);
   };
 
-  const ActiveTabComponent = TABS.find(tab => tab.id === activeTab)?.component;
+  const ActiveTabComponent = TABS.find((tab) => tab.id === activeTab)?.component;
 
   // Navigate to a different tab
   const handleTabChange = (value: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', value);
-    
+
     // Preserve existing filters when changing tabs
     if (statusFilter) {
       params.set('status', statusFilter);
     }
-    
+
     router.push(`${pathname}?${params.toString()}`);
   };
 
@@ -246,128 +282,119 @@ function QuotesContent() {
     router.push(`${pathname}?${params.toString()}`);
   };
 
+  const statusFilterControl = (
+    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+      <Select value={statusFilter} onValueChange={(value) => handleFilterChange('status', value)}>
+        <SelectTrigger className={statusSelectClass}>
+          <SelectValue placeholder="Estado" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="todos">Estado: Todos</SelectItem>
+          <SelectItem value="pendiente">Estado: Pendiente</SelectItem>
+          <SelectItem value="aprobada">Estado: Aprobada</SelectItem>
+          <SelectItem value="rechazada">Estado: Rechazada</SelectItem>
+        </SelectContent>
+      </Select>
+      {statusFilter !== 'todos' ? (
+        <button
+          type="button"
+          onClick={resetFilters}
+          className={cn(
+            'text-sm font-medium px-3 py-2 rounded-md whitespace-nowrap min-h-10',
+            commercialHubOutlineNeutralClass
+          )}
+        >
+          Limpiar
+        </button>
+      ) : null}
+    </div>
+  );
+
   // If no tabs are available for this role, this should never render due to RoleGuard
   if (!ActiveTabComponent) {
     return (
-      <Container>
-        <h2 className="text-xl font-bold text-red-500">No tienes permisos para acceder a esta página</h2>
-      </Container>
+      <CommercialWorkspaceLayout title="Gestión de Cotizaciones">
+        <h2 className="text-xl font-bold text-red-600">No tienes permisos para acceder a esta página</h2>
+      </CommercialWorkspaceLayout>
     );
   }
 
   return (
-    <Container maxWidth="full" className="py-8">
-      <QuotesActionBanner />
-      {/* Breadcrumb Navigation */}
-      <div className="mb-6">
+    <CommercialWorkspaceLayout
+      title="Gestión de Cotizaciones"
+      subtitle="Administra, crea y aprueba cotizaciones para tus clientes."
+      breadcrumb={
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
-              <BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink>
+              <BreadcrumbLink href="/dashboard" className="text-stone-600 hover:text-stone-900">
+                Dashboard
+              </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Gestión de Cotizaciones</BreadcrumbPage>
+              <BreadcrumbPage className="text-stone-900">Gestión de Cotizaciones</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-      </div>
+      }
+    >
+      <QuotesActionBanner />
 
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-large-title font-bold text-label-primary tracking-tight">
-            Gestión de Cotizaciones
-          </h1>
-          <p className="text-body text-label-secondary mt-1">
-            Administra, crea y aprueba cotizaciones para tus clientes.
-          </p>
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+        <div className="flex flex-col gap-4 mb-6">
+          <CommercialTabRail
+            tabs={TABS.map((tab) => ({
+              id: tab.id,
+              label: tab.name,
+              icon: tab.icon,
+            }))}
+          />
+
+          {activeTab !== 'create' ? (
+            <CommercialFilterBar
+              desktopFilters={statusFilterControl}
+              mobileFilters={statusFilterControl}
+              mobileTitle="Filtros"
+              hasActiveFilters={statusFilter !== 'todos'}
+              onClear={statusFilter !== 'todos' ? resetFilters : undefined}
+            />
+          ) : null}
         </div>
-      </div>
 
-      <div className="space-y-6">
-        {/* Modern Tabs */}
-        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <TabsList className="bg-gray-100/80 p-1 rounded-xl h-auto flex-wrap justify-start w-full md:w-auto">
-              {TABS.map((tab) => (
-                <TabsTrigger 
-                  key={tab.id} 
-                  value={tab.id}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-all data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm"
-                >
-                  <span className="flex items-center gap-2">
-                    {tab.icon}
-                    {tab.name}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            {/* Filters - Glass Toolbar */}
-            {activeTab !== 'create' && (
-              <div className="glass-thin rounded-xl p-2 flex flex-col sm:flex-row items-center gap-3">
-                {/* Status Filter */}
-                <div className="w-full sm:w-48">
-                  <Select 
-                    value={statusFilter} 
-                    onValueChange={(value) => handleFilterChange('status', value)}
-                  >
-                    <SelectTrigger className="w-full h-9 bg-white/50 border-0 focus:ring-1 focus:ring-green-500/30 text-sm">
-                      <SelectValue placeholder="Estado" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Estado: Todos</SelectItem>
-                      <SelectItem value="pendiente">Estado: Pendiente</SelectItem>
-                      <SelectItem value="aprobada">Estado: Aprobada</SelectItem>
-                      <SelectItem value="rechazada">Estado: Rechazada</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Clear Filters */}
-                {statusFilter !== 'todos' && (
-                  <button
-                    onClick={resetFilters}
-                    className="text-xs font-medium text-gray-500 hover:text-gray-800 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors whitespace-nowrap"
-                  >
-                    Limpiar
-                  </button>
-                )}
-              </div>
-            )}
+        <TabsContent value={activeTab} className="mt-0 outline-none">
+          <div className="min-h-[600px]">
+            <ActiveTabComponent
+              key={`${activeTab}-${refreshTrigger}`}
+              onDataSaved={handleDataSaved}
+              statusFilter={activeTab !== 'create' ? statusFilter : undefined}
+              clientFilter={undefined}
+              initialQuoteId={activeTab === 'pending' ? quoteIdFromUrl || undefined : undefined}
+            />
           </div>
+        </TabsContent>
+      </Tabs>
+    </CommercialWorkspaceLayout>
+  );
+}
 
-          {/* Active Tab Content - Full Width Natural Flow */}
-          <TabsContent value={activeTab} className="mt-0 outline-none animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="min-h-[600px]">
-              <ActiveTabComponent 
-                key={`${activeTab}-${refreshTrigger}`} 
-                onDataSaved={handleDataSaved}
-                statusFilter={activeTab !== 'create' ? statusFilter : undefined}
-                clientFilter={undefined}
-                initialQuoteId={activeTab === 'pending' ? quoteIdFromUrl || undefined : undefined}
-              />
-            </div>
-          </TabsContent>
-        </Tabs>
+function QuotesLoadingFallback() {
+  return (
+    <CommercialWorkspaceLayout title="Gestión de Cotizaciones">
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-700" />
       </div>
-    </Container>
+    </CommercialWorkspaceLayout>
   );
 }
 
 export default function QuotesPage() {
   return (
-    <RoleGuard 
+    <RoleGuard
       allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT', 'CREDIT_VALIDATOR']}
       redirectTo="/access-denied"
     >
-      <Suspense fallback={
-        <Container>
-          <div className="flex items-center justify-center min-h-[400px]">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          </div>
-        </Container>
-      }>
+      <Suspense fallback={<QuotesLoadingFallback />}>
         <QuotesContent />
       </Suspense>
     </RoleGuard>

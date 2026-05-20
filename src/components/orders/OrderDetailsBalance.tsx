@@ -3,6 +3,8 @@ import { supabase } from '../../lib/supabase/client'; // Adjusted path
 import ClientBalanceSummary from '../clients/ClientBalanceSummary'; // Import Phase 1 component
 import PaymentHistoryList from '../clients/PaymentHistoryList'; // Import Phase 1 component
 
+const PANEL_CLASS = 'rounded-lg border border-stone-200 bg-white p-4 md:p-6';
+
 interface OrderDetailsBalanceProps {
   orderId: string;
   clientId: string;
@@ -118,101 +120,47 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
   const vatPercentage = (vatRate * 100).toFixed(1);
   const vatAmount = orderData.requires_invoice && hasDeliveries ? invoiceAmount - finalAmount : 0;
 
+  const plantCard = orderData.plant ? (
+    orderData.requires_invoice ? (
+      <div className={`${PANEL_CLASS} border-blue-200`}>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-stone-600">Planta:</span>
+          <span className="font-medium text-blue-700">{orderData.plant.name}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm mt-1">
+          <span className="text-stone-600">Tipo de Orden:</span>
+          <span className="font-medium text-green-600">FISCAL (con factura)</span>
+        </div>
+        <div className="flex items-center justify-between text-sm mt-1">
+          <span className="text-stone-600">Tasa de IVA:</span>
+          <span className="font-medium text-blue-700">{vatPercentage}%</span>
+        </div>
+      </div>
+    ) : (
+      <div className={PANEL_CLASS}>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-stone-600">Planta:</span>
+          <span className="font-medium text-stone-800">{orderData.plant.name}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm mt-1">
+          <span className="text-stone-600">Tipo de Orden:</span>
+          <span className="font-medium text-stone-600">EFECTIVO (sin factura)</span>
+        </div>
+      </div>
+    )
+  ) : null;
+
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">Información de Monto y Balance</h3>
+      <h3 className="text-sm font-semibold text-stone-600 uppercase tracking-wide">Información de Monto y Balance</h3>
 
-      {/* Plant and VAT Rate Info - Only show when invoice is required */}
-      {orderData.plant && orderData.requires_invoice && (
-        <div className="glass-thin rounded-xl p-4 border border-blue-200/50 dark:border-blue-400/30">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Planta:</span>
-            <span className="font-medium text-blue-700 dark:text-blue-400">{orderData.plant.name}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm mt-1">
-            <span className="text-gray-600 dark:text-gray-400">Tipo de Orden:</span>
-            <span className="font-medium text-green-600">FISCAL (con factura)</span>
-          </div>
-          <div className="flex items-center justify-between text-sm mt-1">
-            <span className="text-gray-600 dark:text-gray-400">Tasa de IVA:</span>
-            <span className="font-medium text-blue-700 dark:text-blue-400">{vatPercentage}%</span>
-          </div>
-        </div>
-      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {plantCard}
 
-      {/* Show when order is NOT fiscal */}
-      {orderData.plant && !orderData.requires_invoice && (
-        <div className="glass-thin rounded-xl p-4 border border-gray-200/50 dark:border-gray-500/30">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600 dark:text-gray-400">Planta:</span>
-            <span className="font-medium text-gray-700 dark:text-gray-200">{orderData.plant.name}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm mt-1">
-            <span className="text-gray-600 dark:text-gray-400">Tipo de Orden:</span>
-            <span className="font-medium text-gray-600 dark:text-gray-400">EFECTIVO (sin factura)</span>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-2">
-        <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-          <span className="text-gray-600 dark:text-gray-400">Monto Preliminar:</span>
-          <span className="font-medium text-gray-900 dark:text-gray-100">
-            ${preliminaryAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
-          </span>
-        </div>
-
-        {hasDeliveries && (
-          <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-            <span className="text-gray-600 dark:text-gray-400">Monto Final (real):</span>
-            <span className="font-medium text-gray-900 dark:text-gray-100">
-              ${finalAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
-            </span>
-          </div>
-        )}
-
-        {/* VAT Information - Only show for fiscal orders */}
-        {orderData.requires_invoice && hasDeliveries && (
-          <>
-            <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-              <span className="text-gray-600 dark:text-gray-400">IVA ({vatPercentage}%):</span>
-              <span className="font-medium text-blue-600">
-                ${vatAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
-              </span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-              <span className="text-gray-600 dark:text-gray-400">Monto con IVA:</span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">
-                ${invoiceAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
-              </span>
-            </div>
-          </>
-        )}
-
-        {/* Projected VAT for preliminary fiscal orders */}
-        {orderData.requires_invoice && !hasDeliveries && (
-          <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-            <span className="text-gray-600 dark:text-gray-400">Monto con IVA ({vatPercentage}%):</span>
-            <span className="font-medium text-gray-900 dark:text-gray-100">
-              ${(preliminaryAmount * (1 + vatRate)).toLocaleString('es-MX', {minimumFractionDigits: 2})}
-            </span>
-          </div>
-        )}
-
-        {hasDeliveries && preliminaryAmount !== finalAmount && (
-          <div className="flex justify-between py-2 border-b border-gray-200 dark:border-gray-600">
-            <span className="text-gray-600 dark:text-gray-400">Diferencia:</span>
-            <span className={`font-medium ${ finalAmount > preliminaryAmount ? 'text-red-600' : 'text-green-600' }`}>
-              ${Math.abs(finalAmount - preliminaryAmount).toLocaleString('es-MX', {minimumFractionDigits: 2})}
-              {finalAmount > preliminaryAmount ? ' (adicional)' : ' (menor)'}
-            </span>
-          </div>
-        )}
-
-        <div className="glass-thin rounded-xl p-4 mt-3">
-          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Balance del Cliente</p>
+        <div className={`${PANEL_CLASS} ${plantCard ? '' : 'md:col-span-2'}`}>
+          <p className="text-sm font-medium text-stone-700 mb-3">Balance del Cliente</p>
           <div className="flex justify-between mb-1">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Balance Previo:</span>
+            <span className="text-sm text-stone-600">Balance Previo:</span>
             <span className={`font-medium ${previousBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
               ${previousBalance.toLocaleString('es-MX', {minimumFractionDigits: 2})}
             </span>
@@ -220,22 +168,20 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
 
           {hasDeliveries ? (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-600 dark:text-gray-400">Impacto Real en Balance:</span>
-              {/* Use invoiceAmount if requires_invoice, otherwise use finalAmount for projection */}
+              <span className="text-sm text-stone-600">Impacto Real en Balance:</span>
               <span className={`font-medium ${(previousBalance + (orderData.requires_invoice ? invoiceAmount : finalAmount)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                 ${(previousBalance + (orderData.requires_invoice ? invoiceAmount : finalAmount)).toLocaleString('es-MX', {minimumFractionDigits: 2})}
               </span>
             </div>
           ) : (
             <>
-              {/* Show preliminary projected balance */}
               <div className="flex justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Balance Proyectado (Preliminar):</span>
+                <span className="text-sm text-stone-600">Balance Proyectado (Preliminar):</span>
                 <span className={`font-medium ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * (1 + vatRate) : preliminaryAmount)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
                   ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * (1 + vatRate) : preliminaryAmount)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              <div className="glass-thin rounded-lg p-3 border border-amber-200/50 dark:border-amber-400/30 text-amber-800 dark:text-amber-200 text-xs mt-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-xs mt-2">
                 El impacto real en el balance se calculará al registrar remisiones.
               </div>
             </>
@@ -243,19 +189,76 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
         </div>
       </div>
 
-      {/* Display client balance summary (omit when shown at top in OrderDetails) */}
-      {!hideBalanceSummary && <ClientBalanceSummary clientId={clientId} />}
+      <div className={PANEL_CLASS}>
+        <div className="space-y-2">
+          <div className="flex justify-between py-2 border-b border-stone-200">
+            <span className="text-stone-600">Monto Preliminar:</span>
+            <span className="font-medium text-stone-900">
+              ${preliminaryAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+            </span>
+          </div>
 
-      <div className="mt-4">
-        {/* Display recent payment history for the specific site */}
-        <PaymentHistoryList 
-          clientId={clientId} 
-          constructionSite={constructionSite}
-          limit={5} // Show recent 5 payments for this site
-        />
+          {hasDeliveries && (
+            <div className="flex justify-between py-2 border-b border-stone-200">
+              <span className="text-stone-600">Monto Final (real):</span>
+              <span className="font-medium text-stone-900">
+                ${finalAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              </span>
+            </div>
+          )}
+
+          {orderData.requires_invoice && hasDeliveries && (
+            <>
+              <div className="flex justify-between py-2 border-b border-stone-200">
+                <span className="text-stone-600">IVA ({vatPercentage}%):</span>
+                <span className="font-medium text-blue-600">
+                  ${vatAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                </span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-stone-200">
+                <span className="text-stone-600">Monto con IVA:</span>
+                <span className="font-medium text-stone-900">
+                  ${invoiceAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                </span>
+              </div>
+            </>
+          )}
+
+          {orderData.requires_invoice && !hasDeliveries && (
+            <div className="flex justify-between py-2 border-b border-stone-200">
+              <span className="text-stone-600">Monto con IVA ({vatPercentage}%):</span>
+              <span className="font-medium text-stone-900">
+                ${(preliminaryAmount * (1 + vatRate)).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              </span>
+            </div>
+          )}
+
+          {hasDeliveries && preliminaryAmount !== finalAmount && (
+            <div className="flex justify-between py-2 border-b border-stone-200">
+              <span className="text-stone-600">Diferencia:</span>
+              <span className={`font-medium ${ finalAmount > preliminaryAmount ? 'text-red-600' : 'text-green-600' }`}>
+                ${Math.abs(finalAmount - preliminaryAmount).toLocaleString('es-MX', {minimumFractionDigits: 2})}
+                {finalAmount > preliminaryAmount ? ' (adicional)' : ' (menor)'}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {!hideBalanceSummary && (
+          <ClientBalanceSummary clientId={clientId} />
+        )}
+        <div className={hideBalanceSummary ? 'md:col-span-2' : undefined}>
+          <PaymentHistoryList 
+            clientId={clientId} 
+            constructionSite={constructionSite}
+            limit={5}
+          />
+        </div>
       </div>
     </div>
   );
 };
 
-export default OrderDetailsBalance; 
+export default OrderDetailsBalance;

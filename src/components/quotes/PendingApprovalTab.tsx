@@ -11,8 +11,13 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogClose } fr
 import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { features } from '@/config/featureFlags';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import {
+  commercialCardClass,
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+} from '@/components/commercial/commercialHubUi';
 import { Input } from '@/components/ui/input';
 import { Check, X, MoreVertical, Eye, FileText, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -701,92 +706,108 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
     <RoleProtectedSection 
       allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
       fallback={
-        <div className="p-8 text-center bg-gray-50 rounded-lg">
-          <h3 className="text-xl font-semibold mb-2">Acceso Restringido</h3>
-          <p className="text-gray-600">Solo gerentes de planta, ejecutivos y validadores de crédito pueden aprobar cotizaciones.</p>
+        <div className="p-8 text-center bg-stone-50 rounded-lg border border-stone-200">
+          <h3 className="text-xl font-semibold mb-2 text-stone-900">Acceso Restringido</h3>
+          <p className="text-stone-600">Solo gerentes de planta, ejecutivos y validadores de crédito pueden aprobar cotizaciones.</p>
         </div>
       }
     >
       <div className="space-y-6">
         {/* Header Summary */}
-        <Card variant="thick" className="p-6 border-0">
+        <div className={commercialPanelClass}>
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-full text-yellow-700">
+              <div className="p-2 bg-amber-50 rounded-full text-amber-700 border border-amber-200">
                 <FileText className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-800">Pendientes de Aprobación</h2>
-                <p className="text-xs text-gray-500">{totalQuotes} cotizaciones requieren revisión</p>
+                <h2 className="text-lg font-bold text-stone-900">Pendientes de Aprobación</h2>
+                <p className="text-xs text-stone-500">{totalQuotes} cotizaciones requieren revisión</p>
               </div>
             </div>
           </div>
-        </Card>
+        </div>
 
         {isLoading ? (
           <div className="flex justify-center h-64 items-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-700" />
           </div>
         ) : (
           <>
             {quotes.length === 0 ? (
-              <div className="bg-white p-12 rounded-2xl border border-gray-100 text-center shadow-sm">
-                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-8 h-8 text-green-500" />
+              <div className={`${commercialCardClass} p-12 text-center`}>
+                <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-200">
+                  <Check className="w-8 h-8 text-emerald-600" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">¡Todo al día!</h3>
-                <p className="text-gray-500 mt-1">No hay cotizaciones pendientes de aprobación.</p>
+                <h3 className="text-lg font-semibold text-stone-900">¡Todo al día!</h3>
+                <p className="text-stone-500 mt-1">No hay cotizaciones pendientes de aprobación.</p>
               </div>
             ) : (
               <div className="grid gap-4">
                 {quotes.map(quote => (
-                  <Card key={quote.id} variant="interactive" className="p-0 border-0 bg-white shadow-sm hover:shadow-md overflow-hidden group">
+                  <div key={quote.id} className={`${commercialCardClass} overflow-hidden`}>
                     <div className="p-5">
                       <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-lg font-bold text-gray-900">
+                            <h3 className="text-lg font-bold text-stone-900">
                               {quote.client?.business_name || 'Cliente sin nombre'}
                             </h3>
-                            <span className="px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 text-xs font-medium border border-yellow-100">
+                            <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 text-xs font-medium border border-amber-200">
                               #{quote.quote_number}
                             </span>
                           </div>
-                          <div className="text-sm text-gray-500 space-y-1">
-                            <p>Obra: <span className="font-medium text-gray-700">{quote.construction_site}</span></p>
-                            <p>Creada por: <span className="font-medium text-gray-700">{quote.creator_name}</span></p>
+                          <div className="text-sm text-stone-500 space-y-1">
+                            <p>Obra: <span className="font-medium text-stone-700">{quote.construction_site}</span></p>
+                            <p>Creada por: <span className="font-medium text-stone-700">{quote.creator_name}</span></p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Total</p>
-                          <p className="text-2xl font-bold text-gray-900 tracking-tight">
+                          <p className="text-xs text-stone-500 uppercase font-bold tracking-wider mb-1">Total</p>
+                          <p className="text-2xl font-bold text-stone-900 tracking-tight">
                             ${quote.total_amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">{new Date(quote.created_at).toLocaleDateString()}</p>
+                          <p className="text-xs text-stone-400 mt-1">{new Date(quote.created_at).toLocaleDateString()}</p>
                         </div>
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-4 border-t border-gray-100 opacity-100 transition-opacity">
-                        <Button variant="ghost" size="sm" onClick={() => openQuoteDetails(quote)}>
+                      <div className="flex flex-col sm:flex-row sm:justify-end gap-2 pt-4 border-t border-stone-200">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full sm:w-auto"
+                          onClick={() => openQuoteDetails(quote)}
+                        >
                           <Eye className="w-4 h-4 mr-2" /> Revisar
                         </Button>
-                        <Button 
-                          size="sm" 
-                          className="!bg-green-600 hover:!bg-green-700 !text-white border-0"
+                        <Button
+                          size="sm"
+                          className={`w-full sm:w-auto ${commercialHubPrimaryButtonClass}`}
                           onClick={() => approveQuote(quote.id)}
                         >
                           <Check className="w-4 h-4 mr-2" /> Aprobar
                         </Button>
-                        
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full sm:hidden border-stone-300 text-stone-700"
+                          onClick={() => {
+                            const reason = prompt('Razón de rechazo:');
+                            if (reason) rejectQuote(quote.id, reason);
+                          }}
+                        >
+                          <X className="w-4 h-4 mr-2" /> Rechazar
+                        </Button>
+
                         <DropdownMenu.Root>
                           <DropdownMenu.Trigger asChild>
-                            <Button variant="ghost" size="icon">
+                            <Button variant="ghost" size="icon" className="hidden sm:inline-flex">
                               <MoreVertical className="w-4 h-4" />
                             </Button>
                           </DropdownMenu.Trigger>
-                          <DropdownMenu.Content className="min-w-[160px] bg-white rounded-lg shadow-lg border p-1 z-50" align="end">
-                            <DropdownMenu.Item 
-                              className="flex items-center px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded cursor-pointer"
+                          <DropdownMenu.Content className="min-w-[160px] bg-white rounded-lg shadow-lg border border-stone-200 p-1 z-50" align="end">
+                            <DropdownMenu.Item
+                              className="flex items-center px-3 py-2 text-sm text-stone-700 hover:bg-stone-50 rounded cursor-pointer"
                               onSelect={() => {
                                 const reason = prompt('Razón de rechazo:');
                                 if (reason) rejectQuote(quote.id, reason);
@@ -794,7 +815,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                             >
                               <X className="w-4 h-4 mr-2" /> Rechazar
                             </DropdownMenu.Item>
-                            <DropdownMenu.Item 
+                            <DropdownMenu.Item
                               className="flex items-center px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded cursor-pointer"
                               onSelect={() => deleteQuote(quote.id)}
                             >
@@ -804,7 +825,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                         </DropdownMenu.Root>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 ))}
               </div>
             )}
@@ -812,7 +833,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             {/* Pagination */}
             {quotes.length > 0 && (
               <div className="flex items-center justify-between pt-4">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-stone-500">
                   Página {page + 1} de {Math.ceil(totalQuotes / quotesPerPage)}
                 </p>
                 <div className="flex gap-2">
@@ -846,23 +867,23 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               <DialogDescription>Edite los precios o márgenes antes de aprobar.</DialogDescription>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50/50 min-h-0">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-stone-50/80 min-h-0">
               {/* Header Info - compact on mobile */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                <Card variant="thin" className="p-3 sm:p-4 bg-white">
-                  <p className="text-xs text-gray-500 uppercase font-bold mb-0.5 sm:mb-1">Cliente</p>
-                  <p className="font-semibold text-gray-900 text-base sm:text-lg">{selectedQuote?.client?.business_name}</p>
-                  <p className="text-xs sm:text-sm text-gray-500">{selectedQuote?.client?.client_code}</p>
-                </Card>
-                <Card variant="thin" className="p-3 sm:p-4 bg-white">
-                  <p className="text-xs text-gray-500 uppercase font-bold mb-0.5 sm:mb-1">Obra</p>
-                  <p className="font-semibold text-gray-900 text-base sm:text-lg">{selectedQuote?.construction_site}</p>
-                  <p className="text-xs sm:text-sm text-gray-500">Creado por: {selectedQuote?.creator_name}</p>
-                </Card>
+                <div className={`${commercialCardClass} p-3 sm:p-4`}>
+                  <p className="text-xs text-stone-500 uppercase font-bold mb-0.5 sm:mb-1">Cliente</p>
+                  <p className="font-semibold text-stone-900 text-base sm:text-lg">{selectedQuote?.client?.business_name}</p>
+                  <p className="text-xs sm:text-sm text-stone-500">{selectedQuote?.client?.client_code}</p>
+                </div>
+                <div className={`${commercialCardClass} p-3 sm:p-4`}>
+                  <p className="text-xs text-stone-500 uppercase font-bold mb-0.5 sm:mb-1">Obra</p>
+                  <p className="font-semibold text-stone-900 text-base sm:text-lg">{selectedQuote?.construction_site}</p>
+                  <p className="text-xs sm:text-sm text-stone-500">Creado por: {selectedQuote?.creator_name}</p>
+                </div>
               </div>
 
               {/* Items - Mobile: cards, Desktop: table */}
-              <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6">
+              <div className={`${commercialCardClass} overflow-hidden mb-6`}>
                 {/* Mobile: stacked cards - full vertical layout, generous spacing */}
                 <div className="sm:hidden space-y-6 p-5">
                   {listPriceLoading ? (
@@ -1132,12 +1153,12 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                     </tbody>
                   </table>
                 </div>
-              </Card>
+              </div>
 
               {/* Additional Products */}
-              <Card variant="base" className="overflow-hidden bg-white border-0 shadow-sm mb-6">
-                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-                  <h3 className="font-semibold text-gray-700">Productos Adicionales / Especiales</h3>
+              <div className={`${commercialCardClass} overflow-hidden mb-6`}>
+                <div className="px-4 py-3 bg-stone-50 border-b border-stone-200">
+                  <h3 className="font-semibold text-stone-800">Productos Adicionales / Especiales</h3>
                 </div>
                 {selectedQuote?.quote_additional_products && selectedQuote.quote_additional_products.length > 0 ? (
                   <>
@@ -1191,7 +1212,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                     No hay productos adicionales en esta cotización
                   </div>
                 )}
-              </Card>
+              </div>
 
               {/* Pump Service & VAT - larger touch targets on mobile */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1238,7 +1259,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             </div>
 
             {/* Footer Actions */}
-            <div className="p-4 sm:p-6 border-t bg-white flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-3 shrink-0">
+            <div className="p-4 sm:p-6 border-t border-stone-200 bg-white flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center gap-3 shrink-0">
               <Button variant="ghost" onClick={closeQuoteDetails} className="w-full sm:w-auto order-2 sm:order-1">
                 Cancelar
               </Button>
@@ -1247,7 +1268,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                   Guardar Cambios
                 </Button>
                 <Button
-                  className="!bg-green-600 hover:!bg-green-700 !text-white border-0 w-full sm:w-auto"
+                  className={`w-full sm:w-auto ${commercialHubPrimaryButtonClass}`}
                   onClick={() => approveQuote(selectedQuote?.id as string)}
                 >
                   <Check className="w-4 h-4 mr-2" /> Aprobar Cotización

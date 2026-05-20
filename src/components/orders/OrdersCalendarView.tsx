@@ -12,7 +12,7 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase';
 import { CalendarIcon, MixerHorizontalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { cn } from '@/lib/utils';
 import {
@@ -583,7 +583,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       whileHover={{ scale: 1.02, y: -2 }}
                       whileTap={{ scale: 0.98 }}
                       className={cn(
-                        'block p-3 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md',
+                        'block p-3 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm',
                         bg, border, text
                       )}
                     >
@@ -730,7 +730,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}
                       className={cn(
-                        'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-sm',
+                        'block p-2 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm text-sm',
                         bg, border, text
                       )}
                     >
@@ -875,7 +875,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className={cn(
-                      'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-xs',
+                      'block p-2 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm text-xs',
                       bg, border, text
                     )}
                   >
@@ -941,10 +941,10 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   return (
     <>
-      <div className="glass-thick rounded-2xl shadow-2xl overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
-        <div className="sticky top-0 z-20 glass-thick border-b border-white/20 shadow-lg">
+      <div className={cn(commercialPanelClass, 'overflow-hidden mb-16 p-0')} ref={calendarRef} tabIndex={0}>
+        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-stone-200 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-3">
-          <h2 className="text-xl font-semibold text-gray-800">
+          <h2 className="text-xl font-semibold text-stone-900">
             {getViewTitle()}
           </h2>
           
