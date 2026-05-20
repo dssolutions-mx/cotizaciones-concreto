@@ -47,8 +47,8 @@ import {
   MESSAGES,
   isApproved,
 } from '@/lib/commercial/workflow';
-import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ConstructionSiteDialog } from '@/components/clients/ConstructionSiteDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -512,7 +512,6 @@ export default function QuoteBuilder() {
   const [showCreateSiteDialog, setShowCreateSiteDialog] = useState(false);
   const [breakdownDialogProductIndex, setBreakdownDialogProductIndex] = useState<number | null>(null);
   const [clientSites, setClientSites] = useState<any[]>([]);
-  const [enableMapForSite, setEnableMapForSite] = useState(false);
   const [siteCoordinates, setSiteCoordinates] = useState<{lat: number | null, lng: number | null}>({
     lat: null,
     lng: null
@@ -2043,10 +2042,7 @@ export default function QuoteBuilder() {
                     </div>
                   )}
                   <Button
-                    onClick={() => {
-                      setShowCreateSiteDialog(true);
-                      setEnableMapForSite(true);
-                    }}
+                    onClick={() => setShowCreateSiteDialog(true)}
                     variant="secondary"
                     size="icon"
                     className="shrink-0"
@@ -2404,54 +2400,30 @@ export default function QuoteBuilder() {
         </div>
       )}
 
-      {/* Client Creation Dialog */}
       <Dialog open={showCreateClientDialog} onOpenChange={setShowCreateClientDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogTitle>Crear Nuevo Cliente</DialogTitle>
-          <DialogDescription className="sr-only">
-            Registro de cliente comercial; requiere autorización en Finanzas antes de cotizar.
-          </DialogDescription>
-          <ClientCreationForm
-            embedded
-            onClientCreated={handleClientCreated}
-            onCancel={() => setShowCreateClientDialog(false)}
-          />
+        <DialogContent className="flex max-h-[min(90vh,800px)] w-[min(100vw-2rem,36rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="shrink-0 border-b px-6 py-5 pr-12 text-left">
+            <DialogTitle>Nuevo cliente</DialogTitle>
+            <DialogDescription>
+              Registro comercial. El cliente quedará pendiente de autorización en Finanzas antes de cotizar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <ClientCreationForm
+              embedded
+              onClientCreated={handleClientCreated}
+              onCancel={() => setShowCreateClientDialog(false)}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Construction Site Creation Dialog */}
-      <Dialog 
-        open={showCreateSiteDialog} 
-        onOpenChange={(open) => {
-          setShowCreateSiteDialog(open);
-          if (open) {
-            setSiteCoordinates({ lat: null, lng: null });
-            const triggerResize = () => window.dispatchEvent(new Event('resize'));
-            setTimeout(triggerResize, 200);
-            setTimeout(triggerResize, 1000);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[700px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-gray-100">
-            <DialogTitle>Crear Nueva Obra</DialogTitle>
-            <DialogDescription>Detalles de la nueva obra y ubicación.</DialogDescription>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">
-            {selectedClient ? (
-              <ConstructionSiteForm
-                clientId={selectedClient}
-                onSiteCreated={(id, name, loc, lat, lng) => handleSiteCreated(id, name, loc, lat, lng)}
-                onCancel={() => setShowCreateSiteDialog(false)}
-              />
-            ) : (
-              <div className="text-center py-10 text-gray-500">
-                Seleccione un cliente primero.
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConstructionSiteDialog
+        open={showCreateSiteDialog}
+        onOpenChange={setShowCreateSiteDialog}
+        clientId={selectedClient}
+        onSiteCreated={handleSiteCreated}
+      />
 
       {/* Base Price Breakdown Dialog */}
       {breakdownDialogProductIndex !== null && quoteProducts[breakdownDialogProductIndex] && (
