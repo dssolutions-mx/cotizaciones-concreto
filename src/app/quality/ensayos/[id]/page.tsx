@@ -47,6 +47,8 @@ import {
 import { fetchEnsayoById, updateEnsayoById } from '@/services/qualityEnsayoService'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import type { EnsayoWithRelations, Evidencia } from '@/types/quality'
+import { EnsayoEvidenceGallery } from '@/components/quality/ensayos/EnsayoEvidenceGallery'
+import { normalizeEvidencia } from '@/lib/quality/ensayoEvidence'
 import Link from 'next/link'
 import Image from 'next/image'
 import { cn, createSafeDate, formatDate } from '@/lib/utils'
@@ -68,41 +70,6 @@ function complianceKpiStatus(pct: number): QualityHubSummaryStatus {
   if (pct >= 100) return 'ok'
   if (pct >= 70) return 'warning'
   return 'critical'
-}
-
-function normalizeEvidencia(raw: Record<string, unknown>): Evidencia & { _path: string } {
-  const path =
-    (raw.path as string) ||
-    (raw.archivo_url as string) ||
-    (raw.file_path as string) ||
-    ''
-  return {
-    id: String(raw.id),
-    ensayo_id: String(raw.ensayo_id ?? ''),
-    path,
-    archivo_url: raw.archivo_url as string | undefined,
-    nombre_archivo: (raw.nombre_archivo as string) || (raw.file_name as string) || 'Archivo',
-    tipo_archivo:
-      (raw.tipo_archivo as string) || (raw.file_type as string) || (raw.mime_type as string) || '',
-    tamano_kb: Number(raw.tamano_kb ?? (raw.file_size ? Number(raw.file_size) / 1024 : 0)) || 0,
-    _path: path,
-  }
-}
-
-function evidenciaPublicUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  if (!path) return ''
-  if (path.startsWith('http')) return path
-  if (path.startsWith('evidencias/')) {
-    return `${base}/storage/v1/object/public/quality-evidencias/${path}`
-  }
-  return `${base}/storage/v1/object/public/evidencia-ensayos/${path}`
-}
-
-function evidenciaFallbackUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  if (!path || path.startsWith('http')) return ''
-  return `${base}/storage/v1/object/public/quality/${path}`
 }
 
 type GuaranteeMetrics = {
@@ -260,8 +227,6 @@ export default function EnsayoDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [specsSheetOpen, setSpecsSheetOpen] = useState(false)
-  const [lightbox, setLightbox] = useState<Evidencia | null>(null)
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [obsText, setObsText] = useState('')
   const [obsSaving, setObsSaving] = useState(false)
 
@@ -310,6 +275,15 @@ export default function EnsayoDetailPage() {
       }
     })()
   }, [params.id, reload])
+
+  useEffect(() => {
+    if (loading) return
+    if (typeof window !== 'undefined' && window.location.hash === '#evidencias') {
+      window.requestAnimationFrame(() => {
+        document.getElementById('evidencias')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  }, [loading])
 
   const recipe = ensayo?.muestra?.muestreo?.remision?.recipe as
     | { recipe_versions?: { is_current?: boolean; notes?: string }[] }
@@ -544,6 +518,8 @@ export default function EnsayoDetailPage() {
           spec?.dimension_label || 'Sin especificación vinculada'
         )}
       </div>
+
+      <EnsayoEvidenceGallery evidencias={evidenciasNorm} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className={cn('lg:col-span-2', CARD_SHELL)}>
@@ -1035,120 +1011,6 @@ export default function EnsayoDetailPage() {
           </Card>
         )
       })()}
-
-      <Card className={CARD_SHELL}>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <FileImage className="h-5 w-5 text-stone-600" />
-            Evidencias
-          </CardTitle>
-          <CardDescription>Fotografías y documentos del ensayo</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {evidenciasNorm.length === 0 ? (
-            <div className="border border-dashed border-stone-200 bg-stone-50/50 rounded-lg py-10 px-4 text-center">
-              <FileImage className="h-12 w-12 text-stone-300 mx-auto mb-3" />
-              <p className="text-lg font-medium text-stone-900 mb-1">No hay evidencias registradas</p>
-              <p className="text-sm text-stone-500">Las fotos adjuntas al ensayo aparecerán aquí.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {evidenciasNorm.map((ev) => {
-                const primary = evidenciaPublicUrl(ev._path)
-                const fallback = evidenciaFallbackUrl(ev._path)
-                const isImg =
-                  ev.tipo_archivo.startsWith('image/') ||
-                  /\.(jpe?g|png|gif|webp)$/i.test(ev.nombre_archivo || '')
-                return (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    className="text-left rounded-lg border border-stone-200 bg-white overflow-hidden transition-all hover:shadow-md hover:border-sky-200/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
-                    onClick={() => {
-                      setLightbox(ev)
-                      setLightboxSrc(primary)
-                    }}
-                  >
-                    <div className="aspect-square relative bg-stone-100">
-                      {isImg ? (
-                        <Image src={primary} alt={ev.nombre_archivo} fill className="object-cover" unoptimized />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <FileText className="h-12 w-12 text-stone-400" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="p-3">
-                      <p className="text-sm font-medium text-stone-700 truncate">{ev.nombre_archivo}</p>
-                      <p className="text-xs text-stone-500 mt-0.5">{Math.round(ev.tamano_kb)} KB</p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog
-        open={!!lightbox}
-        onOpenChange={(o) => {
-          if (!o) {
-            setLightbox(null)
-            setLightboxSrc(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-[min(96vw,900px)] p-0 gap-0 overflow-hidden bg-stone-950 border-stone-800">
-          <DialogHeader className="p-4 border-b border-stone-800">
-            <DialogTitle className="text-stone-100 text-base truncate pr-8">
-              {lightbox?.nombre_archivo}
-            </DialogTitle>
-          </DialogHeader>
-                   <div className="relative w-full min-h-[50vh] max-h-[80vh] flex items-center justify-center bg-black">
-            {lightbox &&
-              (() => {
-                const lbPath = (lightbox as Evidencia & { _path?: string })._path || ''
-                const isImg =
-                  lightbox.tipo_archivo.startsWith('image/') ||
-                  /\.(jpe?g|png|gif|webp)$/i.test(lightbox.nombre_archivo)
-                if (isImg && lightboxSrc) {
-                  return (
-                    <Image
-                      src={lightboxSrc}
-                      alt={lightbox.nombre_archivo}
-                      width={1200}
-                      height={900}
-                      className="max-h-[80vh] w-auto h-auto object-contain"
-                      unoptimized
-                      onError={() => {
-                        const fb = evidenciaFallbackUrl(lbPath)
-                        if (fb && fb !== lightboxSrc) setLightboxSrc(fb)
-                      }}
-                    />
-                  )
-                }
-                const href = lightboxSrc || evidenciaPublicUrl(lbPath)
-                return (
-                  <div className="flex flex-col items-center gap-4 p-8 text-center text-stone-300">
-                    <FileText className="h-16 w-16 text-stone-500" />
-                    <p className="text-sm max-w-md">{lightbox.nombre_archivo}</p>
-                    {href ? (
-                      <Button variant="outline" size="sm" className="border-stone-600 text-stone-100" asChild>
-                        <a href={href} target="_blank" rel="noopener noreferrer">
-                          Abrir archivo <ArrowUpRight className="h-3.5 w-3.5 ml-1" />
-                        </a>
-                      </Button>
-                    ) : null}
-                  </div>
-                )
-              })()}
-          </div>
-          <div className="p-3 text-xs text-stone-400 border-t border-stone-800">
-            {lightbox ? `${Math.round(lightbox.tamano_kb)} KB · ${lightbox.tipo_archivo || 'archivo'}` : null}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <SpecimenSpecsConfigSheet
         open={specsSheetOpen}

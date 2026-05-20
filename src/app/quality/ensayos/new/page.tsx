@@ -19,10 +19,7 @@ import {
   AlertTriangle,
   Save,
   Calculator,
-  FileSpreadsheet,
-  CheckCircle2,
   ChevronDown,
-  Camera,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatDate } from '@/lib/utils'
@@ -33,7 +30,6 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { fetchMuestraById } from '@/services/qualityMuestraService'
 import { createEnsayo } from '@/services/qualityEnsayoService'
 import type { MuestraWithRelations } from '@/types/quality'
-import { FileUploader } from '@/components/ui/file-uploader'
 import {
   Form,
   FormControl,
@@ -42,9 +38,10 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
-import { SrFileViewer } from '@/components/quality/SrFileViewer'
-import { PhotoEvidencePicker } from '@/components/quality/PhotoEvidencePicker'
+import { EnsayoEvidencePanel } from '@/components/quality/ensayos/EnsayoEvidencePanel'
+import { EnsayoRegistrationSuccess } from '@/components/quality/ensayos/EnsayoRegistrationSuccess'
 import { extractSr3MaxForceFromFile } from '@/utils/sr3Parser'
+import type { EnsayoEvidenceUploadResult } from '@/lib/quality/ensayoEvidence'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { DatePicker } from '@/components/ui/date-picker'
 import EnsayoInformeFields from '@/components/quality/ensayos/EnsayoInformeFields'
@@ -240,6 +237,8 @@ function NuevoEnsayoContent() {
   const [loading, setLoading] = useState(true)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [savedEnsayoId, setSavedEnsayoId] = useState<string | null>(null)
+  const [evidenceUpload, setEvidenceUpload] = useState<EnsayoEvidenceUploadResult | undefined>()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sr3Parsing, setSr3Parsing] = useState(false)
@@ -387,8 +386,10 @@ function NuevoEnsayoContent() {
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
         observaciones: data.observaciones || '',
-        evidencia_fotografica:
-          photoFiles.length > 0 || sr3Files.length > 0 ? [...photoFiles, ...sr3Files] : [],
+        evidencia: {
+          photos: photoFiles,
+          machineFiles: sr3Files,
+        },
         temp_laboratorio_c: data.temp_laboratorio_c,
         humedad_relativa_lab: data.humedad_relativa_lab,
         capping_type: data.capping_type,
@@ -415,14 +416,9 @@ function NuevoEnsayoContent() {
         }
       }
 
+      setSavedEnsayoId(ensayo.id)
+      setEvidenceUpload(ensayo.evidenceUpload)
       setSubmitSuccess(true)
-      setTimeout(() => {
-        if (muestra?.muestreo?.id) {
-          router.push(`/quality/muestreos/${muestra.muestreo.id}`)
-        } else {
-          router.push('/quality/ensayos')
-        }
-      }, 2000)
     } catch (e) {
       console.error('Error creating ensayo:', e)
       setSubmitError('Ocurrió un error al guardar el ensayo. Por favor, intenta nuevamente.')
@@ -434,6 +430,7 @@ function NuevoEnsayoContent() {
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE']
   const hasAccess = profile && allowedRoles.includes(profile.role)
   const targetFc = muestra?.muestreo?.remision?.recipe?.strength_fc
+  const attachmentCount = photoFiles.length + sr3Files.length
 
   if (!hasAccess) {
     return (
@@ -542,18 +539,16 @@ function NuevoEnsayoContent() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="max-lg:px-4 max-lg:pb-2">
-                {submitSuccess ? (
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 p-5 text-emerald-900">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-full bg-emerald-100 p-2">
-                        <CheckCircle2 className="h-5 w-5 text-emerald-700" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">Ensayo guardado correctamente</p>
-                        <p className="text-sm text-emerald-800 mt-0.5">Redirigiendo al muestreo…</p>
-                      </div>
-                    </div>
-                  </div>
+                {submitSuccess && savedEnsayoId ? (
+                  <EnsayoRegistrationSuccess
+                    resistencia={watchRes}
+                    porcentaje={watchPct}
+                    photoFiles={photoFiles}
+                    sr3Count={sr3Files.length}
+                    ensayoId={savedEnsayoId}
+                    muestreoId={muestra.muestreo?.id}
+                    evidenceUpload={evidenceUpload}
+                  />
                 ) : (
                   <Form {...form}>
                     <form
@@ -700,52 +695,15 @@ function NuevoEnsayoContent() {
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50/50 p-4 space-y-4">
-                        <div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <Camera className="h-4 w-4 text-stone-600" />
-                            <span className="text-sm font-medium text-stone-800">
-                              Evidencia fotográfica (opcional)
-                            </span>
-                          </div>
-                          <PhotoEvidencePicker
-                            files={photoFiles}
-                            onChange={setPhotoFiles}
-                            maxFiles={5}
-                            disabled={isSubmitting}
-                          />
-                        </div>
-
-                        <div className="border-t border-stone-200 pt-4">
-                          <div className="flex items-center gap-2 mb-3">
-                            <FileSpreadsheet className="h-4 w-4 text-stone-600" />
-                            <span className="text-sm font-medium text-stone-800">
-                              Archivo de máquina .sr3 (opcional)
-                            </span>
-                            {sr3Parsing && (
-                              <Loader2 className="h-4 w-4 animate-spin text-sky-700 ml-auto" />
-                            )}
-                          </div>
-                          <p className="text-xs text-stone-500 mb-3">
-                            Si sube un .sr3, la carga de ruptura se puede llenar automáticamente.
-                          </p>
-                          <FileUploader
-                            accept=".sr3"
-                            maxFiles={1}
-                            maxSize={10 * 1024 * 1024}
-                            onFilesSelected={(files) => void handleSr3Selected(files)}
-                          />
-                        {sr3Files.length > 0 &&
-                          sr3Files[0].name.toLowerCase().endsWith('.sr3') && (
-                            <div className="mt-4 space-y-2">
-                              <p className="text-xs uppercase tracking-wide text-stone-500">
-                                Vista previa
-                              </p>
-                              <SrFileViewer file={sr3Files[0]} />
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <EnsayoEvidencePanel
+                        photoFiles={photoFiles}
+                        onPhotoFilesChange={setPhotoFiles}
+                        sr3Files={sr3Files}
+                        onSr3FilesChange={setSr3Files}
+                        onSr3Selected={handleSr3Selected}
+                        sr3Parsing={sr3Parsing}
+                        disabled={isSubmitting}
+                      />
 
                       <EnsayoInformeFields form={form} />
 
@@ -802,6 +760,11 @@ function NuevoEnsayoContent() {
                             <>
                               <Save className="mr-2 h-4 w-4" />
                               Guardar ensayo
+                              {attachmentCount > 0 && (
+                                <span className="ml-2 opacity-90 font-normal">
+                                  · {attachmentCount} adjunto{attachmentCount === 1 ? '' : 's'}
+                                </span>
+                              )}
                             </>
                           )}
                         </Button>
@@ -840,6 +803,11 @@ function NuevoEnsayoContent() {
                       <>
                         <Save className="mr-2 h-5 w-5" />
                         Guardar ensayo
+                        {attachmentCount > 0 && (
+                          <span className="ml-2 opacity-90 font-normal">
+                            · {attachmentCount} adjunto{attachmentCount === 1 ? '' : 's'}
+                          </span>
+                        )}
                       </>
                     )}
                   </Button>

@@ -1,4 +1,10 @@
 import { supabase } from '@/lib/supabase';
+import {
+  evidenciaStoragePath,
+  isEnsayoImageFile,
+  isEnsayoSr3File,
+  type EnsayoEvidenceUploadResult,
+} from '@/lib/quality/ensayoEvidence';
 import { handleError } from '@/utils/errorHandler';
 import {
   Ensayo,
@@ -55,6 +61,7 @@ export async function createEnsayo(data: {
   observaciones?: string;
   created_by?: string;
   evidencia_fotografica?: File[];
+  evidencia?: { photos?: File[]; machineFiles?: File[] };
   temp_laboratorio_c?: number;
   humedad_relativa_lab?: number;
   capping_type?: string;
@@ -178,36 +185,70 @@ export async function createEnsayo(data: {
 
     const { ensayo } = await response.json();
 
-    // Handle evidence files if provided
-    if (data.evidencia_fotografica && data.evidencia_fotografica.length > 0) {
-      for (const file of data.evidencia_fotografica) {
-        const fileName = `${ensayo.id}_${Date.now()}_${file.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from('evidencia-ensayos')
-          .upload(fileName, file);
+    const photos =
+      data.evidencia?.photos ??
+      (data.evidencia_fotografica?.filter((f) => isEnsayoImageFile(f)) ?? []);
+    const machineFiles =
+      data.evidencia?.machineFiles ??
+      (data.evidencia_fotografica?.filter((f) => isEnsayoSr3File(f)) ?? []);
 
-        if (uploadError) {
-          console.warn('Error uploading evidence file:', uploadError);
-          // Don't throw here, ensayo creation was successful
-        } else {
-          // Create evidence record
-          await supabase
-            .from('evidencias')
-            .insert({
-              ensayo_id: ensayo.id,
-              tipo: 'FOTOGRAFIA',
-              archivo_url: fileName,
-              created_by: userId,
-            });
-        }
-      }
+    let evidenceUpload: EnsayoEvidenceUploadResult | undefined;
+    if (photos.length > 0 || machineFiles.length > 0) {
+      evidenceUpload = await uploadEnsayoEvidencias(ensayo.id, { photos, machineFiles }, userId);
     }
 
-    return ensayo;
+    return { ...ensayo, evidenceUpload };
   } catch (error) {
     handleError(error, 'createEnsayo');
     throw new Error('Error al crear ensayo');
   }
+}
+
+export async function uploadEnsayoEvidencias(
+  ensayoId: string,
+  files: { photos?: File[]; machineFiles?: File[] },
+  userId: string
+): Promise<EnsayoEvidenceUploadResult> {
+  const result: EnsayoEvidenceUploadResult = { uploaded: 0, failed: [] };
+  const queue: { file: File; kind: 'photo' | 'machine' }[] = [
+    ...(files.photos ?? []).map((file) => ({ file, kind: 'photo' as const })),
+    ...(files.machineFiles ?? []).map((file) => ({ file, kind: 'machine' as const })),
+  ];
+
+  for (const { file, kind } of queue) {
+    const path = evidenciaStoragePath(ensayoId, file, kind);
+    const { error: uploadError } = await supabase.storage
+      .from('evidencia-ensayos')
+      .upload(path, file, { upsert: false });
+
+    if (uploadError) {
+      result.failed.push({ name: file.name, error: uploadError.message });
+      continue;
+    }
+
+    const tipoArchivo =
+      file.type ||
+      (kind === 'machine' ? 'application/octet-stream' : 'image/jpeg');
+
+    const { error: dbError } = await supabase.from('evidencias').insert({
+      ensayo_id: ensayoId,
+      path,
+      nombre_archivo: file.name,
+      tipo_archivo: tipoArchivo,
+      tamano_kb: Math.max(1, Math.round(file.size / 1024)),
+      created_by: userId,
+    });
+
+    if (dbError) {
+      console.warn('Error creating evidencia record:', dbError);
+      result.failed.push({ name: file.name, error: dbError.message });
+      continue;
+    }
+
+    result.uploaded += 1;
+  }
+
+  return result;
 }
 
 export async function updateEnsayoById(
