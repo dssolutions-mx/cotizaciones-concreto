@@ -22,6 +22,7 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   ChevronDown,
+  Camera,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatDate } from '@/lib/utils'
@@ -42,6 +43,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { SrFileViewer } from '@/components/quality/SrFileViewer'
+import { PhotoEvidencePicker } from '@/components/quality/PhotoEvidencePicker'
 import { extractSr3MaxForceFromFile } from '@/utils/sr3Parser'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -233,7 +235,8 @@ function NuevoEnsayoContent() {
   const [selectedInstrumentos, setSelectedInstrumentos] = useState<SelectedInstrumento[]>([])
 
   const [muestra, setMuestra] = useState<MuestraWithRelations | null>(null)
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [sr3Files, setSr3Files] = useState<File[]>([])
+  const [photoFiles, setPhotoFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(true)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
@@ -349,8 +352,8 @@ function NuevoEnsayoContent() {
     }
   }
 
-  const handleFilesSelected = async (files: File[]) => {
-    setSelectedFiles(files)
+  const handleSr3Selected = async (files: File[]) => {
+    setSr3Files(files)
     const first = files[0]
     if (first?.name.toLowerCase().endsWith('.sr3')) {
       setSr3Parsing(true)
@@ -384,7 +387,8 @@ function NuevoEnsayoContent() {
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
         observaciones: data.observaciones || '',
-        evidencia_fotografica: selectedFiles.length > 0 ? selectedFiles : [],
+        evidencia_fotografica:
+          photoFiles.length > 0 || sr3Files.length > 0 ? [...photoFiles, ...sr3Files] : [],
         temp_laboratorio_c: data.temp_laboratorio_c,
         humedad_relativa_lab: data.humedad_relativa_lab,
         capping_type: data.capping_type,
@@ -534,7 +538,7 @@ function NuevoEnsayoContent() {
                   </span>
                 </CardTitle>
                 <CardDescription className="text-stone-500 max-lg:text-xs">
-                  Fecha, hora, carga y archivo .sr3 si aplica; luego guarda.
+                  Fecha, hora, carga; opcionalmente archivo .sr3 y/o fotos de evidencia.
                 </CardDescription>
               </CardHeader>
               <CardContent className="max-lg:px-4 max-lg:pb-2">
@@ -642,7 +646,7 @@ function NuevoEnsayoContent() {
                               </div>
                             </FormControl>
                             <p className="text-xs text-stone-500">
-                              Valor máximo registrado por la máquina o leído del archivo .sr3
+                              Valor de ruptura (manual o desde archivo .sr3)
                             </p>
                             <FormMessage />
                           </FormItem>
@@ -696,31 +700,51 @@ function NuevoEnsayoContent() {
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50/50 p-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <FileSpreadsheet className="h-4 w-4 text-stone-600" />
-                          <span className="text-sm font-medium text-stone-800">
-                            Archivo de máquina (.sr3)
-                          </span>
-                          {sr3Parsing && (
-                            <Loader2 className="h-4 w-4 animate-spin text-sky-700 ml-auto" />
-                          )}
+                      <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50/50 p-4 space-y-4">
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Camera className="h-4 w-4 text-stone-600" />
+                            <span className="text-sm font-medium text-stone-800">
+                              Evidencia fotográfica (opcional)
+                            </span>
+                          </div>
+                          <PhotoEvidencePicker
+                            files={photoFiles}
+                            onChange={setPhotoFiles}
+                            maxFiles={5}
+                            disabled={isSubmitting}
+                          />
                         </div>
-                        <FileUploader
-                          accept=".sr3"
-                          maxFiles={5}
-                          maxSize={10 * 1024 * 1024}
-                          onFilesSelected={(files) => void handleFilesSelected(files)}
-                        />
-                        {selectedFiles.length > 0 &&
-                          selectedFiles[0].name.toLowerCase().endsWith('.sr3') && (
+
+                        <div className="border-t border-stone-200 pt-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <FileSpreadsheet className="h-4 w-4 text-stone-600" />
+                            <span className="text-sm font-medium text-stone-800">
+                              Archivo de máquina .sr3 (opcional)
+                            </span>
+                            {sr3Parsing && (
+                              <Loader2 className="h-4 w-4 animate-spin text-sky-700 ml-auto" />
+                            )}
+                          </div>
+                          <p className="text-xs text-stone-500 mb-3">
+                            Si sube un .sr3, la carga de ruptura se puede llenar automáticamente.
+                          </p>
+                          <FileUploader
+                            accept=".sr3"
+                            maxFiles={1}
+                            maxSize={10 * 1024 * 1024}
+                            onFilesSelected={(files) => void handleSr3Selected(files)}
+                          />
+                        {sr3Files.length > 0 &&
+                          sr3Files[0].name.toLowerCase().endsWith('.sr3') && (
                             <div className="mt-4 space-y-2">
                               <p className="text-xs uppercase tracking-wide text-stone-500">
                                 Vista previa
                               </p>
-                              <SrFileViewer file={selectedFiles[0]} />
+                              <SrFileViewer file={sr3Files[0]} />
                             </div>
                           )}
+                        </div>
                       </div>
 
                       <EnsayoInformeFields form={form} />
