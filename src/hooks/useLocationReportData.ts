@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
+import { UBICACIONES_MAP_DISPLAY_CAP } from '@/lib/finanzas/ubicacionesConstants';
 import {
   fetchLocationReport,
   type LocationReportData,
@@ -118,8 +119,10 @@ export function useLocationReportData({
         setData({
           points: [],
           byLocality: [],
+          unlocatedOrders: [],
           summary: {
             ordersWithLocation: 0,
+            ordersWithoutCoordinates: 0,
             totalOrders: 0,
             totalVolume: 0,
             totalAmount: 0,
@@ -138,7 +141,7 @@ export function useLocationReportData({
           administrativeAreas2: [],
           locationDataStatuses: [],
         });
-        setMeta({ totalPoints: 0, mapDisplayCap: 300 });
+        setMeta({ totalPoints: 0, mapDisplayCap: UBICACIONES_MAP_DISPLAY_CAP });
         return;
       }
 

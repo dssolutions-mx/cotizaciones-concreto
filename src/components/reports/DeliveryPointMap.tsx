@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, memo } from 'react';
+import Link from 'next/link';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -157,30 +158,35 @@ function DeliveryPointMapInner({
                 }}
               >
                 <Popup>
-                  <div className="min-w-[180px] text-sm space-y-1">
+                  <div className="min-w-[200px] text-sm space-y-1">
+                    {point.clientName && (
+                      <p className="font-semibold text-stone-900">{point.clientName}</p>
+                    )}
+                    {point.constructionSite && (
+                      <p className="text-stone-600 text-xs">{point.constructionSite}</p>
+                    )}
                     {(point.locality || point.sublocality) && (
-                      <p className="font-semibold text-label-primary">
-                        {[point.locality, point.sublocality]
-                          .filter(Boolean)
-                          .join(', ')}
+                      <p className="text-stone-600">
+                        {[point.locality, point.sublocality].filter(Boolean).join(', ')}
                       </p>
                     )}
                     {point.administrativeArea1 && (
-                      <p className="text-label-secondary">
-                        {point.administrativeArea1}
-                      </p>
+                      <p className="text-stone-500 text-xs">{point.administrativeArea1}</p>
                     )}
-                    <p className="text-label-secondary">
-                      Volumen: {formatNumber(point.volume, 1)} m³
-                    </p>
-                    <p className="text-label-secondary">
-                      Monto: {formatCurrency(point.amount)}
+                    <p className="text-stone-600">
+                      Volumen: {formatNumber(point.volume, 1)} m³ · {formatCurrency(point.amount)}
                     </p>
                     {point.volume > 0 && (
-                      <p className="text-label-secondary">
-                        Precio prom.: {formatCurrency(avgPrice)}/m³
+                      <p className="text-stone-500 text-xs">
+                        {formatCurrency(avgPrice)}/m³
                       </p>
                     )}
+                    <Link
+                      href={`/orders/${point.orderId}`}
+                      className="inline-block mt-1 text-sky-700 hover:underline text-xs font-medium"
+                    >
+                      Ver orden {point.orderNumber ? `#${point.orderNumber}` : ''}
+                    </Link>
                   </div>
                 </Popup>
               </CircleMarker>

@@ -6,8 +6,12 @@ import {
   canAccessFinanzasUbicaciones,
   isPlantLockedFinanzasRole,
 } from '@/lib/finanzas/ubicacionesRouteAuth';
+import {
+  UBICACIONES_MAP_DISPLAY_CAP,
+  UBICACIONES_MAX_RANGE_DAYS,
+} from '@/lib/finanzas/ubicacionesConstants';
 
-export const MAX_RANGE_DAYS = 366;
+export const MAX_RANGE_DAYS = UBICACIONES_MAX_RANGE_DAYS;
 
 function toYyyyMmDd(input: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) {
@@ -134,8 +138,10 @@ export async function POST(request: NextRequest) {
         data: {
           points: [],
           byLocality: [],
+          unlocatedOrders: [],
           summary: {
             ordersWithLocation: 0,
+            ordersWithoutCoordinates: 0,
             totalOrders: 0,
             totalVolume: 0,
             totalAmount: 0,
@@ -154,7 +160,7 @@ export async function POST(request: NextRequest) {
           administrativeAreas2: [],
           locationDataStatuses: [],
         },
-        meta: { startDate, endDate, totalPoints: 0, mapDisplayCap: 300 },
+        meta: { startDate, endDate, totalPoints: 0, mapDisplayCap: UBICACIONES_MAP_DISPLAY_CAP },
       });
     }
 
@@ -185,7 +191,7 @@ export async function POST(request: NextRequest) {
         startDate,
         endDate,
         totalPoints: data.points.length,
-        mapDisplayCap: 300,
+        mapDisplayCap: UBICACIONES_MAP_DISPLAY_CAP,
         export: body.export === true,
       },
     });

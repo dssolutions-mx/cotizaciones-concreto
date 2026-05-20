@@ -1,12 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { format } from 'date-fns';
-import { findProductPrice } from '@/utils/salesDataProcessor';
+import {
+  ORDER_ITEMS_CHUNK_SIZE,
+  REMISIONES_PAGE_SIZE,
+} from '@/lib/finanzas/ubicacionesConstants';
 import {
   orderMatchesLocationFilters,
   singleRelation,
   type LocationDataFilterValue,
   type LocationFilterFields,
 } from '@/lib/finanzas/locationReportFilters';
+import { enrichRemisiones } from '@/services/reports/enrichRemisionPricing';
 
 export interface LocationReportFilter extends LocationFilterFields {
   dateRange: { from: Date; to: Date };
@@ -18,12 +22,31 @@ export interface DeliveryPoint {
   lat: number;
   lng: number;
   orderId: string;
+  orderNumber?: string;
+  clientId?: string;
+  clientName?: string;
+  constructionSite?: string;
+  plantId?: string;
+  plantName?: string;
+  locationDataStatus?: string;
   volume: number;
   amount: number;
   locality?: string;
   sublocality?: string;
   administrativeArea1?: string;
   administrativeArea2?: string;
+}
+
+export interface UnlocatedOrderRow {
+  orderId: string;
+  orderNumber?: string;
+  clientId?: string;
+  clientName?: string;
+  constructionSite?: string;
+  plantName?: string;
+  locationDataStatus: string;
+  volume: number;
+  amount: number;
 }
 
 export interface LocationBreakdownRow {
@@ -39,6 +62,7 @@ export interface LocationBreakdownRow {
 
 export interface LocationReportSummary {
   ordersWithLocation: number;
+  ordersWithoutCoordinates: number;
   totalOrders: number;
   totalVolume: number;
   totalAmount: number;
@@ -48,6 +72,7 @@ export interface LocationReportSummary {
 export interface LocationReportData {
   points: DeliveryPoint[];
   byLocality: LocationBreakdownRow[];
+  unlocatedOrders: UnlocatedOrderRow[];
   summary: LocationReportSummary;
   localities: string[];
   administrativeAreas1: string[];
@@ -68,6 +93,7 @@ export interface LocationReportFacets {
 
 const EMPTY_SUMMARY: LocationReportSummary = {
   ordersWithLocation: 0,
+  ordersWithoutCoordinates: 0,
   totalOrders: 0,
   totalVolume: 0,
   totalAmount: 0,
@@ -76,29 +102,47 @@ const EMPTY_SUMMARY: LocationReportSummary = {
 
 type OrderRow = {
   id: string;
+  order_number?: string | null;
+  construction_site?: string | null;
   delivery_latitude: number | string | null;
   delivery_longitude: number | string | null;
   client_id: string | null;
+  requires_invoice?: boolean | null;
   location_data_status?: string | null;
   order_location_metadata?: unknown;
+  client?: { id: string; business_name: string | null } | { id: string; business_name: string | null }[] | null;
 };
 
 type RemisionRow = {
+  id: string;
   order_id: string | null;
+  plant_id?: string | null;
   volumen_fabricado: number | string | null;
   tipo_remision?: string | null;
   recipe_id?: string | null;
   master_recipe_id?: string | null;
-  recipe?: { recipe_code?: string | null } | null;
+  recipe?: { recipe_code?: string | null; master_recipe_id?: string | null } | null;
+  plant?: {
+    id: string;
+    code?: string | null;
+    name?: string | null;
+    business_unit?: { vat_rate?: number | null } | null;
+  } | null;
   order: OrderRow | OrderRow[] | null;
 };
 
 type OrderAggEntry = {
-  lat: number;
-  lng: number;
+  orderId: string;
+  orderNumber?: string;
+  constructionSite?: string;
+  clientId: string | null;
+  clientName?: string;
+  plantId?: string;
+  plantName?: string;
+  lat?: number;
+  lng?: number;
   volume: number;
   amount: number;
-  clientId: string | null;
   locality?: string;
   sublocality?: string;
   administrativeArea1?: string;
@@ -146,8 +190,7 @@ function countFacetMap(entries: Iterable<[string, number]>): LocationReportFacet
 
 function buildFacets(
   orderEntries: OrderAggEntry[],
-  filters: LocationReportFilter,
-  clientNames: Map<string, string>
+  filters: LocationReportFilter
 ): LocationReportFacets {
   const facetOrders = (partial: Partial<Record<keyof LocationFilterFields | 'clientIds', boolean>>) => {
     const f = filtersExcept(filters, partial);
@@ -158,10 +201,14 @@ function buildFacets(
     );
   };
 
-  const clientCounts = new Map<string, number>();
+  const clientCounts = new Map<string, { name: string; count: number }>();
   for (const e of facetOrders({ clientIds: true })) {
     if (!e.clientId) continue;
-    clientCounts.set(e.clientId, (clientCounts.get(e.clientId) ?? 0) + 1);
+    const prev = clientCounts.get(e.clientId);
+    clientCounts.set(e.clientId, {
+      name: e.clientName || prev?.name || 'Sin nombre',
+      count: (prev?.count ?? 0) + 1,
+    });
   }
 
   const localityCounts = new Map<string, number>();
@@ -179,19 +226,13 @@ function buildFacets(
   const admin1Counts = new Map<string, number>();
   for (const e of facetOrders({ administrativeArea1Filter: true })) {
     if (!e.administrativeArea1) continue;
-    admin1Counts.set(
-      e.administrativeArea1,
-      (admin1Counts.get(e.administrativeArea1) ?? 0) + 1
-    );
+    admin1Counts.set(e.administrativeArea1, (admin1Counts.get(e.administrativeArea1) ?? 0) + 1);
   }
 
   const admin2Counts = new Map<string, number>();
   for (const e of facetOrders({ administrativeArea2Filter: true })) {
     if (!e.administrativeArea2) continue;
-    admin2Counts.set(
-      e.administrativeArea2,
-      (admin2Counts.get(e.administrativeArea2) ?? 0) + 1
-    );
+    admin2Counts.set(e.administrativeArea2, (admin2Counts.get(e.administrativeArea2) ?? 0) + 1);
   }
 
   const statusCounts = new Map<string, number>();
@@ -200,11 +241,7 @@ function buildFacets(
   }
 
   const clients = Array.from(clientCounts.entries())
-    .map(([id, count]) => ({
-      id,
-      name: clientNames.get(id) || 'Sin nombre',
-      count,
-    }))
+    .map(([id, { name, count }]) => ({ id, name, count }))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
   return {
@@ -217,15 +254,118 @@ function buildFacets(
   };
 }
 
+async function fetchRemisionesInRange(
+  supabase: SupabaseClient,
+  formattedStart: string,
+  formattedEnd: string,
+  plantIds?: string[]
+): Promise<RemisionRow[]> {
+  const all: RemisionRow[] = [];
+  let from = 0;
+
+  while (true) {
+    let q = supabase
+      .from('remisiones')
+      .select(
+        `
+          id,
+          order_id,
+          plant_id,
+          volumen_fabricado,
+          tipo_remision,
+          recipe_id,
+          master_recipe_id,
+          recipe:recipes(recipe_code, master_recipe_id),
+          plant:plants(
+            id,
+            code,
+            name,
+            business_unit:business_units(vat_rate)
+          ),
+          order:orders(
+            id,
+            order_number,
+            construction_site,
+            delivery_latitude,
+            delivery_longitude,
+            client_id,
+            requires_invoice,
+            location_data_status,
+            client:clients(id, business_name),
+            order_location_metadata(
+              locality,
+              sublocality,
+              administrative_area_level_1,
+              administrative_area_level_2
+            )
+          )
+        `
+      )
+      .gte('fecha', formattedStart)
+      .lte('fecha', formattedEnd)
+      .not('order_id', 'is', null)
+      .range(from, from + REMISIONES_PAGE_SIZE - 1);
+
+    if (plantIds && plantIds.length > 0) {
+      q = q.in('plant_id', plantIds);
+    } else if (plantIds && plantIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await q;
+    if (error) throw error;
+    const batch = (data || []) as RemisionRow[];
+    all.push(...batch);
+    if (batch.length < REMISIONES_PAGE_SIZE) break;
+    from += REMISIONES_PAGE_SIZE;
+  }
+
+  return all;
+}
+
+async function fetchOrderItemsChunked(
+  supabase: SupabaseClient,
+  orderIds: string[]
+): Promise<unknown[]> {
+  const items: unknown[] = [];
+  for (let i = 0; i < orderIds.length; i += ORDER_ITEMS_CHUNK_SIZE) {
+    const chunk = orderIds.slice(i, i + ORDER_ITEMS_CHUNK_SIZE);
+    const { data, error } = await supabase
+      .from('order_items')
+      .select(`*, quote_details(final_price, recipe_id, master_recipe_id)`)
+      .in('order_id', chunk);
+    if (error) throw error;
+    items.push(...(data || []));
+  }
+  return items;
+}
+
+function entryMatchesDisplayFilters(
+  e: OrderAggEntry,
+  filters: LocationReportFilter
+): boolean {
+  if (!orderMatchesLocationFilters(e.order, filters)) return false;
+  if (!matchesClientFilter(e.clientId, filters.clientIds)) return false;
+
+  const hasCoords = e.lat != null && e.lng != null;
+  const statusFilter = filters.locationDataFilter ?? 'all';
+
+  if (statusFilter === 'none') {
+    return !hasCoords;
+  }
+  if (!hasCoords) return false;
+  if (statusFilter === 'all') return true;
+  return e.locationStatus === statusFilter;
+}
+
 export async function buildLocationReport(
   supabase: SupabaseClient,
   filters: LocationReportFilter
 ): Promise<{ data: LocationReportData; facets: LocationReportFacets }> {
-  const { dateRange, plantIds, clientIds } = filters;
-
   const emptyData: LocationReportData = {
     points: [],
     byLocality: [],
+    unlocatedOrders: [],
     summary: { ...EMPTY_SUMMARY },
     localities: [],
     administrativeAreas1: [],
@@ -233,122 +373,79 @@ export async function buildLocationReport(
     administrativeAreas2: [],
   };
 
-  if (!dateRange?.from || !dateRange?.to) {
-    return {
-      data: emptyData,
-      facets: {
-        clients: [],
-        localities: [],
-        sublocalities: [],
-        administrativeAreas1: [],
-        administrativeAreas2: [],
-        locationDataStatuses: [],
-      },
-    };
+  const emptyFacets: LocationReportFacets = {
+    clients: [],
+    localities: [],
+    sublocalities: [],
+    administrativeAreas1: [],
+    administrativeAreas2: [],
+    locationDataStatuses: [],
+  };
+
+  if (!filters.dateRange?.from || !filters.dateRange?.to) {
+    return { data: emptyData, facets: emptyFacets };
   }
 
-  const formattedStart = format(dateRange.from, 'yyyy-MM-dd');
-  const formattedEnd = format(dateRange.to, 'yyyy-MM-dd');
+  const formattedStart = format(filters.dateRange.from, 'yyyy-MM-dd');
+  const formattedEnd = format(filters.dateRange.to, 'yyyy-MM-dd');
 
-  let remisionesQuery = supabase
-    .from('remisiones')
-    .select(
-      `
-        id,
-        order_id,
-        plant_id,
-        volumen_fabricado,
-        tipo_remision,
-        recipe_id,
-        master_recipe_id,
-        recipe:recipes(recipe_code),
-        order:orders(
-          id,
-          delivery_latitude,
-          delivery_longitude,
-          client_id,
-          location_data_status,
-          order_location_metadata(
-            locality,
-            sublocality,
-            administrative_area_level_1,
-            administrative_area_level_2
-          )
-        )
-      `
-    )
-    .gte('fecha', formattedStart)
-    .lte('fecha', formattedEnd)
-    .not('order_id', 'is', null);
+  const remisionesData = await fetchRemisionesInRange(
+    supabase,
+    formattedStart,
+    formattedEnd,
+    filters.plantIds
+  );
 
-  if (plantIds && plantIds.length > 0) {
-    remisionesQuery = remisionesQuery.in('plant_id', plantIds);
-  } else if (plantIds && plantIds.length === 0) {
-    remisionesQuery = remisionesQuery.eq('id', '00000000-0000-0000-0000-000000000000');
-  }
-
-  const { data: remisionesData, error: remErr } = await remisionesQuery;
-  if (remErr) throw remErr;
-
-  if (!remisionesData || remisionesData.length === 0) {
-    return {
-      data: emptyData,
-      facets: {
-        clients: [],
-        localities: [],
-        sublocalities: [],
-        administrativeAreas1: [],
-        administrativeAreas2: [],
-        locationDataStatuses: [],
-      },
-    };
+  if (remisionesData.length === 0) {
+    return { data: emptyData, facets: emptyFacets };
   }
 
   const orderIds = Array.from(
-    new Set((remisionesData as RemisionRow[]).map((r) => r.order_id).filter(Boolean))
+    new Set(remisionesData.map((r) => r.order_id).filter(Boolean))
   ) as string[];
 
-  const { data: orderItems } = await supabase
-    .from('order_items')
-    .select(`*, quote_details(final_price, recipe_id, master_recipe_id)`)
-    .in('order_id', orderIds);
+  const orderItems = await fetchOrderItemsChunked(supabase, orderIds);
+
+  const ordersById = new Map<string, OrderRow>();
+  for (const rem of remisionesData) {
+    const order = singleRelation(rem.order);
+    if (order?.id) ordersById.set(String(order.id), order);
+  }
+
+  const pricingByRemision = await enrichRemisiones({
+    remisiones: remisionesData as Parameters<typeof enrichRemisiones>[0]['remisiones'],
+    ordersById,
+    orderItems,
+  });
 
   const orderAgg: Record<string, OrderAggEntry> = {};
 
-  for (const rem of remisionesData as RemisionRow[]) {
+  for (const rem of remisionesData) {
     const order = singleRelation(rem.order);
-    if (!order || order.id == null) continue;
-    if (!hasValidCoords(order)) continue;
+    if (!order?.id) continue;
 
-    const meta = singleRelation(order.order_location_metadata as never);
+    const pricing = pricingByRemision.get(String(rem.id));
+    const amount = pricing?.subtotal ?? 0;
     const volume = Number(rem.volumen_fabricado) || 0;
+    const meta = singleRelation(order.order_location_metadata as never);
+    const client = singleRelation(order.client);
+    const plant = rem.plant;
+    const hasCoords = hasValidCoords(order);
 
-    const recipeCode = rem.recipe?.recipe_code;
-    const productCode =
-      rem.tipo_remision === 'BOMBEO'
-        ? 'SER002'
-        : rem.tipo_remision === 'VACÍO DE OLLA' || recipeCode === 'SER001'
-          ? 'SER001'
-          : recipeCode || 'PRODUCTO';
-    const unitPrice = findProductPrice(
-      productCode,
-      order.id,
-      rem.recipe_id,
-      orderItems || [],
-      undefined,
-      undefined,
-      rem.master_recipe_id
-    );
-    const amount = unitPrice * volume;
-
-    const key = order.id;
+    const key = String(order.id);
     if (!orderAgg[key]) {
       orderAgg[key] = {
-        lat: Number(order.delivery_latitude),
-        lng: Number(order.delivery_longitude),
+        orderId: key,
+        orderNumber: order.order_number ?? undefined,
+        constructionSite: order.construction_site ?? undefined,
+        clientId: order.client_id,
+        clientName: client?.business_name ?? undefined,
+        plantId: plant?.id ?? rem.plant_id ?? undefined,
+        plantName: plant?.name ?? plant?.code ?? undefined,
+        lat: hasCoords ? Number(order.delivery_latitude) : undefined,
+        lng: hasCoords ? Number(order.delivery_longitude) : undefined,
         volume: 0,
         amount: 0,
-        clientId: order.client_id,
         locality: meta?.locality ?? undefined,
         sublocality: meta?.sublocality ?? undefined,
         administrativeArea1: meta?.administrative_area_level_1 ?? undefined,
@@ -362,30 +459,13 @@ export async function buildLocationReport(
   }
 
   const allEntries = Object.values(orderAgg);
-  const clientIdsForNames = Array.from(
-    new Set(allEntries.map((e) => e.clientId).filter(Boolean))
-  ) as string[];
+  const facets = buildFacets(allEntries, filters);
 
-  const clientNames = new Map<string, string>();
-  if (clientIdsForNames.length > 0) {
-    const { data: clients } = await supabase
-      .from('clients')
-      .select('id, business_name')
-      .in('id', clientIdsForNames);
-    for (const c of clients || []) {
-      clientNames.set(c.id, c.business_name || 'Sin nombre');
-    }
-  }
+  const displayEntries = allEntries.filter((e) => entryMatchesDisplayFilters(e, filters));
 
-  const facets = buildFacets(allEntries, filters, clientNames);
-
-  const filteredEntries = allEntries.filter(
-    (e) =>
-      orderMatchesLocationFilters(e.order, filters) &&
-      matchesClientFilter(e.clientId, clientIds)
-  );
-
+  const showUnlocatedOnly = filters.locationDataFilter === 'none';
   const points: DeliveryPoint[] = [];
+  const unlocatedOrders: UnlocatedOrderRow[] = [];
   const byLocalityMap = new Map<string, LocationBreakdownRow>();
   const localitiesSet = new Set<string>();
   const admin1Set = new Set<string>();
@@ -395,11 +475,40 @@ export async function buildLocationReport(
   let totalVolume = 0;
   let totalAmount = 0;
 
-  for (const agg of filteredEntries) {
+  for (const agg of displayEntries) {
+    totalVolume += agg.volume;
+    totalAmount += agg.amount;
+
+    const hasCoords = agg.lat != null && agg.lng != null;
+
+    if (showUnlocatedOnly || !hasCoords) {
+      if (!hasCoords) {
+        unlocatedOrders.push({
+          orderId: agg.orderId,
+          orderNumber: agg.orderNumber,
+          clientId: agg.clientId ?? undefined,
+          clientName: agg.clientName,
+          constructionSite: agg.constructionSite,
+          plantName: agg.plantName,
+          locationDataStatus: agg.locationStatus,
+          volume: agg.volume,
+          amount: agg.amount,
+        });
+      }
+      continue;
+    }
+
     points.push({
-      lat: agg.lat,
-      lng: agg.lng,
-      orderId: agg.order.id,
+      lat: agg.lat!,
+      lng: agg.lng!,
+      orderId: agg.orderId,
+      orderNumber: agg.orderNumber,
+      clientId: agg.clientId ?? undefined,
+      clientName: agg.clientName,
+      constructionSite: agg.constructionSite,
+      plantId: agg.plantId,
+      plantName: agg.plantName,
+      locationDataStatus: agg.locationStatus,
       volume: agg.volume,
       amount: agg.amount,
       locality: agg.locality,
@@ -407,8 +516,6 @@ export async function buildLocationReport(
       administrativeArea1: agg.administrativeArea1,
       administrativeArea2: agg.administrativeArea2,
     });
-    totalVolume += agg.volume;
-    totalAmount += agg.amount;
 
     if (agg.locality) localitiesSet.add(agg.locality);
     if (agg.administrativeArea1) admin1Set.add(agg.administrativeArea1);
@@ -441,16 +548,19 @@ export async function buildLocationReport(
     .map((r) => ({ ...r, avgPricePerM3: r.volume > 0 ? r.amount / r.volume : 0 }))
     .sort((a, b) => b.volume - a.volume);
 
-  const totalOrdersInRange = new Set(
-    (remisionesData as RemisionRow[]).map((r) => r.order_id).filter(Boolean)
-  ).size;
+  unlocatedOrders.sort((a, b) => b.volume - a.volume);
+
+  const ordersWithLocation = allEntries.filter((e) => e.lat != null && e.lng != null).length;
+  const ordersWithoutCoordinates = allEntries.filter((e) => e.lat == null || e.lng == null).length;
 
   const data: LocationReportData = {
     points,
     byLocality,
+    unlocatedOrders,
     summary: {
-      ordersWithLocation: points.length,
-      totalOrders: totalOrdersInRange,
+      ordersWithLocation,
+      ordersWithoutCoordinates,
+      totalOrders: allEntries.length,
       totalVolume,
       totalAmount,
       avgPricePerM3: totalVolume > 0 ? totalAmount / totalVolume : 0,

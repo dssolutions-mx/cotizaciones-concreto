@@ -28,8 +28,10 @@ export class LocationReportService {
       return {
         points: [],
         byLocality: [],
+        unlocatedOrders: [],
         summary: {
           ordersWithLocation: 0,
+          ordersWithoutCoordinates: 0,
           totalOrders: 0,
           totalVolume: 0,
           totalAmount: 0,
