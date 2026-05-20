@@ -8,6 +8,7 @@ import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MESSAGES } from '@/lib/commercial/workflow';
+import { cn } from '@/lib/utils';
 
 interface ClientDetailNewSitePanelProps {
   clientId: string;
@@ -15,6 +16,7 @@ interface ClientDetailNewSitePanelProps {
   onSiteAdded: () => void;
   /** Ocultar mientras se edita otra obra en la misma vista */
   hidden?: boolean;
+  className?: string;
 }
 
 /**
@@ -25,6 +27,7 @@ export function ClientDetailNewSitePanel({
   isClientApproved,
   onSiteAdded,
   hidden = false,
+  className,
 }: ClientDetailNewSitePanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [formKey, setFormKey] = useState(0);
@@ -35,7 +38,10 @@ export function ClientDetailNewSitePanel({
 
   if (!isClientApproved) {
     return (
-      <CommercialWorkflowCallout className="mt-6" title="Obras no disponibles hasta autorizar el cliente">
+      <CommercialWorkflowCallout
+        className={cn('mt-6', className)}
+        title="Obras no disponibles hasta autorizar el cliente"
+      >
         <p>{MESSAGES.clientPendingShort}</p>
         <p className="mt-2">
           Cuando Finanzas apruebe al cliente, podrá registrar obras aquí con búsqueda de ubicación y mapa.
@@ -46,7 +52,7 @@ export function ClientDetailNewSitePanel({
 
   if (!expanded) {
     return (
-      <div className="mt-6">
+      <div className={cn('mt-6', className)}>
         <RoleProtectedButton
           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
           onClick={() => {
@@ -65,7 +71,7 @@ export function ClientDetailNewSitePanel({
   }
 
   return (
-    <Card className="mt-6 border border-dashed shadow-sm">
+    <Card className={cn('mt-6 border border-dashed shadow-sm', className)}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
         <div>
           <CardTitle className="text-base font-semibold">Nueva obra</CardTitle>

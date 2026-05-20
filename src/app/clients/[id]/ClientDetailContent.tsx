@@ -10,6 +10,7 @@ import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import PaymentForm from '@/components/clients/PaymentForm';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
 import { ClientDetailNewSitePanel } from '@/components/clients/ClientDetailNewSitePanel';
+import { isApproved as isClientApprovedStatus } from '@/lib/commercial/workflow';
 import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
 import { Button } from "@/components/ui/button";
 import {
@@ -2086,10 +2087,38 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
       <Card>
          <CardHeader>
-           <CardTitle>Obras Registradas</CardTitle>
-           <CardDescription>Lista de obras asociadas a este cliente. Las obras inactivas no aparecen al crear cotizaciones o pedidos. Las obras requieren aprobación en Finanzas para uso en cotizaciones y pedidos.</CardDescription>
+           <CardTitle>Obras registradas</CardTitle>
+           <CardDescription>
+             {client && isClientApprovedStatus((client as { approval_status?: string }).approval_status)
+               ? 'Registre obras con ubicación en mapa. Cada obra debe aprobarse en Finanzas antes de usarse en cotizaciones y pedidos.'
+               : 'Autorice primero al cliente en Finanzas; después podrá registrar obras desde aquí.'}
+           </CardDescription>
          </CardHeader>
-         <CardContent>
+         <CardContent className="space-y-6">
+            {client ? (
+              <ClientDetailNewSitePanel
+                clientId={clientId}
+                isClientApproved={isClientApprovedStatus(
+                  (client as { approval_status?: string }).approval_status
+                )}
+                onSiteAdded={loadData}
+                hidden={!!editingSite}
+                className="!mt-0"
+              />
+            ) : null}
+
+            {editingSite && (
+              <EditSiteForm
+                site={editingSite}
+                clientId={clientId}
+                onSiteUpdated={() => {
+                  setEditingSite(null);
+                  loadData();
+                }}
+                onCancel={() => setEditingSite(null)}
+              />
+            )}
+
             {sites.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {sites.map((site) => {
@@ -2181,26 +2210,13 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                   );
                 })}
               </div>
+            ) : client && isClientApprovedStatus((client as { approval_status?: string }).approval_status) ? (
+              <p className="text-sm text-muted-foreground">
+                Aún no hay obras. Use <strong>Agregar nueva obra</strong> arriba para registrar la primera.
+              </p>
             ) : (
-              <p className="text-sm text-gray-500">No hay obras registradas para este cliente.</p>
+              <p className="text-sm text-muted-foreground">No hay obras registradas para este cliente.</p>
             )}
-            {editingSite && (
-              <EditSiteForm 
-                site={editingSite} 
-                clientId={clientId} 
-                onSiteUpdated={() => {
-                  setEditingSite(null);
-                  loadData();
-                }}
-                onCancel={() => setEditingSite(null)}
-              />
-            )}
-            <ClientDetailNewSitePanel
-              clientId={clientId}
-              isClientApproved={(client as { approval_status?: string })?.approval_status === 'APPROVED'}
-              onSiteAdded={loadData}
-              hidden={!!editingSite}
-            />
          </CardContent>
       </Card>
 
