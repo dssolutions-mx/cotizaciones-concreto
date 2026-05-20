@@ -456,11 +456,11 @@ export default function NewClientPage() {
           </section>
 
           <section className={cn(commercialPanelClass)}>
-            <h2 className={cn(commercialSectionTitleClass, \'mb-4\')}>Obras</h2>
+            <h2 className={cn(commercialSectionTitleClass, 'mb-4')}>Obras</h2>
             <CommercialWorkflowCallout variant="info" title="Obras después de autorizar el cliente">
               <p className="mb-2">{COMMERCIAL_WORKFLOW_STEPS}</p>
               <p>
-                Las obras se registran desde el detalle del cliente, una vez que Finanzas haya{\' \'}
+                Las obras se registran desde el detalle del cliente, una vez que Finanzas haya{' '}
                 <strong>autorizado</strong> al cliente. Cada obra también requiere autorización antes de
                 usarse en cotizaciones.
               </p>
