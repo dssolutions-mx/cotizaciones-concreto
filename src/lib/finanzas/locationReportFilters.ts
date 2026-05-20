@@ -2,6 +2,13 @@
 
 export type LocationDataFilterValue = 'all' | 'enriched' | 'coordinates_only' | 'none';
 
+export const LOCATION_DATA_STATUS_LABELS: Record<LocationDataFilterValue, string> = {
+  all: 'Todos (con coordenadas)',
+  enriched: 'Enriquecido (geocodificado)',
+  coordinates_only: 'Solo coordenadas',
+  none: 'Sin coordenadas en mapa',
+};
+
 export interface LocationFilterFields {
   localityFilter?: string[];
   sublocalityFilter?: string[];

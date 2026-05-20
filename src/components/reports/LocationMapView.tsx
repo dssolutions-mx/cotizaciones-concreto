@@ -4,6 +4,7 @@ import React, { memo } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { MapPin } from 'lucide-react';
+import { UBICACIONES_MAP_DISPLAY_CAP } from '@/lib/finanzas/ubicacionesConstants';
 import type { DeliveryPoint } from '@/services/locationReportService';
 import type { MapMetric } from './DeliveryPointMap';
 
@@ -29,7 +30,7 @@ function LocationMapViewInner({
   className = '',
   showFitButton = true,
   totalPoints,
-  mapDisplayCap = 300,
+  mapDisplayCap = UBICACIONES_MAP_DISPLAY_CAP,
 }: LocationMapViewProps) {
   const total = totalPoints ?? points.length;
   const truncated = total > mapDisplayCap;

@@ -18,9 +18,18 @@ import {
 } from '@/components/ui/popover';
 import { DateRangePickerWithPresets } from '@/components/ui/date-range-picker-with-presets';
 import { DateRange } from 'react-day-picker';
-import { MapPin, Building2, MapPinned, ChevronDown, Calendar, Loader2 } from 'lucide-react';
+import { MapPin, Building2, MapPinned, ChevronDown, Calendar, Loader2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { LocationDataFilterValue } from '@/lib/finanzas/locationReportFilters';
+import {
+  LOCATION_DATA_STATUS_LABELS,
+  type LocationDataFilterValue,
+} from '@/lib/finanzas/locationReportFilters';
+import type { LocationReportFacets } from '@/lib/finanzas/locationReportCore';
+import {
+  finanzasHubCardClass,
+  finanzasHubFilterLabelClass,
+  finanzasHubOutlineNeutralClass,
+} from '@/components/finanzas/finanzasHubUi';
 interface LocationReportFiltersProps {
   dateRange: DateRange | undefined;
   onDateRangeChange: (range: DateRange | undefined) => void;
@@ -45,6 +54,8 @@ interface LocationReportFiltersProps {
   onAdministrativeArea2FilterChange: (v: string[]) => void;
   locationDataFilter: LocationDataFilterValue;
   onLocationDataFilterChange: (v: LocationDataFilterValue) => void;
+  facets?: LocationReportFacets | null;
+  onResetFilters?: () => void;
   className?: string;
 }
 
@@ -56,6 +67,7 @@ function MultiSelectPopover<T extends string>({
   displayValue,
   icon: Icon,
   disabled,
+  countByValue,
 }: {
   options: T[];
   selected: T[];
@@ -64,6 +76,7 @@ function MultiSelectPopover<T extends string>({
   displayValue?: (v: T) => string;
   icon?: React.ElementType;
   disabled?: boolean;
+  countByValue?: Record<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const render = displayValue || ((v: T) => v);
@@ -138,7 +151,10 @@ function MultiSelectPopover<T extends string>({
                   <span className="text-primary-foreground text-xs">✓</span>
                 )}
               </div>
-              <span className="text-sm truncate">{render(opt)}</span>
+              <span className="text-sm truncate flex-1">{render(opt)}</span>
+              {countByValue?.[opt] != null ? (
+                <span className="text-xs text-stone-400 tabular-nums">{countByValue[opt]}</span>
+              ) : null}
             </div>
           ))}
         </div>
@@ -146,13 +162,6 @@ function MultiSelectPopover<T extends string>({
     </Popover>
   );
 }
-
-const LOCATION_STATUS_LABELS: Record<string, string> = {
-  all: 'Todos',
-  enriched: 'Enriquecido (geocodificado)',
-  coordinates_only: 'Solo coordenadas',
-  none: 'Sin ubicación',
-};
 
 export default function LocationReportFilters({
   dateRange,
@@ -178,8 +187,25 @@ export default function LocationReportFilters({
   onAdministrativeArea2FilterChange,
   locationDataFilter,
   onLocationDataFilterChange,
+  facets,
+  onResetFilters,
   className,
 }: LocationReportFiltersProps) {
+  const localityCounts = Object.fromEntries(
+    (facets?.localities ?? []).map((f) => [f.value, f.count])
+  );
+  const sublocalityCounts = Object.fromEntries(
+    (facets?.sublocalities ?? []).map((f) => [f.value, f.count])
+  );
+  const admin1Counts = Object.fromEntries(
+    (facets?.administrativeAreas1 ?? []).map((f) => [f.value, f.count])
+  );
+  const admin2Counts = Object.fromEntries(
+    (facets?.administrativeAreas2 ?? []).map((f) => [f.value, f.count])
+  );
+  const clientCounts = Object.fromEntries(
+    (facets?.clients ?? []).map((f) => [f.id, f.count])
+  );
   const handlePlantToggle = (id: string) => {
     if (selectedPlantIds.includes(id)) {
       onPlantIdsChange(selectedPlantIds.filter((x) => x !== id));
@@ -196,17 +222,29 @@ export default function LocationReportFilters({
         : `${selectedPlantIds.length} plantas`;
 
   return (
-    <Card className={cn('border-border', className)}>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
+    <Card className={cn(finanzasHubCardClass, className)}>
+      <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base font-semibold text-stone-900 flex items-center gap-2">
           <MapPin className="h-4 w-4" />
-          Filtros de ubicación
+          Filtros
         </CardTitle>
+        {onResetFilters ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={finanzasHubOutlineNeutralClass}
+            onClick={onResetFilters}
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+            Limpiar
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="space-y-2">
-            <Label className="text-sm flex items-center gap-2">
+            <Label className={finanzasHubFilterLabelClass}>
               <Calendar className="h-3.5 w-3.5" />
               Rango de fechas
             </Label>
@@ -217,7 +255,7 @@ export default function LocationReportFilters({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm flex items-center gap-2">
+            <Label className={finanzasHubFilterLabelClass}>
               <Building2 className="h-3.5 w-3.5" />
               Planta(s)
             </Label>
@@ -276,20 +314,25 @@ export default function LocationReportFilters({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Cliente(s)</Label>
+            <Label className={finanzasHubFilterLabelClass}>Cliente(s)</Label>
             <MultiSelectPopover
               options={clients.map((c) => c.id)}
               selected={clientIds}
               onChange={onClientIdsChange}
               placeholder="Todos los clientes"
-              displayValue={(id) => clients.find((c) => c.id === id)?.name || id}
+              displayValue={(id) => {
+                const c = clients.find((x) => x.id === id);
+                const n = clientCounts[id];
+                return c ? `${c.name}${n != null ? ` (${n})` : ''}` : id;
+              }}
               icon={clientsLoading ? Loader2 : Building2}
               disabled={clientsLoading}
+              countByValue={clientCounts}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm flex items-center gap-2">
+            <Label className={finanzasHubFilterLabelClass}>
               <MapPinned className="h-3.5 w-3.5" />
               Ciudad (localidad)
             </Label>
@@ -298,57 +341,68 @@ export default function LocationReportFilters({
               selected={localityFilter}
               onChange={onLocalityFilterChange}
               placeholder="Todas las ciudades"
+              countByValue={localityCounts}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Colonia</Label>
+            <Label className={finanzasHubFilterLabelClass}>Colonia</Label>
             <MultiSelectPopover
               options={sublocalities}
               selected={sublocalityFilter}
               onChange={onSublocalityFilterChange}
               placeholder="Todas las colonias"
+              countByValue={sublocalityCounts}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Estado</Label>
+            <Label className={finanzasHubFilterLabelClass}>Estado</Label>
             <MultiSelectPopover
               options={administrativeAreas1}
               selected={administrativeArea1Filter}
               onChange={onAdministrativeArea1FilterChange}
               placeholder="Todos los estados"
+              countByValue={admin1Counts}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Municipio</Label>
+            <Label className={finanzasHubFilterLabelClass}>Municipio</Label>
             <MultiSelectPopover
               options={administrativeAreas2}
               selected={administrativeArea2Filter}
               onChange={onAdministrativeArea2FilterChange}
               placeholder="Todos los municipios"
+              countByValue={admin2Counts}
             />
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Calidad de ubicación</Label>
+            <Label className={finanzasHubFilterLabelClass}>Calidad de ubicación</Label>
             <Select
               value={locationDataFilter}
               onValueChange={(v) =>
                 onLocationDataFilterChange(v as LocationDataFilterValue)
               }
             >
-              <SelectTrigger>
+              <SelectTrigger className="h-9 sm:h-8 min-h-[2.25rem]">
                 <SelectValue placeholder="Todos" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{LOCATION_STATUS_LABELS.all}</SelectItem>
-                <SelectItem value="enriched">{LOCATION_STATUS_LABELS.enriched}</SelectItem>
-                <SelectItem value="coordinates_only">
-                  {LOCATION_STATUS_LABELS.coordinates_only}
-                </SelectItem>
-                <SelectItem value="none">{LOCATION_STATUS_LABELS.none}</SelectItem>
+                {(Object.keys(LOCATION_DATA_STATUS_LABELS) as LocationDataFilterValue[]).map(
+                  (key) => {
+                    const facetCount = facets?.locationDataStatuses.find(
+                      (s) => s.value === key
+                    )?.count;
+                    return (
+                      <SelectItem key={key} value={key}>
+                        {LOCATION_DATA_STATUS_LABELS[key]}
+                        {facetCount != null ? ` (${facetCount})` : ''}
+                      </SelectItem>
+                    );
+                  }
+                )}
               </SelectContent>
             </Select>
           </div>
