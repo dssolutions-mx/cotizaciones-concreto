@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from '@/lib/utils';
+import { finanzasHubCardClass } from '@/components/finanzas/finanzasHubUi';
 
 interface KPICardProps {
   title: string;
@@ -27,31 +28,29 @@ export default function KPICard({
   valueClassName,
 }: KPICardProps) {
   return (
-    <Card className={cn("h-full", className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        {icon && <div className="h-4 w-4 text-muted-foreground">{icon}</div>}
+    <Card className={cn(finanzasHubCardClass, 'h-full', className)}>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 pt-4 sm:px-5">
+        <CardTitle className="text-xs sm:text-sm font-medium text-stone-600">{title}</CardTitle>
+        {icon ? <div className="h-4 w-4 text-stone-500 shrink-0">{icon}</div> : null}
       </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold mb-1">
+      <CardContent className="px-4 pb-4 sm:px-5 sm:pb-5">
+        <div className="text-lg sm:text-xl font-semibold font-mono tabular-nums text-stone-900 mb-1">
           <span className={valueClassName}>{value}</span>
         </div>
-        {description && (
-          <p className="text-xs text-muted-foreground">{description}</p>
-        )}
-        {trend && (
-          <div className="flex items-center mt-1">
+        {description ? <p className="text-xs text-stone-500">{description}</p> : null}
+        {trend ? (
+          <div className="flex items-center mt-1.5">
             <span
               className={cn(
-                "text-xs font-medium",
-                trend.isPositive ? "text-green-600" : "text-red-600"
+                'text-xs font-medium',
+                trend.isPositive ? 'text-emerald-700' : 'text-red-700'
               )}
             >
-              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}%
+              {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%
             </span>
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
-} 
+}

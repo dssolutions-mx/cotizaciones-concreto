@@ -48,10 +48,15 @@ export default async function DailyReportsPage({
 
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
-      <div className="container mx-auto p-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <h1 className="text-3xl font-bold tracking-tight">Reporte Diario (Ventas y Pagos)</h1>
-          <div className="flex items-center gap-2">
+      <div className="min-w-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5 sm:mb-6">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-stone-900">
+              Reporte diario
+            </h1>
+            <p className="text-sm text-stone-500 mt-1">Ventas y pagos por planta</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             {tab === 'ventas' ? (
               <DatePickerWithButton currentDate={dateParam} />
             ) : (

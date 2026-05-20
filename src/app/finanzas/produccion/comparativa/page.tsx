@@ -299,7 +299,7 @@ export default function ComparativaProduccion() {
 
   if (loading) {
     return (
-      <div className="container mx-auto p-6">
+      <div className="min-w-0 space-y-5 sm:space-y-6">
         <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -313,7 +313,7 @@ export default function ComparativaProduccion() {
   }
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="min-w-0 space-y-5 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>

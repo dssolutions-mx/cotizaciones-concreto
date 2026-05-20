@@ -126,7 +126,7 @@ export default async function CreditValidationDashboard() {
   ).length;
 
   return (
-    <div className="container mx-auto py-6 px-4 max-w-7xl">
+    <div className="min-w-0 max-w-7xl mx-auto space-y-5 sm:space-y-6">
       {/* Breadcrumb Navigation */}
       <div className="mb-6">
         <Breadcrumb>
@@ -151,20 +151,20 @@ export default async function CreditValidationDashboard() {
 
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-          <TrendingUp className="h-8 w-8 text-blue-600" />
-          Validación de Crédito
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-stone-900 flex items-center gap-2 sm:gap-3">
+          <TrendingUp className="h-6 w-6 sm:h-7 sm:w-7 text-stone-600 shrink-0" />
+          Validación de crédito
         </h1>
-        <p className="text-muted-foreground mt-1">
+        <p className="text-sm text-stone-500 mt-1">
           Panel de control para la gestión y validación de créditos de clientes
         </p>
       </div>
 
       {/* Summary Stats */}
       <Suspense fallback={<LoadingSkeleton />}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           {/* Total Exposure */}
-          <Card className="shadow-md">
+          <Card className="rounded-lg border border-stone-200 bg-white shadow-sm">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
@@ -172,7 +172,7 @@ export default async function CreditValidationDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-foreground">
+              <p className="text-lg sm:text-xl font-semibold font-mono tabular-nums text-stone-900">
                 {formatCurrency(totalExposure)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
@@ -182,7 +182,7 @@ export default async function CreditValidationDashboard() {
           </Card>
 
           {/* Clients Over Limit */}
-          <Card className="shadow-md border-red-200">
+          <Card className="rounded-lg border border-red-200 bg-red-50/50 shadow-sm">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-red-600" />
@@ -190,13 +190,13 @@ export default async function CreditValidationDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-red-600">{clientsOverLimit}</p>
+              <p className="text-lg sm:text-xl font-semibold font-mono tabular-nums text-red-800">{clientsOverLimit}</p>
               <p className="text-xs text-muted-foreground mt-1">Clientes exceden su límite</p>
             </CardContent>
           </Card>
 
           {/* High Utilization */}
-          <Card className="shadow-md border-orange-200">
+          <Card className="rounded-lg border border-amber-200 bg-amber-50/50 shadow-sm">
             <CardHeader className="pb-3">
               <CardDescription className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-orange-600" />
@@ -204,7 +204,7 @@ export default async function CreditValidationDashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-orange-600">{highUtilizationCount}</p>
+              <p className="text-lg sm:text-xl font-semibold font-mono tabular-nums text-amber-800">{highUtilizationCount}</p>
               <p className="text-xs text-muted-foreground mt-1">≥70% de utilización</p>
             </CardContent>
           </Card>
