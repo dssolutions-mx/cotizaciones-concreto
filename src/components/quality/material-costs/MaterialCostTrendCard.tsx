@@ -69,6 +69,10 @@ export type MaterialCostTrendCardProps = {
   lastSource: CostSource | null;
   hasAlert?: boolean;
   plantId: string;
+  receiptCountInPeriod?: number;
+  pendingReviewInPeriod?: number;
+  missingLandedInPeriod?: number;
+  lastCarriedForward?: boolean;
 };
 
 export default function MaterialCostTrendCard({
@@ -84,6 +88,10 @@ export default function MaterialCostTrendCard({
   lastSource,
   hasAlert,
   plantId,
+  receiptCountInPeriod = 0,
+  pendingReviewInPeriod = 0,
+  missingLandedInPeriod = 0,
+  lastCarriedForward = false,
 }: MaterialCostTrendCardProps) {
   const tokens = getCatTokens(effectiveCategory);
   const detailHref = `/quality/materiales-costo/${materialId}?plant_id=${encodeURIComponent(plantId)}`;
@@ -100,6 +108,17 @@ export default function MaterialCostTrendCard({
       : pctChange > 0
         ? 'text-red-600'
         : 'text-emerald-600';
+
+  const dataFlags: string[] = [];
+  if (pendingReviewInPeriod > 0) {
+    dataFlags.push(`${pendingReviewInPeriod} pend. revisión`);
+  }
+  if (missingLandedInPeriod > 0) {
+    dataFlags.push(`${missingLandedInPeriod} sin landed`);
+  }
+  if (lastCarriedForward && receiptCountInPeriod === 0 && lastSource === 'receipt') {
+    dataFlags.push('Precio prolongado');
+  }
 
   return (
     <div
@@ -182,6 +201,14 @@ export default function MaterialCostTrendCard({
               </span>
             )}
           </div>
+          {dataFlags.length > 0 && (
+            <p className="text-[10px] text-amber-700 mt-1.5 leading-snug">{dataFlags.join(' · ')}</p>
+          )}
+          {receiptCountInPeriod > 0 && (
+            <p className="text-[10px] text-stone-400 mt-0.5">
+              {receiptCountInPeriod} recepción{receiptCountInPeriod !== 1 ? 'es' : ''} en período
+            </p>
+          )}
         </div>
 
         {sparkline.length > 1 ? (

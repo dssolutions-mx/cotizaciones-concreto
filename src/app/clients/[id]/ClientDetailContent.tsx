@@ -9,6 +9,8 @@ import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import PaymentForm from '@/components/clients/PaymentForm';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
+import { ClientDetailNewSitePanel } from '@/components/clients/ClientDetailNewSitePanel';
+import { isApproved as isClientApprovedStatus } from '@/lib/commercial/workflow';
 import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
 import { Button } from "@/components/ui/button";
 import {
@@ -57,6 +59,13 @@ import { ClientPortalUsersSection } from '@/components/admin/client-portal/Clien
 import { ClientPaymentManagerModal } from '@/components/finanzas/ClientPaymentManagerModal';
 import { ExportClientResearchButton } from '@/components/finanzas/ExportClientResearchButton';
 import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
+import CommercialTabRail from '@/components/commercial/CommercialTabRail';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -86,33 +95,8 @@ const LocationSearchBox = dynamic(
   { ssr: false }
 );
 
-// Custom Switch component since @/components/ui/switch doesn't exist
-const Switch = ({ checked, onCheckedChange, disabled }: { 
-  checked: boolean; 
-  onCheckedChange: (checked: boolean) => void; 
-  disabled?: boolean 
-}) => {
-  return (
-    <button
-      role="switch"
-      aria-checked={checked}
-      onClick={() => !disabled && onCheckedChange(!checked)}
-      disabled={disabled}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors 
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 
-                 ${checked ? 'bg-green-500' : 'bg-gray-200'} 
-                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out
-                   ${checked ? 'translate-x-5' : 'translate-x-0'}`}
-      />
-    </button>
-  );
-};
-
-// Componente para nuevos sitios (solo visible si el cliente está autorizado)
-function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: { 
+// REMOVED_INLINE_NEW_SITE_FORM_MARKER
+function NewSiteForm_REMOVED({ clientId, isClientApproved, onSiteAdded }: { 
   clientId: string; 
   isClientApproved: boolean; 
   onSiteAdded: () => void;
@@ -212,9 +196,9 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
   }
 
   return (
-    <div className="mt-6 bg-gray-50 p-4 rounded-md">
+    <div className={cn(commercialPanelClass, 'mt-6')}>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Nueva Obra</h3>
+        <h3 className="text-lg font-medium text-stone-900">Nueva Obra</h3>
         <Button
           type="button"
           variant="ghost"
@@ -351,7 +335,6 @@ function NewSiteForm({ clientId, isClientApproved, onSiteAdded }: {
     </div>
   );
 }
-
 // Componente para editar sitios existentes
 function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: ConstructionSite, clientId: string, onSiteUpdated: () => void, onCancel: () => void }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -425,9 +408,9 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
   };
 
   return (
-    <div className="mt-6 bg-gray-50 p-4 rounded-md">
+    <div className={cn(commercialPanelClass, 'mt-6')}>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">Editar Obra: {site.name}</h3>
+        <h3 className="text-lg font-medium text-stone-900">Editar Obra: {site.name}</h3>
         <Button
           type="button"
           variant="ghost"
@@ -2121,8 +2104,8 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
-      <Card className="overflow-x-auto">
+    <div className="space-y-6 min-w-0">
+      <Card className={cn(commercialPanelClass, 'overflow-x-auto shadow-sm')}>
         <CardHeader>
           <div className="flex justify-between items-start">
             <div className="space-y-1">
@@ -2223,18 +2206,17 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             balances={balances}
           />
           <Tabs defaultValue="payments" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="payments">Pagos</TabsTrigger>
-              <TabsTrigger value="adjustments">Ajustes de Saldo</TabsTrigger>
-              <RoleProtectedButton
-                allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
-                asChild
-              >
-                <TabsTrigger value="portal-users">Usuarios del Portal</TabsTrigger>
-              </RoleProtectedButton>
-            </TabsList>
-            
-            <TabsContent value="payments">
+            <CommercialTabRail
+              tabs={[
+                { id: 'payments', label: 'Pagos' },
+                { id: 'adjustments', label: 'Ajustes de Saldo' },
+                { id: 'portal-users', label: 'Usuarios del Portal' },
+              ]}
+              className="mb-4"
+            />
+
+            <TabsContent value="payments" className="mt-0">
+              <div className={cn(commercialPanelClass)}>
               <div className="flex justify-end mb-3">
                 <ClientPaymentManagerModal
                   clientId={clientId}
@@ -2245,20 +2227,22 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 />
               </div>
               <ClientPaymentsList payments={payments} />
+              </div>
             </TabsContent>
-            
-            <TabsContent value="adjustments">
-              <BalanceAdjustmentHistory clientId={clientId} />
+
+            <TabsContent value="adjustments" className="mt-0">
+              <div className={cn(commercialPanelClass)}>
+                <BalanceAdjustmentHistory clientId={clientId} />
+              </div>
             </TabsContent>
-            
-            <RoleProtectedButton
-              allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
-              asChild
-            >
-              <TabsContent value="portal-users">
-                <ClientPortalUsersSection clientId={clientId} />
-              </TabsContent>
-            </RoleProtectedButton>
+
+            <TabsContent value="portal-users" className="mt-0">
+              <RoleProtectedSection allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} action="gestionar usuarios del portal">
+                <div className={cn(commercialPanelClass)}>
+                  <ClientPortalUsersSection clientId={clientId} />
+                </div>
+              </RoleProtectedSection>
+            </TabsContent>
           </Tabs>
         </div>
       </div>
@@ -2324,12 +2308,40 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         </section>
       )}
 
-      <Card>
+      <Card className={cn(commercialPanelClass, 'shadow-sm')}>
          <CardHeader>
-           <CardTitle>Obras Registradas</CardTitle>
-           <CardDescription>Lista de obras asociadas a este cliente. Las obras inactivas no aparecen al crear cotizaciones o pedidos. Las obras requieren aprobación en Finanzas para uso en cotizaciones y pedidos.</CardDescription>
+           <CardTitle className="text-stone-900">Obras registradas</CardTitle>
+           <CardDescription>
+             {client && isClientApprovedStatus((client as { approval_status?: string }).approval_status)
+               ? 'Registre obras con ubicación en mapa. Cada obra debe aprobarse en Finanzas antes de usarse en cotizaciones y pedidos.'
+               : 'Autorice primero al cliente en Finanzas; después podrá registrar obras desde aquí.'}
+           </CardDescription>
          </CardHeader>
-         <CardContent>
+         <CardContent className="space-y-6">
+            {client ? (
+              <ClientDetailNewSitePanel
+                clientId={clientId}
+                isClientApproved={isClientApprovedStatus(
+                  (client as { approval_status?: string }).approval_status
+                )}
+                onSiteAdded={loadData}
+                hidden={!!editingSite}
+                className="!mt-0"
+              />
+            ) : null}
+
+            {editingSite && (
+              <EditSiteForm
+                site={editingSite}
+                clientId={clientId}
+                onSiteUpdated={() => {
+                  setEditingSite(null);
+                  loadData();
+                }}
+                onCancel={() => setEditingSite(null)}
+              />
+            )}
+
             {sites.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {sites.map((site) => {
@@ -2421,31 +2433,19 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                   );
                 })}
               </div>
+            ) : client && isClientApprovedStatus((client as { approval_status?: string }).approval_status) ? (
+              <p className="text-sm text-muted-foreground">
+                Aún no hay obras. Use <strong>Agregar nueva obra</strong> arriba para registrar la primera.
+              </p>
             ) : (
-              <p className="text-sm text-gray-500">No hay obras registradas para este cliente.</p>
+              <p className="text-sm text-muted-foreground">No hay obras registradas para este cliente.</p>
             )}
-            {editingSite && (
-              <EditSiteForm 
-                site={editingSite} 
-                clientId={clientId} 
-                onSiteUpdated={() => {
-                  setEditingSite(null);
-                  loadData();
-                }}
-                onCancel={() => setEditingSite(null)}
-              />
-            )}
-            <NewSiteForm 
-              clientId={clientId} 
-              isClientApproved={(client as { approval_status?: string })?.approval_status === 'APPROVED'} 
-              onSiteAdded={loadData} 
-            />
          </CardContent>
       </Card>
 
-      <Card className="overflow-x-auto">
+      <Card className={cn(commercialPanelClass, 'overflow-x-auto shadow-sm')}>
         <CardHeader>
-          <CardTitle>Pedidos Relacionados</CardTitle>
+          <CardTitle className="text-stone-900">Pedidos Relacionados</CardTitle>
           <CardDescription>Lista de pedidos asociados a este cliente</CardDescription>
         </CardHeader>
         <CardContent>

@@ -9,9 +9,5 @@ export default async function CarteraCxCPage() {
   const serviceClient = createServiceClient();
   const clientBalances = await financialService.getClientBalancesForTable(serviceClient);
 
-  return (
-    <div className="container mx-auto p-6">
-      <CarteraCxCDashboard clientBalances={clientBalances} />
-    </div>
-  );
+  return <CarteraCxCDashboard clientBalances={clientBalances} />;
 }

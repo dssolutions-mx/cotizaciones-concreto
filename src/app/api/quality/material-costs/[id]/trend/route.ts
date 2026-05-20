@@ -6,6 +6,8 @@ import {
   buildMaterialCostSeries,
   defaultReceiptRange,
   effectiveMaterialCategory,
+  buildPriceJustification,
+  entriesToExceptionRows,
   entriesToReceiptRows,
   entryInDateWindow,
   listPricesToPoints,
@@ -96,9 +98,13 @@ export async function GET(request: NextRequest, { params }: Params) {
       pendingReviewCount,
     } = buildMaterialCostSeries(listPoints, entries, granularity, from, to);
     const summary = summarizeSeries(series);
+    const lastActualBucket =
+      actualBuckets.length > 0 ? actualBuckets[actualBuckets.length - 1] : null;
+    const justification = buildPriceJustification(summary, lastActualBucket);
     const receipts = entriesToReceiptRows(
       entries.filter((e) => entryInDateWindow(e, from, to))
     );
+    const exceptions = entriesToExceptionRows(entries, from, to);
 
     return NextResponse.json({
       material: {
@@ -114,6 +120,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       listPoints,
       receipts,
       summary,
+      justification,
+      exceptions,
       missingLandedInPeriod: missingLandedCount,
       pendingReviewInPeriod: pendingReviewCount,
       cutover: MATERIAL_COST_CUTOVER,

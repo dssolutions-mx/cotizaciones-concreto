@@ -55,6 +55,10 @@ export async function createEnsayo(data: {
   observaciones?: string;
   created_by?: string;
   evidencia_fotografica?: File[];
+  temp_laboratorio_c?: number;
+  humedad_relativa_lab?: number;
+  capping_type?: string;
+  capping_norma?: string;
 }) {
   try {
     // Get current user (getUser validates with auth server; getSession does not)
@@ -143,6 +147,10 @@ export async function createEnsayo(data: {
       // porcentaje_cumplimiento: data.porcentaje_cumplimiento ?? 0,
       observaciones: data.observaciones || null,
       tiempo_desde_carga,
+      temp_laboratorio_c: data.temp_laboratorio_c ?? null,
+      humedad_relativa_lab: data.humedad_relativa_lab ?? null,
+      capping_type: data.capping_type ?? null,
+      capping_norma: data.capping_norma ?? null,
       created_by: userId,
       created_at: new Date().toISOString(),
     };

@@ -11,7 +11,7 @@ import ScheduleOrderForm from '@/components/orders/ScheduleOrderForm';
 import RejectedOrdersTab from '@/components/orders/RejectedOrdersTab';
 import OrdersCalendarView from '@/components/orders/OrdersCalendarView';
 import OrdersNavigation from '@/components/orders/OrdersNavigation';
-import { GlassDashboardLayout } from '@/components/orders/GlassDashboardLayout';
+import CommercialWorkspaceLayout from '@/components/commercial/CommercialWorkspaceLayout';
 import { OrdersErrorBoundary } from '@/components/orders/OrdersErrorBoundary';
 import { OrderStatus, CreditStatus } from '@/types/orders';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
@@ -333,8 +333,11 @@ function OrdersContent() {
 
   return (
     <OrdersErrorBoundary>
-      <GlassDashboardLayout
-        header={
+      <CommercialWorkspaceLayout
+        title="Pedidos"
+        subtitle="Listado, calendario, validación y programación"
+        maxWidth="1600"
+        stickyHeaderExtra={
           <OrdersNavigation
             currentTab={currentTab}
             estadoFilter={estadoFilter}
@@ -352,7 +355,7 @@ function OrdersContent() {
         }
       >
         {renderAllTabs}
-      </GlassDashboardLayout>
+      </CommercialWorkspaceLayout>
     </OrdersErrorBoundary>
   );
 }

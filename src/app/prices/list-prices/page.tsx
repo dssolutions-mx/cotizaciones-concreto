@@ -60,6 +60,7 @@ export default function ListPricesPage() {
   const [families, setFamilies]   = useState<PricingFamily[]>([]);
   const [listPrices, setListPrices] = useState<ListPriceRow[]>([]);
   const [performance, setPerformance] = useState<PerformanceRow[]>([]);
+  const [insightsRefreshedAt, setInsightsRefreshedAt] = useState<string | null>(null);
 
   // ── Cost cache (lazy per family) ─────────────────────────────────────────
   const [anchorCostByFamily, setAnchorCostByFamily] = useState<Map<string, number>>(new Map());
@@ -164,13 +165,20 @@ export default function ListPricesPage() {
 
       const lpIds = loadedLp.map((l) => l.id);
       if (lpIds.length > 0) {
-        const { data: perfData } = await supabase
-          .from('list_price_performance')
-          .select('list_price_id, market_fit, vw_avg_floor_delta, sub_floor_volume_pct, vw_delta_zone_ab, vw_delta_zone_c, vw_delta_zone_d, vw_delta_zone_e')
-          .in('list_price_id', lpIds);
+        const [{ data: perfData }, { data: refreshedAt }] = await Promise.all([
+          supabase
+            .from('list_price_performance')
+            .select(
+              'list_price_id, master_recipe_id, market_fit, vw_avg_floor_delta, vw_avg_price, sub_floor_volume_pct, sub_floor_quotes, sub_floor_volume_m3, total_quotes, total_volume_m3, volume_zone_ab_m3, volume_zone_c_m3, volume_zone_d_m3, volume_zone_e_m3, vw_delta_zone_ab, vw_delta_zone_c, vw_delta_zone_d, vw_delta_zone_e',
+            )
+            .in('list_price_id', lpIds),
+          supabase.rpc('get_list_price_performance_refreshed_at'),
+        ]);
         setPerformance((perfData ?? []) as PerformanceRow[]);
+        setInsightsRefreshedAt(typeof refreshedAt === 'string' ? refreshedAt : null);
       } else {
         setPerformance([]);
+        setInsightsRefreshedAt(null);
       }
 
       const lpByMasterTemp = new Map<string, ListPriceRow>();
@@ -486,7 +494,7 @@ export default function ListPricesPage() {
           </Suspense>
           <TabsList className="grid w-full max-w-sm grid-cols-2">
             <TabsTrigger value="workspace">Gestión de Precios</TabsTrigger>
-            <TabsTrigger value="insights">Insights KPI</TabsTrigger>
+            <TabsTrigger value="insights">Análisis de mercado</TabsTrigger>
           </TabsList>
 
           {/* ── Tab: Gestión de Precios ─────────────────────────────── */}
@@ -665,6 +673,8 @@ export default function ListPricesPage() {
               familiesByStrength={familiesByStrength}
               currentLpByMaster={currentLpByMaster}
               perfByLpId={perfByLpId}
+              plantId={currentPlant.id}
+              refreshedAt={insightsRefreshedAt}
             />
           </TabsContent>
         </Tabs>

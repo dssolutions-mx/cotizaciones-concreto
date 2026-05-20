@@ -45,6 +45,12 @@ import { SrFileViewer } from '@/components/quality/SrFileViewer'
 import { extractSr3MaxForceFromFile } from '@/utils/sr3Parser'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { DatePicker } from '@/components/ui/date-picker'
+import EnsayoInformeFields from '@/components/quality/ensayos/EnsayoInformeFields'
+import {
+  EquipoUtilizadoPicker,
+  type EquipoUtilizadoPickerHandle,
+  type SelectedInstrumento,
+} from '@/components/quality/muestreos/EquipoUtilizadoPicker'
 
 const ensayoFormSchema = z.object({
   muestra_id: z.string().min(1, 'El ID de la muestra es requerido'),
@@ -65,6 +71,10 @@ const ensayoFormSchema = z.object({
     .min(0)
     .max(9999.99, 'El porcentaje no puede exceder 9999.99%'),
   observaciones: z.string().optional(),
+  temp_laboratorio_c: z.number().optional(),
+  humedad_relativa_lab: z.number().optional(),
+  capping_type: z.string().optional(),
+  capping_norma: z.string().optional(),
 })
 
 type EnsayoFormValues = z.infer<typeof ensayoFormSchema>
@@ -219,6 +229,8 @@ function NuevoEnsayoContent() {
   const searchParams = useSearchParams()
   const { profile } = useAuthBridge()
   const cargaInputRef = useRef<HTMLInputElement>(null)
+  const equipoPickerRef = useRef<EquipoUtilizadoPickerHandle>(null)
+  const [selectedInstrumentos, setSelectedInstrumentos] = useState<SelectedInstrumento[]>([])
 
   const [muestra, setMuestra] = useState<MuestraWithRelations | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
@@ -364,7 +376,7 @@ function NuevoEnsayoContent() {
         return
       }
 
-      await createEnsayo({
+      const ensayo = await createEnsayo({
         muestra_id: data.muestra_id,
         fecha_ensayo: data.fecha_ensayo,
         hora_ensayo: data.hora_ensayo,
@@ -373,7 +385,31 @@ function NuevoEnsayoContent() {
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
         observaciones: data.observaciones || '',
         evidencia_fotografica: selectedFiles.length > 0 ? selectedFiles : [],
+        temp_laboratorio_c: data.temp_laboratorio_c,
+        humedad_relativa_lab: data.humedad_relativa_lab,
+        capping_type: data.capping_type,
+        capping_norma: data.capping_norma,
       })
+
+      const instrumentos = equipoPickerRef.current?.getSelected() ?? selectedInstrumentos
+      if (instrumentos.length > 0 && ensayo?.id) {
+        const snapRes = await fetch(`/api/ema/ensayos/${ensayo.id}/instrumentos`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instrumentos }),
+        })
+        if (!snapRes.ok) {
+          const snapJson = await snapRes.json().catch(() => ({}))
+          const msg =
+            typeof snapJson.error === 'string'
+              ? snapJson.error
+              : 'No se pudo guardar el equipo utilizado (EMA)'
+          setSubmitError(
+            `El ensayo se guardó, pero el equipo no se registró: ${msg}. Agrega la prensa desde el detalle del ensayo.`
+          )
+          return
+        }
+      }
 
       setSubmitSuccess(true)
       setTimeout(() => {
@@ -686,6 +722,21 @@ function NuevoEnsayoContent() {
                             </div>
                           )}
                       </div>
+
+                      <EnsayoInformeFields form={form} />
+
+                      {(muestra.plant_id ?? muestra.muestreo?.plant_id) && (
+                        <div className="rounded-lg border border-stone-200 bg-white p-4">
+                          <p className="text-sm font-medium text-stone-800 mb-3">
+                            Equipo de ensayo (prensa, calibrador)
+                          </p>
+                          <EquipoUtilizadoPicker
+                            ref={equipoPickerRef}
+                            plantId={(muestra.plant_id ?? muestra.muestreo?.plant_id)!}
+                            onChange={setSelectedInstrumentos}
+                          />
+                        </div>
+                      )}
 
                       <FormField
                         control={form.control}

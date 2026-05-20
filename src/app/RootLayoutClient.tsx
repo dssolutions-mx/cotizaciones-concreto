@@ -65,6 +65,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BotIdClientGate } from '@/components/security/BotIdClientGate';
 import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
+import { getDashboardNavLabel } from '@/lib/auth/role-home';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -344,6 +345,7 @@ const QUALITY_SECTIONS: QualitySection[] = [
     items: [
       { title: 'Muestreos', href: '/quality/muestreos', IconComponent: Beaker },
       { title: 'Ensayos', href: '/quality/ensayos', IconComponent: FlaskConical },
+      { title: 'Informes emitidos', href: '/quality/informes', IconComponent: Clipboard },
       { title: 'Control en obra', href: '/quality/site-checks/new', IconComponent: ClipboardCheck },
       { title: 'Reportes', href: '/quality/reportes', IconComponent: Clipboard, excludeRestrictedPlants: true },
     ],
@@ -359,6 +361,7 @@ const QUALITY_SECTIONS: QualitySection[] = [
       { title: 'Conjuntos', href: '/quality/conjuntos', IconComponent: BookOpen },
       { title: 'Plantillas', href: '/quality/plantillas', IconComponent: ClipboardList },
       { title: 'Paquetes', href: '/quality/paquetes', IconComponent: Package },
+      { title: 'Incertidumbre', href: '/quality/ema/incertidumbre', IconComponent: FlaskConical },
     ],
   },
   {
@@ -458,23 +461,42 @@ type NavItemDef = {
 const COMERCIAL_ROLES = ['CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'];
 
 const CANONICAL_NAV_ITEMS: NavItemDef[] = [
-  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/dashboard', label: 'Dashboard', IconComponent: Home, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/orders', label: 'Pedidos', IconComponent: Package, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE'] },
   { href: '/masters/recipes', label: 'Recetas', IconComponent: FileText, roles: ['SALES_AGENT'] },
   { href: '/comercial', label: 'Comercial', IconComponent: Briefcase, roles: COMERCIAL_ROLES },
   { href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse, roles: ['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'CREDIT_VALIDATOR'] },
-  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
-  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS'] },
+  { href: '/rh', label: 'RH', IconComponent: Users, roles: ['DOSIFICADOR', 'CREDIT_VALIDATOR', 'EXTERNAL_SALES_AGENT', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
+  { href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign, roles: ['CREDIT_VALIDATOR', 'SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'] },
   { href: '/quality', label: 'Calidad', IconComponent: Beaker, roles: ['PLANT_MANAGER', 'EXECUTIVE', 'QUALITY_TEAM'] },
   { href: '/admin', label: 'Administración', IconComponent: UserCog, roles: ['EXECUTIVE'] },
 ];
 
 function getNavItemsForRole(role: string | undefined): Array<{ href: string; label: string; IconComponent: React.ElementType }> {
   if (!role) return [];
-  const items = CANONICAL_NAV_ITEMS
-    .filter((item) => item.roles.includes(role))
-    .map(({ href, label, IconComponent }) => ({ href, label, IconComponent }));
-  // Remove top-level Recipes when Quality section exists (recetas in quality submenu)
+  const dashboardLabel = getDashboardNavLabel(role);
+  let items = CANONICAL_NAV_ITEMS.filter((item) => item.roles.includes(role)).map(
+    ({ href, label, IconComponent }) => ({
+      href,
+      label: href === '/dashboard' ? dashboardLabel : label,
+      IconComponent,
+    })
+  );
+
+  // Dosificador: production hub first
+  if (role === 'DOSIFICADOR') {
+    const production = items.find((i) => i.href === '/production-control');
+    const rest = items.filter((i) => i.href !== '/production-control');
+    if (production) items = [production, ...rest];
+  }
+
+  // Administrativo (RH): remisiones hub first via RH entry
+  if (role === 'ADMINISTRATIVE') {
+    const rh = items.find((i) => i.href === '/rh');
+    const rest = items.filter((i) => i.href !== '/rh');
+    if (rh) items = [rh, ...rest];
+  }
+
   const hasQuality = items.some((i) => i.href === '/quality');
   if (hasQuality) {
     return items.filter((i) => i.href !== '/masters/recipes');

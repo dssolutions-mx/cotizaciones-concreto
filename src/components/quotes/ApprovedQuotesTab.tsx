@@ -9,6 +9,15 @@ import { useRouter } from 'next/navigation';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { features } from '@/config/featureFlags';
 import { toast } from 'sonner';
+import CommercialResponsiveTable from '@/components/commercial/CommercialResponsiveTable';
+import {
+  commercialCardClass,
+  commercialHubLinkOutlineClass,
+  commercialHubOutlineNeutralClass,
+  commercialHubPrimaryButtonClass,
+  commercialPanelClass,
+} from '@/components/commercial/commercialHubUi';
+import { cn } from '@/lib/utils';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
@@ -775,10 +784,10 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
     <div className="space-y-6">
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-sky-700" />
         </div>
       ) : paginatedQuotes.length === 0 ? (
-        <div className="flex justify-center items-center h-64">
+        <div className={cn(commercialPanelClass, 'flex justify-center items-center h-64 text-stone-600')}>
           <p>{filterDateFrom || filterDateTo ? 'No se encontraron cotizaciones con los filtros aplicados' : 'No hay cotizaciones aprobadas'}</p>
         </div>
       ) : (
@@ -795,7 +804,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar por cliente, número de cotización u obra..."
-                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-10 pr-10 py-2 min-h-11 border border-stone-300 rounded-lg bg-white text-stone-900 focus:ring-2 focus:ring-sky-700/30 focus:border-sky-700"
               />
               {searchQuery && (
                 <button
@@ -814,11 +823,12 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               <div className="flex flex-wrap gap-2 items-center">
                 <button
                   onClick={() => setShowFilters(!showFilters)}
-                  className={`inline-flex items-center justify-center px-4 py-2 border rounded-lg shadow-sm text-sm font-medium transition-all ${
+                  className={cn(
+                    'inline-flex items-center justify-center px-4 py-2 min-h-11 border rounded-lg text-sm font-medium transition-all',
                     showFilters
-                      ? 'bg-blue-50 border-blue-300 text-blue-700'
-                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
+                      ? 'bg-sky-50 border-sky-300 text-sky-900'
+                      : commercialHubOutlineNeutralClass
+                  )}
                 >
                   <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -848,7 +858,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
 
               {/* Date Range Filter */}
               {showFilters && (
-                <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                <div className="p-4 bg-stone-50 rounded-lg border border-stone-200">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Fecha Aprobación Desde</label>
@@ -888,9 +898,85 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-            <table className="w-full text-sm text-left text-gray-600">
-              <thead className="text-xs font-semibold text-gray-700 uppercase bg-gradient-to-r from-gray-100 to-gray-50 border-b border-gray-200">
+          <CommercialResponsiveTable
+            rows={paginatedQuotes}
+            emptyMessage="No hay cotizaciones aprobadas"
+            renderMobileCard={(quote) => (
+              <div key={quote.id} className={cn(commercialCardClass, 'p-4 space-y-3')}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-semibold text-stone-900">#{quote.quote_number}</p>
+                    <p className="text-sm text-stone-600 mt-0.5">
+                      {quote.client?.business_name}
+                      {quote.client?.client_code ? ` (${quote.client.client_code})` : ''}
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-stone-900 shrink-0">
+                    ${quote.total_amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-stone-600">
+                  <div>
+                    <dt className="text-stone-500">Planta</dt>
+                    <dd className="font-medium text-stone-800">{quote.plant?.name ?? quote.plant?.code ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-500">Creada por</dt>
+                    <dd className="font-medium text-stone-800">{quote.creator_initials}</dd>
+                  </div>
+                  <div className="col-span-2">
+                    <dt className="text-stone-500">Obra</dt>
+                    <dd className="font-medium text-stone-800">{quote.construction_site}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-500">Creación</dt>
+                    <dd>{new Date(quote.created_at).toLocaleDateString()}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-stone-500">Aprobación</dt>
+                    <dd>{new Date(quote.approval_date).toLocaleDateString()}</dd>
+                  </div>
+                </dl>
+                <div className="flex flex-col gap-2 pt-2 border-t border-stone-200">
+                  <button
+                    type="button"
+                    onClick={() => createOrder(quote)}
+                    className={cn('min-h-11 w-full rounded-md text-sm font-medium', commercialHubPrimaryButtonClass)}
+                  >
+                    Crear pedido
+                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openQuoteDetails(quote)}
+                      className={cn('flex-1 min-h-10 rounded-md text-sm font-medium', commercialHubOutlineNeutralClass)}
+                    >
+                      Detalles
+                    </button>
+                    <PDFDownloadLink
+                      key={`pdf-mobile-${quote.id}-${vatToggles[quote.id] || false}`}
+                      document={<QuotePDF quote={quote} showVAT={vatToggles[quote.id] || false} />}
+                      fileName={`cotizacion-${quote.quote_number}.pdf`}
+                      className={cn('flex-1 min-h-10 rounded-md text-sm font-medium inline-flex items-center justify-center', commercialHubLinkOutlineClass)}
+                    >
+                      {({ loading }) => (loading ? 'PDF…' : 'PDF')}
+                    </PDFDownloadLink>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-stone-600">
+                    <input
+                      type="checkbox"
+                      checked={vatToggles[quote.id] || false}
+                      onChange={() => toggleVAT(quote.id)}
+                      className="h-4 w-4 rounded border-stone-300 text-sky-700 focus:ring-sky-700/30"
+                    />
+                    Incluir IVA en PDF
+                  </label>
+                </div>
+              </div>
+            )}
+            desktopTable={
+              <table className="w-full text-sm text-left text-stone-600">
+              <thead className="text-xs font-semibold text-stone-700 uppercase bg-stone-50 border-b border-stone-200">
                 <tr>
                   <th className="px-4 py-3">Número de Cotización</th>
                   <th className="px-4 py-3">Cliente</th>
@@ -903,9 +989,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-stone-200">
                 {paginatedQuotes.map((quote) => (
-                  <tr key={quote.id} className="hover:bg-blue-50 transition-colors">
+                  <tr key={quote.id} className="hover:bg-stone-50 transition-colors">
                     <td className="px-4 py-3">{quote.quote_number}</td>
                     <td className="px-4 py-3">
                       {quote.client?.business_name} ({quote.client?.client_code})
@@ -923,51 +1009,46 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     <td className="px-4 py-3">
                       {new Date(quote.approval_date).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold">
-                      ${quote.total_amount.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    <td className="px-4 py-3 text-right font-semibold text-stone-900">
+                      ${quote.total_amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-2">
-                        <button 
+                        <button
+                          type="button"
                           onClick={() => openQuoteDetails(quote)}
-                          className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-sm font-medium transition-colors"
+                          className={cn('px-3 py-1.5 rounded text-sm font-medium', commercialHubLinkOutlineClass)}
                           title="Ver detalles"
                         >
                           Detalles
                         </button>
                         <button
+                          type="button"
                           onClick={() => createOrder(quote)}
-                          className="px-3 py-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded text-sm font-medium transition-colors"
-                          title="Crear orden"
+                          className={cn('px-3 py-1.5 rounded text-sm font-medium', commercialHubPrimaryButtonClass)}
+                          title="Crear pedido"
                         >
-                          Orden
+                          Crear pedido
                         </button>
                         <div className="flex items-center gap-2">
                           <PDFDownloadLink
                             key={`pdf-${quote.id}-${vatToggles[quote.id] || false}`}
                             document={<QuotePDF quote={quote} showVAT={vatToggles[quote.id] || false} />}
                             fileName={`cotizacion-${quote.quote_number}.pdf`}
-                            className="px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-sm font-medium transition-colors inline-flex items-center gap-1"
+                            className={cn('px-3 py-1.5 rounded text-sm font-medium inline-flex items-center gap-1', commercialHubLinkOutlineClass)}
                             title="Descargar PDF"
                           >
-                            {({ blob, url, loading, error }) => (
-                              <>
-                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                </svg>
-                                {loading ? 'Generando...' : 'PDF'}
-                              </>
-                            )}
+                            {({ loading }) => (loading ? 'Generando...' : 'PDF')}
                           </PDFDownloadLink>
-                          <div className="flex items-center gap-2 border-l border-gray-200 pl-2">
+                          <div className="flex items-center gap-2 border-l border-stone-200 pl-2">
                             <input
                               type="checkbox"
                               id={`showVAT-${quote.id}`}
                               checked={vatToggles[quote.id] || false}
                               onChange={() => toggleVAT(quote.id)}
-                              className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              className="h-4 w-4 rounded border-stone-300 text-sky-700 focus:ring-sky-700/30 cursor-pointer"
                             />
-                            <label htmlFor={`showVAT-${quote.id}`} className="text-xs font-medium text-gray-700 cursor-pointer">
+                            <label htmlFor={`showVAT-${quote.id}`} className="text-xs font-medium text-stone-700 cursor-pointer">
                               IVA
                             </label>
                           </div>
@@ -978,25 +1059,28 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 ))}
               </tbody>
             </table>
-          </div>
+            }
+          />
 
           {/* Pagination */}
           <div className="flex justify-between items-center mt-4">
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-stone-600">
               Mostrando {(page - 1) * quotesPerPage + 1} - {Math.min(page * quotesPerPage, totalQuotes)} de {totalQuotes} cotizaciones
             </span>
             <div className="flex space-x-2">
-              <button 
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
+              <button
+                type="button"
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                 disabled={page === 1}
-                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                className={cn('px-4 py-2 min-h-10 rounded disabled:opacity-50', commercialHubOutlineNeutralClass)}
               >
                 Anterior
               </button>
-              <button 
-                onClick={() => setPage(prev => (prev * quotesPerPage < totalQuotes ? prev + 1 : prev))}
+              <button
+                type="button"
+                onClick={() => setPage((prev) => (prev * quotesPerPage < totalQuotes ? prev + 1 : prev))}
                 disabled={page * quotesPerPage >= totalQuotes}
-                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
+                className={cn('px-4 py-2 min-h-10 rounded disabled:opacity-50', commercialHubOutlineNeutralClass)}
               >
                 Siguiente
               </button>

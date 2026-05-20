@@ -12,7 +12,7 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase';
 import { CalendarIcon, MixerHorizontalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { GlassCard } from '@/components/ui/GlassCard';
+import { commercialPanelClass } from '@/components/commercial/commercialHubUi';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { cn } from '@/lib/utils';
 import {
@@ -572,7 +572,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                 {hourSlot.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <motion.div
+                    <div
                       key={order.id}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -583,7 +583,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       whileHover={{ scale: 1.02, y: -2 }}
                       whileTap={{ scale: 0.98 }}
                       className={cn(
-                        'block p-3 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md',
+                        'block p-3 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm',
                         bg, border, text
                       )}
                     >
@@ -670,7 +670,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })}
                 {hourSlot.orders.length === 0 && (
@@ -706,7 +706,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           ))}
         </div>
       </div>
-      <div className="grid grid-cols-7 divide-x divide-gray-200 h-[calc(100vh-200px)] overflow-y-auto">
+      <div className="grid grid-cols-7 divide-x divide-gray-200 min-h-[420px] max-h-[min(70vh,720px)] overflow-y-auto">
         {calendarDays.map((day, index) => (
           <div
             key={index}
@@ -714,12 +714,12 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               isToday(day.date) ? 'bg-blue-50' : ''
             }`}
           >
-            <div className="space-y-2 overflow-y-auto max-h-[calc(100vh-250px)]">
+            <div className="space-y-2 overflow-y-auto max-h-[min(65vh,640px)]">
               {day.orders.length > 0 ? (
                 day.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <motion.div
+                    <div
                       key={order.id}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -730,7 +730,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       whileHover={{ scale: 1.05, y: -2 }}
                       whileTap={{ scale: 0.95 }}
                       className={cn(
-                        'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-sm',
+                        'block p-2 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm text-sm',
                         bg, border, text
                       )}
                     >
@@ -818,7 +818,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </motion.div>
+                    </div>
                   );
                 })
               ) : (
@@ -864,7 +864,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               {day.orders.map(order => {
                 const { bg, border, text } = getStatusBadgeColors(order.order_status);
                 return (
-                  <motion.div
+                  <div
                     key={order.id}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -875,7 +875,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     className={cn(
-                      'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-xs',
+                      'block p-2 rounded-lg border border-stone-200 bg-white hover:bg-stone-50 cursor-pointer shadow-sm text-xs',
                       bg, border, text
                     )}
                   >
@@ -929,7 +929,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         {(order as any).hasPumpService ? ` • B: ${(order as any).pumpVolume} m³` : ''}
                       </span>
                     </div>
-                  </motion.div>
+                  </div>
                 );
               })}
             </div>
@@ -941,19 +941,19 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   return (
     <>
-      <div className="glass-thick rounded-2xl shadow-2xl overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
-        <div className="sticky top-0 z-20 glass-thick border-b border-white/20 shadow-lg">
+      <div className={cn(commercialPanelClass, 'overflow-hidden mb-6 p-0')} ref={calendarRef} tabIndex={0}>
+        <div className="border-b border-stone-200 bg-stone-50/50">
         <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-3">
-          <h2 className="text-xl font-semibold text-gray-800">
+          <h2 className="text-xl font-semibold text-stone-900">
             {getViewTitle()}
           </h2>
           
           <div className="flex flex-wrap gap-3">
             {/* View type selector */}
-            <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-xs">
+            <div className="inline-flex rounded-lg border border-stone-200 bg-stone-100/80 p-0.5">
               <button
                 onClick={() => handleViewTypeChange('day')}
-                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'day' ? 'bg-systemGreen text-white shadow-inner' : 'hover:bg-gray-200 text-gray-700'} transition-colors duration-150`}
+                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'day' ? 'bg-stone-900 text-white shadow-sm' : 'text-stone-700 hover:bg-white/80'} transition-colors duration-150`}
                 title="Vista diaria (atajos: D)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -963,7 +963,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               </button>
               <button
                 onClick={() => handleViewTypeChange('week')}
-                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'week' ? 'bg-systemGreen text-white shadow-inner' : 'hover:bg-gray-200 text-gray-700'} transition-colors duration-150`}
+                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'week' ? 'bg-stone-900 text-white shadow-sm' : 'text-stone-700 hover:bg-white/80'} transition-colors duration-150`}
                 title="Vista semanal (atajos: W)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -973,7 +973,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               </button>
               <button
                 onClick={() => handleViewTypeChange('month')}
-                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'month' ? 'bg-systemGreen text-white shadow-inner' : 'hover:bg-gray-200 text-gray-700'} transition-colors duration-150`}
+                className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'month' ? 'bg-stone-900 text-white shadow-sm' : 'text-stone-700 hover:bg-white/80'} transition-colors duration-150`}
                 title="Vista mensual (atajos: M)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">

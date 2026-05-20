@@ -10,7 +10,6 @@ import { features } from '@/config/featureFlags';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
-import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
 import { calculateDistanceInfo } from '@/lib/services/distanceService';
 import {
   getAvailableProducts,
@@ -40,13 +39,26 @@ import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback, useDebounce } from 'use-debounce';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
 import { usePlantContext } from '@/contexts/PlantContext';
-import ClientCreationForm from '@/components/clients/ClientCreationForm';
-import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import ClientCreationForm, { type ClientCreatedPayload } from '@/components/clients/ClientCreationForm';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import {
+  COMMERCIAL_WORKFLOW_STEPS,
+  GOVERNANCE_CLIENTS_PATH,
+  MESSAGES,
+  isApproved,
+} from '@/lib/commercial/workflow';
+import { ConstructionSiteDialog } from '@/components/clients/ConstructionSiteDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import {
+  commercialHubPrimaryButtonClass,
+  commercialHubOutlineNeutralClass,
+  commercialCardClass,
+} from '@/components/commercial/commercialHubUi';
 
 interface Client {
   id: string;
@@ -506,7 +518,6 @@ export default function QuoteBuilder() {
   const [showCreateSiteDialog, setShowCreateSiteDialog] = useState(false);
   const [breakdownDialogProductIndex, setBreakdownDialogProductIndex] = useState<number | null>(null);
   const [clientSites, setClientSites] = useState<any[]>([]);
-  const [enableMapForSite, setEnableMapForSite] = useState(false);
   const [siteCoordinates, setSiteCoordinates] = useState<{lat: number | null, lng: number | null}>({
     lat: null,
     lng: null
@@ -928,6 +939,11 @@ export default function QuoteBuilder() {
       return false;
     }
 
+    if (!selectedSite) {
+      toast.error(MESSAGES.selectApprovedSite);
+      return false;
+    }
+
     if (!constructionSite) {
       toast.error('Por favor, ingrese el sitio de construcción');
       return false;
@@ -996,6 +1012,23 @@ export default function QuoteBuilder() {
       // Ensure we have a plant_id
       if (!quotePlantId) {
         setPlantValidationError('No se pudo determinar la planta para la cotización');
+        return;
+      }
+
+      const { data: clientRow, error: clientError } = await supabase
+        .from('clients')
+        .select('id, business_name, approval_status')
+        .eq('id', selectedClient)
+        .single();
+
+      if (clientError || !clientRow) {
+        toast.error('Cliente no encontrado');
+        return;
+      }
+      if (!isApproved(clientRow.approval_status)) {
+        toast.error(
+          `El cliente "${clientRow.business_name || 'Sin nombre'}" no está autorizado. Solicite la aprobación en Finanzas → Autorización de Clientes antes de cotizar.`
+        );
         return;
       }
 
@@ -1340,7 +1373,36 @@ export default function QuoteBuilder() {
     console.log('Draft quote cleared from state and sessionStorage.');
   };
 
-  // Load client sites when a client is selected
+  // Al cambiar cliente, limpiar obra seleccionada
+  useEffect(() => {
+    setSelectedSite('');
+    setConstructionSite('');
+    setLocation('');
+    setSiteCoordinates({ lat: null, lng: null });
+    setDistanceInfo(undefined);
+  }, [selectedClient]);
+
+  // Validar que el cliente siga autorizado (p. ej. borrador con cliente ya no aprobado)
+  useEffect(() => {
+    if (!selectedClient) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = await clientService.getClientById(selectedClient);
+        if (!cancelled && !isApproved(client.approval_status)) {
+          toast.error(MESSAGES.clientPendingShort);
+          setSelectedClient('');
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient]);
+
+  // Load client sites when a client is selected (solo obras aprobadas)
   useEffect(() => {
     const loadClientSites = async () => {
       if (selectedClient) {
@@ -1613,53 +1675,40 @@ export default function QuoteBuilder() {
     loadQuoteProducts();
   }, [currentQuoteId]);
 
-  // Handle new client creation
-  const handleClientCreated = (clientId: string, clientName: string) => {
-    // Add the new client to the list
-    setClients(prev => [
-      ...prev,
-      { id: clientId, business_name: clientName, client_code: '' } as Client
-    ]);
-    
-    // Select the newly created client
-    setSelectedClient(clientId);
-    
-    // Close the dialog
+  // Handle new client creation (no se agrega al selector hasta estar aprobado)
+  const handleClientCreated = (_payload: ClientCreatedPayload) => {
     setShowCreateClientDialog(false);
+    toast.info(MESSAGES.clientCreatedPending, {
+      action: {
+        label: 'Ir a autorización',
+        onClick: () => {
+          window.location.href = GOVERNANCE_CLIENTS_PATH;
+        },
+      },
+    });
   };
 
-  // Handle new site creation
-  const handleSiteCreated = (siteId: string, siteName: string, siteLocation?: string, siteLat?: number, siteLng?: number) => {
-    // Add the new site to the list with proper formatting
-    setClientSites(prev => [
-      ...prev,
-      { 
-        id: siteId, 
-        name: siteName, 
-        latitude: siteLat ?? null, 
-        longitude: siteLng ?? null,
-        is_active: true, // Ensure the site is marked as active
-        location: siteLocation ?? '' // Populate location field, ensure it's a string
-      }
-    ]);
-    
-    // Select the newly created site
-    setSelectedSite(siteId);
-    setConstructionSite(siteName);
-    if (siteLocation) {
-      setLocation(siteLocation); // Auto-fill location
-    }
-    if (siteLat && siteLng) {
-      setSiteCoordinates({ lat: siteLat, lng: siteLng });
-    } else {
-      setSiteCoordinates({ lat: null, lng: null}); // Clear if not provided
-    }
-    
-    // Close the dialog
+  // Handle new site creation (obra pendiente: no seleccionar para cotizar)
+  const handleSiteCreated = async (
+    _siteId: string,
+    _siteName: string,
+    _siteLocation?: string,
+    _siteLat?: number,
+    _siteLng?: number
+  ) => {
     setShowCreateSiteDialog(false);
-    
-    // Log successful creation
-    console.log('Site created successfully with ID:', siteId, 'Name:', siteName, 'Location:', siteLocation, 'Coords:', { lat: siteLat, lng: siteLng });
+    if (selectedClient) {
+      try {
+        const sites = await clientService.getClientSites(selectedClient, true);
+        setClientSites(sites);
+      } catch (error) {
+        console.error('Error reloading client sites:', error);
+      }
+    }
+    setSelectedSite('');
+    setConstructionSite('');
+    setLocation('');
+    setSiteCoordinates({ lat: null, lng: null });
   };
 
   // Handle map coordinates selection
@@ -1669,14 +1718,18 @@ export default function QuoteBuilder() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 @container">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 @container">
       {/* Left Panel: Product Catalog */}
       <Card
         variant="thick"
-        className="lg:col-span-2 flex flex-col border-0 p-6 lg:h-[calc(100vh-15rem)] lg:min-h-[600px]"
+        className={cn(
+          commercialCardClass,
+          'lg:col-span-2 flex flex-col p-4 md:p-6 shadow-sm',
+          'lg:max-h-[calc(100vh-15rem)] lg:min-h-0'
+        )}
       >
-        <div className="mb-6 shrink-0">
-          <h2 className="text-title-2 font-bold text-gray-800 mb-4">
+        <div className="mb-4 md:mb-6 shrink-0">
+          <h2 className="text-title-2 font-bold text-stone-800 mb-4">
             {features.masterPricingEnabled ? 'Catálogo de Maestros' : 'Catálogo de Productos'}
           </h2>
           <div className="relative">
@@ -1687,13 +1740,13 @@ export default function QuoteBuilder() {
               placeholder={features.masterPricingEnabled ? 'Buscar maestros...' : 'Buscar recetas...'}
               className="pl-10 w-full"
             />
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
             {recipeSearch && (
               <button
                 onClick={() => setRecipeSearch('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
               >
-                <div className="bg-gray-200 rounded-full p-0.5">
+                <div className="bg-stone-200 rounded-full p-0.5">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -1702,8 +1755,8 @@ export default function QuoteBuilder() {
             )}
           </div>
         </div>
-        <div className="flex-1 min-h-0">
-          <div className="h-full overflow-y-auto pr-2 pb-2 custom-scrollbar">
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-[12rem] lg:min-h-0 overflow-y-auto rounded-lg bg-[#f5f3f0] p-2 md:p-3 pr-1 pb-2 custom-scrollbar">
             {features.masterPricingEnabled ? (
               // Masters mode logic kept intact
               (() => {
@@ -1734,7 +1787,7 @@ export default function QuoteBuilder() {
 
                 if (Object.keys(groupedMasters).length === 0) {
                   return (
-                    <div className="p-8 text-center text-gray-500">
+                    <div className="p-8 text-center text-stone-500">
                       <p>No hay maestros disponibles</p>
                     </div>
                   );
@@ -1748,21 +1801,27 @@ export default function QuoteBuilder() {
                         const strength = Number(strengthStr);
                         const isStrengthExpanded = expandedStrengths.includes(strength);
                         return (
-                          <div key={strength} className="bg-white/50 rounded-xl overflow-hidden border border-gray-100 shadow-sm transition-all duration-200">
+                          <div key={strength} className="rounded-lg overflow-hidden border border-stone-200 bg-white shadow-sm transition-all duration-200">
                             <button
                               onClick={() => toggleStrength(strength)}
-                              className="w-full p-5 flex justify-between items-center hover:bg-white/80 transition-colors group"
+                              className="w-full p-4 md:p-5 flex justify-between items-center hover:bg-stone-50 transition-colors group"
                             >
                               <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${isStrengthExpanded ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'} transition-colors`}>
+                                <div className={cn(
+                                  'p-2 rounded-lg transition-colors',
+                                  isStrengthExpanded ? 'bg-sky-100 text-sky-800' : 'bg-stone-100 text-stone-500'
+                                )}>
                                   <span className="font-bold text-lg">{strength}</span>
                                 </div>
                                 <div className="text-left">
-                                  <h4 className="font-semibold text-gray-800 group-hover:text-blue-700 transition-colors">Concreto f'c {strength} kg/cm²</h4>
-                                  <p className="text-xs text-gray-500">{Object.keys(slumpGroups).length} variantes de revenimiento</p>
+                                  <h4 className="font-semibold text-stone-800 group-hover:text-sky-800 transition-colors">Concreto f'c {strength} kg/cm²</h4>
+                                  <p className="text-xs text-stone-500">{Object.keys(slumpGroups).length} variantes de revenimiento</p>
                                 </div>
                               </div>
-                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isStrengthExpanded ? 'rotate-180 text-blue-500' : ''}`} />
+                              <ChevronDown className={cn(
+                                'w-5 h-5 text-stone-400 transition-transform duration-300',
+                                isStrengthExpanded && 'rotate-180 text-sky-700'
+                              )} />
                             </button>
                             {isStrengthExpanded && (
                               <div className="p-5 pt-0 space-y-6 animate-in slide-in-from-top-2">
@@ -1771,23 +1830,23 @@ export default function QuoteBuilder() {
                                   .map(([slumpStr, mastersAtSlump]) => (
                                     <div key={slumpStr} className="pl-2">
                                       <div className="flex items-center gap-2 mb-3">
-                                        <span className="h-px w-4 bg-gray-300"></span>
-                                        <h5 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Revenimiento {slumpStr} cm</h5>
-                                        <span className="h-px flex-1 bg-gray-100"></span>
+                                        <span className="h-px w-4 bg-stone-300"></span>
+                                        <h5 className="text-sm font-medium text-stone-500 uppercase tracking-wide">Revenimiento {slumpStr} cm</h5>
+                                        <span className="h-px flex-1 bg-stone-200"></span>
                                       </div>
                                       <div className="grid grid-cols-1 gap-4">
                                         {mastersAtSlump.map(m => (
-                                          <Card key={m.id} variant="interactive" className="p-4 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white shadow-sm hover:shadow-md border-gray-100 transition-all duration-200 group">
-                                            <div className="flex-1">
-                                              <h3 className="font-bold text-gray-900 text-base group-hover:text-blue-700 transition-colors">{m.master_code}</h3>
+                                          <Card key={m.id} variant="interactive" className="p-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-white shadow-sm hover:shadow-md border-stone-200 transition-all duration-200 group">
+                                            <div className="flex-1 min-w-0">
+                                              <h3 className="font-bold text-stone-900 text-base group-hover:text-sky-800 transition-colors">{m.master_code}</h3>
                                               <div className="flex flex-wrap gap-2 mt-2">
-                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200">
                                                   {m.placement_type === 'D' ? 'Directa' : 'Bombeado'}
                                                 </span>
-                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-stone-100 text-stone-600 border border-stone-200">
                                                   TMA: {m.max_aggregate_size}mm
                                                 </span>
-                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-stone-100 text-stone-600 border border-stone-200">
                                                   Edad: {m.age_days ? `${m.age_days}d` : 'N/A'}
                                                 </span>
                                               </div>
@@ -1797,7 +1856,7 @@ export default function QuoteBuilder() {
                                               disabled={isLoading}
                                               size="sm"
                                               variant="primary"
-                                              className="shrink-0 h-9 px-4 shadow-sm hover:shadow-md transition-all"
+                                              className={cn('shrink-0 h-9 px-4 w-full sm:w-auto', commercialHubPrimaryButtonClass)}
                                             >
                                               <Plus className="w-4 h-4 mr-1.5" /> Agregar
                                             </Button>
@@ -1817,7 +1876,7 @@ export default function QuoteBuilder() {
             ) : (
               // Standard recipes mode (Updated UI)
               Object.keys(groupedRecipes).length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-stone-500">
                   <p>No hay recetas disponibles</p>
                 </div>
               ) : (
@@ -1829,13 +1888,16 @@ export default function QuoteBuilder() {
                                   type === 'MR' ? 'Concreto Módulo de Ruptura Mr' : type;
                     
                     return (
-                      <div key={type} className="bg-white/50 rounded-xl overflow-hidden border border-gray-100 mb-4 shadow-sm">
+                      <div key={type} className="rounded-lg overflow-hidden border border-stone-200 bg-white mb-4 shadow-sm">
                         <button
                           onClick={() => toggleType(type)}
-                          className="w-full p-5 flex justify-between items-center hover:bg-white/80 transition-colors"
+                          className="w-full p-4 md:p-5 flex justify-between items-center hover:bg-stone-50 transition-colors"
                         >
-                          <h3 className="font-bold text-gray-800 text-lg">{typeName}</h3>
-                          <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isTypeExpanded ? 'rotate-180' : ''}`} />
+                          <h3 className="font-bold text-stone-800 text-lg">{typeName}</h3>
+                          <ChevronDown className={cn(
+                            'w-5 h-5 text-stone-500 transition-transform duration-200',
+                            isTypeExpanded && 'rotate-180 text-sky-700'
+                          )} />
                         </button>
                         
                         {isTypeExpanded && (
@@ -1848,13 +1910,16 @@ export default function QuoteBuilder() {
                                 const strengthLabel = type === 'MR' ? 'MR' : 'f\'c';
                                 
                                 return (
-                                  <div key={strength} className="border-l-2 border-gray-200 pl-4 ml-1">
+                                  <div key={strength} className="border-l-2 border-stone-200 pl-4 ml-1">
                                     <button
                                       onClick={() => toggleStrength(strength)}
-                                      className="w-full py-3 flex justify-between items-center text-left hover:text-blue-600 transition-colors"
+                                      className="w-full py-3 flex justify-between items-center text-left hover:text-sky-800 transition-colors"
                                     >
-                                      <h4 className="font-medium text-gray-700 text-base">{strengthLabel}: {strength} kg/cm²</h4>
-                                      <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isStrengthExpanded ? 'rotate-180' : ''}`} />
+                                      <h4 className="font-medium text-stone-700 text-base">{strengthLabel}: {strength} kg/cm²</h4>
+                                      <ChevronDown className={cn(
+                                        'w-4 h-4 text-stone-400 transition-transform',
+                                        isStrengthExpanded && 'rotate-180 text-sky-700'
+                                      )} />
                                     </button>
                                     
                                     {isStrengthExpanded && (
@@ -1863,26 +1928,26 @@ export default function QuoteBuilder() {
                                           .sort(([a], [b]) => Number(b) - Number(a))
                                           .map(([slumpStr, slumpRecipes]) => (
                                             <div key={slumpStr}>
-                                              <h5 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wider">Revenimiento: {slumpStr} cm</h5>
+                                              <h5 className="text-xs font-semibold text-stone-500 mb-3 uppercase tracking-wider">Revenimiento: {slumpStr} cm</h5>
                                               <div className="grid gap-4">
                                                 {slumpRecipes.map(recipe => (
-                                                  <Card key={recipe.id} variant="interactive" className="p-4 bg-white shadow-sm hover:shadow-md border-gray-100 transition-all">
-                                                    <div className="flex justify-between items-center gap-4">
+                                                  <Card key={recipe.id} variant="interactive" className="p-4 bg-white shadow-sm hover:shadow-md border-stone-200 transition-all">
+                                                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
                                                       <div className="min-w-0 flex-1">
-                                                        <h3 className="font-bold text-sm text-gray-900 truncate" title={recipe.recipe_code}>{recipe.recipe_code}</h3>
+                                                        <h3 className="font-bold text-sm text-stone-900 truncate" title={recipe.recipe_code}>{recipe.recipe_code}</h3>
                                                         <div className="mt-2 flex flex-wrap gap-2">
                                                           {recipe.has_waterproofing && (
-                                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">Impermeabilizante</span>
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200">Impermeabilizante</span>
                                                           )}
-                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">TMA: {recipe.max_aggregate_size}mm</span>
-                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">{recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
+                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-600 border border-stone-200">TMA: {recipe.max_aggregate_size}mm</span>
+                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-600 border border-stone-200">{recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
                                                         </div>
                                                       </div>
                                                       <Button 
                                                         onClick={() => recipe.id && addProductToQuote(recipe.id)}
                                                         disabled={isLoading || !recipe.id}
                                                         size="sm"
-                                                        className="h-8 w-8 p-0 rounded-full shadow-sm hover:shadow shrink-0"
+                                                        className={cn('h-9 w-full sm:h-8 sm:w-8 p-0 rounded-md sm:rounded-full shadow-sm hover:shadow shrink-0', commercialHubPrimaryButtonClass)}
                                                       >
                                                         <Plus className="w-4 h-4" />
                                                       </Button>
@@ -1909,18 +1974,19 @@ export default function QuoteBuilder() {
       </Card>
 
       {/* Right Panel: Client Selection and History */}
-      <div className="flex flex-col gap-6 lg:h-[calc(100vh-15rem)] lg:min-h-[600px] min-h-0">
+      <div className="flex flex-col gap-4 lg:gap-6 lg:max-h-[calc(100vh-15rem)] lg:min-h-0 min-h-0">
         {/* Scrollable content (desktop) / natural flow (mobile) */}
-        <div className="flex flex-col gap-6 flex-1 min-h-0 lg:overflow-y-auto lg:pr-2 lg:custom-scrollbar pb-6">
-        <Card variant="thick" className="p-6 border-0 shrink-0">
-          <h2 className="text-title-3 font-bold mb-6 text-gray-800 flex items-center gap-2">
-            <User className="w-5 h-5 text-blue-500" />
+        <div className="flex flex-col gap-4 lg:gap-6 flex-1 min-h-0 lg:overflow-y-auto lg:pr-2 lg:custom-scrollbar pb-4 lg:pb-6">
+        <Card variant="thick" className={cn(commercialCardClass, 'p-4 md:p-6 shadow-sm shrink-0')}>
+          <h2 className="text-title-3 font-bold mb-4 md:mb-6 text-stone-800 flex items-center gap-2">
+            <User className="w-5 h-5 text-sky-700" />
             Cliente y Obra
           </h2>
+          <p className="text-xs text-muted-foreground mb-4">{COMMERCIAL_WORKFLOW_STEPS}</p>
           <div className="space-y-5">
             {/* Client Search & Select */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Cliente</label>
+              <label className="text-sm font-medium text-stone-700">Cliente</label>
               <div className="relative">
                 <Input
                   value={clientSearch}
@@ -1928,11 +1994,11 @@ export default function QuoteBuilder() {
                   placeholder="Buscar cliente..."
                   className="mb-2"
                 />
-                <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
+                <Search className="absolute right-3 top-2.5 h-4 w-4 text-stone-400" />
               </div>
               <div className="flex gap-2">
                 <Select value={selectedClient} onValueChange={setSelectedClient} disabled={isLoading}>
-                  <SelectTrigger className="w-full bg-white/50">
+                  <SelectTrigger className="w-full bg-white border-stone-200">
                     <SelectValue placeholder="Seleccionar Cliente" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1957,7 +2023,12 @@ export default function QuoteBuilder() {
             {/* Site Selection */}
             {selectedClient && (
               <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
-                <label className="text-sm font-medium text-gray-700">Obra</label>
+                <label className="text-sm font-medium text-stone-700">Obra aprobada</label>
+                {clientSites.length === 0 ? (
+                  <CommercialWorkflowCallout variant="warning" className="mb-2">
+                    {MESSAGES.noApprovedSites}
+                  </CommercialWorkflowCallout>
+                ) : null}
                 <div className="flex gap-2">
                   {clientSites.length > 0 ? (
                     <Select 
@@ -1976,7 +2047,7 @@ export default function QuoteBuilder() {
                         }
                       }}
                     >
-                      <SelectTrigger className="w-full bg-white/50">
+                      <SelectTrigger className="w-full bg-white border-stone-200">
                         <SelectValue placeholder="Seleccionar Obra" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1988,15 +2059,12 @@ export default function QuoteBuilder() {
                       </SelectContent>
                     </Select>
                   ) : (
-                    <div className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 italic">
-                      Sin obras registradas
+                    <div className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-lg text-sm text-stone-500 italic">
+                      Sin obras aprobadas
                     </div>
                   )}
                   <Button
-                    onClick={() => {
-                      setShowCreateSiteDialog(true);
-                      setEnableMapForSite(true);
-                    }}
+                    onClick={() => setShowCreateSiteDialog(true)}
                     variant="secondary"
                     size="icon"
                     className="shrink-0"
@@ -2009,7 +2077,7 @@ export default function QuoteBuilder() {
 
             {/* Location & Date */}
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Ubicación</label>
+              <label className="text-sm font-medium text-stone-700">Ubicación</label>
               <div className="relative">
                 <Input 
                   value={location}
@@ -2018,24 +2086,24 @@ export default function QuoteBuilder() {
                   disabled={isLoading || !!selectedSite}
                   className="pl-9"
                 />
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-400" />
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Vigencia</label>
+              <label className="text-sm font-medium text-stone-700">Vigencia</label>
               <Popover.Root>
                 <Popover.Trigger asChild>
                   <Button
                     variant="secondary"
-                    className={`w-full justify-start text-left font-normal text-gray-800 ${!validityDate && "text-gray-500"}`}
+                    className={cn('w-full justify-start text-left font-normal text-stone-800', !validityDate && 'text-stone-500')}
                   >
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {validityDate ? format(new Date(validityDate + 'T00:00:00'), 'dd/MM/yyyy') : <span>Seleccionar fecha</span>}
                   </Button>
                 </Popover.Trigger>
                 <Popover.Portal>
-                  <Popover.Content className="w-auto p-0 bg-white rounded-xl shadow-xl border-0" align="start">
+                  <Popover.Content className="w-auto p-0 bg-white rounded-lg shadow-xl border border-stone-200" align="start">
                     <DayPicker
                       mode="single"
                       selected={selectedDate}
@@ -2043,8 +2111,8 @@ export default function QuoteBuilder() {
                       locale={es}
                       initialFocus
                       classNames={{
-                        day_selected: "bg-blue-600 text-white hover:bg-blue-600 hover:text-white focus:bg-blue-600 focus:text-white",
-                        day_today: "bg-gray-100 font-bold text-gray-900",
+                        day_selected: "bg-sky-700 text-white hover:bg-sky-700 hover:text-white focus:bg-sky-700 focus:text-white",
+                        day_today: "bg-stone-100 font-bold text-stone-900",
                       }}
                     />
                   </Popover.Content>
@@ -2054,7 +2122,7 @@ export default function QuoteBuilder() {
 
             {/* Distance Analysis */}
             {selectedSite && currentPlant && (
-              <div className="pt-4 border-t border-gray-100">
+              <div className="pt-4 border-t border-stone-200">
                 <DistanceAnalysisPanel 
                   distanceInfo={distanceInfo} 
                   isLoading={isCalculatingDistance}
@@ -2075,19 +2143,19 @@ export default function QuoteBuilder() {
 
             {/* Additional Products */}
             {currentPlant && (
-              <div className="pt-4 border-t border-gray-100">
+              <div className="pt-4 border-t border-stone-200">
                 <Disclosure>
                   {({ open }) => (
                     <div>
-                      <Disclosure.Button className="flex w-full justify-between rounded-lg bg-gray-50 px-4 py-2 text-left text-sm font-medium text-gray-900 hover:bg-gray-100 focus:outline-none focus-visible:ring focus-visible:ring-blue-500 focus-visible:ring-opacity-75">
+                      <Disclosure.Button className="flex w-full justify-between rounded-lg bg-stone-50 border border-stone-200 px-4 py-2 text-left text-sm font-medium text-stone-900 hover:bg-stone-100 focus:outline-none focus-visible:ring focus-visible:ring-sky-700/40 focus-visible:ring-offset-2">
                         <span>Productos Especiales / Adicionales</span>
                         {open ? (
-                          <ChevronUp className="h-5 w-5 text-gray-500" />
+                          <ChevronUp className="h-5 w-5 text-stone-500" />
                         ) : (
-                          <ChevronDown className="h-5 w-5 text-gray-500" />
+                          <ChevronDown className="h-5 w-5 text-stone-500" />
                         )}
                       </Disclosure.Button>
-                      <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-gray-500">
+                      <Disclosure.Panel className="px-4 pt-4 pb-2 text-sm text-stone-500">
                         <AdditionalProductsSelector
                           quoteId={currentQuoteId}
                           plantId={currentPlant.id}
@@ -2174,19 +2242,19 @@ export default function QuoteBuilder() {
             )}
 
             {/* Toggles */}
-            <div className="space-y-3 pt-4 border-t border-gray-100">
+            <div className="space-y-3 pt-4 border-t border-stone-200">
               <div className="flex items-center space-x-3">
                 <Checkbox.Root
                   id="includePumpService"
                   checked={includePumpService}
                   onCheckedChange={(checked) => setIncludePumpService(checked === true)}
-                  className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
+                  className="h-5 w-5 rounded-md border border-stone-300 bg-white data-[state=checked]:bg-sky-700 data-[state=checked]:text-white flex items-center justify-center transition-colors"
                 >
                   <Checkbox.Indicator>
                     <Check className="h-3.5 w-3.5" />
                   </Checkbox.Indicator>
                 </Checkbox.Root>
-                <label htmlFor="includePumpService" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                <label htmlFor="includePumpService" className="text-sm font-medium text-stone-700 cursor-pointer select-none">
                   Incluir Servicio de Bombeo
                 </label>
               </div>
@@ -2197,13 +2265,13 @@ export default function QuoteBuilder() {
                     id="includesVAT"
                     checked={includesVAT}
                     onCheckedChange={(checked) => setIncludesVAT(checked === true)}
-                    className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
+                    className="h-5 w-5 rounded-md border border-stone-300 bg-white data-[state=checked]:bg-sky-700 data-[state=checked]:text-white flex items-center justify-center transition-colors"
                   >
                     <Checkbox.Indicator>
                       <Check className="h-3.5 w-3.5" />
                     </Checkbox.Indicator>
                   </Checkbox.Root>
-                  <label htmlFor="includesVAT" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                  <label htmlFor="includesVAT" className="text-sm font-medium text-stone-700 cursor-pointer select-none">
                     Incluir IVA
                   </label>
                 </div>
@@ -2212,8 +2280,8 @@ export default function QuoteBuilder() {
 
             {/* Pump Configuration */}
             {includePumpService && (
-              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3 animate-in fade-in slide-in-from-top-2">
-                <h3 className="font-semibold text-sm text-blue-800">Configuración Bombeo</h3>
+              <div className="p-4 bg-sky-50 rounded-lg border border-sky-200 space-y-3 animate-in fade-in slide-in-from-top-2">
+                <h3 className="font-semibold text-sm text-sky-900">Configuración Bombeo</h3>
                 <Input
                   value={pumpServiceProduct.description || ''}
                   onChange={(e) => updatePumpServiceDetails({ description: e.target.value })}
@@ -2222,7 +2290,7 @@ export default function QuoteBuilder() {
                 />
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-gray-500">Volumen (m³)</label>
+                    <label className="text-xs text-stone-500">Volumen (m³)</label>
                     <Input
                       type="number"
                       value={pumpServiceProduct.volume}
@@ -2231,7 +2299,7 @@ export default function QuoteBuilder() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Precio (MXN)</label>
+                    <label className="text-xs text-stone-500">Precio (MXN)</label>
                     <Input
                       type="number"
                       value={pumpServiceProduct.price}
@@ -2240,7 +2308,7 @@ export default function QuoteBuilder() {
                     />
                   </div>
                 </div>
-                <div className="text-right font-bold text-blue-700 text-sm">
+                <div className="text-right font-bold text-sky-800 text-sm">
                   Total: ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX')}
                 </div>
               </div>
@@ -2249,63 +2317,64 @@ export default function QuoteBuilder() {
         </Card>
 
         {/* Client History - simplified */}
-        <Card variant="thin" className="p-4 overflow-hidden flex flex-col shrink-0">
-          <h3 className="font-semibold text-gray-700 mb-3 text-sm flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-gray-400" />
+        <Card variant="thin" className={cn(commercialCardClass, 'p-4 overflow-hidden flex flex-col shrink-0 bg-[#f5f3f0] shadow-sm')}>
+          <h3 className="font-semibold text-stone-700 mb-3 text-sm flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-stone-400" />
             Historial Reciente
           </h3>
           <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar">
             {clientHistory.length > 0 ? (
               clientHistory.slice(0, 5).map((item, idx) => (
-                <div key={idx} className="text-xs p-2 bg-white/40 rounded-lg border border-white/50">
-                  <p className="font-medium text-gray-800">{item.quote_details[0]?.product?.recipe_code || 'Producto'}</p>
-                  <div className="flex justify-between text-gray-500 mt-1">
+                <div key={idx} className="text-xs p-2 bg-white rounded-lg border border-stone-200">
+                  <p className="font-medium text-stone-800">{item.quote_details[0]?.product?.recipe_code || 'Producto'}</p>
+                  <div className="flex justify-between text-stone-500 mt-1">
                     <span>{new Date(item.delivery_date).toLocaleDateString()}</span>
                     <span>${item.quote_details[0]?.final_price?.toLocaleString() || '0'}</span>
                   </div>
                 </div>
               ))
             ) : (
-              <p className="text-xs text-gray-400 text-center py-4">Sin historial disponible</p>
+              <p className="text-xs text-stone-400 text-center py-4">Sin historial disponible</p>
             )}
           </div>
         </Card>
         </div>
 
         {/* Actions (always visible on desktop; prominent on mobile) */}
-        <div className="shrink-0 lg:mt-auto sticky bottom-0 z-10">
-          <Card
-            variant="thick"
-            className="p-3 sm:p-4 border-0 bg-white/80 backdrop-blur-md"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Button
-                variant="secondary"
-                onClick={clearDraft}
-                disabled={isLoading}
-                className="text-gray-800 hover:text-gray-900"
-              >
-                Limpiar formulario
-              </Button>
-              <Button
-                onClick={saveQuote}
-                disabled={isLoading || isCalculatingDistance}
-                loading={isLoading || isCalculatingDistance}
-                className="bg-blue-600 text-neutral-700 hover:bg-blue-700 disabled:bg-blue-300"
-              >
-                Enviar cotización
-              </Button>
-            </div>
-          </Card>
+        <div
+          className={cn(
+            'shrink-0 lg:mt-auto sticky bottom-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6',
+            'pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3',
+            'bg-[#f5f3f0]/95 backdrop-blur-sm border-t border-stone-200/80'
+          )}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-6xl mx-auto w-full">
+            <Button
+              variant="secondary"
+              onClick={clearDraft}
+              disabled={isLoading}
+              className={cn('min-h-11 w-full', commercialHubOutlineNeutralClass)}
+            >
+              Limpiar formulario
+            </Button>
+            <Button
+              onClick={saveQuote}
+              disabled={isLoading || isCalculatingDistance}
+              loading={isLoading || isCalculatingDistance}
+              className={cn('min-h-11 w-full sm:min-w-[10rem]', commercialHubPrimaryButtonClass)}
+            >
+              Enviar cotización
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Bottom Panel: Quote Products */}
       {(quoteProducts.length > 0 || quoteAdditionalProducts.length > 0 || (includePumpService && pumpServiceProduct.price > 0)) && (
-        <Card variant="thick" className="lg:col-span-3 border-0 p-6">
-          <div className="mb-6">
-            <h2 className="text-title-3 font-bold text-gray-800 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-green-600" />
+        <Card variant="thick" className={cn(commercialCardClass, 'lg:col-span-3 p-4 md:p-6 shadow-sm')}>
+          <div className="mb-4 md:mb-6">
+            <h2 className="text-title-3 font-bold text-stone-800 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-emerald-600" />
               Detalle de la Cotización
             </h2>
           </div>
@@ -2330,7 +2399,7 @@ export default function QuoteBuilder() {
             ))}
 
             {quoteProducts.length === 0 && includePumpService && (
-              <div className="bg-blue-50/50 rounded-xl p-6 border border-blue-100 text-center text-blue-800">
+              <div className="bg-sky-50 rounded-lg p-6 border border-sky-200 text-center text-sky-900">
                 Solo Servicio de Bombeo Seleccionado
               </div>
             )}
@@ -2346,58 +2415,38 @@ export default function QuoteBuilder() {
             role="status"
             aria-live="polite"
             aria-busy="true"
-            className="w-[min(92vw,420px)] p-8 sm:p-10 flex flex-col items-center gap-4 text-center"
+            className={cn(commercialCardClass, 'w-[min(100vw-2rem,420px)] p-8 sm:p-10 flex flex-col items-center gap-4 text-center shadow-lg')}
           >
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600" aria-hidden="true"></div>
-            <p className="font-medium text-gray-700">Procesando solicitud…</p>
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-sky-700" aria-hidden="true"></div>
+            <p className="font-medium text-stone-700">Procesando solicitud…</p>
           </Card>
         </div>
       )}
 
-      {/* Client Creation Dialog */}
       <Dialog open={showCreateClientDialog} onOpenChange={setShowCreateClientDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogTitle>Crear Nuevo Cliente</DialogTitle>
-          <ClientCreationForm
-            onClientCreated={handleClientCreated}
-            onCancel={() => setShowCreateClientDialog(false)}
-          />
+        <DialogContent className="flex max-h-[min(90vh,800px)] w-[min(100vw-2rem,36rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
+          <DialogHeader className="shrink-0 border-b px-6 py-5 pr-12 text-left">
+            <DialogTitle>Nuevo cliente</DialogTitle>
+            <DialogDescription>
+              Registro comercial. El cliente quedará pendiente de autorización en Finanzas antes de cotizar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <ClientCreationForm
+              embedded
+              onClientCreated={handleClientCreated}
+              onCancel={() => setShowCreateClientDialog(false)}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Construction Site Creation Dialog */}
-      <Dialog 
-        open={showCreateSiteDialog} 
-        onOpenChange={(open) => {
-          setShowCreateSiteDialog(open);
-          if (open) {
-            setSiteCoordinates({ lat: null, lng: null });
-            const triggerResize = () => window.dispatchEvent(new Event('resize'));
-            setTimeout(triggerResize, 200);
-            setTimeout(triggerResize, 1000);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-[700px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-gray-100">
-            <DialogTitle>Crear Nueva Obra</DialogTitle>
-            <DialogDescription>Detalles de la nueva obra y ubicación.</DialogDescription>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">
-            {selectedClient ? (
-              <ConstructionSiteForm
-                clientId={selectedClient}
-                onSiteCreated={(id, name, loc, lat, lng) => handleSiteCreated(id, name, loc, lat, lng)}
-                onCancel={() => setShowCreateSiteDialog(false)}
-              />
-            ) : (
-              <div className="text-center py-10 text-gray-500">
-                Seleccione un cliente primero.
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConstructionSiteDialog
+        open={showCreateSiteDialog}
+        onOpenChange={setShowCreateSiteDialog}
+        clientId={selectedClient}
+        onSiteCreated={handleSiteCreated}
+      />
 
       {/* Base Price Breakdown Dialog */}
       {breakdownDialogProductIndex !== null && quoteProducts[breakdownDialogProductIndex] && (

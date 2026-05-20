@@ -1,6 +1,6 @@
 # List Prices — System Verification Report
 
-**Date:** 2026-03-05 (updated 2026-02-26)
+**Date:** 2026-05-20 (updated 2026-05-19 insights migration)
 **Purpose:** Verify tables, triggers, functions, and system flow for the List Prices implementation. Use this before planning a mass migration.
 
 ---
@@ -17,7 +17,11 @@ Verification was run via **Supabase MCP** (project: cotizador) on 2026-03-05.
 |--------|--------|-------|
 | `list_prices` table | ✅ Pass | Columns: id, master_recipe_id, base_price, effective_date, expires_at, is_active, created_by, created_at, updated_at |
 | `get_effective_floor_price(p_master_recipe_id, p_as_of_date)` RPC | ✅ Pass | Function exists; returns floor_price and list_price_id |
-| `list_price_performance` materialized view | ✅ Pass | Exists |
+| `list_price_performance` materialized view | ✅ Pass | APPROVED + `is_active` quotes only; plant_id match |
+| `list_price_performance_meta` | ✅ Pass | Freshness timestamp after MV refresh |
+| `get_list_price_insight_detail` | ✅ Pass | Drill-down rows per quote line |
+| `get_list_price_insight_trend` | ✅ Pass | Monthly trend buckets |
+| `get_list_price_performance_refreshed_at` | ✅ Pass | Latest refresh time for UI |
 | `quote_details.pricing_path` column | ✅ Pass | Column exists (text) |
 | Triggers on `list_prices` | ✅ Pass | `trg_list_prices_updated_at`, `trg_refresh_lpp_list_prices` |
 | Triggers on `quote_details` | ✅ Pass | `trg_refresh_lpp` (refreshes list_price_performance) |
@@ -79,9 +83,22 @@ WHERE schemaname = 'public' AND tablename = 'list_prices';
 -- );
 ```
 
-### Migration Gap
+### Market insights population (2026-05-19)
 
-Only `20260227000004_backfill_pricing_path.sql` exists in `supabase/migrations/`. It assumes `quote_details.pricing_path` already exists. If the schema was applied manually (e.g. via Supabase SQL Editor), consider adding migrations that match `list-prices-improved-plan.md` for reproducibility.
+KPIs in `list_price_performance` and drill-down RPCs include only:
+
+- `quotes.status = 'APPROVED'`
+- `COALESCE(quotes.is_active, true) = true`
+- `quote_details.pricing_path = 'LIST_PRICE'`
+- `quotes.plant_id = master_recipes.plant_id`
+- Quote date within list price effective window
+
+Reconciliation (2026-05-20): MV `total_volume_m3` matched manual aggregate for 3 sample `list_price_id` fixtures.
+
+### Migration files
+
+- `20260227000004_backfill_pricing_path.sql` — pricing_path backfill
+- `20260519120000_list_price_insights_approved_analytics.sql` — APPROVED MV, meta, insight RPCs
 
 ---
 

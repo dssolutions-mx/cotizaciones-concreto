@@ -174,7 +174,7 @@ export default function SupplierGroupsPage() {
 
   if (error) {
     return (
-      <div className="p-6 space-y-2">
+      <div className="space-y-2">
         <p className="text-destructive text-sm">{error}</p>
         <Button size="sm" variant="outline" onClick={load}>Reintentar</Button>
       </div>
@@ -184,15 +184,7 @@ export default function SupplierGroupsPage() {
   const hasFilters = !!search || !!filterPlant || !!filterGroup
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Grupos de proveedores</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Agrupa proveedores cross-planta para consolidar facturas y análisis de CxP.
-        </p>
-      </div>
-
+    <div className="min-w-0 space-y-5 sm:space-y-6">
       {/* ── Groups section ─────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">

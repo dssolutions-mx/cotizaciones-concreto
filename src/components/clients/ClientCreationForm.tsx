@@ -1,8 +1,20 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { clientService } from '@/lib/supabase/clients';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import { authService } from '@/lib/supabase/auth';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -19,38 +31,67 @@ import {
 } from '@/components/ui/alert-dialog';
 import { LiveDuplicateSuggestions } from './LiveDuplicateSuggestions';
 import { validateClientForm } from '@/lib/validation/clientValidation';
+import { CommercialWorkflowCallout } from '@/components/clients/CommercialWorkflowCallout';
+import { COMMERCIAL_WORKFLOW_STEPS, MESSAGES } from '@/lib/commercial/workflow';
+import { cn } from '@/lib/utils';
 
-interface ClientCreationFormProps {
-  onClientCreated: (clientId: string, clientName: string) => void;
-  onCancel: () => void;
+export interface ClientCreatedPayload {
+  clientId: string;
+  clientName: string;
+  pendingApproval: boolean;
 }
 
-export default function ClientCreationForm({ onClientCreated, onCancel }: ClientCreationFormProps) {
+interface ClientCreationFormProps {
+  onClientCreated: (payload: ClientCreatedPayload) => void;
+  onCancel: () => void;
+  embedded?: boolean;
+}
+
+const CLIENT_TYPES = [
+  { value: 'normal', label: 'Cliente normal' },
+  { value: 'de_la_casa', label: 'Cliente de la casa' },
+  { value: 'asignado', label: 'Cliente asignado' },
+  { value: 'nuevo', label: 'Cliente nuevo' },
+] as const;
+
+const CREDIT_STATUSES = [
+  { value: 'ACTIVE', label: 'Activo' },
+  { value: 'SUSPENDED', label: 'Suspendido' },
+  { value: 'BLACKLISTED', label: 'Lista negra' },
+] as const;
+
+export default function ClientCreationForm({
+  onClientCreated,
+  onCancel,
+  embedded = true,
+}: ClientCreationFormProps) {
   const { profile } = useAuthBridge();
   const [formData, setFormData] = useState({
     business_name: '',
     contact_name: '',
     email: '',
     phone: '',
-    client_code: '', // RFC when requires_invoice, or auto-generated when cash-only
+    client_code: '',
     address: '',
     requires_invoice: false,
-    client_type: 'de_la_casa' as 'normal' | 'de_la_casa' | 'asignado' | 'nuevo',
+    client_type: 'de_la_casa' as (typeof CLIENT_TYPES)[number]['value'],
     assigned_user_id: '' as string | null,
-    credit_status: 'ACTIVE' as const,
+    credit_status: 'ACTIVE' as (typeof CREDIT_STATUSES)[number]['value'],
   });
   const [suggestedCashCode, setSuggestedCashCode] = useState<string | null>(null);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Array<{ id: string; name: string }>>([]);
-  const [potentialDuplicates, setPotentialDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
+  const [potentialDuplicates, setPotentialDuplicates] = useState<
+    Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>
+  >([]);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
-  const [liveDuplicates, setLiveDuplicates] = useState<Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>>([]);
+  const [liveDuplicates, setLiveDuplicates] = useState<
+    Array<{ id: string; business_name: string; client_code: string | null; match_reason: string }>
+  >([]);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const debouncedBusinessName = useDebounce(formData.business_name.trim(), 400);
 
-  // Live fuzzy match mientras escribe
   useEffect(() => {
     if (debouncedBusinessName.length < 3) {
       setLiveDuplicates([]);
@@ -60,7 +101,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     setIsCheckingDuplicates(true);
     const codeForCheck = formData.requires_invoice
       ? formData.client_code.trim() || undefined
-      : (suggestedCashCode || undefined);
+      : suggestedCashCode || undefined;
     clientService
       .findPotentialDuplicates(debouncedBusinessName, codeForCheck)
       .then((list) => {
@@ -72,89 +113,57 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
       .finally(() => {
         if (!cancelled) setIsCheckingDuplicates(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [debouncedBusinessName, formData.requires_invoice, formData.client_code, suggestedCashCode]);
 
   useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const data = await authService.getAllUsers();
-        const list = (data || []).map((u: any) => ({
+    authService
+      .getAllUsers()
+      .then((data) => {
+        const list = (data || []).map((u: { id: string; first_name?: string; last_name?: string; email?: string }) => ({
           id: u.id,
-          name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
+          name:
+            u.first_name || u.last_name
+              ? `${u.first_name || ''} ${u.last_name || ''}`.trim()
+              : u.email || 'Usuario',
         }));
         setUsers(list);
-      } catch {
-        /* silencioso */
-      }
-    };
-    loadUsers();
+      })
+      .catch(() => undefined);
   }, []);
 
-  // Sugerir código para cliente de efectivo (cuando no requiere factura)
   useEffect(() => {
     if (!formData.requires_invoice) {
-      const initials = getCreatorInitials();
+      const fn = (profile as { first_name?: string } | null)?.first_name?.trim().slice(0, 1) || '';
+      const ln = (profile as { last_name?: string } | null)?.last_name?.trim().slice(0, 1) || '';
+      const initials = (fn + ln).toUpperCase() || 'XX';
       clientService.getNextCashOnlyClientCode(initials).then(setSuggestedCashCode).catch(() => setSuggestedCashCode('XX-001'));
     } else {
       setSuggestedCashCode(null);
     }
   }, [formData.requires_invoice, profile]);
 
-  function getCreatorInitials(): string {
-    const fn = (profile as { first_name?: string } | null)?.first_name?.trim().slice(0, 1) || '';
-    const ln = (profile as { last_name?: string } | null)?.last_name?.trim().slice(0, 1) || '';
-    return (fn + ln).toUpperCase() || 'XX';
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
-    }));
-  };
-
-  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: checked,
-    }));
-  };
-
   const doCreateClient = async () => {
     const clientCode = formData.requires_invoice
       ? formData.client_code.trim()
-      : (suggestedCashCode || formData.client_code || 'XX-001');
-    const clientData = {
+      : suggestedCashCode || formData.client_code || 'XX-001';
+    const createdClient = await clientService.createClient({
       ...formData,
       client_code: clientCode,
       rfc: formData.requires_invoice ? formData.client_code.trim() : undefined,
       assigned_user_id: formData.assigned_user_id || null,
-    };
-    const result = await clientService.createClient(clientData);
-    const { data, error: createError } = result;
-    if (createError) throw createError;
-    if (!data) {
-      toast.success('Cliente creado exitosamente');
-      try {
-        const clients = await clientService.getAllClients();
-        const newClient = clients.find(c => c.business_name === formData.business_name);
-        if (newClient) {
-          onClientCreated(newClient.id, formData.business_name);
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      onClientCreated('temp-' + Date.now(), formData.business_name);
-      return;
+    });
+    if (!createdClient?.id) {
+      throw new Error('No se recibieron datos válidos del cliente creado');
     }
-    const createdClient = Array.isArray(data) ? data[0] : data;
-    if (!createdClient?.id) throw new Error('No se recibieron datos válidos del cliente creado');
-    toast.success('Cliente creado exitosamente');
-    onClientCreated(createdClient.id, formData.business_name);
+    toast.success(MESSAGES.clientCreatedPending);
+    onClientCreated({
+      clientId: createdClient.id,
+      clientName: formData.business_name,
+      pendingApproval: true,
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -175,7 +184,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     try {
       const codeForDupCheck = formData.requires_invoice
         ? formData.client_code.trim()
-        : (suggestedCashCode || formData.client_code || undefined);
+        : suggestedCashCode || formData.client_code || undefined;
       const duplicates = await clientService.findPotentialDuplicates(
         formData.business_name,
         codeForDupCheck
@@ -187,9 +196,8 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
       }
       setIsSubmitting(true);
       await doCreateClient();
-    } catch (err: any) {
-      console.error('Error creating client:', err);
-      setError(err.message || 'Error al crear el cliente');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al crear el cliente');
     } finally {
       setIsSubmitting(false);
     }
@@ -200,246 +208,211 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     try {
       setIsSubmitting(true);
       await doCreateClient();
-    } catch (err: any) {
-      setError(err.message || 'Error al crear el cliente');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al crear el cliente');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      {error && (
-        <div className="bg-red-50 text-red-600 p-3 rounded-md mb-4 border border-red-200">
-          {error}
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="business_name" className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre del Negocio *
-            </label>
-            <input
+    <div className={cn('space-y-5', !embedded && 'rounded-lg bg-card p-6 shadow-sm')}>
+      <CommercialWorkflowCallout variant="info" showGovernanceLink={false}>
+        <p className="mb-1 text-xs">{COMMERCIAL_WORKFLOW_STEPS}</p>
+        <p className="text-xs">
+          Al guardar, el cliente queda <strong>pendiente de autorización</strong> y no podrá usarse en cotizaciones
+          hasta que Finanzas lo apruebe.
+        </p>
+      </CommercialWorkflowCallout>
+
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="business_name">Nombre del negocio *</Label>
+            <Input
               id="business_name"
               name="business_name"
-              type="text"
-              required
               value={formData.business_name}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
-            />
-            {debouncedBusinessName.length >= 3 && (
-              <div className="mt-2.5">
-                <LiveDuplicateSuggestions
-                  isChecking={isCheckingDuplicates}
-                  duplicates={liveDuplicates}
-                />
-              </div>
-            )}
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Requiere Factura
-            </label>
-            <div className="flex items-center">
-              <input
-                id="requires_invoice"
-                name="requires_invoice"
-                type="checkbox"
-                checked={formData.requires_invoice}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setFormData(prev => ({
-                    ...prev,
-                    requires_invoice: checked,
-                    ...(checked ? {} : { client_code: '' }),
-                  }));
-                }}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label htmlFor="requires_invoice" className="ml-2 text-sm text-gray-700">
-                Sí, requiere factura
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {formData.requires_invoice ? (
-          <div>
-            <label htmlFor="client_code" className="block text-sm font-medium text-gray-700 mb-1">
-              RFC / Código de cliente *
-            </label>
-            <input
-              id="client_code"
-              name="client_code"
-              type="text"
+              onChange={(e) => setFormData((p) => ({ ...p, business_name: e.target.value }))}
               required
-              value={formData.client_code}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
-              placeholder="Ej: XAXX010101000"
+              autoFocus
             />
-            <p className="text-xs text-gray-500 mt-1">El RFC es el código único del cliente (obligatorio para facturación)</p>
+            {debouncedBusinessName.length >= 3 ? (
+              <LiveDuplicateSuggestions isChecking={isCheckingDuplicates} duplicates={liveDuplicates} />
+            ) : null}
           </div>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Código de cliente
-            </label>
-            <p className="text-sm text-gray-600 py-1">
-              {suggestedCashCode ? (
-                <span>Código asignado: <strong>{suggestedCashCode}</strong></span>
-              ) : (
-                <span className="text-gray-400">Cargando...</span>
-              )}
-            </p>
-            <p className="text-xs text-gray-500 mt-0">Se genera automáticamente para clientes de efectivo</p>
-          </div>
-        )}
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="client_type" className="block text-sm font-medium text-gray-700 mb-1">
-              Tipo de Cliente
-            </label>
-            <select
-              id="client_type"
-              name="client_type"
-              value={formData.client_type}
-              onChange={(e) => setFormData(prev => ({ ...prev, client_type: e.target.value as any }))}
-              className="w-full p-2 border border-gray-300 rounded-md"
-            >
-              <option value="normal">Cliente normal</option>
-              <option value="de_la_casa">Cliente de la casa</option>
-              <option value="asignado">Cliente asignado</option>
-              <option value="nuevo">Cliente nuevo</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="assigned_user_id" className="block text-sm font-medium text-gray-700 mb-1">
-              Usuario asignado
-            </label>
-            <select
-              id="assigned_user_id"
-              name="assigned_user_id"
-              value={formData.assigned_user_id || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                setFormData(prev => ({ 
-                  ...prev, 
-                  assigned_user_id: value || '' ,
-                  client_type: value ? 'asignado' : prev.client_type
-                }));
-              }}
-              className="w-full p-2 border border-gray-300 rounded-md"
-            >
-              <option value="">Sin asignar</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name}</option>
-              ))}
-            </select>
-            {users.length === 0 && (
-              <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
-            )}
-            {users.length > 0 && (
-              <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {users.length}</p>
-            )}
-          </div>
-          <div>
-            <label htmlFor="credit_status" className="block text-sm font-medium text-gray-700 mb-1">
-              Estado de Crédito
-            </label>
-            <select
-              id="credit_status"
-              name="credit_status"
-              value={formData.credit_status}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
-            >
-              <option value="ACTIVE">Activo</option>
-              <option value="SUSPENDED">Suspendido</option>
-              <option value="BLACKLISTED">Lista Negra</option>
-            </select>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="contact_name" className="block text-sm font-medium text-gray-700 mb-1">
-              Nombre de Contacto *
-            </label>
-            <input
+          <div className="flex items-center gap-3 sm:col-span-2">
+            <Checkbox
+              id="requires_invoice"
+              checked={formData.requires_invoice}
+              onCheckedChange={(checked) =>
+                setFormData((p) => ({
+                  ...p,
+                  requires_invoice: checked === true,
+                  ...(checked === true ? {} : { client_code: '' }),
+                }))
+              }
+            />
+            <Label htmlFor="requires_invoice" className="cursor-pointer font-normal">
+              Requiere factura (RFC obligatorio)
+            </Label>
+          </div>
+
+          {formData.requires_invoice ? (
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="client_code">RFC / código de cliente *</Label>
+              <Input
+                id="client_code"
+                name="client_code"
+                value={formData.client_code}
+                onChange={(e) => setFormData((p) => ({ ...p, client_code: e.target.value }))}
+                placeholder="Ej. XAXX010101000"
+                required
+              />
+            </div>
+          ) : (
+            <div className="space-y-1 sm:col-span-2">
+              <Label>Código de cliente (efectivo)</Label>
+              <p className="text-sm text-muted-foreground">
+                {suggestedCashCode ? (
+                  <>
+                    Código asignado: <span className="font-semibold text-foreground">{suggestedCashCode}</span>
+                  </>
+                ) : (
+                  'Generando código…'
+                )}
+              </p>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label>Tipo de cliente</Label>
+            <Select
+              value={formData.client_type}
+              onValueChange={(v) =>
+                setFormData((p) => ({ ...p, client_type: v as typeof formData.client_type }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CLIENT_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Estado de crédito</Label>
+            <Select
+              value={formData.credit_status}
+              onValueChange={(v) =>
+                setFormData((p) => ({ ...p, credit_status: v as typeof formData.credit_status }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CREDIT_STATUSES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Usuario asignado</Label>
+            <Select
+              value={formData.assigned_user_id || '__none__'}
+              onValueChange={(v) =>
+                setFormData((p) => ({
+                  ...p,
+                  assigned_user_id: v === '__none__' ? '' : v,
+                  client_type: v !== '__none__' ? 'asignado' : p.client_type,
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin asignar</SelectItem>
+                {users.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="contact_name">Nombre de contacto *</Label>
+            <Input
               id="contact_name"
               name="contact_name"
-              type="text"
-              required
               value={formData.contact_name}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              onChange={(e) => setFormData((p) => ({ ...p, contact_name: e.target.value }))}
+              required
             />
           </div>
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-              Correo Electrónico
-            </label>
-            <input
+
+          <div className="space-y-2">
+            <Label htmlFor="phone">Teléfono *</Label>
+            <Input
+              id="phone"
+              name="phone"
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
+              placeholder="55 1234 5678"
+              required
+            />
+          </div>
+
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="email">Correo electrónico</Label>
+            <Input
               id="email"
               name="email"
               type="email"
               value={formData.email}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
+              onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
             />
           </div>
-          
-          <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-              Teléfono *
-            </label>
-            <input
-              id="phone"
-              name="phone"
-              type="tel"
-              required
-              value={formData.phone}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-md"
-              placeholder="Ej: 55 1234 5678"
+
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="address">Dirección</Label>
+            <Textarea
+              id="address"
+              name="address"
+              value={formData.address}
+              onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))}
+              rows={2}
             />
           </div>
         </div>
-        
-        <div>
-          <label htmlFor="address" className="block text-sm font-medium text-gray-700 mb-1">
-            Dirección
-          </label>
-          <textarea
-            id="address"
-            name="address"
-            value={formData.address}
-            onChange={handleChange}
-            rows={2}
-            className="w-full p-2 border border-gray-300 rounded-md"
-          />
-        </div>
-        
-        <div className="flex justify-end space-x-2 pt-4">
-          <Button 
-            type="button" 
-            variant="outline" 
-            onClick={onCancel}
-            disabled={isSubmitting}
-          >
+
+        <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
             Cancelar
           </Button>
-          <Button 
-            type="submit" 
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Creando...' : 'Crear Cliente'}
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Creando…' : 'Crear cliente'}
           </Button>
         </div>
       </form>
@@ -449,21 +422,18 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
           <AlertDialogHeader>
             <AlertDialogTitle>¿Posible duplicado?</AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div>
-                <p className="mb-2">
-                  Se encontraron clientes similares en el sistema. Revise si no es un duplicado antes de continuar.
-                </p>
-                <ul className="mt-2 space-y-1 text-sm">
+              <div className="space-y-2 text-sm">
+                <p>Se encontraron clientes similares. Revise antes de continuar.</p>
+                <ul className="space-y-1">
                   {potentialDuplicates.map((d) => (
                     <li key={d.id} className="flex justify-between gap-4">
                       <span>{d.business_name}</span>
-                      <span className="text-muted-foreground">
-                        {d.client_code || '—'} • {d.match_reason}
+                      <span className="text-muted-foreground shrink-0">
+                        {d.client_code || '—'} · {d.match_reason}
                       </span>
                     </li>
                   ))}
                 </ul>
-                <p className="mt-3">¿Desea crear el cliente de todos modos?</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -477,4 +447,4 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
       </AlertDialog>
     </div>
   );
-} 
+}

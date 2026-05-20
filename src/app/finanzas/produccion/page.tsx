@@ -1090,7 +1090,7 @@ export default function ComparativaProduccion() {
   // Show top-level loader only before first chunk
   if (loading && !streaming) {
     return (
-      <div className="container mx-auto p-6">
+      <div className="min-w-0">
         <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -1104,16 +1104,12 @@ export default function ComparativaProduccion() {
   }
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Análisis Comparativo de Plantas</h1>
-          <p className="text-muted-foreground mt-2">
-            Comparación de rendimiento y costos entre plantas - {dateRangeText}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <p className="text-sm text-stone-600 sm:max-w-xl">
+          Comparación de rendimiento y costos entre plantas — {dateRangeText}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
           {/* Plant Filter */}
           <Popover>
             <PopoverTrigger asChild>
