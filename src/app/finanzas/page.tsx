@@ -21,6 +21,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
 import { ExportBalancesExcelButton } from '@/components/finanzas/ExportBalancesExcelButton';
 import Link from 'next/link';
+import FinanzasHubShell from '@/components/finanzas/FinanzasHubShell';
+import { finanzasHubActionGridClass, finanzasHubTitleClass } from '@/components/finanzas/finanzasHubUi';
 
 // Enable ISR with 5-minute revalidation interval
 export const revalidate = 300; // 5 minutes in seconds
@@ -47,27 +49,28 @@ export default async function FinancialHubPage() {
   
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
-      <div className="container mx-auto p-6">
-        <div className="flex justify-between items-start mb-6">
+      <FinanzasHubShell width="wide">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-5 sm:mb-6">
           <div>
-            <h1 className="text-large-title text-gray-900">Centro Financiero</h1>
-            <p className="text-footnote text-muted-foreground mt-1">Cartera CxC, crédito, ventas y pagos</p>
+            <h1 className={finanzasHubTitleClass}>Centro Financiero</h1>
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">Cartera CxC, crédito, ventas y pagos</p>
           </div>
           <QuickAddPaymentButton />
         </div>
         
-        {/* Quick Navigation - glass-interactive like Comercial */}
-        <div className="mb-8">
-          <h2 className="text-title-3 text-gray-800 mb-4">Accesos Rápidos</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="mb-6 sm:mb-8">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-stone-600 mb-3">
+            Accesos rápidos
+          </h2>
+          <div className={finanzasHubActionGridClass}>
             <Link href="/finanzas/procurement">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg border border-primary/20">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md border border-primary/20">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Briefcase className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Centro de Compras</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Centro de Compras</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Vista unificada de PO, CXP y análisis de proveedores
                   </p>
                 </div>
@@ -75,13 +78,13 @@ export default async function FinancialHubPage() {
             </Link>
             <RoleProtectedSection allowedRoles={['EXECUTIVE']}>
               <Link href="/finanzas/cierre-costo-fifo">
-                <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg border border-primary/20">
+                <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md border border-primary/20">
                   <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                     <ListChecks className="h-6 w-6 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-title-3 text-gray-900">Cierre costo FIFO</h3>
-                    <p className="text-footnote text-muted-foreground mt-1">
+                    <h3 className="text-sm sm:text-base font-semibold text-stone-900">Cierre costo FIFO</h3>
+                    <p className="text-xs sm:text-sm text-stone-500 mt-1">
                       Huecos por mes, re-ejecución por día o mes y esquema de cierre para ejecutivos
                     </p>
                   </div>
@@ -89,104 +92,104 @@ export default async function FinancialHubPage() {
               </Link>
             </RoleProtectedSection>
             <Link href="/finanzas/produccion">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <BarChart2 className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Reporte de Producción</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Reporte de Producción</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Análisis de costos de materiales y producción por resistencia
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/ventas">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <PieChart className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Reporte de Ventas</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Reporte de Ventas</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Análisis de ventas mensuales y tendencias
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/remisiones">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <FileBarChart2 className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Remisiones por Cliente</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Remisiones por Cliente</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Consulta de remisiones y entregas por cliente
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/pagos-diarios">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <DollarSign className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Pagos Diarios</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Pagos Diarios</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Registro y seguimiento de pagos diarios
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/credito-validacion">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <TrendingUp className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Validación de Crédito</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Validación de Crédito</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Gestión de términos de crédito y límites de clientes
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/procurement?tab=po">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Package className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Órdenes de Compra</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Órdenes de Compra</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Gestión de POs, entradas y facturas de proveedores
                   </p>
                 </div>
               </div>
             </Link>
             <Link href="/finanzas/procurement?tab=cxp">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <Truck className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Cuentas por Pagar</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Cuentas por Pagar</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Facturas pendientes y pagos a proveedores
                   </p>
                 </div>
               </div>
             </Link>
-            <Link href="/finanzas/proveedores/analisis">
-              <div className="glass-interactive rounded-2xl p-6 flex items-start gap-4 h-full transition-all hover:shadow-lg">
+            <Link href="/finanzas/procurement?tab=suppliers">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
                 <div className="rounded-xl bg-primary/10 p-2 shrink-0">
                   <BarChart3 className="h-6 w-6 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-title-3 text-gray-900">Análisis de Proveedores</h3>
-                  <p className="text-footnote text-muted-foreground mt-1">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Análisis de Proveedores</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     KPIs, tendencias y drill-down por proveedor
                   </p>
                 </div>
@@ -217,8 +220,8 @@ export default async function FinancialHubPage() {
                 <div className="glass-base rounded-2xl p-6">
                   <div className="flex flex-row items-start justify-between gap-4 pb-4">
                     <div>
-                      <h3 className="text-title-3 text-gray-900">Balances de Clientes</h3>
-                      <p className="text-footnote text-muted-foreground mt-1">
+                      <h3 className="text-sm sm:text-base font-semibold text-stone-900">Balances de Clientes</h3>
+                      <p className="text-xs sm:text-sm text-stone-500 mt-1">
                         Visualiza los saldos pendientes de todos los clientes
                       </p>
                     </div>
@@ -237,8 +240,8 @@ export default async function FinancialHubPage() {
                   action="ver y gestionar aprobaciones de crédito"
                 >
                   <div className="glass-base rounded-2xl p-6">
-                    <h3 className="text-title-3 text-gray-900">Órdenes Pendientes de Aprobación de Crédito</h3>
-                    <p className="text-footnote text-muted-foreground mt-1 mb-4">
+                    <h3 className="text-sm sm:text-base font-semibold text-stone-900">Órdenes Pendientes de Aprobación de Crédito</h3>
+                    <p className="text-xs sm:text-sm text-stone-500 mt-1 mb-4">
                       Gestiona las órdenes que requieren aprobación de crédito antes de ser procesadas
                     </p>
                     <Suspense fallback={<CreditApprovalSkeleton />}>
@@ -250,7 +253,7 @@ export default async function FinancialHubPage() {
             </Tabs>
           </div>
         </RoleProtectedSection>
-      </div>
+      </FinanzasHubShell>
     </Suspense>
   );
 }
@@ -321,11 +324,11 @@ async function FinancialMetrics() {
             <DollarSign className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Saldo Total Pendiente</p>
+            <p className="text-xs sm:text-sm text-stone-500">Saldo Total Pendiente</p>
             <p className={`text-xl @md:text-2xl font-bold mt-1 ${metricsData.totalOutstandingBalance > 0 ? "text-red-600" : "text-green-600"}`}>
               {formatCurrency(metricsData.totalOutstandingBalance)}
             </p>
-            <p className="text-footnote text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">
               Total de saldos pendientes por cobrar
             </p>
           </div>
@@ -337,11 +340,11 @@ async function FinancialMetrics() {
             <CreditCard className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Pagos Recibidos (30 días)</p>
+            <p className="text-xs sm:text-sm text-stone-500">Pagos Recibidos (30 días)</p>
             <p className="text-xl @md:text-2xl font-bold text-green-600 mt-1">
               {formatCurrency(metricsData.paymentsLastThirtyDays.totalAmount)}
             </p>
-            <p className="text-footnote text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">
               {metricsData.paymentsLastThirtyDays.count} pagos en los últimos 30 días
             </p>
           </div>
@@ -353,11 +356,11 @@ async function FinancialMetrics() {
             <Users className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Clientes con Saldo</p>
+            <p className="text-xs sm:text-sm text-stone-500">Clientes con Saldo</p>
             <p className="text-xl @md:text-2xl font-bold text-gray-900 mt-1">
               {metricsData.overdueClientsCount}
             </p>
-            <p className="text-footnote text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">
               Clientes con balance mayor a cero
             </p>
           </div>
@@ -369,11 +372,11 @@ async function FinancialMetrics() {
             <ClipboardList className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-footnote text-muted-foreground">Crédito Pendiente</p>
+            <p className="text-xs sm:text-sm text-stone-500">Crédito Pendiente</p>
             <p className="text-xl @md:text-2xl font-bold text-gray-900 mt-1">
               {metricsData.pendingCreditOrdersCount}
             </p>
-            <p className="text-footnote text-muted-foreground mt-1">
+            <p className="text-xs sm:text-sm text-stone-500 mt-1">
               Órdenes por aprobar
             </p>
           </div>

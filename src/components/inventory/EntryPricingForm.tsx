@@ -1371,7 +1371,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                       )}
                     </div>
                     <a
-                      href={`/finanzas/po?po_id=${entry.po_id}`}
+                      href={`/finanzas/procurement?tab=po&po_id=${entry.po_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-stone-400 hover:text-stone-700 shrink-0"
@@ -1781,7 +1781,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                     )}
                   </div>
                   <a
-                    href={`/finanzas/po?po_id=${entry.fleet_po_id}`}
+                    href={`/finanzas/procurement?tab=po&po_id=${entry.fleet_po_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-sky-400 hover:text-sky-700 shrink-0"

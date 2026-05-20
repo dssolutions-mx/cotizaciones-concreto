@@ -1484,7 +1484,7 @@ export default function ProduccionDashboard() {
   };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="min-w-0 space-y-5 sm:space-y-6">
       {/* Header Section */}
       <Card className="mb-6">
         <CardHeader>
@@ -1704,7 +1704,7 @@ export default function ProduccionDashboard() {
                       </thead>
                       <tbody>
                         {globalMaterialsSummary.topMaterials.slice(0, 5).map((material: any, index: number) => (
-                          <tr key={material.material_id} className="border-b hover:bg-gray-50">
+                          <tr key={material.material_id} className="border-b hover:bg-stone-50">
                             <td className="py-2 font-medium">{material.material_name}</td>
                             <td className="py-2 font-mono text-sm">{material.material_code}</td>
                             <td className="py-2">

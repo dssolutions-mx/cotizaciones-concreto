@@ -615,24 +615,18 @@ export default function RemisionesPorCliente() {
   const selectedClient = clients.find(c => c.id === selectedClientId);
   
   return (
-    <div className="min-h-screen bg-gray-50/50">
-      {/* ── Page header ────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900 leading-tight">Remisiones por Cliente</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Consulta y exporta para contabilidad</p>
-          </div>
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
           <Button
             variant={copySuccess ? 'default' : 'outline'}
             size="sm"
             className={cn(
-              'gap-2 transition-all',
+              'gap-2 min-h-[2.25rem] transition-all w-full sm:w-auto',
               copySuccess
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                ? 'bg-emerald-700 hover:bg-emerald-800 text-white border-emerald-700'
                 : filteredRemisiones.length > 0
-                ? 'border-blue-300 text-blue-700 hover:bg-blue-50 hover:border-blue-400'
-                : 'text-gray-400 border-gray-200'
+                ? 'border-stone-300 text-stone-900 hover:bg-stone-50'
+                : 'text-stone-400 border-stone-200'
             )}
             onClick={handleCopyToAccounting}
             disabled={filteredRemisiones.length === 0}
@@ -640,34 +634,32 @@ export default function RemisionesPorCliente() {
             {copySuccess ? <Check size={15} /> : <Copy size={15} />}
             {copySuccess ? '¡Copiado!' : 'Copiar para Contabilidad'}
           </Button>
-        </div>
       </div>
 
-      {/* ── Filter toolbar ──────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-3">
-        <div className="max-w-screen-xl mx-auto flex flex-wrap items-end gap-3">
+      <div className="rounded-lg border border-stone-200 bg-[#faf9f7] px-3 py-3 sm:px-4">
+        <div className="flex flex-wrap items-end gap-2 sm:gap-3">
 
           {/* Date block */}
           <div className="flex flex-col gap-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Fecha</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Fecha</span>
               <div className="flex gap-1">
                 <button
                   onClick={() => jumpToDate(new Date())}
                   className={cn(
-                    'text-[10px] px-1.5 py-0.5 rounded border transition-colors leading-tight',
+                    'text-xs px-1.5 py-0.5 rounded border transition-colors leading-tight',
                     singleDateMode && dateRange.from && isToday(dateRange.from)
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-300'
+                      ? 'bg-stone-900 text-white border-stone-900'
+                      : 'border-stone-200 text-stone-500 hover:text-stone-900 hover:border-stone-400'
                   )}
                 >Hoy</button>
                 <button
                   onClick={() => jumpToDate(subDays(new Date(), 1))}
                   className={cn(
-                    'text-[10px] px-1.5 py-0.5 rounded border transition-colors leading-tight',
+                    'text-xs px-1.5 py-0.5 rounded border transition-colors leading-tight',
                     singleDateMode && dateRange.from && isYesterday(dateRange.from)
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-300'
+                      ? 'bg-stone-900 text-white border-stone-900'
+                      : 'border-stone-200 text-stone-500 hover:text-stone-900 hover:border-stone-400'
                   )}
                 >Ayer</button>
               </div>
@@ -675,7 +667,7 @@ export default function RemisionesPorCliente() {
             <div className="flex items-center gap-1">
               <button
                 onClick={() => navigateDay(-1)}
-                className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors flex-shrink-0"
+                className="h-8 w-8 flex items-center justify-center rounded border border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-gray-700 transition-colors flex-shrink-0"
                 title="Día anterior"
               ><ChevronLeft size={14} /></button>
               <div className="w-52">
@@ -689,7 +681,7 @@ export default function RemisionesPorCliente() {
               <button
                 onClick={() => navigateDay(1)}
                 disabled={singleDateMode && dateRange.from ? isToday(dateRange.from) : false}
-                className="h-8 w-8 flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:bg-gray-50 hover:text-gray-700 transition-colors flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="h-8 w-8 flex items-center justify-center rounded border border-stone-200 text-stone-500 hover:bg-stone-50 hover:text-gray-700 transition-colors flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
                 title="Día siguiente"
               ><ChevronRight size={14} /></button>
             </div>
@@ -700,29 +692,29 @@ export default function RemisionesPorCliente() {
 
           {/* Client combobox */}
           <div className="flex flex-col gap-1 flex-1 min-w-[220px] max-w-xs">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Cliente</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Cliente</span>
             <Popover open={clientComboboxOpen} onOpenChange={setClientComboboxOpen}>
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
                   role="combobox"
                   aria-expanded={clientComboboxOpen}
-                  className="h-8 w-full justify-between text-sm font-normal border-gray-200 hover:border-gray-300"
+                  className="h-8 w-full justify-between text-sm font-normal border-stone-200 hover:border-gray-300"
                   disabled={loadingClients}
                 >
                   {loadingClients ? (
-                    <span className="text-gray-400 text-sm">Cargando…</span>
+                    <span className="text-stone-500 text-sm">Cargando…</span>
                   ) : selectedClient ? (
                     <span className="truncate font-medium text-gray-900">{selectedClient.business_name}</span>
                   ) : (
-                    <span className="text-gray-400 text-sm">Seleccionar cliente…</span>
+                    <span className="text-stone-500 text-sm">Seleccionar cliente…</span>
                   )}
-                  <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0 text-gray-400" />
+                  <ChevronDown className="ml-1 h-3.5 w-3.5 shrink-0 text-stone-500" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="p-0 w-80" align="start">
                 <div className="relative border-b border-gray-100">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-500" />
                   <Input
                     placeholder="Buscar cliente…"
                     className="pl-8 h-8 rounded-none border-0 focus-visible:ring-0 text-sm"
@@ -753,7 +745,7 @@ export default function RemisionesPorCliente() {
                           >
                             <span className="font-medium">{client.business_name}</span>
                             {client.name && client.name !== client.business_name && (
-                              <span className="ml-1.5 text-xs text-gray-400">{client.name}</span>
+                              <span className="ml-1.5 text-xs text-stone-500">{client.name}</span>
                             )}
                           </CommandItem>
                         ))}
@@ -764,7 +756,7 @@ export default function RemisionesPorCliente() {
             </Popover>
             {selectedClientId && (
               <button
-                className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 self-start mt-0.5"
+                className="flex items-center gap-0.5 text-xs text-stone-500 hover:text-gray-600 self-start mt-0.5"
                 onClick={() => { setSelectedClientId(''); setRemisiones([]); setFilteredRemisiones([]); }}
               >
                 <X size={10} /> Limpiar
@@ -777,12 +769,12 @@ export default function RemisionesPorCliente() {
 
           {/* Obra */}
           <div className="flex flex-col gap-1 min-w-[180px] max-w-xs">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Obra</span>
+            <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Obra</span>
             <select
               value={selectedSite}
               onChange={handleSiteChange}
               disabled={!selectedClientId}
-              className="h-8 px-2.5 text-sm border border-gray-200 rounded-md bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="h-8 px-2.5 text-sm border border-stone-200 rounded-md bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <option value="todos">Todas las obras</option>
               {clientSites.map(site => (
@@ -794,21 +786,21 @@ export default function RemisionesPorCliente() {
           {/* Search — pushed right */}
           <div className="ml-auto flex items-end gap-2">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Buscar</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Buscar</span>
               <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-500" />
                 <Input
                   type="text"
                   placeholder="Remisión, conductor…"
                   value={searchTerm}
                   onChange={handleSearchChange}
-                  className="h-8 pl-8 text-sm w-48 border-gray-200"
+                  className="h-8 pl-8 text-sm w-48 border-stone-200"
                 />
               </div>
             </div>
             <button
               onClick={() => setDebugMode(v => !v)}
-              className="h-8 px-2 text-[10px] text-gray-300 hover:text-gray-500 transition-colors self-end"
+              className="h-8 px-2 text-xs text-gray-300 hover:text-gray-500 transition-colors self-end"
             >
               {debugMode ? 'Debug ✓' : 'Debug'}
             </button>
@@ -821,7 +813,7 @@ export default function RemisionesPorCliente() {
         <div className="bg-white border-b border-gray-100 px-6 py-2">
           <div className="max-w-screen-xl mx-auto flex flex-wrap items-center gap-x-5 gap-y-1">
             <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
-              <Calendar size={13} className="text-gray-400 flex-shrink-0" />
+              <Calendar size={13} className="text-stone-500 flex-shrink-0" />
               <span className="capitalize">{dateLabel}</span>
             </div>
             {selectedClient && (
@@ -865,7 +857,7 @@ export default function RemisionesPorCliente() {
 
         {/* Loading */}
         {loading ? (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
             {[...Array(6)].map((_, i) => (
               <div key={i} className={cn('flex items-center gap-4 px-5 py-3.5', i > 0 && 'border-t border-gray-100')}>
                 <Skeleton className="h-4 w-16" />
@@ -885,23 +877,23 @@ export default function RemisionesPorCliente() {
             {selectedClientId ? (
               <>
                 <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-                  <Calendar size={20} className="text-gray-400" />
+                  <Calendar size={20} className="text-stone-500" />
                 </div>
                 <p className="text-sm font-medium text-gray-600">Sin remisiones para este período</p>
-                <p className="text-xs text-gray-400 mt-1 capitalize">
+                <p className="text-xs text-stone-500 mt-1 capitalize">
                   {dateLabel}{selectedClient ? ` · ${selectedClient.business_name}` : ''}
                 </p>
                 <div className="flex items-center gap-3 mt-5">
                   <button
                     onClick={() => navigateDay(-1)}
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline underline-offset-2"
+                    className="flex items-center gap-1 text-xs text-sky-800 hover:text-sky-900 hover:underline underline-offset-2"
                   >
                     <ChevronLeft size={13} /> Día anterior
                   </button>
                   <span className="text-gray-200">|</span>
                   <button
                     onClick={() => navigateDay(1)}
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline underline-offset-2"
+                    className="flex items-center gap-1 text-xs text-sky-800 hover:text-sky-900 hover:underline underline-offset-2"
                   >
                     Día siguiente <ChevronRight size={13} />
                   </button>
@@ -910,10 +902,10 @@ export default function RemisionesPorCliente() {
             ) : (
               <>
                 <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-4">
-                  <Search size={20} className="text-gray-400" />
+                  <Search size={20} className="text-stone-500" />
                 </div>
                 <p className="text-sm font-medium text-gray-600">Selecciona un cliente para ver sus remisiones</p>
-                <p className="text-xs text-gray-400 mt-1">Los clientes activos en el período aparecerán en la lista</p>
+                <p className="text-xs text-stone-500 mt-1">Los clientes activos en el período aparecerán en la lista</p>
               </>
             )}
           </div>
@@ -929,7 +921,7 @@ export default function RemisionesPorCliente() {
                   className="text-xs px-3.5 py-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900 text-gray-500"
                 >
                   Concreto
-                  <span className="ml-1.5 tabular-nums text-[10px] font-semibold bg-gray-200 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700 rounded px-1 py-0.5">
+                  <span className="ml-1.5 tabular-nums text-xs font-semibold bg-gray-200 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700 rounded px-1 py-0.5">
                     {concreteRemisiones.length}
                   </span>
                 </TabsTrigger>
@@ -938,11 +930,11 @@ export default function RemisionesPorCliente() {
                   className="text-xs px-3.5 py-1.5 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-gray-900 text-gray-500"
                 >
                   Bombeo
-                  <span className="ml-1.5 tabular-nums text-[10px] font-semibold bg-gray-200 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700 rounded px-1 py-0.5">
+                  <span className="ml-1.5 tabular-nums text-xs font-semibold bg-gray-200 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-700 rounded px-1 py-0.5">
                     {pumpRemisiones.length}
                   </span>
                   {totalPumpVolume > 0 && (
-                    <span className="ml-1 text-[10px] text-gray-400">{totalPumpVolume.toFixed(1)} m³</span>
+                    <span className="ml-1 text-xs text-stone-500">{totalPumpVolume.toFixed(1)} m³</span>
                   )}
                 </TabsTrigger>
               </TabsList>
@@ -956,32 +948,32 @@ export default function RemisionesPorCliente() {
                   {Object.entries(concreteByRecipe).map(([recipe, data], index) => (
                     <span
                       key={`rc-${index}-${recipe}`}
-                      className="inline-flex items-center gap-1.5 text-xs bg-white border border-gray-200 rounded-full px-3 py-0.5 text-gray-600"
+                      className="inline-flex items-center gap-1.5 text-xs bg-white border border-stone-200 rounded-full px-3 py-0.5 text-gray-600"
                     >
                       <span className="font-medium text-gray-800">{recipe}</span>
-                      <span className="text-gray-400">{data.volume.toFixed(1)} m³</span>
+                      <span className="text-stone-500">{data.volume.toFixed(1)} m³</span>
                     </span>
                   ))}
                 </div>
               )}
 
               {/* Table */}
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-5 py-2.5 w-28">Remisión</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5 w-24">Fecha</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Obra</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Conductor</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5 w-20">Unidad</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Receta</th>
-                      <th className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-5 py-2.5 w-24">Volumen</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-5 py-2.5 w-28">Remisión</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5 w-24">Fecha</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Obra</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Conductor</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5 w-20">Unidad</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Receta</th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-stone-500 px-5 py-2.5 w-24">Volumen</th>
                       {debugMode && (
                         <>
-                          <th className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Precio</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Match</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">IDs</th>
+                          <th className="text-right text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Precio</th>
+                          <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Match</th>
+                          <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">IDs</th>
                         </>
                       )}
                       <th className="w-10 px-3 py-2.5" />
@@ -994,19 +986,19 @@ export default function RemisionesPorCliente() {
                           onClick={() => toggleExpand(remision.id)}
                           className={cn(
                             'cursor-pointer transition-colors group',
-                            expandedRemisionId === remision.id ? 'bg-blue-50/40' : 'hover:bg-gray-50/70'
+                            expandedRemisionId === remision.id ? 'bg-sky-50/50' : 'hover:bg-stone-50/70'
                           )}
                         >
                           <td className="px-5 py-3">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-gray-300 group-hover:text-gray-400 transition-colors">
+                              <span className="text-gray-300 group-hover:text-stone-500 transition-colors">
                                 {expandedRemisionId === remision.id
                                   ? <ChevronDown size={13} />
                                   : <ChevronRight size={13} />}
                               </span>
-                              <span className="font-semibold text-blue-600 tabular-nums">{remision.remision_number}</span>
+                              <span className="font-semibold text-sky-800 tabular-nums">{remision.remision_number}</span>
                               {remision.cross_plant_billing_plant_id && (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium bg-orange-50 text-orange-600 border border-orange-200 rounded px-1.5 py-0.5 ml-0.5">
+                                <span className="inline-flex items-center gap-0.5 text-xs font-medium bg-orange-50 text-orange-600 border border-orange-200 rounded px-1.5 py-0.5 ml-0.5">
                                   <Factory size={9} /> Cruzada
                                 </span>
                               )}
@@ -1020,7 +1012,7 @@ export default function RemisionesPorCliente() {
                           <td className="px-3 py-3 text-gray-500 text-xs font-mono">{remision.unidad || '—'}</td>
                           <td className="px-3 py-3 text-gray-600 text-xs font-mono">{getDisplayRecipeName(remision)}</td>
                           <td className="px-5 py-3 text-right font-semibold tabular-nums text-gray-900">
-                            {remision.volumen_fabricado.toFixed(2)}&nbsp;<span className="font-normal text-gray-400 text-xs">m³</span>
+                            {remision.volumen_fabricado.toFixed(2)}&nbsp;<span className="font-normal text-stone-500 text-xs">m³</span>
                           </td>
                           {debugMode && (() => {
                             const recipeCode = remision.recipe?.recipe_code;
@@ -1031,8 +1023,8 @@ export default function RemisionesPorCliente() {
                             return (
                               <>
                                 <td className="px-3 py-3 text-right text-xs tabular-nums">{formatCurrency(price)}</td>
-                                <td className="px-3 py-3 text-xs text-gray-400">{dbg.matchedStage}</td>
-                                <td className="px-3 py-3 text-xs text-gray-400 font-mono">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</td>
+                                <td className="px-3 py-3 text-xs text-stone-500">{dbg.matchedStage}</td>
+                                <td className="px-3 py-3 text-xs text-stone-500 font-mono">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</td>
                               </>
                             );
                           })()}
@@ -1040,7 +1032,7 @@ export default function RemisionesPorCliente() {
                             <RoleProtectedButton
                               allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
                               onClick={() => handleEditClick(remision)}
-                              className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                              className="p-1.5 rounded text-stone-500 hover:text-sky-800 hover:bg-sky-50 transition-colors"
                               title="Editar remisión"
                             >
                               <Edit size={14} />
@@ -1052,20 +1044,20 @@ export default function RemisionesPorCliente() {
                             <td colSpan={debugMode ? 11 : 8} className="px-5 py-4 border-t border-blue-100/60">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-3">
                                 <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">Requiere Factura</p>
+                                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-0.5">Requiere Factura</p>
                                   <p className="text-sm text-gray-800">{remision.requires_invoice ? 'Sí' : 'No'}</p>
                                 </div>
                                 <div>
-                                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-0.5">ID de Orden</p>
+                                  <p className="text-xs font-semibold uppercase tracking-wider text-stone-500 mb-0.5">ID de Orden</p>
                                   <p className="text-sm text-gray-800 font-mono">{remision.order_id}</p>
                                 </div>
                                 {remision.cross_plant_billing_plant_id && (
                                   <div className="sm:col-span-2">
-                                    <p className="text-[10px] font-semibold uppercase tracking-wider text-orange-400 mb-0.5">Planta Productora</p>
+                                    <p className="text-xs font-semibold uppercase tracking-wider text-orange-400 mb-0.5">Planta Productora</p>
                                     <p className="text-sm text-gray-800 flex items-center gap-1.5">
                                       <Factory size={13} className="text-orange-500" />
                                       {plants[remision.cross_plant_billing_plant_id] ?? remision.cross_plant_billing_plant_id}
-                                      <span className="text-[10px] text-gray-400 font-normal">(producción externa)</span>
+                                      <span className="text-xs text-stone-500 font-normal">(producción externa)</span>
                                     </p>
                                   </div>
                                 )}
@@ -1082,21 +1074,21 @@ export default function RemisionesPorCliente() {
 
             {/* ── Pump tab ── */}
             <TabsContent value="pump" className="mt-0">
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-5 py-2.5 w-28">Remisión</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5 w-24">Fecha</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Obra</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Conductor</th>
-                      <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5 w-20">Unidad</th>
-                      <th className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-5 py-2.5 w-24">Volumen</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-5 py-2.5 w-28">Remisión</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5 w-24">Fecha</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Obra</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Conductor</th>
+                      <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5 w-20">Unidad</th>
+                      <th className="text-right text-xs font-semibold uppercase tracking-wider text-stone-500 px-5 py-2.5 w-24">Volumen</th>
                       {debugMode && (
                         <>
-                          <th className="text-right text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Precio</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">Match</th>
-                          <th className="text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-2.5">IDs</th>
+                          <th className="text-right text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Precio</th>
+                          <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">Match</th>
+                          <th className="text-left text-xs font-semibold uppercase tracking-wider text-stone-500 px-3 py-2.5">IDs</th>
                         </>
                       )}
                       <th className="w-10 px-3 py-2.5" />
@@ -1105,14 +1097,14 @@ export default function RemisionesPorCliente() {
                   <tbody className="divide-y divide-gray-50">
                     {pumpRemisiones.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
+                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-stone-500">
                           No hay remisiones de bombeo para este período
                         </td>
                       </tr>
                     ) : pumpRemisiones.map((remision) => (
-                      <tr key={remision.id} className="hover:bg-gray-50/70 transition-colors">
+                      <tr key={remision.id} className="hover:bg-stone-50/70 transition-colors">
                         <td className="px-5 py-3">
-                          <span className="font-semibold text-blue-600 tabular-nums">{remision.remision_number}</span>
+                          <span className="font-semibold text-sky-800 tabular-nums">{remision.remision_number}</span>
                         </td>
                         <td className="px-3 py-3 text-gray-500 text-xs tabular-nums whitespace-nowrap">{formatDateSafely(remision.fecha)}</td>
                         <td className="px-3 py-3 text-gray-700 max-w-[220px]">
@@ -1121,7 +1113,7 @@ export default function RemisionesPorCliente() {
                         <td className="px-3 py-3 text-gray-600 text-xs">{remision.conductor || '—'}</td>
                         <td className="px-3 py-3 text-gray-500 text-xs font-mono">{remision.unidad || '—'}</td>
                         <td className="px-5 py-3 text-right font-semibold tabular-nums text-gray-900">
-                          {remision.volumen_fabricado.toFixed(2)}&nbsp;<span className="font-normal text-gray-400 text-xs">m³</span>
+                          {remision.volumen_fabricado.toFixed(2)}&nbsp;<span className="font-normal text-stone-500 text-xs">m³</span>
                         </td>
                         {debugMode && (() => {
                           const recipeId = remision.recipe_id;
@@ -1130,8 +1122,8 @@ export default function RemisionesPorCliente() {
                           return (
                             <>
                               <td className="px-3 py-3 text-right text-xs tabular-nums">{formatCurrency(price)}</td>
-                              <td className="px-3 py-3 text-xs text-gray-400">{dbg.matchedStage}</td>
-                              <td className="px-3 py-3 text-xs text-gray-400 font-mono">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</td>
+                              <td className="px-3 py-3 text-xs text-stone-500">{dbg.matchedStage}</td>
+                              <td className="px-3 py-3 text-xs text-stone-500 font-mono">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</td>
                             </>
                           );
                         })()}
@@ -1139,7 +1131,7 @@ export default function RemisionesPorCliente() {
                           <RoleProtectedButton
                             allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
                             onClick={() => handleEditClick(remision)}
-                            className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            className="p-1.5 rounded text-stone-500 hover:text-sky-800 hover:bg-sky-50 transition-colors"
                             title="Editar remisión"
                           >
                             <Edit size={14} />

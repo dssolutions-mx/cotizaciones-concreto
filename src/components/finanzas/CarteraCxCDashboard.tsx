@@ -3,9 +3,8 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import Link from 'next/link';
-import { DollarSign, Users } from 'lucide-react';
 import { ExportBalancesExcelButton } from '@/components/finanzas/ExportBalancesExcelButton';
 import {
   BarChart,
@@ -16,6 +15,8 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
+import { finanzasHubCardClass, finanzasHubTitleClass, finanzasHubKpiGridClass } from '@/components/finanzas/finanzasHubUi';
+import FinanzasKpiStrip, { type FinanzasKpiItem } from '@/components/finanzas/FinanzasKpiStrip';
 
 type ClientBalance = {
   client_id: string;
@@ -136,21 +137,32 @@ export default function CarteraCxCDashboard({ clientBalances }: { clientBalances
     [filteredClients]
   );
 
+  const kpiItems: FinanzasKpiItem[] = [
+    { label: 'Total cartera', value: formatCurrency(portfolioKpis.totalCartera), status: 'neutral' },
+    {
+      label: 'Clientes con saldo',
+      value: portfolioKpis.totalClientsWithBalance,
+      status: portfolioKpis.totalClientsWithBalance > 0 ? 'warning' : 'ok',
+    },
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-5 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Cartera CxC</h1>
-          <p className="text-muted-foreground text-sm">
+          <h1 className={finanzasHubTitleClass}>Cartera CxC</h1>
+          <p className="text-sm text-stone-500 mt-1">
             Cuentas por cobrar con aging por días desde último pago
           </p>
         </div>
         <ExportBalancesExcelButton />
       </div>
 
+      <FinanzasKpiStrip items={kpiItems} className="sm:grid-cols-2" />
+
       {/* Aging distribution bar chart */}
-      <div className="glass-base rounded-2xl p-6">
-        <h2 className="text-title-3 text-gray-800 mb-4">Distribución por Aging</h2>
+      <div className={cn(finanzasHubCardClass, 'p-4 sm:p-6')}>
+        <h2 className="text-sm font-semibold text-stone-900 mb-4">Distribución por aging</h2>
         <div className="h-48">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
@@ -181,36 +193,8 @@ export default function CarteraCxCDashboard({ clientBalances }: { clientBalances
         </div>
       </div>
 
-      {/* Portfolio KPIs - 2 cards only */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="glass-base rounded-2xl p-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-footnote text-muted-foreground">Total Cartera</p>
-              <p className="text-2xl font-bold mt-1">{formatCurrency(portfolioKpis.totalCartera)}</p>
-              <p className="text-footnote text-muted-foreground mt-1">Saldo total por cobrar</p>
-            </div>
-            <div className="rounded-xl bg-primary/10 p-2">
-              <DollarSign className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-        </div>
-        <div className="glass-base rounded-2xl p-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-footnote text-muted-foreground">Clientes con Saldo</p>
-              <p className="text-2xl font-bold mt-1">{portfolioKpis.totalClientsWithBalance}</p>
-              <p className="text-footnote text-muted-foreground mt-1">Con balance pendiente</p>
-            </div>
-            <div className="rounded-xl bg-primary/10 p-2">
-              <Users className="h-5 w-5 text-primary" />
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Aging buckets summary */}
-      <Card>
+      <Card className={finanzasHubCardClass}>
         <CardHeader>
           <CardTitle>Aging por Días</CardTitle>
           <CardDescription>

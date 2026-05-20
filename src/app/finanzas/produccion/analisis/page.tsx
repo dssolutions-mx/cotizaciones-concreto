@@ -7,15 +7,16 @@ import { DateRange } from 'react-day-picker';
 import { DateRangePickerWithPresets } from '@/components/ui/date-range-picker-with-presets';
 import { useFinancialAnalysis } from '@/hooks/useFinancialAnalysis';
 import { FinancialAnalysisTable } from '@/components/finanzas/FinancialAnalysisTable';
+import { finanzasHubCardClass } from '@/components/finanzas/finanzasHubUi';
 
 export default function ProduccionAnalisisPage() {
   const [range, setRange] = useState<DateRange>({
     from: startOfMonth(new Date()),
-    to: endOfMonth(new Date())
+    to: endOfMonth(new Date()),
   });
 
   const { from, to } = range;
-  const { data, isLoading, error, refetch } = useFinancialAnalysis(from, to);
+  const { data, isLoading, error } = useFinancialAnalysis(from, to);
 
   const subtitle = useMemo(() => {
     if (!from || !to) return '';
@@ -23,31 +24,35 @@ export default function ProduccionAnalisisPage() {
   }, [from, to]);
 
   return (
-    <div className="container mx-auto p-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+    <div className="min-w-0">
+      <Card className={finanzasHubCardClass}>
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="text-xl">Análisis Financiero de Producción</CardTitle>
-              <div className="text-sm text-muted-foreground">{subtitle}</div>
+              <CardTitle className="text-lg font-semibold text-stone-900">
+                Análisis financiero
+              </CardTitle>
+              <p className="text-sm text-stone-500 mt-1">{subtitle}</p>
             </div>
-            <div className="w-[320px]">
+            <div className="w-full sm:w-[min(100%,20rem)] shrink-0">
               <DateRangePickerWithPresets value={range} onChange={setRange} />
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {error ? (
-            <div className="text-red-600 text-sm">{String((error as any)?.message || error)}</div>
+            <div className="text-red-700 text-sm" role="alert">
+              {String((error as Error)?.message || error)}
+            </div>
           ) : isLoading ? (
-            <div className="text-sm text-muted-foreground">Cargando…</div>
+            <p className="text-sm text-stone-500">Cargando…</p>
           ) : (
-            <FinancialAnalysisTable data={data} />
+            <div className="overflow-x-auto -mx-1 px-1">
+              <FinancialAnalysisTable data={data} />
+            </div>
           )}
         </CardContent>
       </Card>
     </div>
   );
 }
-
-
