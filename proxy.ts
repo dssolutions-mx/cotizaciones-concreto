@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 // Use createMiddlewareClient from the auth-helpers package
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { getDefaultPathForRole } from '@/lib/auth/role-home';
 // Avoid importing project-specific DB types in middleware to prevent module resolution issues
 
 // Generate a random nonce for CSP using Web Crypto API
@@ -267,20 +268,23 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // If authenticated and trying to access login/register pages, redirect to dashboard
-  // Let client-side logic handle role-based routing after authentication is complete
-  if (user && (pathname === '/login' || pathname === '/register')) {
-    console.log(`Authenticated user accessing ${pathname}, redirecting to dashboard for role-based routing.`);
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/dashboard';
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // If authenticated user hits root '/', send them to dashboard for role-based routing
-  if (user && pathname === '/') {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = '/dashboard';
-    return NextResponse.redirect(redirectUrl);
+  // Authenticated users on login/register or / → role-specific home (see role-home.ts)
+  if (user && (pathname === '/login' || pathname === '/register' || pathname === '/')) {
+    try {
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      const target = getDefaultPathForRole((profileData as { role?: string } | null)?.role);
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = target;
+      return NextResponse.redirect(redirectUrl);
+    } catch {
+      const redirectUrl = request.nextUrl.clone();
+      redirectUrl.pathname = '/dashboard';
+      return NextResponse.redirect(redirectUrl);
+    }
   }
 
   // Block QUALITY_TEAM from accessing non-quality sections (but allow quality dashboard access)
