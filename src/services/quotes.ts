@@ -301,6 +301,28 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       throw new Error('plant_id es requerido para calcular la distancia');
     }
 
+    if (quoteData.client_id) {
+      const { data: clientRow, error: clientError } = await supabase
+        .from('clients')
+        .select('id, business_name, approval_status')
+        .eq('id', quoteData.client_id)
+        .single();
+      if (clientError || !clientRow) {
+        throw new Error('Cliente no encontrado. No se puede crear la cotización.');
+      }
+      if ((clientRow.approval_status || '').toUpperCase() !== 'APPROVED') {
+        throw new Error(
+          `El cliente "${clientRow.business_name || 'Sin nombre'}" no está autorizado. Solicite la aprobación en Finanzas → Autorización de Clientes antes de crear la cotización.`
+        );
+      }
+    }
+
+    if (!quoteData.construction_site_id) {
+      throw new Error(
+        'Debe seleccionar una obra aprobada registrada en el sistema. No se permiten cotizaciones sin obra vinculada.'
+      );
+    }
+
     // CRÍTICO: No permitir cotización si la obra no está aprobada
     if (quoteData.construction_site_id) {
       const { data: site, error: siteError } = await supabase
