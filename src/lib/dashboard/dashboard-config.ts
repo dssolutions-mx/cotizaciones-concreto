@@ -1,5 +1,7 @@
 import type { UserRole } from '@/store/auth/types';
 import { getDashboardVariant, type DashboardVariant } from '@/lib/auth/role-home';
+
+export type { DashboardVariant };
 import type { UserPlantAccess } from '@/types/plant';
 
 export type DashboardMetricKey =
@@ -193,6 +195,8 @@ export function getRoleDashboardConfig(
     subtitle = 'Créditos pendientes y cartera — tu validación vive en Finanzas';
   } else if (role === 'ADMINISTRATIVE') {
     subtitle = 'Enfoque RH: remisiones semanales y apoyo operativo';
+  } else if (variant === 'admin-operations') {
+    subtitle = 'Elige remisiones semanal, compras o reportes según lo que necesites hoy';
   } else if (role === 'ADMIN_OPERATIONS') {
     subtitle = 'Compras, proveedores y salud operativa-financiera';
   } else if (role === 'SALES_AGENT' || role === 'EXTERNAL_SALES_AGENT') {

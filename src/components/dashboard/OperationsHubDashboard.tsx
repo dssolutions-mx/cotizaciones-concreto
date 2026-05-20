@@ -57,7 +57,6 @@ export function OperationsHubDashboard({
   role,
   firstName,
   plantId,
-  isGlobalAdmin,
   onSelectPlant,
   selectedPlantId,
   metrics,

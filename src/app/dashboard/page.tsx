@@ -20,6 +20,7 @@ import { PersonalizedDashboardHeader } from '@/components/dashboard/Personalized
 import { RoleQuickActions } from '@/components/dashboard/RoleQuickActions';
 import { PlantComparisonTable } from '@/components/dashboard/PlantComparisonTable';
 import { OperationsHubDashboard } from '@/components/dashboard/OperationsHubDashboard';
+import { AdminOperationsHub } from '@/components/dashboard/AdminOperationsHub';
 import { Badge } from '@/components/ui/badge';
 import {
   LineChart,
@@ -413,6 +414,10 @@ function DashboardContent() {
     );
   }
 
+  if (config.variant === 'admin-operations') {
+    return <AdminOperationsHub />;
+  }
+
   if (config.variant === 'operations') {
     return (
       <OperationsHubDashboard
@@ -421,7 +426,6 @@ function DashboardContent() {
         role={role}
         firstName={profile?.first_name}
         plantId={plantIdForApi ?? currentPlant?.id ?? null}
-        isGlobalAdmin={isGlobalAdmin}
         selectedPlantId={currentPlant?.id}
         onSelectPlant={
           scope.accessLevel === 'BUSINESS_UNIT' || isGlobalAdmin

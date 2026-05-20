@@ -1,7 +1,7 @@
 import type { UserRole } from '@/store/auth/types';
 
 /** How `/dashboard` renders for this role */
-export type DashboardVariant = 'standard' | 'operations';
+export type DashboardVariant = 'standard' | 'operations' | 'admin-operations';
 
 export interface RoleHomeDefinition {
   /** Where the user lands after login or visiting `/` */
@@ -24,11 +24,11 @@ export const ROLE_HOME: Record<UserRole, RoleHomeDefinition> = {
     homeDescription: 'Control de producción como espacio principal; resumen con pedidos de hoy.',
   },
   ADMIN_OPERATIONS: {
-    defaultPath: '/finanzas/procurement',
-    dashboardVariant: 'standard',
-    dashboardNavLabel: 'Resumen',
+    defaultPath: '/dashboard',
+    dashboardVariant: 'admin-operations',
+    dashboardNavLabel: 'Centro operativo',
     homeDescription:
-      'Centro de compras y salud financiera-operativa (procurement). RH sigue disponible en el menú.',
+      'Hub de admin operaciones: remisiones semanal, compras, proveedores y reportes.',
   },
   CREDIT_VALIDATOR: {
     defaultPath: '/finanzas/credito-validacion',

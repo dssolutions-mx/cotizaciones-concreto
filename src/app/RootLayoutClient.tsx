@@ -488,13 +488,6 @@ function getNavItemsForRole(role: string | undefined): Array<{ href: string; lab
     if (production) items = [production, ...rest];
   }
 
-  // Admin operaciones: finanzas / procurement first
-  if (role === 'ADMIN_OPERATIONS') {
-    const finanzas = items.find((i) => i.href === '/finanzas');
-    const rest = items.filter((i) => i.href !== '/finanzas');
-    if (finanzas) items = [finanzas, ...rest];
-  }
-
   // Administrativo (RH): remisiones hub first via RH entry
   if (role === 'ADMINISTRATIVE') {
     const rh = items.find((i) => i.href === '/rh');
