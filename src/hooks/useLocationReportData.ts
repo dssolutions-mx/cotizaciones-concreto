@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
+import { format } from 'date-fns';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 import {
-  LocationReportService,
-  type LocationReportFilter,
+  fetchLocationReport,
   type LocationReportData,
-} from '@/services/locationReportService';
+  type LocationReportFacets,
+} from '@/services/locationReportApi';
+import type { LocationDataFilterValue } from '@/lib/finanzas/locationReportFilters';
 
 export interface UseLocationReportDataProps {
   dateFrom: Date | null;
@@ -16,10 +18,9 @@ export interface UseLocationReportDataProps {
   sublocalityFilter?: string[];
   administrativeArea1Filter?: string[];
   administrativeArea2Filter?: string[];
-  locationDataFilter?: 'all' | 'enriched' | 'coordinates_only' | 'none';
+  locationDataFilter?: LocationDataFilterValue;
 }
 
-/** Serialize filter params for stable dependency comparison */
 function filterKey(
   dateFrom: Date | null,
   dateTo: Date | null,
@@ -61,6 +62,11 @@ export function useLocationReportData({
 }: UseLocationReportDataProps) {
   const { userAccess, isGlobalAdmin, availablePlants } = usePlantContext();
   const [data, setData] = useState<LocationReportData | null>(null);
+  const [facets, setFacets] = useState<LocationReportFacets | null>(null);
+  const [meta, setMeta] = useState<{
+    totalPoints: number;
+    mapDisplayCap: number;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,6 +90,8 @@ export function useLocationReportData({
   const fetchData = useCallback(async () => {
     if (!dateFrom || !dateTo) {
       setData(null);
+      setFacets(null);
+      setMeta(null);
       return;
     }
 
@@ -119,16 +127,27 @@ export function useLocationReportData({
           },
           localities: [],
           administrativeAreas1: [],
+          sublocalities: [],
+          administrativeAreas2: [],
         });
+        setFacets({
+          clients: [],
+          localities: [],
+          sublocalities: [],
+          administrativeAreas1: [],
+          administrativeAreas2: [],
+          locationDataStatuses: [],
+        });
+        setMeta({ totalPoints: 0, mapDisplayCap: 300 });
         return;
       }
 
-      const filters: LocationReportFilter = {
-        dateRange: { from: dateFrom, to: dateTo },
+      const result = await fetchLocationReport({
+        startDate: format(dateFrom, 'yyyy-MM-dd'),
+        endDate: format(dateTo, 'yyyy-MM-dd'),
         plantIds: effectivePlantIds,
         clientIds: clientIds.length > 0 ? clientIds : undefined,
-        localityFilter:
-          localityFilter.length > 0 ? localityFilter : undefined,
+        localityFilter: localityFilter.length > 0 ? localityFilter : undefined,
         sublocalityFilter:
           sublocalityFilter.length > 0 ? sublocalityFilter : undefined,
         administrativeArea1Filter:
@@ -140,16 +159,20 @@ export function useLocationReportData({
             ? administrativeArea2Filter
             : undefined,
         locationDataFilter,
-      };
+      });
 
-      const result = await LocationReportService.fetchLocationReportData(
-        filters
-      );
-      setData(result);
+      setData(result.data);
+      setFacets(result.facets);
+      setMeta({
+        totalPoints: result.meta.totalPoints,
+        mapDisplayCap: result.meta.mapDisplayCap,
+      });
     } catch (err) {
       console.error('useLocationReportData error:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar datos');
       setData(null);
+      setFacets(null);
+      setMeta(null);
     } finally {
       setLoading(false);
     }
@@ -161,6 +184,8 @@ export function useLocationReportData({
 
   return {
     data,
+    facets,
+    meta,
     loading,
     error,
     refetch: fetchData,

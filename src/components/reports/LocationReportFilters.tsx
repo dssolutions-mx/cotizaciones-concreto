@@ -18,9 +18,9 @@ import {
 } from '@/components/ui/popover';
 import { DateRangePickerWithPresets } from '@/components/ui/date-range-picker-with-presets';
 import { DateRange } from 'react-day-picker';
-import { MapPin, Building2, MapPinned, ChevronDown, Calendar } from 'lucide-react';
+import { MapPin, Building2, MapPinned, ChevronDown, Calendar, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
+import type { LocationDataFilterValue } from '@/lib/finanzas/locationReportFilters';
 interface LocationReportFiltersProps {
   dateRange: DateRange | undefined;
   onDateRangeChange: (range: DateRange | undefined) => void;
@@ -30,12 +30,21 @@ interface LocationReportFiltersProps {
   clients: { id: string; name: string }[];
   clientIds: string[];
   onClientIdsChange: (ids: string[]) => void;
+  clientsLoading?: boolean;
   localities: string[];
   localityFilter: string[];
   onLocalityFilterChange: (v: string[]) => void;
+  sublocalities: string[];
+  sublocalityFilter: string[];
+  onSublocalityFilterChange: (v: string[]) => void;
   administrativeAreas1: string[];
   administrativeArea1Filter: string[];
   onAdministrativeArea1FilterChange: (v: string[]) => void;
+  administrativeAreas2: string[];
+  administrativeArea2Filter: string[];
+  onAdministrativeArea2FilterChange: (v: string[]) => void;
+  locationDataFilter: LocationDataFilterValue;
+  onLocationDataFilterChange: (v: LocationDataFilterValue) => void;
   className?: string;
 }
 
@@ -46,6 +55,7 @@ function MultiSelectPopover<T extends string>({
   placeholder,
   displayValue,
   icon: Icon,
+  disabled,
 }: {
   options: T[];
   selected: T[];
@@ -53,6 +63,7 @@ function MultiSelectPopover<T extends string>({
   placeholder: string;
   displayValue?: (v: T) => string;
   icon?: React.ElementType;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const render = displayValue || ((v: T) => v);
@@ -85,6 +96,7 @@ function MultiSelectPopover<T extends string>({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          disabled={disabled}
           className={cn(
             'w-full justify-between font-normal',
             selected.length > 0 && 'border-primary/50'
@@ -135,6 +147,13 @@ function MultiSelectPopover<T extends string>({
   );
 }
 
+const LOCATION_STATUS_LABELS: Record<string, string> = {
+  all: 'Todos',
+  enriched: 'Enriquecido (geocodificado)',
+  coordinates_only: 'Solo coordenadas',
+  none: 'Sin ubicación',
+};
+
 export default function LocationReportFilters({
   dateRange,
   onDateRangeChange,
@@ -144,12 +163,21 @@ export default function LocationReportFilters({
   clients,
   clientIds,
   onClientIdsChange,
+  clientsLoading = false,
   localities,
   localityFilter,
   onLocalityFilterChange,
+  sublocalities,
+  sublocalityFilter,
+  onSublocalityFilterChange,
   administrativeAreas1,
   administrativeArea1Filter,
   onAdministrativeArea1FilterChange,
+  administrativeAreas2,
+  administrativeArea2Filter,
+  onAdministrativeArea2FilterChange,
+  locationDataFilter,
+  onLocationDataFilterChange,
   className,
 }: LocationReportFiltersProps) {
   const handlePlantToggle = (id: string) => {
@@ -208,7 +236,9 @@ export default function LocationReportFilters({
                     className="w-full justify-start text-xs"
                     onClick={() =>
                       onPlantIdsChange(
-                        selectedPlantIds.length === availablePlants.length ? [] : availablePlants.map((p) => p.id)
+                        selectedPlantIds.length === availablePlants.length
+                          ? []
+                          : availablePlants.map((p) => p.id)
                       )
                     }
                   >
@@ -235,7 +265,9 @@ export default function LocationReportFilters({
                           <span className="text-primary-foreground text-xs">✓</span>
                         )}
                       </div>
-                      <span className="text-sm truncate">{p.code ? `${p.code} - ${p.name}` : p.name}</span>
+                      <span className="text-sm truncate">
+                        {p.code ? `${p.code} - ${p.name}` : p.name}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -251,7 +283,8 @@ export default function LocationReportFilters({
               onChange={onClientIdsChange}
               placeholder="Todos los clientes"
               displayValue={(id) => clients.find((c) => c.id === id)?.name || id}
-              icon={Building2}
+              icon={clientsLoading ? Loader2 : Building2}
+              disabled={clientsLoading}
             />
           </div>
 
@@ -269,6 +302,16 @@ export default function LocationReportFilters({
           </div>
 
           <div className="space-y-2">
+            <Label className="text-sm">Colonia</Label>
+            <MultiSelectPopover
+              options={sublocalities}
+              selected={sublocalityFilter}
+              onChange={onSublocalityFilterChange}
+              placeholder="Todas las colonias"
+            />
+          </div>
+
+          <div className="space-y-2">
             <Label className="text-sm">Estado</Label>
             <MultiSelectPopover
               options={administrativeAreas1}
@@ -276,6 +319,38 @@ export default function LocationReportFilters({
               onChange={onAdministrativeArea1FilterChange}
               placeholder="Todos los estados"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm">Municipio</Label>
+            <MultiSelectPopover
+              options={administrativeAreas2}
+              selected={administrativeArea2Filter}
+              onChange={onAdministrativeArea2FilterChange}
+              placeholder="Todos los municipios"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-sm">Calidad de ubicación</Label>
+            <Select
+              value={locationDataFilter}
+              onValueChange={(v) =>
+                onLocationDataFilterChange(v as LocationDataFilterValue)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{LOCATION_STATUS_LABELS.all}</SelectItem>
+                <SelectItem value="enriched">{LOCATION_STATUS_LABELS.enriched}</SelectItem>
+                <SelectItem value="coordinates_only">
+                  {LOCATION_STATUS_LABELS.coordinates_only}
+                </SelectItem>
+                <SelectItem value="none">{LOCATION_STATUS_LABELS.none}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </CardContent>

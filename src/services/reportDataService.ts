@@ -2,6 +2,10 @@ import { supabase } from '@/lib/supabase';
 import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
 import { format } from 'date-fns';
 import {
+  orderMatchesLocationFilters,
+  singleRelation,
+} from '@/lib/finanzas/locationReportFilters';
+import {
   enrichRemisiones,
   enrichRemisionPricing as enrichSingle,
   loadPricingMap,
@@ -17,41 +21,6 @@ import type {
   SelectableRemision,
   AdditionalProductLine,
 } from '@/types/pdf-reports';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function singleRelation<T>(val: T | T[] | null): T | null {
-  if (val == null) return null;
-  return Array.isArray(val) ? val[0] ?? null : val;
-}
-
-function orderMatchesLocationFilters(order: any, filters: ReportFilter): boolean {
-  const meta = singleRelation(order?.order_location_metadata);
-  const status = order?.location_data_status ?? 'none';
-
-  if (filters.locationDataFilter && filters.locationDataFilter !== 'all') {
-    if (status !== filters.locationDataFilter) return false;
-  }
-  if (filters.localityFilter?.length) {
-    const locality = meta?.locality;
-    if (!locality || !filters.localityFilter.includes(locality)) return false;
-  }
-  if (filters.sublocalityFilter?.length) {
-    const sublocality = meta?.sublocality;
-    if (!sublocality || !filters.sublocalityFilter.includes(sublocality)) return false;
-  }
-  if (filters.administrativeArea1Filter?.length) {
-    const a1 = meta?.administrative_area_level_1;
-    if (!a1 || !filters.administrativeArea1Filter.includes(a1)) return false;
-  }
-  if (filters.administrativeArea2Filter?.length) {
-    const a2 = meta?.administrative_area_level_2;
-    if (!a2 || !filters.administrativeArea2Filter.includes(a2)) return false;
-  }
-  return true;
-}
 
 /** Display product code: master when available (canonical), else variant recipe_code */
 function getDisplayProductCode(remision: any): string {
