@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   Plus,
   FileText,
+  FileSpreadsheet,
   ChevronDown,
   Factory,
   Clock,
@@ -42,7 +43,9 @@ import {
   X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { fetchMuestreos } from '@/services/qualityMuestreoService'
+import { fetchMuestreos, fetchAllMuestreosForExport } from '@/services/qualityMuestreoService'
+import { downloadInternalMuestreosExcel } from '@/lib/quality/muestreosExcelExport'
+import { toast } from 'sonner'
 import type { FiltrosCalidad, MuestreoWithRelations } from '@/types/quality'
 import type { Plant } from '@/types/plant'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
@@ -57,7 +60,7 @@ import {
   computeResistanceCompliance,
   computeSpecimenDots,
   getConstructionSite,
-  parseSortOption,
+  filterAndSortMuestreosList,
   resistanceComplianceClass,
   type SortOption,
   type SpecimenDotKind,
@@ -147,6 +150,7 @@ export default function MuestreosListClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [exportingExcel, setExportingExcel] = useState(false)
 
   const [currentPage, setCurrentPage] = useState(0)
   const [totalCount, setTotalCount] = useState<number | null>(null)
@@ -259,82 +263,75 @@ export default function MuestreosListClient() {
     }
   }
 
-  const { sortBy, sortDirection } = parseSortOption(sortOption)
+  const filteredMuestreos = useMemo(
+    () =>
+      filterAndSortMuestreosList(muestreos, {
+        searchQuery,
+        clasificacion,
+        estadoMuestreo,
+        sortOption,
+      }),
+    [muestreos, searchQuery, clasificacion, estadoMuestreo, sortOption]
+  )
 
-  const filteredMuestreos = useMemo(() => {
-    let filtered = [...muestreos]
-
-    if (searchQuery) {
-      const search = searchQuery.toLowerCase()
-      filtered = filtered.filter(
-        (m) =>
-          m.remision?.remision_number?.toString().toLowerCase().includes(search) ||
-          m.remision?.orders?.clients?.business_name?.toLowerCase().includes(search) ||
-          m.remision?.order?.clients?.business_name?.toLowerCase().includes(search) ||
-          m.remision?.recipe?.recipe_code?.toLowerCase().includes(search) ||
-          getConstructionSite(m).toLowerCase().includes(search) ||
-          m.manual_reference?.toLowerCase().includes(search)
-      )
+  const buildFilterSummary = useCallback(() => {
+    const parts: string[] = []
+    if (dateRange?.from) {
+      const from = formatDate(dateRange.from, 'dd/MM/yyyy')
+      const to = dateRange.to ? formatDate(dateRange.to, 'dd/MM/yyyy') : '…'
+      parts.push(`Fechas: ${from} – ${to}`)
+    } else {
+      parts.push('Fechas: todas')
     }
+    parts.push(planta === 'todas' ? 'Planta: todas' : `Planta: ${planta}`)
+    if (searchQuery) parts.push(`Búsqueda: "${searchQuery}"`)
+    if (clasificacion !== 'todas') parts.push(`Clasificación: ${clasificacion}`)
+    if (estadoMuestreo !== 'todos') parts.push(`Estado: ${estadoMuestreo}`)
+    return parts.join(' · ')
+  }, [dateRange, planta, searchQuery, clasificacion, estadoMuestreo])
 
-    if (clasificacion && clasificacion !== 'todas') {
-      filtered = filtered.filter((m) => {
-        const recipeNotes = m.remision?.recipe?.recipe_versions?.[0]?.notes || ''
-        return recipeNotes.includes(clasificacion)
+  const handleExportExcel = useCallback(async () => {
+    try {
+      setExportingExcel(true)
+      toast.loading('Cargando muestreos para exportar…')
+      const all = await fetchAllMuestreosForExport({
+        fechaDesde: dateRange?.from,
+        fechaHasta: dateRange?.to,
+        ...plantScopeForFetch(planta, filterPlants, currentPlant),
       })
-    }
-
-    if (estadoMuestreo && estadoMuestreo !== 'todos') {
-      filtered = filtered.filter((m) => {
-        if (!m.muestras || m.muestras.length === 0) return false
-        switch (estadoMuestreo) {
-          case 'completado':
-            return (
-              m.muestras.every(
-                (muestra) =>
-                  muestra.estado === 'ENSAYADO' ||
-                  muestra.estado === 'NO_REALIZADO' ||
-                  muestra.estado === 'DESCARTADO'
-              ) && m.muestras.some((muestra) => muestra.estado === 'ENSAYADO')
-            )
-          case 'en-proceso':
-            return (
-              m.muestras.some((muestra) => muestra.estado === 'ENSAYADO') &&
-              m.muestras.some((muestra) => muestra.estado === 'PENDIENTE')
-            )
-          case 'pendiente':
-            return m.muestras.every((muestra) => muestra.estado === 'PENDIENTE')
-          default:
-            return true
-        }
+      const filtered = filterAndSortMuestreosList(all, {
+        searchQuery,
+        clasificacion,
+        estadoMuestreo,
+        sortOption,
       })
-    }
-
-    filtered.sort((a, b) => {
-      let valA: number
-      let valB: number
-      switch (sortBy) {
-        case 'fecha':
-          valA = new Date(a.fecha_muestreo || 0).getTime()
-          valB = new Date(b.fecha_muestreo || 0).getTime()
-          break
-        case 'remision':
-          valA = Number(a.remision?.remision_number) || 0
-          valB = Number(b.remision?.remision_number) || 0
-          break
-        case 'f_c':
-          valA = a.remision?.recipe?.strength_fc || 0
-          valB = b.remision?.recipe?.strength_fc || 0
-          break
-        default:
-          valA = new Date(a.fecha_muestreo || 0).getTime()
-          valB = new Date(b.fecha_muestreo || 0).getTime()
+      if (filtered.length === 0) {
+        toast.error('No hay muestreos que coincidan con los filtros')
+        return
       }
-      return sortDirection === 'asc' ? (valA > valB ? 1 : -1) : valA < valB ? 1 : -1
-    })
-
-    return filtered
-  }, [muestreos, searchQuery, clasificacion, estadoMuestreo, sortBy, sortDirection])
+      await downloadInternalMuestreosExcel({
+        muestreos: filtered,
+        filterSummary: buildFilterSummary(),
+        plantLabel: planta === 'todas' ? 'Todas las plantas' : planta,
+      })
+      toast.success(`Excel descargado (${filtered.length} muestreos)`)
+    } catch (err) {
+      console.error('Export muestreos Excel:', err)
+      toast.error('Error al generar el archivo Excel')
+    } finally {
+      setExportingExcel(false)
+    }
+  }, [
+    dateRange,
+    planta,
+    filterPlants,
+    currentPlant,
+    searchQuery,
+    clasificacion,
+    estadoMuestreo,
+    sortOption,
+    buildFilterSummary,
+  ])
 
   const clearFilters = () => {
     setSearchQuery('')
@@ -433,6 +430,17 @@ export default function MuestreosListClient() {
           >
             <Plus className="mr-2 h-4 w-4" />
             Nuevo muestreo
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 border-stone-300 bg-white px-3 shadow-none hover:bg-stone-50"
+            onClick={() => void handleExportExcel()}
+            disabled={exportingExcel || loading}
+            aria-label="Exportar a Excel"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-stone-700 mr-1.5" />
+            {exportingExcel ? 'Exportando…' : 'Excel'}
           </Button>
           <Button
             type="button"

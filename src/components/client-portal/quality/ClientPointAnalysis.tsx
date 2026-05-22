@@ -6,6 +6,8 @@ import { X, Target, Zap, Calendar, Beaker, TrendingUp, Activity, CheckCircle2, A
 import { DatoGraficoResistencia } from '@/types/quality';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/parseLocalDate';
+import { formatMuestreoDateShort, calendarDateToChartMs } from '@/lib/qualityHelpers';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { appendPortalClientId } from '@/lib/client-portal/portalClientIdUrl';
@@ -234,6 +236,9 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
 
   const formatDate = (dateString: string | Date) => {
     try {
+      if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString.split('T')[0] ?? '')) {
+        return format(parseLocalDate(dateString.split('T')[0]!), 'dd/MM/yyyy', { locale: es });
+      }
       const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
       return format(date, 'dd/MM/yyyy', { locale: es });
     } catch {
@@ -368,7 +373,8 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
                   <div>
                     <p className="text-footnote text-label-secondary mb-1">Fecha de Muestreo</p>
                     <p className="text-body font-medium text-label-primary">
-                      {formatDate(muestreo.fechaMuestreo)}
+                      {formatMuestreoDateShort(muestreo as Record<string, unknown>) ??
+                        formatDate(muestreo.fechaMuestreo)}
                     </p>
                   </div>
                 )}
@@ -462,9 +468,20 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
                   const fechaEnsayo = ensayoItem.fechaEnsayo || ensayoItem.fecha_ensayo;
                   
                   // Calculate age from muestreo date
-                  const muestreoDate = new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo);
-                  const ensayoDate = fechaEnsayo ? new Date(fechaEnsayo) : null;
-                  const ageHours = ensayoDate ? (ensayoDate.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60) : null;
+                  const muestreoMs = calendarDateToChartMs(
+                    muestreo.fechaMuestreo || muestreo.fecha_muestreo
+                  );
+                  const ensayoDay = fechaEnsayo ? String(fechaEnsayo).split('T')[0] : '';
+                  const ensayoDate =
+                    fechaEnsayo && /^\d{4}-\d{2}-\d{2}$/.test(ensayoDay)
+                      ? parseLocalDate(ensayoDay)
+                      : fechaEnsayo
+                        ? new Date(fechaEnsayo)
+                        : null;
+                  const ageHours =
+                    ensayoDate && muestreoMs != null
+                      ? (ensayoDate.getTime() - muestreoMs) / (1000 * 60 * 60)
+                      : null;
                   const ageDays = ageHours ? ageHours / 24 : null;
                   
                   return (
