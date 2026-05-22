@@ -141,29 +141,32 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   const constructionSites = [...new Set(data.remisiones.map(r => r.constructionSite).filter(Boolean))];
 
   const exportToExcel = async () => {
+    if (allMuestreos.length === 0) {
+      toast.error('No hay muestreos para exportar');
+      return;
+    }
+
+    const periodLabel =
+      summary?.period?.from && summary?.period?.to
+        ? `${summary.period.from} – ${summary.period.to}`
+        : undefined;
+
+    setIsExporting(true);
     try {
-      setIsExporting(true);
-
-      if (allMuestreos.length === 0) {
-        toast.error('No hay muestreos para exportar');
-        return;
-      }
-
-      const periodLabel =
-        summary?.period?.from && summary?.period?.to
-          ? `${summary.period.from} – ${summary.period.to}`
-          : undefined;
-
-      await downloadClientPortalMuestreosExcel({
-        clientName: data.clientInfo.business_name,
-        periodLabel,
-        muestreos: allMuestreos as import('@/lib/quality/muestreosExcelRows').ClientPortalMuestreoExport[],
-      });
-
-      toast.success('Archivo Excel descargado exitosamente');
+      await toast.promise(
+        downloadClientPortalMuestreosExcel({
+          clientName: data.clientInfo.business_name,
+          periodLabel,
+          muestreos: allMuestreos as import('@/lib/quality/muestreosExcelRows').ClientPortalMuestreoExport[],
+        }),
+        {
+          loading: 'Preparando archivo Excel…',
+          success: 'Archivo Excel descargado exitosamente',
+          error: 'Error al generar el archivo Excel',
+        }
+      );
     } catch (error) {
       console.error('Error al exportar a Excel:', error);
-      toast.error('Error al generar el archivo Excel');
     } finally {
       setIsExporting(false);
     }

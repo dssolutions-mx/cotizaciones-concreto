@@ -291,33 +291,42 @@ export default function MuestreosListClient() {
   }, [dateRange, planta, searchQuery, clasificacion, estadoMuestreo])
 
   const handleExportExcel = useCallback(async () => {
+    setExportingExcel(true)
     try {
-      setExportingExcel(true)
-      toast.loading('Cargando muestreos para exportar…')
-      const all = await fetchAllMuestreosForExport({
-        fechaDesde: dateRange?.from,
-        fechaHasta: dateRange?.to,
-        ...plantScopeForFetch(planta, filterPlants, currentPlant),
-      })
-      const filtered = filterAndSortMuestreosList(all, {
-        searchQuery,
-        clasificacion,
-        estadoMuestreo,
-        sortOption,
-      })
-      if (filtered.length === 0) {
-        toast.error('No hay muestreos que coincidan con los filtros')
-        return
-      }
-      await downloadInternalMuestreosExcel({
-        muestreos: filtered,
-        filterSummary: buildFilterSummary(),
-        plantLabel: planta === 'todas' ? 'Todas las plantas' : planta,
-      })
-      toast.success(`Excel descargado (${filtered.length} muestreos)`)
+      await toast.promise(
+        (async () => {
+          const all = await fetchAllMuestreosForExport({
+            fechaDesde: dateRange?.from,
+            fechaHasta: dateRange?.to,
+            ...plantScopeForFetch(planta, filterPlants, currentPlant),
+          })
+          const filtered = filterAndSortMuestreosList(all, {
+            searchQuery,
+            clasificacion,
+            estadoMuestreo,
+            sortOption,
+          })
+          if (filtered.length === 0) {
+            throw new Error('EMPTY_EXPORT')
+          }
+          await downloadInternalMuestreosExcel({
+            muestreos: filtered,
+            filterSummary: buildFilterSummary(),
+            plantLabel: planta === 'todas' ? 'Todas las plantas' : planta,
+          })
+          return filtered.length
+        })(),
+        {
+          loading: 'Generando Excel…',
+          success: (count) => `Excel descargado (${count} muestreos)`,
+          error: (err) =>
+            err instanceof Error && err.message === 'EMPTY_EXPORT'
+              ? 'No hay muestreos que coincidan con los filtros'
+              : 'Error al generar el archivo Excel',
+        }
+      )
     } catch (err) {
       console.error('Export muestreos Excel:', err)
-      toast.error('Error al generar el archivo Excel')
     } finally {
       setExportingExcel(false)
     }
