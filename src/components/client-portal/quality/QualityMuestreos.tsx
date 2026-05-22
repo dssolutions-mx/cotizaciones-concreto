@@ -12,16 +12,11 @@ import {
   processMuestreosForChart,
   resolveEnsayoResistenciaReportada,
   resolveEnsayoPorcentajeCumplimiento,
-  formatTipoMuestraLabel,
-  formatEdadAlEnsayoShort,
-  formatEnsayoDateShort,
-  formatEdadGarantiaReceta,
+  calendarDateToChartMs,
 } from '@/lib/qualityHelpers';
 import type { DatoGraficoResistencia } from '@/types/quality';
-import * as XLSX from 'xlsx';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { toast } from 'sonner';
+import { downloadClientPortalMuestreosExcel } from '@/lib/quality/muestreosExcelExport';
 
 interface QualityMuestreosProps {
   data: ClientQualityData;
@@ -125,7 +120,10 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           );
           
           return {
-            x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || muestreo.fecha || Date.now()).getTime(),
+            x:
+              calendarDateToChartMs(
+                muestreo.fechaMuestreo || muestreo.fecha_muestreo || muestreo.fecha
+              ) ?? Date.now(),
             y: ensayo.porcentajeCumplimientoAjustado || ensayo.porcentajeCumplimiento || 0,
             clasificacion,
             edad, // Raw valor_edad value (not converted)
@@ -142,139 +140,25 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   // Extract unique construction sites
   const constructionSites = [...new Set(data.remisiones.map(r => r.constructionSite).filter(Boolean))];
 
-  // Función para exportar a Excel
   const exportToExcel = async () => {
     try {
       setIsExporting(true);
-      
+
       if (allMuestreos.length === 0) {
         toast.error('No hay muestreos para exportar');
         return;
       }
 
-      toast.loading('Preparando datos para exportar...');
+      const periodLabel =
+        summary?.period?.from && summary?.period?.to
+          ? `${summary.period.from} – ${summary.period.to}`
+          : undefined;
 
-      // Preparar datos para exportar
-      const excelData: any[] = [];
-
-      allMuestreos.forEach((muestreo) => {
-        const hasTests = muestreo.muestras.some(m => m.ensayos.length > 0);
-        const allEnsayos = muestreo.muestras.flatMap(m => m.ensayos);
-        
-        const avgCompliance = hasTests && allEnsayos.length > 0
-          ? allEnsayos.reduce((sum, e: any) => sum + (e.porcentajeCumplimientoAjustado || 0), 0) / allEnsayos.length
-          : null;
-
-        const avgResistance = hasTests && allEnsayos.length > 0
-          ? allEnsayos.reduce((sum, e: any) => sum + (e.resistenciaCalculadaAjustada || 0), 0) / allEnsayos.length
-          : null;
-
-        // Crear fila base del muestreo
-        const edadGarantiaReceta = formatEdadGarantiaReceta((muestreo as any).concrete_specs) || 'N/A';
-        const muestreoAgeCtx = muestreo as Record<string, unknown>;
-
-        const baseRow = {
-          'Remisión': muestreo.remisionNumber,
-          'No. Muestreo': muestreo.numeroMuestreo,
-          'Fecha Muestreo': format(new Date(muestreo.fechaMuestreo), 'dd/MM/yyyy', { locale: es }),
-          'Obra': muestreo.constructionSite,
-          'Código Receta': muestreo.recipeCode || 'N/A',
-          "f'c Diseño (kg/cm²)": muestreo.recipeFc || 'N/A',
-          'Edad garantía (receta)': edadGarantiaReceta,
-          'Revenimiento (cm)': muestreo.revenimientoSitio || 'N/A',
-          'Masa Unitaria (kg/m³)': muestreo.masaUnitaria || 'N/A',
-          'Volumen Fabricado (m³)': muestreo.volumenFabricado ? muestreo.volumenFabricado.toFixed(2) : 'N/A',
-          'Temperatura Ambiente (°C)': muestreo.temperaturaAmbiente || 'N/A',
-          'Temperatura Concreto (°C)': muestreo.temperaturaConcreto || 'N/A',
-          'Rendimiento Volumétrico (%)': muestreo.rendimientoVolumetrico 
-            ? muestreo.rendimientoVolumetrico.toFixed(1) 
-            : 'N/A',
-          'Total Muestras': muestreo.muestras.length,
-          'Total Ensayos': allEnsayos.length,
-          'Tipo': hasTests ? 'Con Ensayos' : 'Site Check',
-        };
-
-        if (hasTests && allEnsayos.length > 0) {
-          let ensayoIdx = 0;
-          muestreo.muestras.forEach((muestra) => {
-            const mu = muestra as { identificacion?: string; tipoMuestra?: string; tipo_muestra?: string };
-            const ident =
-              (mu.identificacion && String(mu.identificacion).trim()) ||
-              `Muestra ${String(muestra.id).slice(0, 8)}`;
-            const tipoLabel = formatTipoMuestraLabel(mu.tipoMuestra ?? mu.tipo_muestra);
-            (muestra.ensayos || []).forEach((ensayo: any) => {
-              ensayoIdx += 1;
-              excelData.push({
-                ...baseRow,
-                'No. Ensayo': ensayoIdx,
-                'Identificación muestra': ident,
-                'Tipo probeta': tipoLabel,
-                'Edad al ensayo': formatEdadAlEnsayoShort(muestreoAgeCtx, ensayo as Record<string, unknown>) || 'N/A',
-                'Fecha ensayo': formatEnsayoDateShort(ensayo as Record<string, unknown>) || 'N/A',
-                'Resistencia (kg/cm²)': Number(ensayo.resistenciaCalculadaAjustada || 0).toFixed(0),
-                'Cumplimiento (%)': Number(ensayo.porcentajeCumplimientoAjustado || 0).toFixed(1),
-                'Resistencia Promedio (kg/cm²)': avgResistance ? avgResistance.toFixed(0) : 'N/A',
-                'Cumplimiento Promedio (%)': avgCompliance ? avgCompliance.toFixed(1) : 'N/A',
-              });
-            });
-          });
-        } else {
-          // Si no hay ensayos, agregar solo una fila con la información del muestreo
-          excelData.push({
-            ...baseRow,
-            'No. Ensayo': 'N/A',
-            'Identificación muestra': 'N/A',
-            'Tipo probeta': 'N/A',
-            'Edad al ensayo': 'N/A',
-            'Fecha ensayo': 'N/A',
-            'Resistencia (kg/cm²)': 'N/A',
-            'Cumplimiento (%)': 'N/A',
-            'Resistencia Promedio (kg/cm²)': 'N/A',
-            'Cumplimiento Promedio (%)': 'N/A',
-          });
-        }
+      await downloadClientPortalMuestreosExcel({
+        clientName: data.clientInfo.business_name,
+        periodLabel,
+        muestreos: allMuestreos as import('@/lib/quality/muestreosExcelRows').ClientPortalMuestreoExport[],
       });
-
-      // Crear hoja de cálculo
-      const worksheet = XLSX.utils.json_to_sheet(excelData);
-      
-      // Ajustar ancho de columnas
-      const columnWidths = [
-        { wch: 15 }, // Remisión
-        { wch: 12 }, // No. Muestreo
-        { wch: 15 }, // Fecha Muestreo
-        { wch: 30 }, // Obra
-        { wch: 15 }, // Código Receta
-        { wch: 18 }, // f'c Diseño
-        { wch: 22 }, // Edad garantía receta
-        { wch: 16 }, // Revenimiento
-        { wch: 20 }, // Masa Unitaria
-        { wch: 22 }, // Volumen Fabricado
-        { wch: 22 }, // Temperatura Ambiente
-        { wch: 22 }, // Temperatura Concreto
-        { wch: 24 }, // Rendimiento Volumétrico
-        { wch: 14 }, // Total Muestras
-        { wch: 14 }, // Total Ensayos
-        { wch: 14 }, // Tipo
-        { wch: 12 }, // No. Ensayo
-        { wch: 22 }, // Identificación muestra
-        { wch: 14 }, // Tipo probeta
-        { wch: 18 }, // Edad al ensayo
-        { wch: 14 }, // Fecha ensayo
-        { wch: 20 }, // Resistencia
-        { wch: 16 }, // Cumplimiento
-        { wch: 26 }, // Resistencia Promedio
-        { wch: 24 }, // Cumplimiento Promedio
-      ];
-      worksheet['!cols'] = columnWidths;
-
-      // Crear libro de trabajo
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Muestreos');
-
-      // Generar archivo
-      const fileName = `Muestreos_${data.clientInfo.business_name}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
 
       toast.success('Archivo Excel descargado exitosamente');
     } catch (error) {

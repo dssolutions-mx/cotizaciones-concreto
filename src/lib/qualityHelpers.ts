@@ -2,6 +2,7 @@
 
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { parseLocalDate } from '@/lib/parseLocalDate';
 import type { ClientQualityRemisionData, ClientQualityData } from '@/types/clientQuality';
 
 /** Shape accepted from API (camelCase or snake_case). */
@@ -147,15 +148,59 @@ export function calculateMuestreoCompliance(muestreo: any): number {
   return sum / validEnsayos.length;
 }
 
-/**
- * Calculate daily average of muestreos
- */
+/** YYYY-MM-DD (or ISO date prefix) as calendar date — no UTC midnight shift. */
+export function formatCalendarDateShort(
+  dateInput: string | null | undefined,
+  pattern = 'dd/MM/yyyy'
+): string | null {
+  if (!dateInput) return null;
+  const day = String(dateInput).split('T')[0]?.trim();
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  try {
+    return format(parseLocalDate(day), pattern, { locale: es });
+  } catch {
+    return null;
+  }
+}
+
+/** Sampling date for display/export: prefers final calendar date from MV, not timestamp TZ. */
+export function formatMuestreoDateShort(
+  muestreo: Record<string, unknown> | null | undefined,
+  pattern = 'dd/MM/yyyy'
+): string | null {
+  if (!muestreo) return null;
+  const dStr = (muestreo.fechaMuestreo ?? muestreo.fecha_muestreo) as string | undefined;
+  const fromCalendar = formatCalendarDateShort(dStr, pattern);
+  if (fromCalendar) return fromCalendar;
+  const hora = (muestreo.hora_muestreo as string | undefined) || '12:00:00';
+  if (dStr) {
+    const day = String(dStr).split('T')[0];
+    try {
+      return format(new Date(`${day}T${hora}`), pattern, { locale: es });
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Ms at local noon for chart axes from a calendar sampling date. */
+export function calendarDateToChartMs(dateInput: string | null | undefined): number | null {
+  if (!dateInput) return null;
+  const day = String(dateInput).split('T')[0]?.trim();
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const d = parseLocalDate(day);
+  d.setHours(12, 0, 0, 0);
+  return d.getTime();
+}
+
 export function calculateDailyAverage(muestreos: any[]): string {
   if (muestreos.length === 0) return '0';
   
   // Group by date
   const byDate = muestreos.reduce((acc: any, m: any) => {
-    const date = new Date(m.fechaMuestreo).toDateString();
+    const date =
+      formatCalendarDateShort(m.fechaMuestreo ?? m.fecha_muestreo, 'yyyy-MM-dd') ?? 'unknown';
     if (!acc[date]) acc[date] = 0;
     acc[date]++;
     return acc;
@@ -174,7 +219,8 @@ export function calculateDailyAverage(muestreos: any[]): string {
 export function processMuestreosForChart(muestreos: any[]): any[] {
   // Group by date
   const byDate = muestreos.reduce((acc: any, m: any) => {
-    const date = new Date(m.fechaMuestreo).toISOString().split('T')[0];
+    const date =
+      formatCalendarDateShort(m.fechaMuestreo ?? m.fecha_muestreo, 'yyyy-MM-dd') ?? 'unknown';
     if (!acc[date]) {
       acc[date] = {
         date,
@@ -532,6 +578,9 @@ export function formatEdadAlEnsayoShort(muestreo: Record<string, unknown>, ensay
 }
 
 export function formatEnsayoDateShort(ensayo: Record<string, unknown>): string | null {
+  const fechaOnly = (ensayo.fechaEnsayo ?? ensayo.fecha_ensayo) as string | undefined;
+  const fromCalendar = formatCalendarDateShort(fechaOnly);
+  if (fromCalendar) return fromCalendar;
   const ms = resolveEnsayoInstantMs(ensayo);
   if (ms == null) return null;
   try {
