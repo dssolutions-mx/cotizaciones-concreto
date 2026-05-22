@@ -68,6 +68,33 @@ function sanitizeFilenamePart(value: string): string {
   return value.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').slice(0, 48)
 }
 
+/** Headers that must stay plain text so Excel does not reinterpret as serial dates. */
+const EXCEL_CALENDAR_DATE_HEADERS = new Set([
+  'Fecha Muestreo',
+  'Fecha muestreo',
+  'Fecha ensayo',
+  'Fecha prog. ensayo',
+])
+
+function assignExcelCellValue(
+  cell: ExcelJS.Cell,
+  header: string,
+  value: ExcelCellValue
+): void {
+  const text = value == null ? '' : String(value)
+  if (
+    EXCEL_CALENDAR_DATE_HEADERS.has(header) &&
+    text &&
+    text !== 'N/A' &&
+    text !== '—'
+  ) {
+    cell.value = text
+    cell.numFmt = '@'
+    return
+  }
+  cell.value = value
+}
+
 async function buildBrandedDataSheet(
   wb: ExcelJS.Workbook,
   sheetName: string,
@@ -126,7 +153,11 @@ async function buildBrandedDataSheet(
   dataRows.forEach((row, rowIdx) => {
     const r = ws.addRow(headers.map((h) => row[h] ?? ''))
     r.height = 18
-    r.eachCell((cell) => {
+    r.eachCell((cell, colNumber) => {
+      const header = headers[colNumber - 1]
+      if (header) {
+        assignExcelCellValue(cell, header, row[header] ?? '')
+      }
       cell.style = {
         ...dataStyle(rowIdx % 2 === 1),
         alignment: { vertical: 'middle', horizontal: 'left', wrapText: true },

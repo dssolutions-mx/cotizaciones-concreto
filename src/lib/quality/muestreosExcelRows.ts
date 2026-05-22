@@ -1,11 +1,12 @@
 import type { MuestreoWithRelations, MuestraWithRelations } from '@/types/quality'
+import { formatYmdForDisplay } from '@/lib/parseLocalDate'
 import {
   formatTipoMuestraLabel,
   formatEdadAlEnsayoShort,
-  formatEnsayoDateShort,
   formatEdadGarantiaReceta,
-  formatMuestreoDateShort,
   formatCalendarDateShort,
+  resolveMuestreoCalendarYmd,
+  resolveEnsayoCalendarYmd,
   resolveEnsayoResistenciaReportada,
   resolveEnsayoPorcentajeCumplimiento,
 } from '@/lib/qualityHelpers'
@@ -94,12 +95,8 @@ export function buildClientPortalMuestreosExcelRows(
 
     const edadGarantiaReceta = formatEdadGarantiaReceta(muestreo.concrete_specs) || 'N/A'
     const muestreoAgeCtx = muestreo as Record<string, unknown>
-    const fechaLabel =
-      formatMuestreoDateShort(muestreoAgeCtx) ??
-      formatCalendarDateShort(
-        (muestreo.fechaMuestreo ?? muestreo.fecha_muestreo) as string | undefined
-      ) ??
-      'N/A'
+    const ymd = resolveMuestreoCalendarYmd(muestreoAgeCtx)
+    const fechaLabel = ymd ? (formatYmdForDisplay(ymd, 'dd/MM/yyyy') ?? 'N/A') : 'N/A'
 
     const baseRow: Record<string, ExcelCellValue> = {
       Remisión: muestreo.remisionNumber ?? 'N/A',
@@ -142,7 +139,10 @@ export function buildClientPortalMuestreosExcelRows(
             'Identificación muestra': ident,
             'Tipo probeta': tipoLabel,
             'Edad al ensayo': formatEdadAlEnsayoShort(muestreoAgeCtx, e) || 'N/A',
-            'Fecha ensayo': formatEnsayoDateShort(e) || 'N/A',
+                'Fecha ensayo': (() => {
+                  const ey = resolveEnsayoCalendarYmd(e)
+                  return ey ? (formatYmdForDisplay(ey, 'dd/MM/yyyy') ?? 'N/A') : 'N/A'
+                })(),
             'Resistencia (kg/cm²)': Number(res || 0).toFixed(0),
             'Cumplimiento (%)': Number(comp || 0).toFixed(1),
             'Resistencia Promedio (kg/cm²)': avgResistance ? avgResistance.toFixed(0) : 'N/A',
@@ -203,8 +203,8 @@ export function buildInternalMuestreosExcelRows(
     const fc = m.remision?.recipe?.strength_fc ?? null
     const valorNum = internalAvgResistance(m)
     const muestreoCtx = m as unknown as Record<string, unknown>
-    const fechaMuestreo =
-      formatMuestreoDateShort(muestreoCtx) ?? formatCalendarDateShort(m.fecha_muestreo) ?? '—'
+    const ymdM = resolveMuestreoCalendarYmd(muestreoCtx)
+    const fechaMuestreo = ymdM ? (formatYmdForDisplay(ymdM, 'dd/MM/yyyy') ?? '—') : '—'
     const edadGarantia = formatEdadGarantiaReceta(m.concrete_specs) ?? '—'
     const volumen = m.remision?.volumen_fabricado
 
@@ -286,7 +286,10 @@ export function buildInternalMuestreosExcelRows(
           'Tipo probeta': tipo,
           'Estado muestra': muestra.estado,
           'Fecha prog. ensayo': progFecha,
-          'Fecha ensayo': formatEnsayoDateShort(e) ?? '—',
+          'Fecha ensayo': (() => {
+            const ey = resolveEnsayoCalendarYmd(e)
+            return ey ? (formatYmdForDisplay(ey, 'dd/MM/yyyy') ?? '—') : '—'
+          })(),
           'Resistencia (kg/cm²)': res > 0 ? Math.round(res) : '—',
           'Cumplimiento (%)': comp > 0 ? Number(comp).toFixed(1) : '—',
           'Edad al ensayo': formatEdadAlEnsayoShort(muestreoCtx, e) ?? '—',
