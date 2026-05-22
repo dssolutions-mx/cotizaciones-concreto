@@ -222,6 +222,26 @@ export async function fetchMuestreos(
   }
 }
 
+/** Fetch all muestreos matching server filters (paginated) for Excel export. */
+export async function fetchAllMuestreosForExport(
+  filters?: FiltrosCalidad,
+  pageSize = 200
+): Promise<MuestreoWithRelations[]> {
+  const all: MuestreoWithRelations[] = []
+  let offset = 0
+  let total: number | null = null
+
+  do {
+    const { data, count } = await fetchMuestreos(filters, pageSize, offset)
+    all.push(...data)
+    total = count
+    offset += pageSize
+    if (data.length === 0) break
+  } while (total == null || all.length < total)
+
+  return all
+}
+
 export async function fetchMuestreoById(id: string) {
   try {
     const { data, error } = await supabase
