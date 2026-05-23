@@ -13,6 +13,32 @@ import { ChevronDown, ChevronRight, AlertTriangle, FileText, Package, Truck, X }
 import { usePlantContext } from '@/contexts/PlantContext'
 import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierInvoiceDrawer'
 import { cn } from '@/lib/utils'
+import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
+
+function supplierGroupDisplayName(
+  supplier: OrphanEntry['supplier'] | OrphanEntry['fleet_supplier'],
+  fallback = 'Sin proveedor',
+): string {
+  return supplier?.supplier_group?.name ?? supplier?.name ?? fallback
+}
+
+function OrphanLoadProgress({ loaded, total }: { loaded: number; total: number }) {
+  if (total <= 0) return null
+  const pct = Math.min(100, Math.round((loaded / total) * 100))
+  return (
+    <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-2.5 space-y-1.5">
+      <div className="flex justify-between text-xs text-stone-600">
+        <span>Cargando recepciones sin factura…</span>
+        <span className="tabular-nums font-medium">
+          {loaded.toLocaleString('es-MX')} / {total.toLocaleString('es-MX')}
+        </span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-stone-200 overflow-hidden">
+        <div className="h-full bg-sky-600 transition-all duration-300" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  )
+}
 
 interface Props {
   workspacePlantId?: string
@@ -36,6 +62,7 @@ function FleetPendingSection({
   const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [entries, setEntries] = useState<OrphanEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -49,14 +76,22 @@ function FleetPendingSection({
 
     async function load() {
       setLoading(true)
+      setLoadProgress(null)
+      setEntries([])
+      setSelected(new Set())
       try {
-        const qs = new URLSearchParams({ mode: 'fleet', limit: '5000' })
-        if (plantFilter) qs.set('plant_id', plantFilter)
-        const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
+        const { entries: list } = await fetchAllOrphanEntries(
+          { mode: 'fleet', plantId: plantFilter || undefined },
+          {
+            signal: controller.signal,
+            onProgress: (loaded, total, batch) => {
+              if (cancelled) return
+              setLoadProgress({ loaded, total })
+              setEntries(batch)
+            },
+          },
+        )
         if (cancelled) return
-        const list: OrphanEntry[] = data.entries ?? []
         setEntries(list)
         const keys = new Set<string>(list.map(e => e.fleet_supplier?.group_id ?? e.fleet_supplier_id ?? '__sin_proveedor__'))
         setExpandedSuppliers(keys)
@@ -64,7 +99,10 @@ function FleetPendingSection({
         if ((err as Error).name === 'AbortError') return
         if (!cancelled) setEntries([])
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setLoadProgress(null)
+        }
       }
     }
 
@@ -114,7 +152,7 @@ function FleetPendingSection({
   // Only allow invoicing entries from the same fleet supplier at once
   const selectionValid = selectedFleetSuppliers.size <= 1 && new Set(selectedEntries.map(e => e.plant_id)).size <= 1
 
-  if (loading) {
+  if (loading && entries.length === 0) {
     return (
       <div className="space-y-3 py-4">
         {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
@@ -124,6 +162,7 @@ function FleetPendingSection({
 
   return (
     <div className="space-y-4">
+      {loadProgress && <OrphanLoadProgress loaded={loadProgress.loaded} total={loadProgress.total} />}
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         {!hidePlantFilter && (
@@ -205,7 +244,7 @@ function FleetPendingSection({
                   {expanded ? <ChevronDown className="h-4 w-4 text-amber-600" /> : <ChevronRight className="h-4 w-4 text-amber-600" />}
                   <Truck className="h-4 w-4 text-amber-500 shrink-0" />
                   <span className="font-semibold text-sm text-stone-900 flex-1">
-                    {group.fleetSupplier?.name ?? 'Proveedor desconocido'}
+                    {supplierGroupDisplayName(group.fleetSupplier)}
                   </span>
                   <span className="text-xs text-stone-500 mr-2">{allIds.length} entrada{allIds.length !== 1 ? 's' : ''}</span>
                   <span className="text-sm font-semibold tabular-nums text-amber-800">{mxn.format(totalFleet)}</span>
@@ -291,6 +330,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const [materialFilter, setMaterialFilter] = useState('')
   const [entries, setEntries] = useState<OrphanEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set())
   const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set())
@@ -310,23 +350,35 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
 
     async function load() {
       setLoading(true)
+      setLoadProgress(null)
+      setEntries([])
+      setSelected(new Set())
       try {
-        const qs = new URLSearchParams({ mode: 'material', limit: '5000' })
-        if (plantFilter) qs.set('plant_id', plantFilter)
-        const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
+        const { entries: list } = await fetchAllOrphanEntries(
+          { mode: 'material', plantId: plantFilter || undefined },
+          {
+            signal: controller.signal,
+            onProgress: (loaded, total, batch) => {
+              if (cancelled) return
+              setLoadProgress({ loaded, total })
+              setEntries(batch)
+            },
+          },
+        )
         if (cancelled) return
-        setEntries(data.entries ?? [])
+        setEntries(list)
         const groupKeys = new Set<string>(
-          (data.entries ?? []).map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id)
+          list.map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id),
         )
         setExpandedSuppliers(groupKeys)
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
         if (!cancelled) setEntries([])
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+          setLoadProgress(null)
+        }
       }
     }
 
@@ -342,7 +394,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     const map = new Map<string, string>()
     for (const e of entries) {
       const id = e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id
-      if (!map.has(id)) map.set(id, e.supplier?.name ?? id)
+      if (!map.has(id)) map.set(id, supplierGroupDisplayName(e.supplier))
     }
     return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
   }, [entries])
@@ -383,7 +435,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
       const plantId = e.plant_id
       const matId = e.material?.id ?? e.material_id
       if (!byGroup.has(groupKey)) {
-        byGroup.set(groupKey, { groupKey, supplierName: e.supplier?.name ?? groupKey, byPlant: new Map() })
+        byGroup.set(groupKey, {
+          groupKey,
+          supplierName: supplierGroupDisplayName(e.supplier),
+          byPlant: new Map(),
+        })
       }
       const grp = byGroup.get(groupKey)!
       if (!grp.byPlant.has(plantId)) {
@@ -449,14 +505,6 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const selectionValid = selectedPlants.size <= 1
   const hasActiveFilter = !!supplierFilter || !!materialFilter
 
-  if (loading && activeTab === 'material') {
-    return (
-      <div className="space-y-3 py-4">
-        {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4">
       {/* Sub-tab switcher: Material vs Fleet */}
@@ -506,6 +554,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         />
       ) : (
       <>
+      {loadProgress && <OrphanLoadProgress loaded={loadProgress.loaded} total={loadProgress.total} />}
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         {!hidePlantFilter && (
@@ -601,7 +650,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         </div>
       </div>
 
-      {filteredEntries.length === 0 ? (
+      {loading && entries.length === 0 ? (
+        <div className="space-y-3 py-4">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+        </div>
+      ) : filteredEntries.length === 0 ? (
         <div className="py-16 text-center text-stone-500">
           <FileText className="h-10 w-10 mx-auto mb-3 text-stone-300" />
           {hasActiveFilter ? (

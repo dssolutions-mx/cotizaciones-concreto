@@ -21,7 +21,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 async function fetchByIds<T extends { id: string }>(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  table: 'suppliers' | 'materials',
+  table: 'suppliers' | 'materials' | 'supplier_groups',
   select: string,
   ids: string[],
 ): Promise<T[]> {
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const plant_id = searchParams.get('plant_id') || undefined
     const mode = (searchParams.get('mode') || 'material') as 'material' | 'fleet'
-    const limit = Math.min(parseInt(searchParams.get('limit') || '5000', 10), 10000)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '500', 10), 1), 1000)
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0)
 
     const source = mode === 'fleet' ? 'ap_orphan_fleet_entries' : 'ap_orphan_material_entries'
@@ -92,20 +92,44 @@ export async function GET(request: NextRequest) {
       ),
     ])
 
+    const groupIds = [...new Set(suppliers.map((s) => s.group_id).filter(Boolean) as string[])]
+    const supplierGroups = await fetchByIds<{ id: string; name: string }>(
+      supabase,
+      'supplier_groups',
+      'id, name',
+      groupIds,
+    )
+    const supplierGroupById = new Map(supplierGroups.map((g) => [g.id, g]))
+
+    const attachSupplier = (row: (typeof suppliers)[number] | undefined) => {
+      if (!row) return null
+      const supplier_group = row.group_id ? supplierGroupById.get(row.group_id) ?? null : null
+      return { ...row, supplier_group }
+    }
+
     const supplierById = new Map(suppliers.map((s) => [s.id, s]))
     const materialById = new Map(materials.map((m) => [m.id, m]))
 
     const enriched = entries.map((entry) => ({
       ...entry,
-      supplier: entry.supplier_id ? supplierById.get(entry.supplier_id) ?? null : null,
-      fleet_supplier: entry.fleet_supplier_id ? supplierById.get(entry.fleet_supplier_id) ?? null : null,
+      supplier: attachSupplier(entry.supplier_id ? supplierById.get(entry.supplier_id) : undefined),
+      fleet_supplier: attachSupplier(
+        entry.fleet_supplier_id ? supplierById.get(entry.fleet_supplier_id) : undefined,
+      ),
       material: entry.material_id ? materialById.get(entry.material_id) ?? null : null,
     }))
 
     const total = count ?? 0
+    const returned = enriched.length
     return NextResponse.json({
       entries: enriched,
-      pagination: { total, limit, offset, hasMore: total > offset + limit },
+      pagination: {
+        total,
+        limit,
+        offset,
+        returned,
+        hasMore: offset + returned < total,
+      },
     })
   } catch (err) {
     console.error('/api/ap/orphan-entries GET error:', err)
