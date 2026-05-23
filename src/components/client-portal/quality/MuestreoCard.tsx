@@ -24,6 +24,7 @@ import {
   formatEdadAlEnsayoShort,
   formatEnsayoDateShort,
   formatEdadGarantiaReceta,
+  formatMuestreoDateShort,
 } from '@/lib/qualityHelpers';
 
 interface ProcessedMuestreo {
@@ -142,7 +143,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
           <div className="flex items-center gap-4 text-footnote text-label-secondary flex-wrap mb-2">
             <span className="flex items-center gap-1.5">
               <Calendar className="w-4 h-4 text-systemBlue" />
-              {format(new Date(muestreo.fechaMuestreo), 'dd MMM yyyy', { locale: es })}
+              {formatMuestreoDateShort(muestreo as Record<string, unknown>, 'dd MMM yyyy') ?? '—'}
             </span>
             <span className="flex items-center gap-1.5">
               <MapPin className="w-4 h-4 text-systemOrange" />

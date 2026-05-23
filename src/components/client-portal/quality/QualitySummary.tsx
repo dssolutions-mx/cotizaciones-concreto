@@ -11,7 +11,12 @@ import { DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CvDetailsModal from '@/components/client-portal/quality/CvDetailsModal';
 import { Target, Award, TrendingUp, Activity } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { processVolumetricTrend, processResistanceTrend, resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
+import {
+  processVolumetricTrend,
+  processResistanceTrend,
+  resolveEnsayoResistenciaReportada,
+  calendarDateToChartMs,
+} from '@/lib/qualityHelpers';
 import { QualityChartSection } from '@/components/quality/QualityChartSection';
 import type { DatoGraficoResistencia } from '@/types/quality';
 
@@ -127,7 +132,8 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             });
             
             return {
-              x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || Date.now()).getTime(),
+              x:
+                calendarDateToChartMs(muestreo.fechaMuestreo || muestreo.fecha_muestreo) ?? Date.now(),
               y: ensayo.porcentajeCumplimiento || 0,
               clasificacion,
               edad, // Raw valor_edad value (not converted)

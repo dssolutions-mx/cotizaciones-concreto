@@ -1,5 +1,6 @@
 import type { MuestreoWithRelations, MuestraWithRelations, Ensayo } from '@/types/quality'
-import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers'
+import { resolveEnsayoResistenciaReportada, calendarDateToChartMs } from '@/lib/qualityHelpers'
+import { parseLocalDate } from '@/lib/parseLocalDate'
 
 export function getConstructionSite(muestreo: MuestreoWithRelations): string {
   const o = muestreo.remision?.orders ?? muestreo.remision?.order
@@ -15,11 +16,15 @@ export function calcularResistencia(muestreo: MuestreoWithRelations): {
   const muestras = muestreo.muestras
   if (!muestras || muestras.length === 0) return { valorNum: null, edadDias: null }
 
-  const fechaMuestreo = muestreo.fecha_muestreo ? new Date(muestreo.fecha_muestreo).getTime() : null
+  const fechaMuestreo = calendarDateToChartMs(muestreo.fecha_muestreo)
 
   const calcEdad = (m: MuestraWithRelations): number | null => {
-    if (!fechaMuestreo) return null
-    const diff = new Date(m.fecha_programada_ensayo).getTime() - fechaMuestreo
+    if (fechaMuestreo == null) return null
+    const progDay = String(m.fecha_programada_ensayo).split('T')[0]
+    const progMs = /^\d{4}-\d{2}-\d{2}$/.test(progDay)
+      ? parseLocalDate(progDay).getTime()
+      : new Date(m.fecha_programada_ensayo).getTime()
+    const diff = progMs - fechaMuestreo
     return Math.round(diff / (1000 * 60 * 60 * 24))
   }
 
@@ -160,6 +165,93 @@ export type SortOption =
   | 'remision_asc'
   | 'f_c_desc'
   | 'f_c_asc'
+
+export interface MuestreosListFilterParams {
+  searchQuery: string
+  clasificacion: string
+  estadoMuestreo: string
+  sortOption: SortOption
+}
+
+export function filterAndSortMuestreosList(
+  muestreos: MuestreoWithRelations[],
+  params: MuestreosListFilterParams
+): MuestreoWithRelations[] {
+  let filtered = [...muestreos]
+  const { searchQuery, clasificacion, estadoMuestreo, sortOption } = params
+  const { sortBy, sortDirection } = parseSortOption(sortOption)
+
+  if (searchQuery) {
+    const search = searchQuery.toLowerCase()
+    filtered = filtered.filter(
+      (m) =>
+        m.remision?.remision_number?.toString().toLowerCase().includes(search) ||
+        m.remision?.orders?.clients?.business_name?.toLowerCase().includes(search) ||
+        m.remision?.order?.clients?.business_name?.toLowerCase().includes(search) ||
+        m.remision?.recipe?.recipe_code?.toLowerCase().includes(search) ||
+        getConstructionSite(m).toLowerCase().includes(search) ||
+        m.manual_reference?.toLowerCase().includes(search)
+    )
+  }
+
+  if (clasificacion && clasificacion !== 'todas') {
+    filtered = filtered.filter((m) => {
+      const recipeNotes = m.remision?.recipe?.recipe_versions?.[0]?.notes || ''
+      return recipeNotes.includes(clasificacion)
+    })
+  }
+
+  if (estadoMuestreo && estadoMuestreo !== 'todos') {
+    filtered = filtered.filter((m) => {
+      if (!m.muestras || m.muestras.length === 0) return false
+      switch (estadoMuestreo) {
+        case 'completado':
+          return (
+            m.muestras.every(
+              (muestra) =>
+                muestra.estado === 'ENSAYADO' ||
+                muestra.estado === 'NO_REALIZADO' ||
+                muestra.estado === 'DESCARTADO'
+            ) && m.muestras.some((muestra) => muestra.estado === 'ENSAYADO')
+          )
+        case 'en-proceso':
+          return (
+            m.muestras.some((muestra) => muestra.estado === 'ENSAYADO') &&
+            m.muestras.some((muestra) => muestra.estado === 'PENDIENTE')
+          )
+        case 'pendiente':
+          return m.muestras.every((muestra) => muestra.estado === 'PENDIENTE')
+        default:
+          return true
+      }
+    })
+  }
+
+  filtered.sort((a, b) => {
+    let valA: number
+    let valB: number
+    switch (sortBy) {
+      case 'fecha':
+        valA = calendarDateToChartMs(a.fecha_muestreo) ?? 0
+        valB = calendarDateToChartMs(b.fecha_muestreo) ?? 0
+        break
+      case 'remision':
+        valA = Number(a.remision?.remision_number) || 0
+        valB = Number(b.remision?.remision_number) || 0
+        break
+      case 'f_c':
+        valA = a.remision?.recipe?.strength_fc || 0
+        valB = b.remision?.recipe?.strength_fc || 0
+        break
+      default:
+        valA = calendarDateToChartMs(a.fecha_muestreo) ?? 0
+        valB = calendarDateToChartMs(b.fecha_muestreo) ?? 0
+    }
+    return sortDirection === 'asc' ? (valA > valB ? 1 : -1) : valA < valB ? 1 : -1
+  })
+
+  return filtered
+}
 
 export function parseSortOption(option: SortOption): { sortBy: string; sortDirection: 'asc' | 'desc' } {
   const map: Record<SortOption, { sortBy: string; sortDirection: 'asc' | 'desc' }> = {

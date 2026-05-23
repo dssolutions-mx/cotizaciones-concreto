@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { format, subDays } from 'date-fns';
-import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2, Package, Truck, BarChart3, Briefcase, ListChecks } from 'lucide-react';
+import { DollarSign, CreditCard, Users, ClipboardList, BarChart2, PieChart, TrendingUp, FileBarChart2, Package, Truck, BarChart3, Briefcase, ListChecks, MapPin } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { financialService } from '@/lib/supabase/financial';
 import { formatCurrency } from '@/lib/utils';
@@ -126,6 +126,19 @@ export default async function FinancialHubPage() {
                   <h3 className="text-sm sm:text-base font-semibold text-stone-900">Remisiones por Cliente</h3>
                   <p className="text-xs sm:text-sm text-stone-500 mt-1">
                     Consulta de remisiones y entregas por cliente
+                  </p>
+                </div>
+              </div>
+            </Link>
+            <Link href="/finanzas/ubicaciones">
+              <div className="rounded-lg border border-stone-200 bg-white p-4 sm:p-5 shadow-sm flex items-start gap-3 sm:gap-4 h-full transition-all hover:border-stone-300 hover:shadow-md">
+                <div className="rounded-xl bg-primary/10 p-2 shrink-0">
+                  <MapPin className="h-6 w-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-semibold text-stone-900">Distribución geográfica</h3>
+                  <p className="text-xs sm:text-sm text-stone-500 mt-1">
+                    Mapa y análisis de entregas por territorio, volumen y monto
                   </p>
                 </div>
               </div>

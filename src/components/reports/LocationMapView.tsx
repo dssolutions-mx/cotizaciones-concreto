@@ -4,6 +4,7 @@ import React, { memo } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { MapPin } from 'lucide-react';
+import { UBICACIONES_MAP_DISPLAY_CAP } from '@/lib/finanzas/ubicacionesConstants';
 import type { DeliveryPoint } from '@/services/locationReportService';
 import type { MapMetric } from './DeliveryPointMap';
 
@@ -18,6 +19,8 @@ export interface LocationMapViewProps {
   height?: string;
   className?: string;
   showFitButton?: boolean;
+  totalPoints?: number;
+  mapDisplayCap?: number;
 }
 
 function LocationMapViewInner({
@@ -26,11 +29,28 @@ function LocationMapViewInner({
   height = '500px',
   className = '',
   showFitButton = true,
+  totalPoints,
+  mapDisplayCap = UBICACIONES_MAP_DISPLAY_CAP,
 }: LocationMapViewProps) {
+  const total = totalPoints ?? points.length;
+  const truncated = total > mapDisplayCap;
+
   return (
     <div className={`location-map-view relative ${className}`}>
+      {truncated && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-2">
+          Mostrando {mapDisplayCap} de {total} puntos en el mapa (ordenados por métrica). Exporte a
+          Excel para ver todos.
+        </p>
+      )}
       <div className="relative rounded-lg overflow-hidden border border-border">
-        <DeliveryPointMap points={points} metric={metric} height={height} fitBounds={true} />
+        <DeliveryPointMap
+          points={points}
+          metric={metric}
+          height={height}
+          fitBounds={true}
+          maxMarkers={mapDisplayCap}
+        />
         {showFitButton && points.length > 0 && (
           <div className="absolute bottom-4 right-4 z-[1000]">
             <FitToDataButton points={points} />
