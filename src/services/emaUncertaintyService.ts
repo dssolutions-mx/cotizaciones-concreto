@@ -711,9 +711,33 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
-  // Type B inputs: per unique instrument referenced in replicas
+  // Type B inputs: per unique instrument referenced in replicas OR in the equipo pool.
+  // We resolve calibrations for all pool instruments so the "instrumensWithCal" set is
+  // consistent with the RecommendedContributorsCard (which reads the pool).  Replicas
+  // may reference a subset of pool instruments; using only replicas would leave the
+  // seeded resolution row in the budget even when the pool instrument has a valid cert.
   const typeBInputs: TypeBInput[] = [];
   const seenInstrumentos = new Set<string>();
+  // Track which instruments have a resolved calibration so we can suppress the
+  // seeded resolution row below (instrument resolution is already inside the
+  // calibration U — adding it separately would double-count).
+  const instrumensWithCal = new Set<string>();
+
+  // Seed seenInstrumentos from the pool so we also check pool-only instruments
+  // (instruments selected but not yet assigned to any individual replica).
+  const poolIds: string[] = (study.equipo_pool_json as { instrumento_ids?: string[] } | null)?.instrumento_ids ?? [];
+  for (const poolId of poolIds) {
+    if (!seenInstrumentos.has(poolId)) {
+      seenInstrumentos.add(poolId);
+      // Resolve calibration for this pool instrument even if no replica references it.
+      const calData = await resolveInstrumentCalibration(poolId, study.fecha_estudio);
+      if (calData && calData.u_expandida > 0) instrumensWithCal.add(poolId);
+    }
+  }
+
+  // Reset seenInstrumentos so the replica loop below can still push calibration Type B
+  // rows for each instrument that appears in replicas (as before).
+  seenInstrumentos.clear();
 
   for (const r of replicas) {
     if (!r.instrumento_id || seenInstrumentos.has(r.instrumento_id)) continue;
@@ -759,6 +783,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         descripcion: provenance,
         categoria: 'calibration',
       });
+      instrumensWithCal.add(r.instrumento_id);
     } else {
       warnings.push(
         `Instrumento ${instrNombre} no tiene certificado vigente ni verificación con U declarada. Se omite contribución Type B de calibración — el presupuesto no es trazable.`,
@@ -766,18 +791,27 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
-  // Resolution Type B from measurand inputs defaults
+  // Resolution Type B from measurand inputs defaults.
+  // Suppressed when any study instrument already has a resolved calibration/verification,
+  // because the instrument's resolution is already embedded inside that calibration U
+  // (GUM §4.3.4). Adding it separately would double-count the contribution.
   const inputs = measurand.inputs ?? [];
   const measuredInputs = inputs.filter((i) => i.kind === 'measured' && i.default_resolucion);
-  for (const inp of measuredInputs) {
-    typeBInputs.push({
-      fuente: `Resolución — ${inp.nombre_display}`,
-      magnitud_xi: inp.simbolo,
-      unidad: inp.unidad,
-      valor_xi: replicaValues[0],
-      kind: 'resolution',
-      divMin: inp.default_resolucion!,
-    });
+  if (instrumensWithCal.size > 0 && measuredInputs.length > 0) {
+    warnings.push(
+      'Resolución del instrumento omitida del presupuesto: ya está incluida dentro de la U de calibración/verificación del instrumento (GUM §4.3.4). Incluirla por separado duplicaría la contribución.',
+    );
+  } else {
+    for (const inp of measuredInputs) {
+      typeBInputs.push({
+        fuente: `Resolución — ${inp.nombre_display}`,
+        magnitud_xi: inp.simbolo,
+        unidad: inp.unidad,
+        valor_xi: replicaValues[0],
+        kind: 'resolution',
+        divMin: inp.default_resolucion!,
+      });
+    }
   }
 
   // Environmental / method / systematic Type B contributors seeded per measurand.
@@ -933,6 +967,14 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       if (subtipo === 'resolucion') {
         if (!ci.div_min || ci.div_min <= 0) {
           warnings.push(`Variable personalizada "${ci.simbolo}" (resolución): div_min inválido; se omite.`);
+          continue;
+        }
+        // Skip if any instrument already has a calibration — resolution is already
+        // inside that calibration U (GUM §4.3.4). Adding it here would double-count.
+        if (instrumensWithCal.size > 0) {
+          warnings.push(
+            `Variable personalizada "${ci.simbolo}" (resolución) omitida: el instrumento del estudio ya tiene una calibración/verificación vigente que incluye su resolución (GUM §4.3.4).`,
+          );
           continue;
         }
         typeBInputs.push({
