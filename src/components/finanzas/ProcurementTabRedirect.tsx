@@ -24,7 +24,12 @@ export default function ProcurementTabRedirect({ tab }: ProcurementTabRedirectPr
   useEffect(() => {
     const params = new URLSearchParams(searchParams.toString())
     params.set('tab', tab)
-    router.replace(`/finanzas/procurement?${params.toString()}`)
+    const target = `/finanzas/procurement?${params.toString()}`
+    if (typeof window !== 'undefined') {
+      const current = `${window.location.pathname}?${searchParams.toString()}`
+      if (current === target) return
+    }
+    router.replace(target)
   }, [router, searchParams, tab])
 
   return (

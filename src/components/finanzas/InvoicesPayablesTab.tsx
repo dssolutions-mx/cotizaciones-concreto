@@ -74,11 +74,13 @@ const STATUS_COLORS: Record<InvoiceStatus, string> = {
 
 interface Props {
   workspacePlantId?: string
+  hidePlantFilter?: boolean
 }
 
-export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
+export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFilter = false }: Props) {
   const { availablePlants } = usePlantContext()
-  const [plantFilter, setPlantFilter] = useState(workspacePlantId ?? '')
+  const [localPlantFilter, setLocalPlantFilter] = useState('')
+  const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [includePaid, setIncludePaid] = useState(false)
   const [invoices, setInvoices] = useState<InvoiceWithEnrichment[]>([])
   const [loading, setLoading] = useState(true)
@@ -93,34 +95,48 @@ export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
-  const fetch_ = useCallback(async () => {
-    setLoading(true)
-    try {
-      const qs = new URLSearchParams()
-      if (plantFilter) qs.set('plant_id', plantFilter)
-      if (includePaid) qs.set('include_paid', 'true')
-      qs.set('limit', '300')
-      const res = await fetch(`/api/ap/invoices?${qs}`)
-      const data = await res.json()
-      setInvoices(data.invoices ?? [])
-      const groupKeys = new Set<string>((data.invoices ?? []).map((inv: any) => inv.supplier_group_id))
-      setExpandedGroups(groupKeys)
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      try {
+        const qs = new URLSearchParams()
+        if (plantFilter) qs.set('plant_id', plantFilter)
+        if (includePaid) qs.set('include_paid', 'true')
+        qs.set('limit', '300')
+        const res = await fetch(`/api/ap/invoices?${qs}`, { signal: controller.signal })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setInvoices(data.invoices ?? [])
+        const groupKeys = new Set<string>((data.invoices ?? []).map((inv: InvoiceWithEnrichment) => inv.supplier_group_id))
+        setExpandedGroups(groupKeys)
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+      controller.abort()
     }
   }, [plantFilter, includePaid, reloadKey])
 
-  useEffect(() => { void fetch_() }, [fetch_])
-  useEffect(() => { if (workspacePlantId !== undefined) setPlantFilter(workspacePlantId) }, [workspacePlantId])
-
   const loadCreditNotes = useCallback(async (invoiceId: string) => {
-    if (creditNoteAllocs[invoiceId]) return // already loaded
     try {
       const res = await fetch(`/api/ap/invoices/${invoiceId}/credit-notes`)
       const data = await res.json()
-      setCreditNoteAllocs(prev => ({ ...prev, [invoiceId]: data.credit_notes ?? [] }))
+      setCreditNoteAllocs(prev => {
+        if (prev[invoiceId]) return prev
+        return { ...prev, [invoiceId]: data.credit_notes ?? [] }
+      })
     } catch { /* non-fatal */ }
-  }, [creditNoteAllocs])
+  }, [])
 
   // Group by supplier_group
   const grouped = useMemo(() => {
@@ -175,7 +191,8 @@ export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={plantFilter || '__all__'} onValueChange={v => setPlantFilter(v === '__all__' ? '' : v)}>
+        {!hidePlantFilter && (
+        <Select value={plantFilter || '__all__'} onValueChange={v => setLocalPlantFilter(v === '__all__' ? '' : v)}>
           <SelectTrigger className="w-[220px] bg-white border-stone-300">
             <SelectValue placeholder="Todas las plantas" />
           </SelectTrigger>
@@ -186,6 +203,7 @@ export default function InvoicesPayablesTab({ workspacePlantId }: Props) {
             ))}
           </SelectContent>
         </Select>
+        )}
 
         <Button
           size="sm"

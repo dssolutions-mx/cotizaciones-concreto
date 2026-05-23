@@ -43,7 +43,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import ProcurementHelpSheet from '@/components/procurement/ProcurementHelpSheet'
 import PurchaseOrdersPage from '@/components/finanzas/PurchaseOrdersPage'
-import CxpPage from '@/app/finanzas/cxp/page'
+import CxpWorkspace from '@/components/finanzas/CxpWorkspace'
 import SupplierAnalysisPage from '@/components/finanzas/SupplierAnalysisPage'
 import SupplierManagementPanel from '@/components/procurement/SupplierManagementPanel'
 import CreatePOModal, { type PrefillFromAlert } from '@/components/po/CreatePOModal'
@@ -593,9 +593,11 @@ export default function ProcurementWorkspaceClient() {
         )}
 
         <TabsContent value="cxp" className="rounded-lg border border-stone-200 bg-white overflow-hidden">
-          <div className="p-2 md:p-4">
-            <CxpPage />
-          </div>
+          {activeTab === 'cxp' ? (
+            <div className="p-2 md:p-4">
+              <CxpWorkspace embedded workspacePlantId={workspacePlantId} />
+            </div>
+          ) : null}
         </TabsContent>
 
         <TabsContent value="suppliers" className="rounded-lg border border-stone-200 bg-white overflow-hidden">

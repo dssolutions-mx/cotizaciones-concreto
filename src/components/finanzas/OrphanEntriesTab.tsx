@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -16,20 +16,24 @@ import { cn } from '@/lib/utils'
 
 interface Props {
   workspacePlantId?: string
+  hidePlantFilter?: boolean
 }
 
 // ── Fleet-pending sub-tab ─────────────────────────────────────────────────────
 function FleetPendingSection({
-  workspacePlantId,
+  workspacePlantId = '',
+  hidePlantFilter = false,
   reloadKey,
   onReload,
 }: {
   workspacePlantId?: string
+  hidePlantFilter?: boolean
   reloadKey: number
   onReload: () => void
 }) {
   const { availablePlants } = usePlantContext()
-  const [plantFilter, setPlantFilter] = useState(workspacePlantId ?? '')
+  const [localPlantFilter, setLocalPlantFilter] = useState('')
+  const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [entries, setEntries] = useState<OrphanEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -39,27 +43,36 @@ function FleetPendingSection({
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
-  const fetchFleet = useCallback(async () => {
-    setLoading(true)
-    try {
-      const qs = new URLSearchParams({ mode: 'fleet', limit: '5000' })
-      if (plantFilter) qs.set('plant_id', plantFilter)
-      const res = await fetch(`/api/ap/orphan-entries?${qs}`)
-      const data = await res.json()
-      const list: OrphanEntry[] = data.entries ?? []
-      setEntries(list)
-      // Auto-expand all fleet supplier groups (keyed by group_id, not plant-scoped supplier_id)
-      const keys = new Set<string>(list.map(e => e.fleet_supplier?.group_id ?? e.fleet_supplier_id ?? '__sin_proveedor__'))
-      setExpandedSuppliers(keys)
-    } finally {
-      setLoading(false)
-    }
-  }, [plantFilter, reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { void fetchFleet() }, [fetchFleet])
   useEffect(() => {
-    if (workspacePlantId !== undefined) setPlantFilter(workspacePlantId)
-  }, [workspacePlantId])
+    const controller = new AbortController()
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      try {
+        const qs = new URLSearchParams({ mode: 'fleet', limit: '500' })
+        if (plantFilter) qs.set('plant_id', plantFilter)
+        const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        const list: OrphanEntry[] = data.entries ?? []
+        setEntries(list)
+        const keys = new Set<string>(list.map(e => e.fleet_supplier?.group_id ?? e.fleet_supplier_id ?? '__sin_proveedor__'))
+        setExpandedSuppliers(keys)
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [plantFilter, reloadKey])
 
   // Group by fleet_supplier.group_id — the supplier_groups entity is cross-plant,
   // so "SAFE" in plant A and "SAFE" in plant B (same group_id) collapse into one card.
@@ -112,7 +125,8 @@ function FleetPendingSection({
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={plantFilter || '__all__'} onValueChange={v => setPlantFilter(v === '__all__' ? '' : v)}>
+        {!hidePlantFilter && (
+        <Select value={plantFilter || '__all__'} onValueChange={v => setLocalPlantFilter(v === '__all__' ? '' : v)}>
           <SelectTrigger className="w-[200px] bg-white border-stone-300">
             <SelectValue placeholder="Todas las plantas" />
           </SelectTrigger>
@@ -123,6 +137,7 @@ function FleetPendingSection({
             ))}
           </SelectContent>
         </Select>
+        )}
 
         {selected.size > 0 && (
           <div className="flex items-center gap-2 ml-2 pl-2 border-l border-stone-200">
@@ -266,10 +281,11 @@ function FleetPendingSection({
 }
 
 // ── Main tab ──────────────────────────────────────────────────────────────────
-export default function OrphanEntriesTab({ workspacePlantId }: Props) {
+export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilter = false }: Props) {
   const { availablePlants } = usePlantContext()
   const [activeTab, setActiveTab] = useState<'material' | 'fleet'>('material')
-  const [plantFilter, setPlantFilter] = useState(workspacePlantId ?? '')
+  const [localPlantFilter, setLocalPlantFilter] = useState('')
+  const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [supplierFilter, setSupplierFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [entries, setEntries] = useState<OrphanEntry[]>([])
@@ -285,30 +301,39 @@ export default function OrphanEntriesTab({ workspacePlantId }: Props) {
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
   const plantMap = useMemo(() => new Map(availablePlants.map(p => [p.id, p.name])), [availablePlants])
 
-  const fetchEntries = useCallback(async () => {
-    setLoading(true)
-    try {
-      const qs = new URLSearchParams({ mode: 'material' })
-      if (plantFilter) qs.set('plant_id', plantFilter)
-      qs.set('limit', '5000')
-      const res = await fetch(`/api/ap/orphan-entries?${qs}`)
-      const data = await res.json()
-      setEntries(data.entries ?? [])
-      // Auto-expand all supplier groups (keyed by group_id, cross-plant)
-      const groupKeys = new Set<string>(
-        (data.entries ?? []).map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id)
-      )
-      setExpandedSuppliers(groupKeys)
-    } finally {
-      setLoading(false)
-    }
-  }, [plantFilter, reloadKey])
-
-  useEffect(() => { void fetchEntries() }, [fetchEntries])
-
   useEffect(() => {
-    if (workspacePlantId !== undefined) setPlantFilter(workspacePlantId)
-  }, [workspacePlantId])
+    if (activeTab !== 'material') return
+
+    const controller = new AbortController()
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      try {
+        const qs = new URLSearchParams({ mode: 'material', limit: '500' })
+        if (plantFilter) qs.set('plant_id', plantFilter)
+        const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        setEntries(data.entries ?? [])
+        const groupKeys = new Set<string>(
+          (data.entries ?? []).map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id)
+        )
+        setExpandedSuppliers(groupKeys)
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [plantFilter, reloadKey, activeTab])
 
   // Derive filter options from loaded entries — key by group_id so CEMEX plant1+plant2 = one option
   const supplierOptions = useMemo(() => {
@@ -473,6 +498,7 @@ export default function OrphanEntriesTab({ workspacePlantId }: Props) {
       {activeTab === 'fleet' ? (
         <FleetPendingSection
           workspacePlantId={workspacePlantId}
+          hidePlantFilter={hidePlantFilter}
           reloadKey={reloadKey}
           onReload={() => setReloadKey(k => k + 1)}
         />
@@ -480,8 +506,8 @@ export default function OrphanEntriesTab({ workspacePlantId }: Props) {
       <>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Plant filter */}
-        <Select value={plantFilter || '__all__'} onValueChange={v => setPlantFilter(v === '__all__' ? '' : v)}>
+        {!hidePlantFilter && (
+        <Select value={plantFilter || '__all__'} onValueChange={v => setLocalPlantFilter(v === '__all__' ? '' : v)}>
           <SelectTrigger className="w-[200px] bg-white border-stone-300">
             <SelectValue placeholder="Todas las plantas" />
           </SelectTrigger>
@@ -492,6 +518,7 @@ export default function OrphanEntriesTab({ workspacePlantId }: Props) {
             ))}
           </SelectContent>
         </Select>
+        )}
 
         {/* Supplier filter */}
         {supplierOptions.length > 1 && (
