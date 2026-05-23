@@ -774,7 +774,9 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         fuente: `Calibración — ${instrNombre}`,
         magnitud_xi: measurand.nombre,
         unidad: measurand.unidad,
-        valor_xi: replicaValues[0],
+        // valor_xi = 0: the calibration correction is assumed applied; U_cert is the
+        // residual uncertainty around zero correction (GUM §4.3.4).
+        valor_xi: 0,
         kind: 'calibration',
         U_cert: U_used,
         k_cert: calData.k_factor,

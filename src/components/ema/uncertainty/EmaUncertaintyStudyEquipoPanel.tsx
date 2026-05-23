@@ -133,12 +133,9 @@ export function EmaUncertaintyStudyEquipoPanel({
   async function savePool() {
     setError(null)
     setProximoWarning(null)
-    if (operatorIds.length < 2) {
-      setError(
-        'Seleccione al menos dos operadores para un diseño con reproducibilidad inter-operador (ISO 5725-2 §7).',
-      )
-      return
-    }
+    // Note: 1 operator is valid — the budget uses Type A repetibilidad (GUM §4.2.3).
+    // ANOVA for inter-operator reproducibility activates automatically when ≥2 operators
+    // each have ≥2 replicas; it is optional, not required.
     if (instrumentoIds.length === 0) {
       setError('Seleccione al menos un instrumento vigente para el estudio.')
       return
@@ -211,8 +208,8 @@ export function EmaUncertaintyStudyEquipoPanel({
               Operadores ({operatorIds.length})
             </h4>
             <p className="mt-1 text-[11px] text-stone-500">
-              Mínimo 2 para estimar reproducibilidad inter-operador (s<sub>L</sub>). Multiselección aquí
-              (como patrones en verificación interna).
+              1 operador: presupuesto con repetibilidad simple (GUM §4.2.3). Con ≥2 operadores y ≥2 réplicas cada uno,
+              el motor activa ANOVA para estimar reproducibilidad inter-operador (s<sub>L</sub>, ISO 5725-2 §7).
             </p>
             {!isLocked && operators.length > 0 && (
               <div className="mt-2 flex gap-2">
@@ -339,7 +336,7 @@ export function EmaUncertaintyStudyEquipoPanel({
           <Button type="button" size="sm" disabled={saving || !dirty} onClick={savePool}>
             {saving ? 'Guardando…' : 'Confirmar equipo del estudio'}
           </Button>
-          {selectedOperators.length >= 2 && instrumentoIds.length > 0 && !dirty && (
+          {selectedOperators.length >= 1 && instrumentoIds.length > 0 && !dirty && (
             <span className="text-xs text-emerald-800">Equipo confirmado</span>
           )}
         </footer>
