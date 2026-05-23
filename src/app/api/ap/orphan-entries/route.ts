@@ -35,6 +35,10 @@ async function fetchByIds<T extends { id: string }>(
   return rows
 }
 
+function isIsoDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -49,8 +53,20 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const plant_id = searchParams.get('plant_id') || undefined
     const mode = (searchParams.get('mode') || 'material') as 'material' | 'fleet'
+    const date_from = searchParams.get('date_from') || undefined
+    const date_to = searchParams.get('date_to') || undefined
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '500', 10), 1), 1000)
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10), 0)
+
+    if (date_from && !isIsoDate(date_from)) {
+      return NextResponse.json({ error: 'date_from inválida (YYYY-MM-DD)' }, { status: 400 })
+    }
+    if (date_to && !isIsoDate(date_to)) {
+      return NextResponse.json({ error: 'date_to inválida (YYYY-MM-DD)' }, { status: 400 })
+    }
+    if (date_from && date_to && date_from > date_to) {
+      return NextResponse.json({ error: 'La fecha inicial no puede ser posterior a la final' }, { status: 400 })
+    }
 
     const source = mode === 'fleet' ? 'ap_orphan_fleet_entries' : 'ap_orphan_material_entries'
 
@@ -62,6 +78,8 @@ export async function GET(request: NextRequest) {
       .range(offset, offset + limit - 1)
 
     if (plant_id) query = query.eq('plant_id', plant_id)
+    if (date_from) query = query.gte('entry_date', date_from)
+    if (date_to) query = query.lte('entry_date', date_to)
 
     const { data: rows, error, count } = await query
     if (error) {

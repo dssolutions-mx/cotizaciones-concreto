@@ -3,13 +3,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { ChevronDown, ChevronRight, AlertTriangle, FileText, Package, Truck, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, AlertTriangle, FileText, Package, Truck, X, Calendar } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierInvoiceDrawer'
 import { cn } from '@/lib/utils'
@@ -40,6 +41,49 @@ function OrphanLoadProgress({ loaded, total }: { loaded: number; total: number }
   )
 }
 
+function OrphanReceptionDateFilter({
+  dateFrom,
+  dateTo,
+  onDateFromChange,
+  onDateToChange,
+  onClear,
+}: {
+  dateFrom: string
+  dateTo: string
+  onDateFromChange: (value: string) => void
+  onDateToChange: (value: string) => void
+  onClear: () => void
+}) {
+  const active = Boolean(dateFrom || dateTo)
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2">
+      <Calendar className="h-3.5 w-3.5 text-stone-500 shrink-0" />
+      <span className="text-xs font-medium text-stone-600 whitespace-nowrap">Recepción</span>
+      <Input
+        type="date"
+        value={dateFrom}
+        onChange={(e) => onDateFromChange(e.target.value)}
+        className="h-8 w-[142px] text-xs bg-white border-stone-300"
+        aria-label="Fecha de recepción desde"
+      />
+      <span className="text-xs text-stone-400">a</span>
+      <Input
+        type="date"
+        value={dateTo}
+        onChange={(e) => onDateToChange(e.target.value)}
+        className="h-8 w-[142px] text-xs bg-white border-stone-300"
+        aria-label="Fecha de recepción hasta"
+      />
+      {active && (
+        <Button type="button" size="sm" variant="ghost" className="h-8 text-xs gap-1 text-stone-500" onClick={onClear}>
+          <X className="h-3.5 w-3.5" />
+          Quitar fechas
+        </Button>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   workspacePlantId?: string
   hidePlantFilter?: boolean
@@ -51,11 +95,15 @@ function FleetPendingSection({
   hidePlantFilter = false,
   reloadKey,
   onReload,
+  dateFrom = '',
+  dateTo = '',
 }: {
   workspacePlantId?: string
   hidePlantFilter?: boolean
   reloadKey: number
   onReload: () => void
+  dateFrom?: string
+  dateTo?: string
 }) {
   const { availablePlants } = usePlantContext()
   const [localPlantFilter, setLocalPlantFilter] = useState('')
@@ -81,7 +129,12 @@ function FleetPendingSection({
       setSelected(new Set())
       try {
         const { entries: list } = await fetchAllOrphanEntries(
-          { mode: 'fleet', plantId: plantFilter || undefined },
+          {
+            mode: 'fleet',
+            plantId: plantFilter || undefined,
+            dateFrom: dateFrom || undefined,
+            dateTo: dateTo || undefined,
+          },
           {
             signal: controller.signal,
             onProgress: (loaded, total, batch) => {
@@ -111,7 +164,7 @@ function FleetPendingSection({
       cancelled = true
       controller.abort()
     }
-  }, [plantFilter, reloadKey])
+  }, [plantFilter, reloadKey, dateFrom, dateTo])
 
   // Group by fleet_supplier.group_id — the supplier_groups entity is cross-plant,
   // so "SAFE" in plant A and "SAFE" in plant B (same group_id) collapse into one card.
@@ -212,8 +265,14 @@ function FleetPendingSection({
       {entries.length === 0 ? (
         <div className="py-16 text-center text-stone-500">
           <Truck className="h-10 w-10 mx-auto mb-3 text-stone-300" />
-          <p className="text-sm font-medium">Sin fletes pendientes de facturar</p>
-          <p className="text-xs text-stone-400 mt-1">Las entradas con flete aparecen aquí una vez que su costo de material ya fue facturado.</p>
+          <p className="text-sm font-medium">
+            {dateFrom || dateTo ? 'Sin fletes en el rango de fechas' : 'Sin fletes pendientes de facturar'}
+          </p>
+          <p className="text-xs text-stone-400 mt-1">
+            {dateFrom || dateTo
+              ? 'Prueba ampliar el rango de recepción o quitar el filtro de fechas.'
+              : 'Las entradas con flete aparecen aquí una vez que su costo de material ya fue facturado.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -338,6 +397,13 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const [drawerEntries, setDrawerEntries] = useState<OrphanEntry[]>([])
   const [unoAUnoQueue, setUnoAUnoQueue] = useState<OrphanEntry[]>([])
   const [reloadKey, setReloadKey] = useState(0)
+  const [receptionDateFrom, setReceptionDateFrom] = useState('')
+  const [receptionDateTo, setReceptionDateTo] = useState('')
+
+  const clearReceptionDates = () => {
+    setReceptionDateFrom('')
+    setReceptionDateTo('')
+  }
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
   const plantMap = useMemo(() => new Map(availablePlants.map(p => [p.id, p.name])), [availablePlants])
@@ -355,7 +421,12 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
       setSelected(new Set())
       try {
         const { entries: list } = await fetchAllOrphanEntries(
-          { mode: 'material', plantId: plantFilter || undefined },
+          {
+            mode: 'material',
+            plantId: plantFilter || undefined,
+            dateFrom: receptionDateFrom || undefined,
+            dateTo: receptionDateTo || undefined,
+          },
           {
             signal: controller.signal,
             onProgress: (loaded, total, batch) => {
@@ -387,7 +458,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
       cancelled = true
       controller.abort()
     }
-  }, [plantFilter, reloadKey, activeTab])
+  }, [plantFilter, reloadKey, activeTab, receptionDateFrom, receptionDateTo])
 
   // Derive filter options from loaded entries — key by group_id so CEMEX plant1+plant2 = one option
   const supplierOptions = useMemo(() => {
@@ -503,10 +574,18 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const selectedEntries = entries.filter(e => selected.has(e.id))
   const selectedPlants = new Set(selectedEntries.map(e => e.plant_id))
   const selectionValid = selectedPlants.size <= 1
-  const hasActiveFilter = !!supplierFilter || !!materialFilter
+  const hasActiveFilter = !!supplierFilter || !!materialFilter || !!receptionDateFrom || !!receptionDateTo
 
   return (
     <div className="space-y-4">
+      <OrphanReceptionDateFilter
+        dateFrom={receptionDateFrom}
+        dateTo={receptionDateTo}
+        onDateFromChange={setReceptionDateFrom}
+        onDateToChange={setReceptionDateTo}
+        onClear={clearReceptionDates}
+      />
+
       {/* Sub-tab switcher: Material vs Fleet */}
       <div className="flex items-center gap-1 border-b border-stone-200 pb-0">
         <button
@@ -551,6 +630,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
           hidePlantFilter={hidePlantFilter}
           reloadKey={reloadKey}
           onReload={() => setReloadKey(k => k + 1)}
+          dateFrom={receptionDateFrom}
+          dateTo={receptionDateTo}
         />
       ) : (
       <>
@@ -602,7 +683,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         )}
 
         {hasActiveFilter && (
-          <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-stone-500" onClick={() => { setSupplierFilter(''); setMaterialFilter('') }}>
+          <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-stone-500" onClick={() => {
+            setSupplierFilter('')
+            setMaterialFilter('')
+            clearReceptionDates()
+          }}>
             <X className="h-3.5 w-3.5" /> Limpiar filtros
           </Button>
         )}

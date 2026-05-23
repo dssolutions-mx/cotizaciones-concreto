@@ -6,6 +6,8 @@ export const ORPHAN_FETCH_PAGE_SIZE = 500
 type FetchParams = {
   mode: 'material' | 'fleet'
   plantId?: string
+  dateFrom?: string
+  dateTo?: string
 }
 
 type FetchOptions = {
@@ -29,6 +31,8 @@ export async function fetchAllOrphanEntries(
       offset: String(offset),
     })
     if (params.plantId) qs.set('plant_id', params.plantId)
+    if (params.dateFrom) qs.set('date_from', params.dateFrom)
+    if (params.dateTo) qs.set('date_to', params.dateTo)
 
     const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal })
     const data = await res.json()
