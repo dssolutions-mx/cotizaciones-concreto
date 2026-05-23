@@ -50,11 +50,11 @@ function FleetPendingSection({
     async function load() {
       setLoading(true)
       try {
-        const qs = new URLSearchParams({ mode: 'fleet', limit: '500' })
+        const qs = new URLSearchParams({ mode: 'fleet', limit: '5000' })
         if (plantFilter) qs.set('plant_id', plantFilter)
         const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
-        if (!res.ok) return
         const data = await res.json()
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
         if (cancelled) return
         const list: OrphanEntry[] = data.entries ?? []
         setEntries(list)
@@ -62,6 +62,7 @@ function FleetPendingSection({
         setExpandedSuppliers(keys)
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
+        if (!cancelled) setEntries([])
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -310,11 +311,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     async function load() {
       setLoading(true)
       try {
-        const qs = new URLSearchParams({ mode: 'material', limit: '500' })
+        const qs = new URLSearchParams({ mode: 'material', limit: '5000' })
         if (plantFilter) qs.set('plant_id', plantFilter)
         const res = await fetch(`/api/ap/orphan-entries?${qs}`, { signal: controller.signal })
-        if (!res.ok) return
         const data = await res.json()
+        if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
         if (cancelled) return
         setEntries(data.entries ?? [])
         const groupKeys = new Set<string>(
@@ -323,6 +324,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         setExpandedSuppliers(groupKeys)
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
+        if (!cancelled) setEntries([])
       } finally {
         if (!cancelled) setLoading(false)
       }
