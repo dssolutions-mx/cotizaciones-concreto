@@ -47,7 +47,9 @@ export interface UncertaintyComponent {
   /** Human-readable formula string shown in the UI */
   formula_display: string;
   /** Optional category for chip display in the budget table */
-  categoria?: 'repeatability' | 'reproducibility' | 'resolution' | 'calibration' | 'environmental' | 'method' | 'systematic';
+  categoria?: 'repeatability' | 'reproducibility' | 'resolution' | 'calibration' | 'environmental' | 'method' | 'systematic' | 'custom';
+  /** Optional human-readable provenance / justification line (e.g. "Verificación interna 2026-02-18 (Vernier DC-43-01)"); rendered by the budget UI as a chip + tooltip */
+  descripcion?: string;
 }
 
 export interface BudgetResult {
@@ -317,9 +319,30 @@ export interface StudyInput {
    */
   typeBInputs: TypeBInput[];
   /**
+   * Extra Type A inputs added per-study (user-defined variables).
+   * Each becomes one budget row; ν = n-1 participates in Welch–Satterthwaite.
+   */
+  extraTypeAInputs?: ExtraTypeAInput[];
+  /**
    * Context for sensitivity coefficients (means of raw inputs).
    */
   sensitivityContext?: Parameters<typeof sensitivityCoefficient>[2];
+}
+
+/** A user-defined Type A variable (computed from user-supplied replicates). */
+export interface ExtraTypeAInput {
+  fuente: string;
+  simbolo: string;
+  unidad: string;
+  /** Grand mean of the replicate values */
+  mean: number;
+  /** Sample std deviation s(qₖ) */
+  s: number;
+  /** Number of replicates n */
+  n: number;
+  /** Norm clause (optional for Type A) */
+  norma_ref?: string;
+  descripcion?: string;
 }
 
 export interface TypeBInput {
@@ -379,6 +402,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
     replicaValues,
     operatorGroups,
     typeBInputs,
+    extraTypeAInputs = [],
     sensitivityContext = {},
   } = input;
 
@@ -453,6 +477,29 @@ export function buildBudget(input: StudyInput): BudgetResult {
       ref_norma: useAnova ? 'GUM §4.2.4; ISO 5725-2 §7' : 'GUM §4.2.3',
       formula_display: `u_A = s / √n = ${row.s.toExponential(4)} / √${row.n} = ${row.u.toExponential(4)}`,
       categoria: isReprod ? 'reproducibility' : 'repeatability',
+    });
+  }
+
+  // ---- Extra Type A (user-defined per-study variables) -----------------
+  for (const ea of extraTypeAInputs) {
+    const u_A = ea.s / Math.sqrt(ea.n);
+    const ui_y = u_A; // ci = 1 for direct measurand contributions
+    components.push({
+      fuente: ea.fuente,
+      magnitud_xi: ea.simbolo,
+      unidad: ea.unidad,
+      valor_xi: ea.mean,
+      u_xi: u_A,
+      tipo: 'A',
+      distribucion: 'normal',
+      divisor: Math.sqrt(ea.n),
+      ci: 1,
+      ui_y,
+      ui2_y: ui_y ** 2,
+      nu: ea.n - 1,
+      ref_norma: ea.norma_ref ?? 'GUM §4.2.3',
+      formula_display: `u_A = s / √n = ${ea.s.toExponential(4)} / √${ea.n} = ${u_A.toExponential(4)}`,
+      categoria: 'custom',
     });
   }
 
@@ -533,6 +580,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
       ref_norma,
       formula_display,
       categoria: categoriaB,
+      descripcion: tb.descripcion,
     });
   }
 

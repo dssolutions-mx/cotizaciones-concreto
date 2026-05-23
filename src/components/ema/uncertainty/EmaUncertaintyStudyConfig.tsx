@@ -1,20 +1,23 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { RotateCcw } from 'lucide-react'
+import { Plus, Pencil, Trash2, RotateCcw } from 'lucide-react'
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import { EmaUncertaintyMeasurandPanel } from '@/components/ema/uncertainty/EmaUncertaintyMeasurandPanel'
 import { EmaUncertaintyReplicaSetupTable } from '@/components/ema/uncertainty/EmaUncertaintyReplicaSetupTable'
 import { EmaUncertaintyStudyEquipoPanel } from '@/components/ema/uncertainty/EmaUncertaintyStudyEquipoPanel'
+import { CustomInputDialog } from '@/components/ema/uncertainty/CustomInputDialog'
+import { RecommendedContributorsCard } from '@/components/ema/uncertainty/RecommendedContributorsCard'
 import type {
   UncertaintyEquipoPool,
   UncertaintyMeasurandInput,
   UncertaintyStudy,
   UncertaintyStudyReplica,
+  StudyCustomInput,
 } from '@/types/ema-uncertainty'
 
 const KIND_LABEL: Record<string, string> = {
@@ -106,6 +109,14 @@ function MetaItem({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+const TIPO_B_LABEL: Record<string, string> = {
+  resolucion: 'Resolución',
+  rectangular: 'Rectangular',
+  triangular: 'Triangular',
+  normal: 'Normal',
+  'u-shaped': 'U-shaped',
+}
+
 export function EmaUncertaintyStudyConfig({
   study,
   replicas,
@@ -132,6 +143,58 @@ export function EmaUncertaintyStudyConfig({
     (study.env_overrides as Record<string, number>) ?? {},
   )
   const [overrideSaving, setOverrideSaving] = useState(false)
+
+  // Custom inputs state
+  const [customInputs, setCustomInputs] = useState<StudyCustomInput[]>([])
+  const [customLoading, setCustomLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingInput, setEditingInput] = useState<StudyCustomInput | undefined>(undefined)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const fetchCustomInputs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ema/uncertainty/studies/${study.id}/custom-inputs`)
+      if (res.ok) {
+        const data: StudyCustomInput[] = await res.json()
+        setCustomInputs(data)
+      }
+    } finally {
+      setCustomLoading(false)
+    }
+  }, [study.id])
+
+  useEffect(() => { fetchCustomInputs() }, [fetchCustomInputs])
+
+  async function handleDeleteCustom(id: string) {
+    if (!confirm('¿Eliminar esta variable?')) return
+    setDeletingId(id)
+    try {
+      const res = await fetch(
+        `/api/ema/uncertainty/studies/${study.id}/custom-inputs/${id}`,
+        { method: 'DELETE' },
+      )
+      if (res.ok) {
+        setCustomInputs((prev) => prev.filter((c) => c.id !== id))
+      } else {
+        const { error } = await res.json()
+        alert(error ?? 'Error al eliminar')
+      }
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  function handleCustomSaved(item: StudyCustomInput) {
+    setCustomInputs((prev) => {
+      const idx = prev.findIndex((c) => c.id === item.id)
+      if (idx >= 0) {
+        const next = [...prev]
+        next[idx] = item
+        return next
+      }
+      return [...prev, item]
+    })
+  }
 
   async function saveNotes() {
     setSaving(true)
@@ -271,6 +334,142 @@ export function EmaUncertaintyStudyConfig({
           </div>
         </section>
       )}
+
+      {/* ── Contribuyentes según norma + GUM ─────────────────────────────── */}
+      <RecommendedContributorsCard
+        study={study}
+        measurand={measurand}
+        replicas={replicas}
+        customInputs={customInputs}
+        isLocked={isLocked}
+        onAddCustomInput={async (body) => {
+          const res = await fetch(`/api/ema/uncertainty/studies/${study.id}/custom-inputs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+          if (res.ok) {
+            const item: StudyCustomInput = await res.json()
+            handleCustomSaved(item)
+          } else {
+            const { error } = await res.json()
+            alert(error ?? 'Error al agregar contribuyente')
+          }
+        }}
+      />
+
+      {/* ── Variables personalizadas ─────────────────────────────────────── */}
+      <section>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-stone-800">Variables personalizadas</h3>
+            <p className="mt-0.5 text-xs text-stone-500">
+              Agrega variables Tipo A (estadísticas, con réplicas) o Tipo B (por norma) específicas a este estudio.
+              Las variables Tipo B requieren referencia a una norma; las de resolución de instrumento no.
+            </p>
+          </div>
+          {!isLocked && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-4 shrink-0"
+              onClick={() => { setEditingInput(undefined); setDialogOpen(true) }}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              Agregar variable
+            </Button>
+          )}
+        </div>
+
+        {customLoading ? (
+          <p className="mt-2 text-xs text-stone-400">Cargando…</p>
+        ) : customInputs.length === 0 ? (
+          <p className="mt-2 text-xs text-stone-400 italic">
+            Sin variables personalizadas. Las contribuciones estándar son las definidas por el mensurando.
+          </p>
+        ) : (
+          <div className="mt-2 overflow-hidden rounded-lg border border-stone-200">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-stone-200 bg-stone-50/80 text-[11px] font-medium uppercase tracking-wide text-stone-500">
+                  <th className="w-20 px-3 py-2">Símbolo</th>
+                  <th className="px-3 py-2">Nombre</th>
+                  <th className="w-16 px-3 py-2 text-center">Tipo</th>
+                  <th className="px-3 py-2 text-center">Distribución / n</th>
+                  <th className="px-3 py-2 text-center">Norma</th>
+                  {!isLocked && <th className="w-20 px-3 py-2" />}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {customInputs.map((ci) => (
+                  <tr key={ci.id} className="hover:bg-stone-50">
+                    <td className="px-3 py-1.5 font-mono text-xs text-stone-700">{ci.simbolo}</td>
+                    <td className="px-3 py-1.5 text-sm text-stone-700">{ci.nombre_display}</td>
+                    <td className="px-3 py-1.5 text-center">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        ci.tipo_ab === 'A'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-violet-100 text-violet-700'
+                      }`}>
+                        Tipo {ci.tipo_ab}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-center text-xs text-stone-600">
+                      {ci.tipo_ab === 'A'
+                        ? `n = ${ci.replica_values_json?.length ?? '—'} réplicas`
+                        : ci.b_subtipo === 'resolucion'
+                          ? `Resolución · div=${ci.div_min}`
+                          : ci.b_subtipo === 'normal'
+                            ? `Normal · U=${ci.u_cert}, k=${ci.k_cert}`
+                            : `${TIPO_B_LABEL[ci.b_subtipo ?? ''] ?? ci.b_subtipo} · ±${ci.half_width}`
+                      }
+                      {ci.unidad ? ` ${ci.unidad}` : ''}
+                    </td>
+                    <td className="px-3 py-1.5 text-center">
+                      {ci.norma_ref
+                        ? <EmaNormReferenceChip ref_norma={ci.norma_ref} formula_display={ci.descripcion ?? undefined} />
+                        : <span className="text-[11px] text-stone-400">—</span>
+                      }
+                    </td>
+                    {!isLocked && (
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            title="Editar"
+                            className="text-stone-400 hover:text-stone-700"
+                            onClick={() => { setEditingInput(ci); setDialogOpen(true) }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Eliminar"
+                            className="text-stone-400 hover:text-red-600"
+                            disabled={deletingId === ci.id}
+                            onClick={() => handleDeleteCustom(ci.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <CustomInputDialog
+          studyId={study.id}
+          editing={editingInput}
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          onSaved={handleCustomSaved}
+        />
+      </section>
 
       <EmaUncertaintyReplicaSetupTable
         study={study}

@@ -10,6 +10,7 @@ export type {
   BudgetResult,
   UncertaintyComponent,
   TypeBInput,
+  ExtraTypeAInput,
   VerificationPoint,
   VerificationBudgetResult,
 } from '@/lib/ema/uncertaintyBudget';
@@ -42,6 +43,35 @@ export interface UncertaintyMeasurand {
   is_active: boolean;
   created_at: string;
   inputs?: UncertaintyMeasurandInput[];
+  recommended_contributors_json?: RecommendedContributor[] | null;
+}
+
+/**
+ * A recommended contributor for the study's "Contribuyentes según norma + GUM" wizard.
+ * The `mode` drives the UI: each mode is rendered differently and may auto-include,
+ * deep-link, or prompt the user to add.
+ *
+ * - `auto-replicas`: Type A repetibilidad, computed automatically from the study's
+ *   replicates. Wizard renders as included; no add button.
+ * - `auto-from-instrument`: Type B calibración pulled from the linked verification
+ *   or external cert. Wizard renders as included when present, missing when not.
+ *   Already contains the instrument's resolution per GUM §4.3.4 — DO NOT add
+ *   "Resolución" separately when this is present.
+ * - `stopgap-only-when-no-cert`: Type B resolution = (divMin/2)/√3. Only meaningful
+ *   when no cert/verification exists; otherwise hidden as ⚪ "ya incluida en
+ *   Calibración" with a tooltip.
+ * - `auto-anova`: Type A reproducibility, computed automatically by the engine
+ *   when ≥2 operators × ≥2 replicas exist.
+ */
+export interface RecommendedContributor {
+  key: string;
+  nombre_display: string;
+  tipo_ab: 'A' | 'B';
+  mode: 'auto-replicas' | 'auto-from-instrument' | 'stopgap-only-when-no-cert' | 'auto-anova';
+  b_subtipo?: 'resolucion' | 'rectangular' | 'triangular' | 'normal' | 'u-shaped';
+  defaults?: { div_min?: number; half_width?: number; unidad?: string };
+  norma_ref?: string;
+  descripcion?: string;
 }
 
 export type MeasurandInputKind =
@@ -168,6 +198,63 @@ export interface UncertaintyPublished {
   measurand?: UncertaintyMeasurand;
   study?: Pick<UncertaintyStudy, 'id' | 'fecha_estudio' | 'documento_codigo'>;
 }
+
+// ---------------------------------------------------------------------------
+// Per-study custom variables (user-defined Type A and Type B)
+// ---------------------------------------------------------------------------
+
+export type CustomInputBSubtipo =
+  | 'resolucion'
+  | 'rectangular'
+  | 'triangular'
+  | 'normal'
+  | 'u-shaped';
+
+export interface StudyCustomInput {
+  id: string;
+  study_id: string;
+  simbolo: string;
+  nombre_display: string;
+  unidad: string;
+  tipo_ab: 'A' | 'B';
+  /** Required when tipo_ab = 'B' */
+  b_subtipo: CustomInputBSubtipo | null;
+  /** Rectangular / triangular / u-shaped Type B */
+  half_width: number | null;
+  /** Resolution Type B */
+  div_min: number | null;
+  /** Normal (calibration-like) Type B */
+  u_cert: number | null;
+  k_cert: number | null;
+  divisor: number | null;
+  /** Required for Type B except resolucion */
+  norma_ref: string | null;
+  /** Type A: array of replicate values (≥ 2) */
+  replica_values_json: number[] | null;
+  descripcion: string | null;
+  orden: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCustomInputBody {
+  simbolo: string;
+  nombre_display: string;
+  unidad?: string;
+  tipo_ab: 'A' | 'B';
+  b_subtipo?: CustomInputBSubtipo;
+  half_width?: number;
+  div_min?: number;
+  u_cert?: number;
+  k_cert?: number;
+  divisor?: number;
+  norma_ref?: string;
+  replica_values_json?: number[];
+  descripcion?: string;
+  orden?: number;
+}
+
+export type UpdateCustomInputBody = Partial<Omit<CreateCustomInputBody, 'tipo_ab' | 'simbolo'>>;
 
 // ---------------------------------------------------------------------------
 // API request/response shapes

@@ -81,8 +81,8 @@ export function EmaUncertaintyBudgetTable({
         </div>
       </div>
 
-      {/* Component table */}
-      <div className="overflow-x-auto rounded-lg border border-stone-200">
+      {/* Component table — grouped by Tipo A / Tipo B per CENAM presupuesto layout */}
+      <div className="overflow-x-auto rounded-lg border border-stone-200 print:overflow-visible">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-stone-200 bg-stone-50 text-[11px] uppercase tracking-wide text-stone-500">
@@ -96,14 +96,57 @@ export function EmaUncertaintyBudgetTable({
               <th className="px-3 py-2 text-right">cᵢ</th>
               <th className="px-3 py-2 text-right">uᵢ(y)</th>
               <th className="px-3 py-2 text-right">uᵢ²(y)</th>
+              <th className="px-3 py-2 text-right" title="100 × uᵢ²(y) / Σ uᵢ²(y) — contribución relativa a la varianza combinada">% contrib.</th>
               <th className="px-3 py-2 text-left">Fórmula</th>
               <th className="px-3 py-2 text-center">Norma</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {components.map((c, idx) => (
-              <BudgetRow key={idx} component={c} unit={unit} />
-            ))}
+            {(() => {
+              const sumUi2 = components.reduce((s, c) => s + c.ui2_y, 0) || 1;
+              const typeA = components.filter((c) => c.tipo === 'A');
+              const typeB = components.filter((c) => c.tipo === 'B');
+              const rows: React.ReactNode[] = [];
+              if (typeA.length > 0) {
+                rows.push(
+                  <tr key="hdr-a" className="bg-purple-50/60 text-[10px] uppercase tracking-wide text-purple-700">
+                    <td colSpan={13} className="px-3 py-1 font-semibold">
+                      Tipo A — evaluación estadística (GUM §4.2)
+                    </td>
+                  </tr>,
+                );
+                typeA.forEach((c, idx) => {
+                  rows.push(
+                    <BudgetRow
+                      key={`a-${idx}`}
+                      component={c}
+                      unit={unit}
+                      contribPct={(100 * c.ui2_y) / sumUi2}
+                    />,
+                  );
+                });
+              }
+              if (typeB.length > 0) {
+                rows.push(
+                  <tr key="hdr-b" className="bg-teal-50/60 text-[10px] uppercase tracking-wide text-teal-700">
+                    <td colSpan={13} className="px-3 py-1 font-semibold">
+                      Tipo B — evaluación no-estadística (GUM §4.3)
+                    </td>
+                  </tr>,
+                );
+                typeB.forEach((c, idx) => {
+                  rows.push(
+                    <BudgetRow
+                      key={`b-${idx}`}
+                      component={c}
+                      unit={unit}
+                      contribPct={(100 * c.ui2_y) / sumUi2}
+                    />,
+                  );
+                });
+              }
+              return rows;
+            })()}
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-stone-300 bg-stone-50 font-semibold">
@@ -113,7 +156,18 @@ export function EmaUncertaintyBudgetTable({
               <td className="px-3 py-2 text-right text-stone-800">
                 {fmt(components.reduce((s, c) => s + c.ui2_y, 0))}
               </td>
-              <td colSpan={2} className="px-3 py-2 text-left text-stone-500">
+              <td colSpan={3} className="px-3 py-2 text-left text-stone-500">
+                {unit}²
+              </td>
+            </tr>
+            <tr className="bg-stone-50 font-semibold">
+              <td colSpan={9} className="px-3 py-2 text-right text-stone-600">
+                u_c = √Σ uᵢ²(y) =
+              </td>
+              <td className="px-3 py-2 text-right text-stone-800">
+                {fmt(u_c)}
+              </td>
+              <td colSpan={3} className="px-3 py-2 text-left text-stone-500">
                 {unit}
               </td>
             </tr>
@@ -193,6 +247,7 @@ const CATEGORIA_META: Record<
   environmental:    { label: 'Ambiental',          className: 'bg-emerald-100 text-emerald-700' },
   method:           { label: 'Método',             className: 'bg-amber-100 text-amber-700' },
   systematic:       { label: 'Sistemático',        className: 'bg-orange-100 text-orange-700' },
+  custom:           { label: 'Personalizada',     className: 'bg-stone-200 text-stone-700' },
 }
 
 function CategoriaChip({ categoria }: { categoria: UncertaintyComponent['categoria'] }) {
@@ -208,9 +263,11 @@ function CategoriaChip({ categoria }: { categoria: UncertaintyComponent['categor
 function BudgetRow({
   component: c,
   unit,
+  contribPct,
 }: {
   component: UncertaintyComponent
   unit: string
+  contribPct: number
 }) {
   const fmt = (n: number) => n.toExponential(4)
   const fmtFixed = (n: number) => n.toFixed(4)
@@ -222,9 +279,51 @@ function BudgetRow({
     ? `±${fmtFixed(c.u_xi * Math.sqrt(3))}`
     : fmtFixed(c.valor_xi)
 
+  // Provenance detection on calibration rows (from descripcion authored by service)
+  const desc = c.descripcion ?? ''
+  const isInternalVerif = desc.startsWith('Verificación interna')
+  const isExternalCert = desc.startsWith('Certificado externo')
+  const hasUnitConversion = desc.includes('convertido')
+
+  // Highlight rows that dominate the budget (≥ 40% of total variance)
+  const isDominant = contribPct >= 40
+
   return (
-    <tr className="hover:bg-stone-50">
-      <td className="px-3 py-1.5 text-stone-700">{c.fuente}</td>
+    <tr className={cn('hover:bg-stone-50', isDominant && 'bg-amber-50/40')}>
+      <td className="px-3 py-1.5 text-stone-700">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span>{c.fuente}</span>
+          {isInternalVerif && (
+            <span
+              className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700"
+              title={desc}
+            >
+              Verificación interna
+            </span>
+          )}
+          {isExternalCert && (
+            <span
+              className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-semibold text-sky-700"
+              title={desc}
+            >
+              Cert. externo
+            </span>
+          )}
+          {hasUnitConversion && (
+            <span
+              className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700"
+              title={desc}
+            >
+              convertido
+            </span>
+          )}
+        </div>
+        {desc && (
+          <p className="mt-0.5 text-[10px] text-stone-400 truncate" title={desc}>
+            {desc}
+          </p>
+        )}
+      </td>
       <td className="px-3 py-1.5 text-center">
         <CategoriaChip categoria={c.categoria} />
       </td>
@@ -253,6 +352,15 @@ function BudgetRow({
         {fmt(c.ui_y)}
       </td>
       <td className="px-3 py-1.5 text-right font-mono text-stone-600">{fmt(c.ui2_y)}</td>
+      <td
+        className={cn(
+          'px-3 py-1.5 text-right font-mono',
+          isDominant ? 'font-semibold text-amber-700' : 'text-stone-600',
+        )}
+        title={isDominant ? 'Contribución dominante (≥40 %)' : undefined}
+      >
+        {contribPct.toFixed(2)} %
+      </td>
       <td className="max-w-[180px] px-3 py-1.5 font-mono text-[10px] text-stone-500 truncate" title={c.formula_display}>
         {c.formula_display}
       </td>

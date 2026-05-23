@@ -16,12 +16,19 @@ import { computeReplicaMeasurand } from '@/lib/ema/uncertaintyMeasurand';
 import { assessAnovaReadiness, parseEquipoPool } from '@/lib/ema/uncertaintyStudyDesign';
 import { getInstrumentosCardsByIds, validateInstrumentos } from '@/services/emaInstrumentoService';
 import type { InstrumentoSeleccionado } from '@/types/ema';
+import {
+  mean as engineMean,
+  stdDevSample,
+} from '@/lib/ema/uncertaintyBudget';
+import { convertUnit } from '@/lib/ema/units';
 import type {
+  ExtraTypeAInput,
   UncertaintyMeasurand,
   UncertaintyStudy,
   UncertaintyStudyReplica,
   UncertaintyStudyBudget,
   UncertaintyPublished,
+  StudyCustomInput,
   CreateStudyInput,
   UpsertReplicasInput,
   PreviewBudgetResponse,
@@ -351,6 +358,60 @@ export async function updateStudyFields(
 }
 
 // ---------------------------------------------------------------------------
+// Custom inputs (per-study user-defined variables)
+// ---------------------------------------------------------------------------
+
+export async function listCustomInputs(studyId: string): Promise<StudyCustomInput[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('ema_uncertainty_study_custom_inputs')
+    .select('*')
+    .eq('study_id', studyId)
+    .order('orden')
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []) as unknown as StudyCustomInput[];
+}
+
+export async function createCustomInput(
+  studyId: string,
+  body: import('@/types/ema-uncertainty').CreateCustomInputBody,
+): Promise<StudyCustomInput> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('ema_uncertainty_study_custom_inputs')
+    .insert({ ...body, study_id: studyId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as StudyCustomInput;
+}
+
+export async function updateCustomInput(
+  id: string,
+  body: import('@/types/ema-uncertainty').UpdateCustomInputBody,
+): Promise<StudyCustomInput> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('ema_uncertainty_study_custom_inputs')
+    .update({ ...body, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as unknown as StudyCustomInput;
+}
+
+export async function deleteCustomInput(id: string): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from('ema_uncertainty_study_custom_inputs')
+    .delete()
+    .eq('id', id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
 // Replicas
 // ---------------------------------------------------------------------------
 
@@ -534,19 +595,69 @@ async function instrumentMetrologyOkAtStudyDate(
   return { ok: true, label, detail: '' };
 }
 
-/** Resolve instrument calibration data for Type B from the instrument's active cert */
+/**
+ * Resolve instrument calibration data for Type B from the most authoritative
+ * source available. Order:
+ *
+ *   1. `ema_instrumento_calibraciones` — most recent row whose `vigente_hasta`
+ *      covers the study date. This table captures BOTH internal verifications
+ *      (rolled up by `emaMetrologyService.computeAndPersistVerificationGumBudget`,
+ *      prefixed `VER-INT-…`) and any other calibration events the lab logs here.
+ *   2. `certificados_calibracion` — legacy external-certificate table.
+ *
+ * Returns `source: 'internal_verification'` when the chosen row's certificate
+ * number starts with `VER-INT-`, `'external_cert'` otherwise.
+ */
+export type CalibrationSource = 'external_cert' | 'internal_verification';
+
 async function resolveInstrumentCalibration(
   instrumento_id: string,
   studyDate: string,
-): Promise<{ u_expandida: number; k_factor: number; numero_certificado: string | null } | null> {
+): Promise<{
+  u_expandida: number;
+  k_factor: number;
+  numero_certificado: string | null;
+  unidad: string | null;
+  source: CalibrationSource;
+} | null> {
   const supabase = await createClient();
+
+  // 1. Prefer ema_instrumento_calibraciones (internal verifications + lab cal events)
+  const { data: emaCal } = await supabase
+    .from('ema_instrumento_calibraciones')
+    .select('u_expandida, k_factor, unidad, numero_certificado, fecha_emision, vigente_hasta')
+    .eq('instrumento_id', instrumento_id)
+    .not('u_expandida', 'is', null)
+    .lte('fecha_emision', studyDate)
+    .order('fecha_emision', { ascending: false })
+    .limit(5);
+
+  // Choose the first row whose vigente_hasta covers studyDate (or has no vencimiento)
+  const validCal = (emaCal ?? []).find((r) => {
+    const u = r.u_expandida;
+    if (u === null || u === undefined || u <= 0) return false;
+    if (!r.vigente_hasta) return true;
+    return r.vigente_hasta >= studyDate;
+  });
+  if (validCal) {
+    const cert = validCal.numero_certificado ?? null;
+    return {
+      u_expandida: validCal.u_expandida as number,
+      k_factor: validCal.k_factor ?? 2,
+      numero_certificado: cert,
+      unidad: validCal.unidad ?? null,
+      source: cert?.startsWith('VER-INT-') ? 'internal_verification' : 'external_cert',
+    };
+  }
+
+  // 2. Fallback: legacy external certificate
   const { data } = await supabase
     .from('certificados_calibracion')
     .select('incertidumbre_expandida, factor_cobertura, numero_certificado')
     .eq('instrumento_id', instrumento_id)
     .eq('is_vigente', true)
     .lte('fecha_emision', studyDate)
-    .gte('fecha_vencimiento', studyDate)   // cert must still be valid at study date (GUM §4.3.4)
+    .gte('fecha_vencimiento', studyDate)
     .order('fecha_emision', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -557,6 +668,8 @@ async function resolveInstrumentCalibration(
     u_expandida: data.incertidumbre_expandida,
     k_factor: data.factor_cobertura ?? 2,
     numero_certificado: data.numero_certificado ?? null,
+    unidad: null,
+    source: 'external_cert',
   };
 }
 
@@ -610,19 +723,45 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     const instrNombre = r.instrumento?.nombre ?? r.instrumento_id;
 
     if (calData && calData.u_expandida > 0) {
+      // Unit conversion: cal cert may be in a different unit than the study measurand.
+      // (e.g. flexómetro verified in mm, REV study in cm → divide by 10.)
+      let U_used = calData.u_expandida;
+      let conversionNote = '';
+      const calUnit = calData.unidad ?? measurand.unidad;
+      if (calUnit && calUnit !== measurand.unidad) {
+        const conv = convertUnit(U_used, calUnit, measurand.unidad);
+        if (conv) {
+          U_used = conv.value;
+          if (conv.converted) conversionNote = ` (convertido ${calUnit}→${measurand.unidad})`;
+        } else {
+          warnings.push(
+            `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${measurand.unidad}". Se omite la contribución de calibración para evitar error de unidades.`,
+          );
+          continue;
+        }
+      }
+
+      // Provenance descripcion: surfaced as a chip in the budget table
+      const provenance = calData.source === 'internal_verification'
+        ? `Verificación interna · cert ${calData.numero_certificado ?? '—'}${conversionNote}`
+        : `Certificado externo${calData.numero_certificado ? ` ${calData.numero_certificado}` : ''}${conversionNote}`;
+
       typeBInputs.push({
-        fuente: `Incertidumbre de calibración — ${instrNombre}`,
+        fuente: `Calibración — ${instrNombre}`,
         magnitud_xi: measurand.nombre,
         unidad: measurand.unidad,
         valor_xi: replicaValues[0],
         kind: 'calibration',
-        U_cert: calData.u_expandida,
+        U_cert: U_used,
         k_cert: calData.k_factor,
         cert_numero: calData.numero_certificado ?? undefined,
+        norma_ref_override: 'GUM §4.3.4',
+        descripcion: provenance,
+        categoria: 'calibration',
       });
     } else {
       warnings.push(
-        `Instrumento ${instrNombre} no tiene certificado vigente con U declarada. Se omite contribución Type B de calibración.`,
+        `Instrumento ${instrNombre} no tiene certificado vigente ni verificación con U declarada. Se omite contribución Type B de calibración — el presupuesto no es trazable.`,
       );
     }
   }
@@ -765,6 +904,125 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     sensitivityContext.V_recipiente = 7.06;
   }
 
+  // Custom per-study inputs (user-defined Type A and Type B variables)
+  const customInputs = await listCustomInputs(study.id);
+  const extraTypeAInputs: ExtraTypeAInput[] = [];
+
+  for (const ci of customInputs) {
+    if (ci.tipo_ab === 'A') {
+      const vals = (ci.replica_values_json ?? []) as number[];
+      if (vals.length < 2) {
+        warnings.push(`Variable personalizada "${ci.simbolo}" (Tipo A) necesita ≥2 réplicas; se omite.`);
+        continue;
+      }
+      const mu = engineMean(vals);
+      const s = stdDevSample(vals);
+      extraTypeAInputs.push({
+        fuente: ci.nombre_display,
+        simbolo: ci.simbolo,
+        unidad: ci.unidad,
+        mean: mu,
+        s,
+        n: vals.length,
+        norma_ref: ci.norma_ref ?? undefined,
+        descripcion: ci.descripcion ?? undefined,
+      });
+    } else {
+      // Type B
+      const subtipo = ci.b_subtipo;
+      if (subtipo === 'resolucion') {
+        if (!ci.div_min || ci.div_min <= 0) {
+          warnings.push(`Variable personalizada "${ci.simbolo}" (resolución): div_min inválido; se omite.`);
+          continue;
+        }
+        typeBInputs.push({
+          fuente: ci.nombre_display,
+          magnitud_xi: ci.simbolo,
+          unidad: ci.unidad,
+          valor_xi: 0,
+          kind: 'resolution',
+          divMin: ci.div_min,
+          norma_ref_override: ci.norma_ref ?? 'GUM §4.3.7',
+          descripcion: ci.descripcion ?? undefined,
+          categoria: 'custom',
+        });
+      } else if (subtipo === 'rectangular') {
+        if (!ci.half_width || ci.half_width <= 0) {
+          warnings.push(`Variable personalizada "${ci.simbolo}" (rectangular): semi-amplitud inválida; se omite.`);
+          continue;
+        }
+        typeBInputs.push({
+          fuente: ci.nombre_display,
+          magnitud_xi: ci.simbolo,
+          unidad: ci.unidad,
+          valor_xi: 0,
+          kind: 'rectangular',
+          halfWidth: ci.half_width,
+          norma_ref_override: ci.norma_ref ?? 'GUM §4.3.6',
+          descripcion: ci.descripcion ?? undefined,
+          categoria: 'custom',
+        });
+      } else if (subtipo === 'triangular') {
+        if (!ci.half_width || ci.half_width <= 0) {
+          warnings.push(`Variable personalizada "${ci.simbolo}" (triangular): semi-amplitud inválida; se omite.`);
+          continue;
+        }
+        const divisorVal = Math.sqrt(6);
+        typeBInputs.push({
+          fuente: ci.nombre_display,
+          magnitud_xi: ci.simbolo,
+          unidad: ci.unidad,
+          valor_xi: 0,
+          kind: 'custom',
+          u_custom: ci.half_width / divisorVal,
+          divisor_custom: divisorVal,
+          distribucion_custom: 'triangular',
+          norma_ref_override: ci.norma_ref ?? 'GUM §4.3.6',
+          descripcion: ci.descripcion ?? undefined,
+          categoria: 'custom',
+        });
+      } else if (subtipo === 'u-shaped') {
+        if (!ci.half_width || ci.half_width <= 0) {
+          warnings.push(`Variable personalizada "${ci.simbolo}" (u-shaped): semi-amplitud inválida; se omite.`);
+          continue;
+        }
+        const divisorVal = Math.sqrt(2);
+        typeBInputs.push({
+          fuente: ci.nombre_display,
+          magnitud_xi: ci.simbolo,
+          unidad: ci.unidad,
+          valor_xi: 0,
+          kind: 'custom',
+          u_custom: ci.half_width / divisorVal,
+          divisor_custom: divisorVal,
+          distribucion_custom: 'u-shaped',
+          norma_ref_override: ci.norma_ref ?? 'GUM §4.3.6',
+          descripcion: ci.descripcion ?? undefined,
+          categoria: 'custom',
+        });
+      } else if (subtipo === 'normal') {
+        if (!ci.u_cert || ci.u_cert <= 0 || !ci.k_cert || ci.k_cert <= 0) {
+          warnings.push(`Variable personalizada "${ci.simbolo}" (normal): U_cert o k inválidos; se omite.`);
+          continue;
+        }
+        typeBInputs.push({
+          fuente: ci.nombre_display,
+          magnitud_xi: ci.simbolo,
+          unidad: ci.unidad,
+          valor_xi: 0,
+          kind: 'calibration',
+          U_cert: ci.u_cert,
+          k_cert: ci.k_cert,
+          norma_ref_override: ci.norma_ref ?? 'GUM §4.3.4',
+          descripcion: ci.descripcion ?? undefined,
+          categoria: 'custom',
+        });
+      } else {
+        warnings.push(`Variable personalizada "${ci.simbolo}": subtipo "${subtipo}" desconocido; se omite.`);
+      }
+    }
+  }
+
   const studyInput: StudyInput = {
     measurandCode: measurand.codigo as MeasurandCodigo,
     measurandName: measurand.nombre,
@@ -772,6 +1030,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     replicaValues,
     operatorGroups: operatorGroups.length >= 2 ? operatorGroups : undefined,
     typeBInputs,
+    extraTypeAInputs: extraTypeAInputs.length > 0 ? extraTypeAInputs : undefined,
     sensitivityContext,
   };
 

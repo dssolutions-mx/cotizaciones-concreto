@@ -124,7 +124,10 @@ console.log('  ✓ TEMP');
 // ===========================================================================
 // 2. Revenimiento (REV)
 //    Excel sheet: "Revenimiento – Presupuesto"
-//    Contributors: Repetibilidad, Resolución, Calibración, R_temp, R_op
+//    Contributors: Repetibilidad, Resolución, Calibración
+//    NOTE: R_temp and R_op were removed per the norm revision (2026-05-23).
+//    Environmental/method contributions are now user-defined per-study via
+//    ema_uncertainty_study_custom_inputs (StudyCustomInput).
 // ===========================================================================
 console.log('2. REV — Revenimiento');
 
@@ -156,46 +159,40 @@ const revBudget = buildBudget({
       k_cert: 2,
       categoria: 'calibration',
     },
-    // R_temp — environmental: efecto térmico sobre el revenimiento
-    {
-      fuente: 'Efecto térmico sobre el revenimiento',
-      magnitud_xi: 'R_temp',
-      unidad: 'cm',
-      valor_xi: 0.5,
-      kind: 'rectangular',
-      halfWidth: 0.5,
-      norma_ref_override: 'NMX-C-156',
-      categoria: 'environmental',
-    },
-    // R_op — method: variación por técnica del operador
-    {
-      fuente: 'Variación por técnica del operador / tiempo',
-      magnitud_xi: 'R_op',
-      unidad: 'cm',
-      valor_xi: 0.3,
-      kind: 'rectangular',
-      halfWidth: 0.3,
-      norma_ref_override: 'NMX-C-156 §6.3',
-      categoria: 'method',
-    },
   ],
 });
 
-assert.ok(revBudget.components.length === 5, `REV: 5 components, got ${revBudget.components.length}`);
+// 3 components: Repetibilidad + Resolución + Calibración
+assert.ok(revBudget.components.length === 3, `REV: 3 components (R_temp/R_op removed), got ${revBudget.components.length}`);
 assert.ok(near(revBudget.U, revBudget.k * revBudget.u_c), 'REV: U = k·u_c');
 
 // REV: all ci = 1 (direct measurand)
 assert.ok(revBudget.components.every((c) => near(c.ci, 1)), 'REV: all ci = 1');
 
-// R_temp: u = 0.5/√3
-const rTemp = revBudget.components.find((c) => c.magnitud_xi === 'R_temp')!;
-assert.ok(nearAbs(rTemp.u_xi, 0.5 / Math.sqrt(3), 1e-6), 'REV: u(R_temp) = 0.5/√3');
-assert.ok(rTemp.categoria === 'environmental', 'REV: R_temp is environmental');
+// Resolution: u = (divMin/2)/√3 = 0.1/(2√3)
+const revRes = revBudget.components.find((c) => c.categoria === 'resolution')!;
+assert.ok(nearAbs(revRes.u_xi, 0.1 / (2 * Math.sqrt(3)), 1e-6), 'REV: u(resolución) = divMin/(2√3)');
 
-// R_op: u = 0.3/√3, category = method
-const rOp = revBudget.components.find((c) => c.magnitud_xi === 'R_op')!;
-assert.ok(nearAbs(rOp.u_xi, 0.3 / Math.sqrt(3), 1e-6), 'REV: u(R_op) = 0.3/√3');
-assert.ok(rOp.categoria === 'method', 'REV: R_op is method');
+// Calibration: u = U_cert/k = 1.0/2
+const revCal = revBudget.components.find((c) => c.categoria === 'calibration')!;
+assert.ok(nearAbs(revCal.u_xi, 1.0 / 2, 1e-6), 'REV: u(calibración) = U_cert/k');
+
+// Smoke-test: user-defined custom variable (extra Type A) is accepted by engine
+const revBudgetWithCustom = buildBudget({
+  measurandCode: 'REV',
+  measurandName: 'Revenimiento',
+  unit: 'cm',
+  replicaValues: revReplicas,
+  typeBInputs: [],
+  extraTypeAInputs: [
+    { fuente: 'Variable personalizada A', simbolo: 'V_a', unidad: 'cm', mean: 18, s: 0.5, n: 5 },
+  ],
+});
+const customComp = revBudgetWithCustom.components.find((c) => c.magnitud_xi === 'V_a')!;
+assert.ok(customComp, 'REV: custom Type A component appears in budget');
+assert.ok(nearAbs(customComp.u_xi, 0.5 / Math.sqrt(5), 1e-6), 'REV: custom Type A u = s/√n');
+assert.ok(customComp.nu === 4, 'REV: custom Type A ν = n-1 = 4');
+assert.ok(customComp.categoria === 'custom', 'REV: custom Type A has categoria=custom');
 
 console.log(`  u_c=${revBudget.u_c.toExponential(4)} cm  U=${revBudget.U.toExponential(4)} cm  k=${revBudget.k.toFixed(3)}`);
 console.log('  ✓ REV');

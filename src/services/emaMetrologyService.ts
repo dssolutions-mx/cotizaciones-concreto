@@ -113,33 +113,45 @@ type InstrumentoMeta = {
  * Derive nominal → instrument_reading pairs from the completed measurement rows
  * and the template snapshot. Only numeric items with a non-null `valor_esperado`
  * and a non-null `valor_observado` are included; checklist / text items are skipped.
+ *
+ * Returns `{ points, skipped }` so the caller can surface *why* it skipped instead
+ * of silently giving up when the snapshot/measurement linkage is incomplete.
  */
 function extractVerificationPoints(
   measurements: MeasurementRow[],
   snap: VerificacionTemplateSnapshot,
-): VerificationPoint[] {
+): { points: VerificationPoint[]; skipped: string | null } {
   // Build item_id → valor_esperado lookup from the snapshot
   const itemNominal = new Map<string, number>();
+  let snapItemsWithNominal = 0;
   for (const section of snap.sections ?? []) {
     for (const item of section.items ?? []) {
       if (item.valor_esperado !== null && item.valor_esperado !== undefined) {
         itemNominal.set(item.id, item.valor_esperado);
+        snapItemsWithNominal++;
       }
     }
   }
 
+  let mWithoutObserved = 0;
+  let mWithoutMatchingNominal = 0;
   const points: VerificationPoint[] = [];
   for (const m of measurements) {
-    if (m.valor_observado === null) continue;
+    if (m.valor_observado === null) { mWithoutObserved++; continue; }
     const nominal = itemNominal.get(m.item_id);
-    if (nominal === undefined) continue;
+    if (nominal === undefined) { mWithoutMatchingNominal++; continue; }
     points.push({
       nominal,
       standard_reading: nominal, // direct-comparison: standard defines the nominal
       instrument_reading: m.valor_observado,
     });
   }
-  return points;
+
+  let skipped: string | null = null;
+  if (points.length < 2) {
+    skipped = `< 2 puntos válidos extraídos. snapshot items con valor_esperado=${snapItemsWithNominal}, mediciones sin valor_observado=${mWithoutObserved}, sin nominal coincidente=${mWithoutMatchingNominal}, total mediciones=${measurements.length}.`;
+  }
+  return { points, skipped };
 }
 
 /**
@@ -223,8 +235,22 @@ async function computeAndPersistVerificationGumBudget(
     .eq('completed_id', completedId);
   if (mErr) throw mErr;
 
-  const points = extractVerificationPoints((mRows ?? []) as MeasurementRow[], snap);
-  if (points.length < 2) return; // not enough data — skip GUM budget
+  const { points, skipped } = extractVerificationPoints((mRows ?? []) as MeasurementRow[], snap);
+  if (skipped) {
+    // Persist the skip reason so the user can see why the rollup did not run
+    await admin.from('ema_verificacion_metrologia').upsert(
+      {
+        completed_verificacion_id: completedId,
+        tur_min_observado: existingTurMin,
+        gum_rollup_status: `skipped: ${skipped}`,
+        gum_rollup_attempted_at: new Date().toISOString(),
+        gum_rollup_skipped_reason: skipped,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'completed_verificacion_id' },
+    );
+    return;
+  }
 
   // 2. Resolution (div_min) lookup
   const divMinInstrument =
@@ -275,6 +301,9 @@ async function computeAndPersistVerificationGumBudget(
       completed_verificacion_id: completedId,
       tur_min_observado: existingTurMin,
       presupuesto_json: components,
+      gum_rollup_status: 'ok',
+      gum_rollup_attempted_at: now,
+      gum_rollup_skipped_reason: null,
       updated_at: now,
     },
     { onConflict: 'completed_verificacion_id' },
@@ -423,7 +452,7 @@ export async function persistMetrologiaTurOnVerificationClose(
     if (uErr) throw uErr;
     // Still attempt GUM budget with whatever maestro is linked
     if (snap && inst) {
-      await computeAndPersistVerificationGumBudget(
+      await runGumRollupAndRecordFailure(
         admin,
         completedId,
         instrMeta,
@@ -432,9 +461,7 @@ export async function persistMetrologiaTurOnVerificationClose(
         (verif.fecha_verificacion as string) ?? new Date().toISOString().slice(0, 10),
         (verif.condiciones_ambientales as Record<string, unknown> | null) ?? null,
         null,
-      ).catch(() => {
-        // GUM budget failure must not block the TUR upsert
-      });
+      );
     }
     return;
   }
@@ -489,7 +516,7 @@ export async function persistMetrologiaTurOnVerificationClose(
 
   // GUM budget — runs after TUR; overwrites presupuesto_json with full component array
   if (snap && inst) {
-    await computeAndPersistVerificationGumBudget(
+    await runGumRollupAndRecordFailure(
       admin,
       completedId,
       instrMeta,
@@ -498,8 +525,173 @@ export async function persistMetrologiaTurOnVerificationClose(
       (verif.fecha_verificacion as string) ?? new Date().toISOString().slice(0, 10),
       (verif.condiciones_ambientales as Record<string, unknown> | null) ?? null,
       turMin,
-    ).catch(() => {
-      // GUM budget failure must not block the TUR result
-    });
+    );
   }
+}
+
+/**
+ * Wraps `computeAndPersistVerificationGumBudget` with structured failure recording.
+ * Errors are logged AND persisted to `ema_verificacion_metrologia.gum_rollup_status`
+ * so the user can see why the rollup failed in the UI status pill. Never throws —
+ * GUM rollup failures must not break the parent TUR persistence path. The manual
+ * `recomputeVerificationUncertainty` exported below DOES throw, so the explicit
+ * recompute button can surface the error directly.
+ */
+async function runGumRollupAndRecordFailure(
+  admin: SupabaseClient,
+  completedId: string,
+  instrMeta: InstrumentoMeta,
+  maestroId: string | null,
+  snap: VerificacionTemplateSnapshot,
+  fechaVerificacion: string,
+  condicionesAmbientales: Record<string, unknown> | null,
+  turMin: number | null,
+): Promise<void> {
+  try {
+    await computeAndPersistVerificationGumBudget(
+      admin, completedId, instrMeta, maestroId, snap,
+      fechaVerificacion, condicionesAmbientales, turMin,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[GUM rollup] failed for verification', completedId, err);
+    await admin.from('ema_verificacion_metrologia').upsert(
+      {
+        completed_verificacion_id: completedId,
+        gum_rollup_status: `failed: ${msg.slice(0, 500)}`,
+        gum_rollup_attempted_at: new Date().toISOString(),
+        gum_rollup_skipped_reason: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'completed_verificacion_id' },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API: explicit recompute (used by the "Recalcular incertidumbre" button
+// and by the historical-backfill script). Throws on failure so the caller can
+// show the error directly to the user.
+// ---------------------------------------------------------------------------
+
+export interface RecomputeResult {
+  status: 'ok' | 'skipped';
+  u_c?: number;
+  k?: number;
+  U?: number;
+  nu_eff?: number;
+  components?: UncertaintyComponent[];
+  skipped_reason?: string;
+  unidad?: string;
+}
+
+export async function recomputeVerificationUncertainty(
+  completedId: string,
+): Promise<RecomputeResult> {
+  const admin = await createServerSupabaseClient();
+
+  const { data: verif, error: vErr } = await admin
+    .from('completed_verificaciones')
+    .select('id, instrumento_id, template_version_id, fecha_verificacion, condiciones_ambientales')
+    .eq('id', completedId)
+    .maybeSingle();
+  if (vErr) throw vErr;
+  if (!verif) throw new Error(`Verificación ${completedId} no encontrada`);
+
+  const { data: inst, error: iErr } = await admin
+    .from('instrumentos')
+    .select('id, tipo, incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad, conjuntos_herramientas(categoria)')
+    .eq('id', verif.instrumento_id)
+    .maybeSingle();
+  if (iErr) throw iErr;
+  if (!inst) throw new Error(`Instrumento ${verif.instrumento_id} no encontrado`);
+
+  const instrMeta: InstrumentoMeta = {
+    id: inst.id,
+    categoria: (inst as { conjuntos_herramientas?: { categoria?: string } | null })
+      ?.conjuntos_herramientas?.categoria ?? '',
+    incertidumbre_expandida: inst.incertidumbre_expandida ?? null,
+    incertidumbre_k: inst.incertidumbre_k ?? null,
+    incertidumbre_unidad: inst.incertidumbre_unidad ?? null,
+  };
+
+  const { data: version, error: verErr } = await admin
+    .from('verificacion_template_versions')
+    .select('snapshot')
+    .eq('id', verif.template_version_id)
+    .maybeSingle();
+  if (verErr) throw verErr;
+  if (!version?.snapshot) throw new Error('La verificación no tiene snapshot de plantilla');
+  const snap = version.snapshot as VerificacionTemplateSnapshot;
+
+  const { data: mlinks } = await admin
+    .from('completed_verificacion_maestros')
+    .select('maestro_id')
+    .eq('completed_id', completedId);
+  const maestroId = (mlinks ?? [])[0]?.maestro_id ?? null;
+
+  // Pre-check: surface the skip reason BEFORE attempting compute, so the caller
+  // can show it to the user (the helper would also persist it).
+  const { data: mRows } = await admin
+    .from('completed_verificacion_measurements')
+    .select('section_id, item_id, valor_observado, error_calculado')
+    .eq('completed_id', completedId);
+  const { points, skipped } = extractVerificationPoints((mRows ?? []) as MeasurementRow[], snap);
+  if (skipped) {
+    await admin.from('ema_verificacion_metrologia').upsert(
+      {
+        completed_verificacion_id: completedId,
+        gum_rollup_status: `skipped: ${skipped}`,
+        gum_rollup_attempted_at: new Date().toISOString(),
+        gum_rollup_skipped_reason: skipped,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'completed_verificacion_id' },
+    );
+    return { status: 'skipped', skipped_reason: skipped };
+  }
+
+  // Run the compute. This persists components, presupuesto_json, calibracion row,
+  // and instrument U. Throws on any failure.
+  await computeAndPersistVerificationGumBudget(
+    admin,
+    completedId,
+    instrMeta,
+    maestroId,
+    snap,
+    (verif.fecha_verificacion as string) ?? new Date().toISOString().slice(0, 10),
+    (verif.condiciones_ambientales as Record<string, unknown> | null) ?? null,
+    null,
+  );
+
+  // Read back the freshly-written presupuesto + summary so the caller can show it
+  const { data: vmRow } = await admin
+    .from('ema_verificacion_metrologia')
+    .select('presupuesto_json')
+    .eq('completed_verificacion_id', completedId)
+    .maybeSingle();
+
+  const components = (vmRow?.presupuesto_json as UncertaintyComponent[] | null) ?? [];
+  // Recompute summary numbers from the persisted components for the return value
+  const sumUi2 = components.reduce((s, c) => s + (c.ui2_y ?? 0), 0);
+  const u_c = Math.sqrt(sumUi2);
+  const { data: calRow } = await admin
+    .from('ema_instrumento_calibraciones')
+    .select('u_expandida, k_factor, unidad')
+    .eq('instrumento_id', verif.instrumento_id)
+    .order('fecha_emision', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // Welch–Satterthwaite is not recomputed here — the persisted ema_instrumento_calibraciones
+  // row carries the authoritative U/k. We mirror that to the caller.
+  return {
+    status: 'ok',
+    u_c,
+    k: calRow?.k_factor ?? 2,
+    U: calRow?.u_expandida ?? u_c * 2,
+    nu_eff: points.length - 1,
+    unidad: calRow?.unidad ?? undefined,
+    components,
+  };
 }

@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, Clock, FileText } from 'lucide-react'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
+import { VerificationUncertaintyCard } from '@/components/ema/verificaciones/VerificationUncertaintyCard'
 import { cn } from '@/lib/utils'
 import type {
   CompletedVerificacionDetalle,
@@ -254,6 +255,14 @@ export default function VerificacionDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Uncertainty (GUM) card — only meaningful for closed verifications */}
+      {data.estado === 'cerrado' && (
+        <VerificationUncertaintyCard
+          verificationId={verifId}
+          instrumentoId={instrumentoId}
+        />
+      )}
 
       {/* Measurements per section */}
       {snap?.sections.map(section => {

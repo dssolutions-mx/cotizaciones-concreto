@@ -1,0 +1,78 @@
+/**
+ * Unit conversions for EMA uncertainty contributors.
+ *
+ * Used when an instrument's calibration / verification is stored in one unit
+ * (e.g. mm for a flexómetro verified against a vernier) but consumed by a
+ * study whose measurand is in another unit (e.g. cm for revenimiento).
+ *
+ * Only conversions actually exercised by the current measurand set are
+ * implemented — extending is trivial. All conversions return `null` if the
+ * pair is not supported; callers must handle that case explicitly rather
+ * than silently fall back, to avoid unit-blind arithmetic.
+ *
+ * Ref: GUM §5.1 — sensitivity coefficient implicitly carries the unit
+ *      transformation when ci has units of [Y]/[Xi]. Here we convert the
+ *      Type B input *value* itself before it enters the budget, so ci=1.
+ */
+
+export type LengthUnit = 'mm' | 'cm' | 'm';
+export type TemperatureUnit = '°C' | 'K';
+
+const LENGTH_FACTOR_TO_MM: Record<LengthUnit, number> = {
+  mm: 1,
+  cm: 10,
+  m: 1000,
+};
+
+/**
+ * Convert a length value from one unit to another.
+ * Returns the numeric value in the target unit, or null if either unit is
+ * unrecognized.
+ */
+export function convertLengthUnit(
+  value: number,
+  from: string,
+  to: string,
+): number | null {
+  const fromKey = normalizeLengthUnit(from);
+  const toKey = normalizeLengthUnit(to);
+  if (!fromKey || !toKey) return null;
+  return (value * LENGTH_FACTOR_TO_MM[fromKey]) / LENGTH_FACTOR_TO_MM[toKey];
+}
+
+function normalizeLengthUnit(u: string): LengthUnit | null {
+  const trimmed = (u ?? '').trim().toLowerCase();
+  if (trimmed === 'mm') return 'mm';
+  if (trimmed === 'cm') return 'cm';
+  if (trimmed === 'm') return 'm';
+  return null;
+}
+
+/**
+ * Returns true if both units are recognized as length units (i.e. a length
+ * conversion between them is supported).
+ */
+export function isLengthUnit(u: string): boolean {
+  return normalizeLengthUnit(u) !== null;
+}
+
+/**
+ * Generic dispatcher: convert a value between two units if the pair is supported.
+ * Currently dispatches only on length units; other measurand families (temp,
+ * volume, pressure) can be added when needed.
+ *
+ * Returns `{ value, converted }` where `converted` is true iff a non-identity
+ * conversion was performed; `null` if the pair is unsupported.
+ */
+export function convertUnit(
+  value: number,
+  from: string,
+  to: string,
+): { value: number; converted: boolean } | null {
+  if (from === to) return { value, converted: false };
+  if (isLengthUnit(from) && isLengthUnit(to)) {
+    const v = convertLengthUnit(value, from, to);
+    return v === null ? null : { value: v, converted: true };
+  }
+  return null;
+}
