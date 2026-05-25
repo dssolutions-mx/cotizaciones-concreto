@@ -200,9 +200,13 @@ export function welchSatterthwaite(
  *   c_carga = ∂f/∂Carga = 1/A
  *   c_d     = ∂f/∂d     = −2·Carga / (π·d³/4) = −2·f/d
  *
- * For Masa Unitaria (balance-based, MU = (m_total − m_tara) × F_calibration):
- *   c = F_calibration (unity if F=1, i.e. factor already applied)
- *   Here modelled as direct measurement c = 1 after factor application.
+ * For Masa Unitaria (MU = (m_total − m_tara) × F / V, result in kg/m³):
+ *   c_V    = ∂MU/∂V = −(m_total − m_tara)·F / V²
+ *                   = −MU / V           ← expressed via mu_mean (GUM §5.1.3 Eq.13)
+ *   c_mass = ∂MU/∂m = F / V ≈ 1        (when correction already applied, F=1)
+ *   Negative c_V: a larger container volume produces a lower density for the same mass.
+ *   V_recipiente (L) and factor_correccion come from study.env_overrides,
+ *   falling back to 7.06 L (NMX-C-073 standard container) and 1, respectively.
  *
  * Ref: GUM §5.1.3, Eq. (13): cᵢ = ∂f/∂xᵢ |_{x=best_estimate}
  */
