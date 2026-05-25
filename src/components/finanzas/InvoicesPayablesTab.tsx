@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/select'
 import { format, isBefore, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePlantContext } from '@/contexts/PlantContext'
 import type { SupplierInvoice, InvoiceStatus } from '@/types/finance'
@@ -16,7 +16,9 @@ import type { Payable } from '@/types/finance'
 import RecordPaymentModal from './RecordPaymentModal'
 import CreateSupplierInvoiceDrawer from './CreateSupplierInvoiceDrawer'
 import ApplyCreditNoteDrawer from './ApplyCreditNoteDrawer'
+import EditSupplierInvoiceDrawer from './EditSupplierInvoiceDrawer'
 import { procurementEntriesUrl, purchaseOrderUrl } from '@/lib/procurement/navigation'
+import { formatRetentionPct } from '@/lib/ap/retentionRates'
 import Link from 'next/link'
 
 // Shape returned by GET /api/ap/invoices/[id]/credit-notes (allocation-join projection)
@@ -89,6 +91,7 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
   const [paymentInvoice, setPaymentInvoice] = useState<InvoiceWithEnrichment | null>(null)
   const [historicalDrawerOpen, setHistoricalDrawerOpen] = useState(false)
+  const [editInvoice, setEditInvoice] = useState<InvoiceWithEnrichment | null>(null)
   // CN drawer: tracks which supplier group + optional pre-selected invoice
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string; preselectedId?: string } | null>(null)
   const [creditNoteAllocs, setCreditNoteAllocs] = useState<Record<string, CreditNoteAllocation[]>>({}) // keyed by invoice id
@@ -375,6 +378,20 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                               )}
                             </div>
 
+                            {isPending && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs shrink-0 ml-1 gap-1"
+                                onClick={e => {
+                                  e.stopPropagation()
+                                  setEditInvoice(inv)
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" /> Editar
+                              </Button>
+                            )}
+
                             {isPending && inv.payable && (
                               <Button
                                 size="sm"
@@ -435,10 +452,10 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                                     )}
                                     <span>IVA ({Math.round(inv.vat_rate * 100)}%): <b>{mxn.format(inv.tax)}</b></span>
                                     {Number(inv.retention_isr_amount ?? 0) > 0 && (
-                                      <span className="text-rose-700">−Ret.ISR: <b>{mxn.format(Number(inv.retention_isr_amount))}</b></span>
+                                      <span className="text-rose-700">−Ret.ISR ({formatRetentionPct(Number(inv.retention_isr_rate ?? 0))}): <b>{mxn.format(Number(inv.retention_isr_amount))}</b></span>
                                     )}
                                     {Number(inv.retention_iva_amount ?? 0) > 0 && (
-                                      <span className="text-rose-700">−Ret.IVA: <b>{mxn.format(Number(inv.retention_iva_amount))}</b></span>
+                                      <span className="text-rose-700">−Ret.IVA ({formatRetentionPct(Number(inv.retention_iva_rate ?? 0))}): <b>{mxn.format(Number(inv.retention_iva_amount))}</b></span>
                                     )}
                                     <span className="font-semibold text-stone-900">Total a pagar: <b>{mxn.format(inv.total)}</b></span>
                                   </div>
@@ -552,6 +569,17 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
         onOpenChange={setHistoricalDrawerOpen}
         plantId={plantFilter || undefined}
         onSuccess={() => setReloadKey(k => k + 1)}
+      />
+
+      {/* Edit invoice drawer */}
+      <EditSupplierInvoiceDrawer
+        open={!!editInvoice}
+        onOpenChange={v => { if (!v) setEditInvoice(null) }}
+        invoice={editInvoice}
+        onSuccess={() => {
+          setEditInvoice(null)
+          setReloadKey(k => k + 1)
+        }}
       />
 
       {/* Credit note drawer */}

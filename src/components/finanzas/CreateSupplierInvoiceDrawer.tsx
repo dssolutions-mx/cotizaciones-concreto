@@ -17,6 +17,8 @@ import { format } from 'date-fns'
 import { Plus, Trash2, AlertTriangle, FileUp, FileCheck2, X, CheckCircle2, Truck } from 'lucide-react'
 import type { InvoiceCostCategory, ParsedCfdi, CfdiCaptureMode } from '@/types/finance'
 import { c_FormaPago, c_MetodoPago, c_UsoCFDI } from '@/lib/sat/codigosSat'
+import RetentionRateSelect, { useRetentionRateState } from '@/components/finanzas/RetentionRateSelect'
+import { ISR_RETENTION_PRESETS, IVA_RETENTION_PRESETS } from '@/lib/ap/retentionRates'
 
 export type OrphanEntry = {
   id: string
@@ -201,8 +203,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
 
   // ── discounts & retentions ─────────────────────────────────────────────────
   const [discountAmount, setDiscountAmount] = useState('')
-  const [isrRate, setIsrRate]       = useState('0')
-  const [ivaRetRate, setIvaRetRate] = useState('0')
+  const isrRetention = useRetentionRateState(0, ISR_RETENTION_PRESETS)
+  const ivaRetention = useRetentionRateState(0, IVA_RETENTION_PRESETS)
 
   // ── line items (split) ─────────────────────────────────────────────────────
   const [materialLines, setMaterialLines] = useState<LineItem[]>([])
@@ -246,8 +248,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setNotes('')
     setNewGroupName('')
     setDiscountAmount('')
-    setIsrRate('0')
-    setIvaRetRate('0')
+    isrRetention.reset(0)
+    ivaRetention.reset(0)
     setCfdiCaptureMode('manual')
     setParsedCfdi(null)
     setCfdiFile(null)
@@ -294,7 +296,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       // If no group_id set, the fleet supplier may not be in supplier_groups yet — leave picker empty
       setGroupId(fleetGroupIds.length === 1 ? (fleetGroupIds[0] as string) : '')
       setVatRate(String(DEFAULT_VAT))
-      setIsrRate('0.0125') // 1.25% is the standard transport ISR retention
+      isrRetention.reset(0.0125) // 1.25% is the standard transport ISR retention
       const dueFromFleet = entries?.[0]?.ap_due_date_fleet
       if (dueFromFleet) setDueDate(dueFromFleet)
       else setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
@@ -423,8 +425,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       : subtotal
   const vat            = parseFloat(vatRate) || 0
   const discount       = parseFloat(discountAmount) || 0
-  const isrRateNum     = parseFloat(isrRate) || 0
-  const ivaRetRateNum  = parseFloat(ivaRetRate) || 0
+  const isrRateNum     = isrRetention.rate
+  const ivaRetRateNum  = ivaRetention.rate
   const taxableBase    = Math.max(0, effectiveSubtotal - discount)
   const tax            = Math.round(taxableBase * vat * 100) / 100
   const isrAmt         = Math.round(taxableBase * isrRateNum * 100) / 100
@@ -500,16 +502,16 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
         setDiscountAmount('')
       }
       if (cfdi.retention_isr_rate > 0) {
-        setIsrRate(String(cfdi.retention_isr_rate))
+        isrRetention.reset(cfdi.retention_isr_rate)
         prefilled.add('isrRate')
       } else {
-        setIsrRate('0')
+        isrRetention.reset(0)
       }
       if (cfdi.retention_iva_rate > 0) {
-        setIvaRetRate(String(cfdi.retention_iva_rate))
+        ivaRetention.reset(cfdi.retention_iva_rate)
         prefilled.add('ivaRetRate')
       } else {
-        setIvaRetRate('0')
+        ivaRetention.reset(0)
       }
 
       setCfdiPrefilled(prefilled)
@@ -1302,68 +1304,42 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                   placeholder="0.00"
                 />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs flex items-center">
-                  Retención ISR
-                  {cfdiPrefilled.has('isrRate') && <CfdiPill />}
-                </Label>
-                <Select value={isrRate} onValueChange={v => {
-                  setIsrRate(v)
+              <RetentionRateSelect
+                label={<>Retención ISR{cfdiPrefilled.has('isrRate') && <CfdiPill />}</>}
+                presets={ISR_RETENTION_PRESETS}
+                presetOptions={[
+                  { value: '0', label: '0% (ninguna)' },
+                  { value: '0.0125', label: '1.25% — fletes / RIF' },
+                  { value: '0.10', label: '10% — honorarios PF' },
+                ]}
+                selectValue={isrRetention.selectValue}
+                customDraft={isrRetention.customDraft}
+                editingCustom={isrRetention.editingCustom}
+                onSelectValueChange={v => {
+                  isrRetention.setSelectValue(v)
                   setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('isrRate'); return s })
-                }}>
-                  <SelectTrigger className="bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">0% (ninguna)</SelectItem>
-                    <SelectItem value="0.0125">1.25% — fletes / RIF</SelectItem>
-                    <SelectItem value="0.10">10% — honorarios PF</SelectItem>
-                    <SelectItem value="custom">Personalizado</SelectItem>
-                  </SelectContent>
-                </Select>
-                {isrRate === 'custom' && (
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    placeholder="Tasa decimal, ej. 0.05"
-                    className="mt-1 bg-white text-xs h-7"
-                    onBlur={e => setIsrRate(e.target.value || '0')}
-                    defaultValue=""
-                  />
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs flex items-center">
-                  Retención IVA
-                  {cfdiPrefilled.has('ivaRetRate') && <CfdiPill />}
-                </Label>
-                <Select value={ivaRetRate} onValueChange={v => {
-                  setIvaRetRate(v)
+                }}
+                onCustomDraftChange={isrRetention.setCustomDraft}
+                onEditingCustomChange={isrRetention.setEditingCustom}
+              />
+              <RetentionRateSelect
+                label={<>Retención IVA{cfdiPrefilled.has('ivaRetRate') && <CfdiPill />}</>}
+                presets={IVA_RETENTION_PRESETS}
+                presetOptions={[
+                  { value: '0', label: '0% (ninguna)' },
+                  { value: '0.04', label: '4% — autotransporte' },
+                  { value: '0.106667', label: '10.67% — servicios 2/3' },
+                ]}
+                selectValue={ivaRetention.selectValue}
+                customDraft={ivaRetention.customDraft}
+                editingCustom={ivaRetention.editingCustom}
+                onSelectValueChange={v => {
+                  ivaRetention.setSelectValue(v)
                   setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('ivaRetRate'); return s })
-                }}>
-                  <SelectTrigger className="bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">0% (ninguna)</SelectItem>
-                    <SelectItem value="0.04">4% — autotransporte</SelectItem>
-                    <SelectItem value="0.106667">10.67% — servicios 2/3</SelectItem>
-                    <SelectItem value="custom">Personalizado</SelectItem>
-                  </SelectContent>
-                </Select>
-                {ivaRetRate === 'custom' && (
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.001"
-                    placeholder="Tasa decimal, ej. 0.04"
-                    className="mt-1 bg-white text-xs h-7"
-                    onBlur={e => setIvaRetRate(e.target.value || '0')}
-                    defaultValue=""
-                  />
-                )}
-              </div>
+                }}
+                onCustomDraftChange={ivaRetention.setCustomDraft}
+                onEditingCustomChange={ivaRetention.setEditingCustom}
+              />
             </div>
           </section>
 
