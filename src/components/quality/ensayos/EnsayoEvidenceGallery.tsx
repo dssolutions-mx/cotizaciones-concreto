@@ -29,12 +29,14 @@ type EnsayoEvidenceGalleryProps = {
   evidencias: NormalizedEvidencia[]
   className?: string
   id?: string
+  uploadSlot?: React.ReactNode
 }
 
 export function EnsayoEvidenceGallery({
   evidencias,
   className,
   id = 'evidencias',
+  uploadSlot,
 }: EnsayoEvidenceGalleryProps) {
   const photos = useMemo(() => evidencias.filter((e) => e.isImage), [evidencias])
   const machineFiles = useMemo(
@@ -60,12 +62,15 @@ export function EnsayoEvidenceGallery({
           <CardDescription>Fotografías y archivos técnicos adjuntos al registro</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          {uploadSlot}
           {evidencias.length === 0 ? (
             <div className="border border-dashed border-stone-200 bg-stone-50/50 rounded-lg py-10 px-4 text-center">
               <FileImage className="h-12 w-12 text-stone-300 mx-auto mb-3" />
               <p className="text-lg font-medium text-stone-900 mb-1">Sin evidencias</p>
               <p className="text-sm text-stone-500">
-                No se adjuntaron fotos ni archivos al registrar este ensayo.
+                {uploadSlot
+                  ? 'Use el formulario de arriba para agregar fotos a este ensayo.'
+                  : 'No se adjuntaron fotos ni archivos al registrar este ensayo.'}
               </p>
             </div>
           ) : (

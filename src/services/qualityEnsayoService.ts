@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import {
-  evidenciaStoragePath,
   isEnsayoImageFile,
   isEnsayoSr3File,
   type EnsayoEvidenceUploadResult,
@@ -207,7 +206,7 @@ export async function createEnsayo(data: {
 export async function uploadEnsayoEvidencias(
   ensayoId: string,
   files: { photos?: File[]; machineFiles?: File[] },
-  userId: string
+  _userId?: string
 ): Promise<EnsayoEvidenceUploadResult> {
   const result: EnsayoEvidenceUploadResult = { uploaded: 0, failed: [] };
   const queue: { file: File; kind: 'photo' | 'machine' }[] = [
@@ -216,36 +215,35 @@ export async function uploadEnsayoEvidencias(
   ];
 
   for (const { file, kind } of queue) {
-    const path = evidenciaStoragePath(ensayoId, file, kind);
-    const { error: uploadError } = await supabase.storage
-      .from('evidencia-ensayos')
-      .upload(path, file, { upsert: false });
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('kind', kind);
 
-    if (uploadError) {
-      result.failed.push({ name: file.name, error: uploadError.message });
-      continue;
+      const res = await fetch(`/api/quality/ensayos/${ensayoId}/evidencias`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        let msg = 'Error al subir';
+        try {
+          const j = await res.json();
+          if (typeof j.error === 'string') msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        result.failed.push({ name: file.name, error: msg });
+        continue;
+      }
+
+      result.uploaded += 1;
+    } catch (e) {
+      result.failed.push({
+        name: file.name,
+        error: e instanceof Error ? e.message : 'Error de red',
+      });
     }
-
-    const tipoArchivo =
-      file.type ||
-      (kind === 'machine' ? 'application/octet-stream' : 'image/jpeg');
-
-    const { error: dbError } = await supabase.from('evidencias').insert({
-      ensayo_id: ensayoId,
-      path,
-      nombre_archivo: file.name,
-      tipo_archivo: tipoArchivo,
-      tamano_kb: Math.max(1, Math.round(file.size / 1024)),
-      created_by: userId,
-    });
-
-    if (dbError) {
-      console.warn('Error creating evidencia record:', dbError);
-      result.failed.push({ name: file.name, error: dbError.message });
-      continue;
-    }
-
-    result.uploaded += 1;
   }
 
   return result;

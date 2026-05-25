@@ -36,7 +36,7 @@ export function EnsayoRegistrationSuccess({
   const uploadWarning =
     evidenceUpload &&
     evidenceUpload.failed.length > 0 &&
-    `Se guardó el ensayo, pero ${evidenceUpload.failed.length} archivo(s) no se subieron.`
+    `Se guardó el ensayo, pero ${evidenceUpload.failed.length} archivo(s) no se subieron: ${evidenceUpload.failed.map((f) => f.name).join(', ')}. Puede agregarlas desde el detalle del ensayo.`
 
   return (
     <div className="rounded-xl border border-emerald-200 bg-gradient-to-b from-emerald-50/95 to-white p-5 sm:p-6 space-y-5">
