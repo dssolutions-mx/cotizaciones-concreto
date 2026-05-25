@@ -139,7 +139,7 @@ export function EmaUncertaintyStudyConfig({
     (i) => i.kind === 'environmental' || i.kind === 'method' || i.kind === 'systematic',
   )
   const { profile } = useAuthBridge()
-  const canManageCatalog = profile?.role === 'ADMIN' || profile?.role === 'EXECUTIVE'
+  const canManageCatalog = profile?.role === 'ADMIN' || profile?.role === 'EXECUTIVE' || profile?.role === 'QUALITY_TEAM'
   const [notas, setNotas] = useState(study.notas ?? '')
   const [saving, setSaving] = useState(false)
   const [envOverrides, setEnvOverrides] = useState<Record<string, number>>(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-const MANAGE_ROLES = ['EXECUTIVE', 'ADMIN'];
+const MANAGE_ROLES = ['QUALITY_TEAM', 'EXECUTIVE', 'ADMIN'];
 
 export async function DELETE(
   _req: NextRequest,
