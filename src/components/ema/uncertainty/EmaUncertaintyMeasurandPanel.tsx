@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { UncertaintyMeasurand, UncertaintyMeasurandInput } from '@/types/ema-uncertainty'
 
 const INPUT_KIND_LABEL: Record<UncertaintyMeasurandInput['kind'], string> = {
@@ -14,11 +16,41 @@ const INPUT_KIND_LABEL: Record<UncertaintyMeasurandInput['kind'], string> = {
 export function EmaUncertaintyMeasurandPanel({
   measurand,
   showVariables = true,
+  onDeleteInput,
 }: {
   measurand: UncertaintyMeasurand
   showVariables?: boolean
+  /** When provided, a delete button appears on each input row (admin-only). */
+  onDeleteInput?: (inputId: string) => void
 }) {
-  const inputs = [...(measurand.inputs ?? [])].sort((a, b) => a.orden - b.orden)
+  const [inputs, setInputs] = useState<UncertaintyMeasurandInput[]>(
+    [...(measurand.inputs ?? [])].sort((a, b) => a.orden - b.orden),
+  )
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleDelete(inp: UncertaintyMeasurandInput) {
+    const confirmed = window.confirm(
+      `¿Eliminar la variable "${inp.simbolo} — ${inp.nombre_display}" del catálogo del mensurando?\n\n` +
+      `Esta acción elimina el contribuyente de TODOS los estudios de este mensurando y no se puede deshacer.`,
+    )
+    if (!confirmed) return
+    setDeletingId(inp.id)
+    try {
+      const res = await fetch(
+        `/api/ema/uncertainty/measurands/${measurand.id}/inputs/${inp.id}`,
+        { method: 'DELETE' },
+      )
+      if (res.ok || res.status === 204) {
+        setInputs((prev) => prev.filter((i) => i.id !== inp.id))
+        onDeleteInput?.(inp.id)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error ?? 'Error al eliminar la variable')
+      }
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <section className="overflow-hidden rounded-lg border border-stone-200">
@@ -63,11 +95,12 @@ export function EmaUncertaintyMeasurandPanel({
                   <th className="px-3 py-2">Tipo</th>
                   <th className="px-3 py-2">Resolución</th>
                   <th className="px-4 py-2">Sensibilidad</th>
+                  {onDeleteInput && <th className="w-10 px-3 py-2" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
                 {inputs.map((inp) => (
-                  <tr key={inp.id}>
+                  <tr key={inp.id} className="hover:bg-stone-50">
                     <td className="px-4 py-2 font-mono text-sm font-medium text-stone-800">
                       {inp.simbolo}
                     </td>
@@ -84,6 +117,19 @@ export function EmaUncertaintyMeasurandPanel({
                     <td className="px-4 py-2 font-mono text-xs text-stone-600">
                       {inp.sensitivity_expr?.trim() || '—'}
                     </td>
+                    {onDeleteInput && (
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          title="Eliminar del catálogo (global)"
+                          disabled={deletingId === inp.id}
+                          className="text-stone-300 hover:text-red-600 disabled:opacity-40"
+                          onClick={() => handleDelete(inp)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

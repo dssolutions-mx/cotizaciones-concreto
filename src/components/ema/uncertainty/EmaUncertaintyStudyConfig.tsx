@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Plus, Pencil, Trash2, RotateCcw } from 'lucide-react'
+import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import { EmaUncertaintyMeasurandPanel } from '@/components/ema/uncertainty/EmaUncertaintyMeasurandPanel'
 import { EmaUncertaintyReplicaSetupTable } from '@/components/ema/uncertainty/EmaUncertaintyReplicaSetupTable'
@@ -137,6 +138,8 @@ export function EmaUncertaintyStudyConfig({
   const autoContributors = (measurand.inputs ?? []).filter(
     (i) => i.kind === 'environmental' || i.kind === 'method' || i.kind === 'systematic',
   )
+  const { profile } = useAuthBridge()
+  const canManageCatalog = profile?.role === 'ADMIN' || profile?.role === 'EXECUTIVE' || profile?.role === 'QUALITY_TEAM'
   const [notas, setNotas] = useState(study.notas ?? '')
   const [saving, setSaving] = useState(false)
   const [envOverrides, setEnvOverrides] = useState<Record<string, number>>(
@@ -253,7 +256,10 @@ export function EmaUncertaintyStudyConfig({
         <MetaItem label="Unidad" value={measurand.unidad} />
       </dl>
 
-      <EmaUncertaintyMeasurandPanel measurand={measurand} />
+      <EmaUncertaintyMeasurandPanel
+        measurand={measurand}
+        onDeleteInput={canManageCatalog ? () => { /* row removed inside panel */ } : undefined}
+      />
 
       <EmaUncertaintyStudyEquipoPanel
         study={study}
@@ -292,6 +298,65 @@ export function EmaUncertaintyStudyConfig({
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {/* ── Masa Unitaria — parámetros del equipo ─────────────────────────── */}
+      {measurand.codigo === 'MU' && (
+        <section className="rounded-lg border border-stone-200 p-4">
+          <h3 className="text-sm font-semibold text-stone-800">
+            Parámetros del equipo — Masa Unitaria
+          </h3>
+          <p className="mt-0.5 text-xs text-stone-500">
+            MU = (m<sub>total</sub> − m<sub>tara</sub>) × F / V · 1000 &nbsp;·&nbsp; c<sub>V</sub> = −MU/V (GUM §5.1.3, NMX-C-073)
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div>
+              <Label htmlFor="mu-v-recipiente" className="text-xs">
+                Volumen del recipiente <span className="font-mono text-stone-400">(V)</span>
+              </Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  id="mu-v-recipiente"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  disabled={isLocked}
+                  value={envOverrides['V_recipiente'] ?? 7.06}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value)
+                    if (!isNaN(v) && v > 0) handleOverrideChange('V_recipiente', v)
+                  }}
+                  className="h-8 w-24 text-sm"
+                />
+                <span className="text-xs text-stone-500">L</span>
+              </div>
+              <p className="mt-1 text-[10px] text-stone-400">Por defecto: 7.06 L (NMX-C-073)</p>
+            </div>
+            <div>
+              <Label htmlFor="mu-factor-correccion" className="text-xs">
+                Factor de corrección <span className="font-mono text-stone-400">(F)</span>
+              </Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  id="mu-factor-correccion"
+                  type="number"
+                  step="0.001"
+                  min="0.001"
+                  disabled={isLocked}
+                  value={envOverrides['factor_correccion'] ?? 1}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value)
+                    if (!isNaN(v) && v > 0) handleOverrideChange('factor_correccion', v)
+                  }}
+                  className="h-8 w-24 text-sm"
+                />
+                <span className="text-xs text-stone-500">adim.</span>
+              </div>
+              <p className="mt-1 text-[10px] text-stone-400">1.000 si la corrección ya fue aplicada</p>
+            </div>
+          </div>
+          {overrideSaving && <p className="mt-2 text-[10px] text-stone-400">Guardando…</p>}
         </section>
       )}
 
