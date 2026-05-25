@@ -935,9 +935,10 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   // MU — V_recip sensitivity context (ci = MU/V, GUM §5.1.3, NMX-C-073)
   if (measurand.codigo === 'MU') {
     const mu_mean = replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
+    const muOvr = study.env_overrides ?? {};
     sensitivityContext.mu_mean = mu_mean;
-    // Default container volume per NMX-C-073 for the standard 7.06 L recipiente
-    sensitivityContext.V_recipiente = 7.06;
+    sensitivityContext.V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
+    sensitivityContext.factor_correccion = (muOvr['factor_correccion'] as number | undefined) ?? 1;
   }
 
   // Custom per-study inputs (user-defined Type A and Type B variables)
