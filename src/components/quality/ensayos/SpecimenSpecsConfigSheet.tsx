@@ -152,8 +152,8 @@ export default function SpecimenSpecsConfigSheet({ open, onOpenChange, onSaved }
               <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
             </div>
           ) : (
-            <div className="rounded-lg border border-stone-200 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="rounded-lg border border-stone-200 overflow-x-auto">
+              <table className="w-full text-sm min-w-[320px]">
                 <thead>
                   <tr className="bg-stone-50/80 border-b border-stone-200">
                     <th className="text-left text-xs font-semibold uppercase tracking-wide text-stone-600 px-3 py-2">
@@ -168,51 +168,54 @@ export default function SpecimenSpecsConfigSheet({ open, onOpenChange, onSaved }
                     <th className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 px-2 py-2 w-10">
                       Def.
                     </th>
-                    <th className="text-right text-xs font-semibold uppercase tracking-wide text-stone-600 px-3 py-2">
-                      Acciones
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {specs.map((s) => (
-                    <tr key={s.id} className="border-b border-stone-100 last:border-0">
-                      <td className="px-3 py-2 align-middle">
-                        <Badge
-                          variant="outline"
-                          className="bg-stone-50 text-stone-700 border-stone-300 text-[10px]"
-                        >
-                          {s.tipo_muestra}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 align-middle font-semibold text-stone-900">{s.dimension_label}</td>
-                      <td className="px-3 py-2 align-middle">
-                        <Input
-                          className="h-8 w-20 text-center font-mono tabular-nums text-xs"
-                          value={draftFactors[s.id] ?? String(s.correction_factor)}
-                          onChange={(e) => setDraftFactors((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                        />
-                      </td>
-                      <td className="px-2 py-2 align-middle text-center">
-                        <Star
-                          className={cn(
-                            'h-4 w-4 mx-auto',
-                            s.is_default ? 'text-amber-500 fill-amber-200' : 'text-stone-300'
-                          )}
-                        />
-                      </td>
-                      <td className="px-3 py-2 align-middle text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className={cn(qualityHubPrimaryButtonClass, 'h-7 text-xs')}
-                          disabled={savingId === s.id}
-                          onClick={() => saveSpec(s.id)}
-                        >
-                          {savingId === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Guardar'}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {specs.map((s) => {
+                    const saved = String(s.correction_factor)
+                    const draft = draftFactors[s.id] ?? saved
+                    const isDirty = draft !== saved
+                    return (
+                      <tr key={s.id} className="border-b border-stone-100 last:border-0">
+                        <td className="px-3 py-2 align-middle">
+                          <Badge
+                            variant="outline"
+                            className="bg-stone-50 text-stone-700 border-stone-300 text-[10px]"
+                          >
+                            {s.tipo_muestra}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 align-middle font-semibold text-stone-900">{s.dimension_label}</td>
+                        <td className="px-3 py-2 align-middle">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              className="h-8 w-24 text-center font-mono tabular-nums text-xs shrink-0"
+                              value={draft}
+                              onChange={(e) => setDraftFactors((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                            />
+                            <Button
+                              type="button"
+                              size="sm"
+                              className={cn(qualityHubPrimaryButtonClass, 'h-8 text-xs shrink-0')}
+                              disabled={savingId === s.id || !isDirty}
+                              onClick={() => saveSpec(s.id)}
+                            >
+                              {savingId === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Guardar'}
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 align-middle text-center">
+                          <Star
+                            className={cn(
+                              'h-4 w-4 mx-auto',
+                              s.is_default ? 'text-amber-500 fill-amber-200' : 'text-stone-300'
+                            )}
+                            aria-label={s.is_default ? 'Especificación por defecto' : 'No es predeterminada'}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

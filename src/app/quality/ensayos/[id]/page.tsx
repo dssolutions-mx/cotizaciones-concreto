@@ -23,11 +23,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import {
   Loader2,
   AlertTriangle,
   FileText,
@@ -230,8 +225,6 @@ export default function EnsayoDetailPage() {
   const [obsText, setObsText] = useState('')
   const [obsSaving, setObsSaving] = useState(false)
 
-  const [overrideOpen, setOverrideOpen] = useState(false)
-  const [overrideActive, setOverrideActive] = useState(false)
   const [draftFactor, setDraftFactor] = useState('1')
   const [factorSaving, setFactorSaving] = useState(false)
   const [factorError, setFactorError] = useState<string | null>(null)
@@ -372,8 +365,6 @@ export default function EnsayoDetailPage() {
     try {
       await updateEnsayoById(ensayo.id, { factor_correccion: v })
       await reload()
-      setOverrideOpen(false)
-      setOverrideActive(false)
     } catch (e: unknown) {
       setFactorError(e instanceof Error ? e.message : 'Error al guardar')
     } finally {
@@ -388,8 +379,6 @@ export default function EnsayoDetailPage() {
     try {
       await updateEnsayoById(ensayo.id, { specimen_type_spec_id: ensayo.specimen_type_spec.id })
       await reload()
-      setOverrideOpen(false)
-      setOverrideActive(false)
     } catch (e: unknown) {
       setFactorError(e instanceof Error ? e.message : 'Error')
     } finally {
@@ -687,81 +676,52 @@ export default function EnsayoDetailPage() {
 
             {canPatchEnsayo && (
               <>
-                <div className="border-t border-stone-100 pt-4">
-                  <Popover open={overrideOpen} onOpenChange={setOverrideOpen}>
-                    <PopoverTrigger asChild>
+                <div className="border-t border-stone-100 pt-4 space-y-3">
+                  <div>
+                    <Label htmlFor="factor-aplicado" className="text-sm font-medium text-stone-700">
+                      Factor aplicado a este ensayo
+                    </Label>
+                    <p className="text-[11px] text-stone-500 mt-0.5">
+                      Ajuste entre 0.5 y 1.5. Se recalculan resistencia corregida y cumplimiento al guardar.
+                    </p>
+                  </div>
+                  <Input
+                    id="factor-aplicado"
+                    type="number"
+                    step="0.0001"
+                    min={0.5}
+                    max={1.5}
+                    className="h-9 text-center font-mono tabular-nums max-w-[160px]"
+                    value={draftFactor}
+                    onChange={(e) => {
+                      setDraftFactor(e.target.value)
+                      setFactorError(null)
+                    }}
+                  />
+                  {factorError && <p className="text-xs text-red-600">{factorError}</p>}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={cn(qualityHubPrimaryButtonClass, 'h-9')}
+                      disabled={factorSaving}
+                      onClick={saveFactorOverride}
+                    >
+                      {factorSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar factor'}
+                    </Button>
+                    {ensayo.specimen_type_spec?.id && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className={cn(
-                          'h-9 gap-1.5 w-full sm:w-auto',
-                          overrideActive ? qualityHubPrimaryButtonClass : qualityHubOutlineNeutralClass
-                        )}
-                        onClick={() => {
-                          setOverrideActive(true)
-                          setDraftFactor(String(appliedFactor))
-                          setFactorError(null)
-                        }}
+                        className={cn(qualityHubOutlineNeutralClass, 'h-9 text-xs')}
+                        disabled={factorSaving}
+                        onClick={restoreSpecFactor}
                       >
-                        <Settings2 className="h-3.5 w-3.5" />
-                        Ajustar factor
+                        Restaurar factor de especificación
                       </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72" align="end">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label className="text-sm font-medium">Factor manual</Label>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs"
-                            onClick={() => {
-                              setOverrideActive(false)
-                              setOverrideOpen(false)
-                            }}
-                          >
-                            Cerrar
-                          </Button>
-                        </div>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min={0.5}
-                          max={1.5}
-                          className="h-8 text-center font-mono"
-                          value={draftFactor}
-                          onChange={(e) => setDraftFactor(e.target.value)}
-                        />
-                        {factorError && <p className="text-xs text-red-600">{factorError}</p>}
-                        <Button
-                          type="button"
-                          size="sm"
-                          className={cn(qualityHubPrimaryButtonClass, 'w-full')}
-                          disabled={factorSaving}
-                          onClick={saveFactorOverride}
-                        >
-                          {factorSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar'}
-                        </Button>
-                        {ensayo.specimen_type_spec?.id && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className={cn(qualityHubOutlineNeutralClass, 'w-full text-xs')}
-                            disabled={factorSaving}
-                            onClick={restoreSpecFactor}
-                          >
-                            Restaurar factor de especificación
-                          </Button>
-                        )}
-                        <p className="text-[11px] text-stone-400">
-                          Ajuste entre 0.5 y 1.5. Se recalculan resistencia corregida y cumplimiento.
-                        </p>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                    )}
+                  </div>
                 </div>
                 {canConfigSpecs && (
                   <Button
