@@ -427,7 +427,7 @@ function NuevoEnsayoContent() {
     }
   }
 
-  const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE']
+  const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN']
   const hasAccess = profile && allowedRoles.includes(profile.role)
   const targetFc = muestra?.muestreo?.remision?.recipe?.strength_fc
   const attachmentCount = photoFiles.length + sr3Files.length

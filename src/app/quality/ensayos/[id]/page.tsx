@@ -43,6 +43,7 @@ import { fetchEnsayoById, updateEnsayoById } from '@/services/qualityEnsayoServi
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import type { EnsayoWithRelations, Evidencia } from '@/types/quality'
 import { EnsayoEvidenceGallery } from '@/components/quality/ensayos/EnsayoEvidenceGallery'
+import { EnsayoEvidenceUploadSection } from '@/components/quality/ensayos/EnsayoEvidenceUploadSection'
 import { normalizeEvidencia } from '@/lib/quality/ensayoEvidence'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -508,7 +509,14 @@ export default function EnsayoDetailPage() {
         )}
       </div>
 
-      <EnsayoEvidenceGallery evidencias={evidenciasNorm} />
+      <EnsayoEvidenceGallery
+        evidencias={evidenciasNorm}
+        uploadSlot={
+          canPatchEnsayo && ensayo ? (
+            <EnsayoEvidenceUploadSection ensayoId={ensayo.id} onUploaded={reload} />
+          ) : undefined
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className={cn('lg:col-span-2', CARD_SHELL)}>

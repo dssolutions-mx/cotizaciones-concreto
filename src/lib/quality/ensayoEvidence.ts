@@ -25,7 +25,7 @@ export function evidenciaPublicUrl(path: string): string {
   if (!path) return ''
   if (path.startsWith('http')) return path
   if (path.startsWith('evidencias/')) {
-    return `${base}/storage/v1/object/public/quality-evidencias/${path}`
+    return `${base}/storage/v1/object/public/quality/${path}`
   }
   return `${base}/storage/v1/object/public/evidencia-ensayos/${path}`
 }

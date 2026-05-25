@@ -4,13 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Camera, ImagePlus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-
-const IMAGE_EXT = /\.(jpe?g|png|webp|heic|heif)$/i
-
-function isImageFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true
-  return IMAGE_EXT.test(file.name)
-}
+import { isEnsayoImageFile } from '@/lib/quality/ensayoEvidence'
 
 type PhotoEvidencePickerProps = {
   files: File[]
@@ -47,7 +41,7 @@ export function PhotoEvidencePicker({
     const valid: File[] = []
 
     for (const file of Array.from(incoming)) {
-      if (!isImageFile(file)) {
+      if (!isEnsayoImageFile(file)) {
         newErrors.push(`"${file.name}" no es una imagen válida.`)
         continue
       }
