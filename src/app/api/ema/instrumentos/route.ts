@@ -5,6 +5,7 @@ import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX, type CreateInstrumentoInput } from '@/
 import { z } from 'zod';
 
 const MANAGER_ROLES = ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN', 'ADMIN_OPERATIONS'];
+const CREATE_ROLES = ['QUALITY_TEAM', ...MANAGER_ROLES];
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', ...MANAGER_ROLES];
 
 const mesSchema = z.number().int().min(1).max(12).optional().nullable();
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('user_profiles').select('role').eq('id', user.id).single();
-    if (!profile || !MANAGER_ROLES.includes(profile.role))
+    if (!profile || !CREATE_ROLES.includes(profile.role))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const json = await request.json();
