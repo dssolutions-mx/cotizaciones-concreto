@@ -4,8 +4,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
-import { CompletedVerificacionFicha } from '@/components/ema/CompletedVerificacionFicha'
 import { EmaVerificacionReportToolbar } from '@/components/ema/EmaVerificacionReportToolbar'
+import { VerificacionInformePdfViewer } from '@/components/ema/VerificacionInformePdfViewer'
 import {
   clearBulkVerificacionPrintSession,
   readBulkVerificacionPrintSession,
@@ -14,7 +14,6 @@ import {
   downloadVerificacionInformePdf,
   openVerificacionInformePdfInNewTab,
 } from '@/lib/ema/downloadVerificacionInformePdf'
-import { verificacionPrintMeta } from '@/lib/ema/verificacionPrintMeta'
 import type { CompletedVerificacionDetalle } from '@/types/ema'
 
 export default function BulkVerificacionesImprimirPage() {
@@ -120,21 +119,24 @@ export default function BulkVerificacionesImprimirPage() {
         onOpenPdf={() => runPdf('open')}
       />
 
-      <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
+      <div className="mx-auto max-w-5xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
-          El PDF incluye por cada registro: trazabilidad de patrones, lecturas con criterios de aceptación,
-          presupuesto de incertidumbre GUM (tabla CENAM en horizontal), U expandida, TUR y dictamen conforme
-          NMX-EC-17025. Use <strong>Descargar PDF</strong> para el expediente ante la entidad de acreditación.
+          Vista previa del PDF oficial. Incluye por cada registro: trazabilidad de patrones, lecturas
+          (punto / esperado / observado / error / dictamen), presupuesto GUM en horizontal, U, k, TUR y
+          dictamen conforme NMX-EC-17025. Use <strong>Descargar PDF</strong> para el expediente ante la
+          entidad de acreditación.
         </p>
 
         {pdfError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{pdfError}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {pdfError}
+          </div>
         )}
 
         {loading && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-stone-500">
             <Loader2 className="h-5 w-5 animate-spin" />
-            Cargando fichas…
+            Cargando registros…
           </div>
         )}
 
@@ -152,26 +154,7 @@ export default function BulkVerificacionesImprimirPage() {
         )}
 
         {!loading && !error && items.length > 0 && (
-          <div className="space-y-8">
-            {items.map((data, index) => (
-              <div key={data.id}>
-                <p className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide mb-2">
-                  Registro {index + 1} de {items.length}
-                </p>
-                {data.snapshot ? (
-                  <CompletedVerificacionFicha
-                    snapshot={data.snapshot}
-                    measurements={data.measurements ?? []}
-                    meta={verificacionPrintMeta(data)}
-                  />
-                ) : (
-                  <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                    La verificación {data.id.slice(0, 8)}… no tiene snapshot de plantilla.
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <VerificacionInformePdfViewer items={items} lab={lab} includeCover />
         )}
       </div>
     </div>

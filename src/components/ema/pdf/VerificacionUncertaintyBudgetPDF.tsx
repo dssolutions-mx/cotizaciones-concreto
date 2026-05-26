@@ -2,22 +2,38 @@ import React from 'react'
 import { Page, Text, View } from '@react-pdf/renderer'
 import type { BudgetResult, UncertaintyComponent } from '@/lib/ema/uncertaintyBudget'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'
-import { PdfTable, type PdfTableColumn } from '@/components/ema/pdf/verificacionPdfTable'
+import {
+  PdfTable,
+  PDF_LANDSCAPE_TABLE_WIDTH,
+  widthsFromWeights,
+  type PdfTableColumn,
+} from '@/components/ema/pdf/verificacionPdfTable'
 
-const BUDGET_COLS: PdfTableColumn[] = [
-  { key: 'fuente', label: 'Fuente de incertidumbre', width: '20%' },
-  { key: 'xi', label: 'Magnitud Xᵢ', width: '7%' },
-  { key: 'val', label: 'Valor xᵢ', width: '9%', mono: true, align: 'right' },
-  { key: 'uxi', label: 'u(xᵢ)', width: '9%', mono: true, align: 'right' },
-  { key: 'tipo', label: 'Tipo', width: '5%', align: 'center' },
-  { key: 'dist', label: 'Distrib.', width: '8%' },
-  { key: 'ci', label: 'cᵢ', width: '6%', mono: true, align: 'right' },
-  { key: 'uiy', label: 'uᵢ(y)', width: '9%', mono: true, align: 'right' },
-  { key: 'ui2', label: 'uᵢ²(y)', width: '9%', mono: true, align: 'right' },
-  { key: 'pct', label: '% var.', width: '6%', align: 'right' },
-  { key: 'nu', label: 'νᵢ', width: '6%', align: 'right' },
-  { key: 'norma', label: 'Ref. norma', width: '6%' },
-]
+function buildBudgetColumns(): PdfTableColumn[] {
+  const labels = [
+    'Fuente',
+    'Xᵢ',
+    'xᵢ',
+    'u(xᵢ)',
+    'Tipo',
+    'Distrib.',
+    'cᵢ',
+    'uᵢ(y)',
+    'uᵢ²',
+    '%',
+    'ν',
+    'Norma',
+  ]
+  const weights = [4, 1, 1.2, 1.2, 0.7, 1, 0.7, 1.2, 1.2, 0.8, 0.8, 1.2]
+  const widths = widthsFromWeights(weights, PDF_LANDSCAPE_TABLE_WIDTH)
+  return labels.map((label, i) => ({
+    key: `b${i}`,
+    label,
+    widthPt: widths[i],
+    align: i >= 2 && i <= 3 ? 'right' : i >= 6 && i <= 9 ? 'right' : 'left',
+    mono: i >= 1 && i <= 3,
+  }))
+}
 
 function fmtSci(n: number, digits = 3): string {
   if (n === 0) return '0'
@@ -30,7 +46,7 @@ function componentRow(c: UncertaintyComponent, sumUi2: number): string[] {
   return [
     c.fuente,
     c.magnitud_xi,
-    `${fmtSci(c.valor_xi)} ${c.unidad}`,
+    `${fmtSci(c.valor_xi)}`,
     fmtSci(c.u_xi),
     c.tipo,
     c.distribucion,
@@ -62,44 +78,21 @@ export function VerificacionUncertaintyBudgetPDF({
   registroId: string
   instrumentoCodigo?: string
 }) {
-  const { components, mean_value, u_c, nu_eff, k, U } = budget ?? {
-    components: [],
-    mean_value: 0,
-    u_c: 0,
-    nu_eff: Infinity,
-    k: 2,
-    U: 0,
-    U_rel_pct: null,
-  }
-
+  const components = budget?.components ?? []
   const sumUi2 = components.reduce((acc, c) => acc + c.ui2_y, 0)
   const typeA = components.filter((c) => c.tipo === 'A')
   const typeB = components.filter((c) => c.tipo === 'B')
   const rows: string[][] = []
   for (const c of typeA) rows.push(componentRow(c, sumUi2 || 1))
   for (const c of typeB) rows.push(componentRow(c, sumUi2 || 1))
-  if (sumUi2 > 0) {
-    rows.push([
-      '—',
-      '—',
-      '—',
-      '—',
-      '—',
-      '—',
-      'Σ',
-      '—',
-      fmtSci(sumUi2),
-      '100',
-      '—',
-      'GUM §5.1.2',
-    ])
-  }
+
+  const budgetCols = buildBudgetColumns()
 
   return (
     <Page size="A4" orientation="landscape" style={s.pageLandscape}>
       <View style={s.cardHeader}>
         <Text style={s.cardHeaderText}>
-          §7 Presupuesto de incertidumbre de medición (JCGM 100:2008 / NMX-EC-17025-IMNC-2018 §7.6)
+          §7 Presupuesto de incertidumbre (JCGM 100:2008 · NMX-EC-17025-IMNC-2018 §7.6)
         </Text>
       </View>
 
@@ -109,9 +102,9 @@ export function VerificacionUncertaintyBudgetPDF({
             Estado GUM: {metrologiaStatus ?? 'sin calcular'}
             {skippedReason ? ` — ${skippedReason}` : ''}
           </Text>
-          <Text style={{ fontSize: 8, marginTop: 6, color: '#78716C' }}>
-            El presupuesto no está disponible en este registro. Ejecute el cierre de verificación o
-            «Recalcular incertidumbre» en el sistema antes de emitir el informe para acreditación.
+          <Text style={{ fontSize: 8, marginTop: 6, color: '#78716C', lineHeight: 1.4 }}>
+            Cierre la verificación o ejecute «Recalcular incertidumbre» en el sistema para incluir el
+            presupuesto completo en el expediente.
           </Text>
         </View>
       )}
@@ -119,45 +112,41 @@ export function VerificacionUncertaintyBudgetPDF({
       {budget && (
         <>
           <View style={[s.summaryStrip, { marginTop: 8 }]}>
+            <Text style={s.summaryItem}>ē = {budget.mean_value.toFixed(4)} {unit}</Text>
+            <Text style={s.summaryItem}>u_c = {fmtSci(budget.u_c)} {unit}</Text>
             <Text style={s.summaryItem}>
-              Error medio ē = {mean_value.toFixed(4)} {unit}
+              νeff = {isFinite(budget.nu_eff) ? budget.nu_eff.toFixed(1) : '∞'}
             </Text>
-            <Text style={s.summaryItem}>u_c = {fmtSci(u_c)} {unit}</Text>
-            <Text style={s.summaryItem}>
-              νeff = {isFinite(nu_eff) ? nu_eff.toFixed(1) : '∞'}
-            </Text>
-            <Text style={s.summaryItem}>k = {k.toFixed(4)}</Text>
+            <Text style={s.summaryItem}>k = {budget.k.toFixed(4)}</Text>
             <Text style={[s.summaryItem, { fontWeight: 'bold' }]}>
-              U = {fmtSci(U)} {unit}
+              U = {fmtSci(budget.U)} {unit}
             </Text>
             {turMin != null && (
-              <Text style={s.summaryItem}>TUR mín. observado = {turMin.toFixed(2)}</Text>
+              <Text style={s.summaryItem}>TUR mín. = {turMin.toFixed(2)}</Text>
             )}
           </View>
 
           {certificado && (
             <Text style={{ fontSize: 7.5, marginBottom: 6, color: '#57534E' }}>
-              Trazabilidad metrológica del resultado: certificado / registro {certificado}
+              Trazabilidad: {certificado}
             </Text>
           )}
 
-          {rows.length > 0 && <PdfTable columns={BUDGET_COLS} rows={rows} fontSize={6.5} />}
-
-          <View style={s.legalBlock}>
-            <Text style={s.legalText}>
-              La incertidumbre expandida U se obtuvo conforme al método GUM: u_c = √(Σ uᵢ²(y)); νeff por
-              Welch-Satterthwaite; k = t₉₅.₄₅%(νeff); U = k·u_c. Los componentes Tipo A provienen de la
-              repetibilidad de las lecturas de verificación; los Tipo B de resolución, calibración del patrón
-              y demás fuentes declaradas en el procedimiento interno.
-            </Text>
-          </View>
+          {rows.length > 0 && (
+            <PdfTable
+              columns={budgetCols}
+              rows={rows}
+              fontSize={6.5}
+              tableWidth={PDF_LANDSCAPE_TABLE_WIDTH}
+            />
+          )}
         </>
       )}
 
       <View style={s.footer} fixed>
         <Text>
           {instrumentoCodigo ? `${instrumentoCodigo} · ` : ''}
-          Reg. {registroId.slice(0, 8).toUpperCase()} · Presupuesto GUM
+          VER-{registroId.slice(0, 8).toUpperCase()} · Presupuesto GUM
         </Text>
         <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
       </View>

@@ -4,13 +4,12 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
-import { CompletedVerificacionFicha } from '@/components/ema/CompletedVerificacionFicha'
 import { EmaVerificacionReportToolbar } from '@/components/ema/EmaVerificacionReportToolbar'
+import { VerificacionInformePdfViewer } from '@/components/ema/VerificacionInformePdfViewer'
 import {
   downloadVerificacionInformePdf,
   openVerificacionInformePdfInNewTab,
 } from '@/lib/ema/downloadVerificacionInformePdf'
-import { verificacionPrintMeta } from '@/lib/ema/verificacionPrintMeta'
 import type { CompletedVerificacionDetalle } from '@/types/ema'
 
 export default function VerificacionImprimirPage() {
@@ -78,7 +77,7 @@ export default function VerificacionImprimirPage() {
     [data, items, lab],
   )
 
-  const title = data?.snapshot?.template.nombre ?? 'Ficha de verificación'
+  const title = data?.snapshot?.template.nombre ?? 'Registro de verificación'
 
   return (
     <div className="-m-4 md:-m-6 min-h-screen bg-stone-50">
@@ -92,10 +91,11 @@ export default function VerificacionImprimirPage() {
         onOpenPdf={() => runPdf('open')}
       />
 
-      <div className="mx-auto max-w-4xl px-4 py-6 space-y-4">
+      <div className="mx-auto max-w-5xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
-          Vista previa simplificada. El <strong>PDF</strong> oficial incluye el presupuesto GUM completo,
-          trazabilidad de patrones, U/k, TUR y secciones numeradas para revisión por la entidad de acreditación.
+          Vista previa del PDF oficial (mismo documento que se descarga). Incluye presupuesto GUM,
+          trazabilidad de patrones, U/k, TUR y secciones numeradas para revisión por la entidad de
+          acreditación.
         </p>
 
         {pdfError && (
@@ -107,20 +107,18 @@ export default function VerificacionImprimirPage() {
         {loading && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-stone-500">
             <Loader2 className="h-5 w-5 animate-spin" />
-            Cargando ficha…
+            Cargando registro…
           </div>
         )}
 
         {error && !loading && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {error}
+          </div>
         )}
 
         {data?.snapshot && !loading && !error && (
-          <CompletedVerificacionFicha
-            snapshot={data.snapshot}
-            measurements={data.measurements ?? []}
-            meta={verificacionPrintMeta(data)}
-          />
+          <VerificacionInformePdfViewer items={items} lab={lab} includeCover={false} />
         )}
       </div>
     </div>

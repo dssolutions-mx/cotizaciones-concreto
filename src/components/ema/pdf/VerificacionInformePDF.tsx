@@ -4,19 +4,26 @@ import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding'
 import { effectiveLayout, effectiveSectionRepetitions } from '@/lib/ema/sectionLayout'
 import {
   buildMeasurementMap,
+  countMeasurementStats,
+  formatEsperadoItem,
   formatVerificacionMeasurement,
   sectionItemsForDisplay,
   verificacionCumpleLabel,
-  verificacionRowCumple,
 } from '@/lib/ema/verificacionFichaModel'
-import {
-  buildMeasurementColumns,
-  measurementTableFontSize,
-} from '@/components/ema/pdf/verificacionPdfTable'
 import { metrologiaBudgetForPdf } from '@/lib/ema/rebuildVerificationBudget'
-import { verificacionPrintMeta, VERIFICACION_RESULTADO_LABEL } from '@/lib/ema/verificacionPrintMeta'
+import {
+  formatVerificacionCondiciones,
+  verificacionPrintMeta,
+  VERIFICACION_RESULTADO_LABEL,
+} from '@/lib/ema/verificacionPrintMeta'
 import { VerificacionUncertaintyBudgetPDF } from '@/components/ema/pdf/VerificacionUncertaintyBudgetPDF'
-import { PdfTable, type PdfTableColumn } from '@/components/ema/pdf/verificacionPdfTable'
+import {
+  PdfTable,
+  PDF_PORTRAIT_TABLE_WIDTH,
+  buildCoverColumns,
+  buildMeasurementDetailColumns,
+  buildPatronColumns,
+} from '@/components/ema/pdf/verificacionPdfTable'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'
 import type {
   CompletedVerificacionDetalle,
@@ -51,26 +58,8 @@ const LEGAL = [
   'Documento controlado generado por el sistema de gestión de calidad del laboratorio. Reproducciones no controladas pueden no reflejar el estado vigente del registro.',
 ]
 
-const COVER_COLS: PdfTableColumn[] = [
-  { key: 'n', label: '#', width: '4%', align: 'center' },
-  { key: 'reg', label: 'Registro', width: '10%', mono: true },
-  { key: 'inst', label: 'Instrumento verificado', width: '28%' },
-  { key: 'fecha', label: 'Fecha', width: '10%', mono: true },
-  { key: 'res', label: 'Dictamen', width: '12%' },
-  { key: 'tpl', label: 'Formato', width: '14%', mono: true },
-  { key: 'u', label: 'U expandida', width: '12%', mono: true, align: 'right' },
-  { key: 'tur', label: 'TUR mín.', width: '10%', align: 'right' },
-]
-
-const PATRON_COLS: PdfTableColumn[] = [
-  { key: 'cod', label: 'Código patrón', width: '14%', mono: true },
-  { key: 'nom', label: 'Denominación', width: '28%' },
-  { key: 'u', label: 'U', width: '12%', align: 'right', mono: true },
-  { key: 'k', label: 'k', width: '8%', align: 'center', mono: true },
-  { key: 'un', label: 'Unidad', width: '10%', align: 'center' },
-  { key: 'est', label: 'Estado', width: '12%' },
-  { key: 'prox', label: 'Próx. evento', width: '16%', mono: true },
-]
+const MEASUREMENT_COLS = buildMeasurementDetailColumns()
+const PATRON_COLS = buildPatronColumns()
 
 function logoSrc(): string {
   if (typeof window !== 'undefined') {
@@ -152,35 +141,51 @@ function MeasurementSectionPdf({
     section as VerificacionTemplateSection & { repetible?: boolean; repeticiones_default?: number },
   )
   const items = sectionItemsForDisplay(section)
-  const columns = buildMeasurementColumns(
-    layout,
-    items.map((it) => ({ id: it.id, punto: it.punto })),
-  )
-  const fontSize = measurementTableFontSize(columns.length)
-
   const rows: string[][] = []
+
   for (let rep = 1; rep <= reps; rep++) {
-    const cells: string[] = []
+    const repSuffix = reps > 1 ? ` · rep. ${rep}` : ''
+    let gridCode = ''
     if (layout === 'instrument_grid') {
-      const code =
+      gridCode =
         items
           .map((it) => mMap.get(`${section.id}:${rep}:${it.id}`)?.instance_code)
-          .find((c) => c?.trim()) ?? '—'
-      cells.push(code)
+          .find((c) => c?.trim()) ?? ''
     }
+
     for (const it of items) {
-      cells.push(formatVerificacionMeasurement(it, mMap.get(`${section.id}:${rep}:${it.id}`)))
+      const m = mMap.get(`${section.id}:${rep}:${it.id}`)
+      let punto = it.punto
+      if (gridCode) punto = `[${gridCode}] ${punto}`
+      punto += repSuffix
+
+      const error =
+        m?.error_calculado != null
+          ? m.error_calculado.toFixed(3)
+          : '—'
+
+      rows.push([
+        punto,
+        formatEsperadoItem(it),
+        formatVerificacionMeasurement(it, m),
+        error,
+        verificacionCumpleLabel(m?.cumple),
+        m?.observacion?.trim() || '—',
+      ])
     }
-    cells.push(verificacionCumpleLabel(verificacionRowCumple(section.id, rep, items, mMap)))
-    rows.push(cells)
   }
 
   return (
-    <View style={{ marginBottom: 8 }}>
+    <View style={{ marginBottom: 10 }}>
       <Text style={s.sectionBlockTitle}>{section.titulo}</Text>
       {section.descripcion ? <Text style={s.sectionBlockDesc}>{section.descripcion}</Text> : null}
       {rows.length > 0 ? (
-        <PdfTable columns={columns} rows={rows} fontSize={fontSize} />
+        <PdfTable
+          columns={MEASUREMENT_COLS}
+          rows={rows}
+          fontSize={7}
+          tableWidth={PDF_PORTRAIT_TABLE_WIDTH}
+        />
       ) : (
         <Text style={{ fontSize: 8, color: '#78716C' }}>Sin lecturas registradas en esta sección.</Text>
       )}
@@ -205,6 +210,7 @@ function VerificacionRecordPages({
   const template = snapshot.template
   const meta = verificacionPrintMeta(data)
   const mMap = buildMeasurementMap(data.measurements ?? [])
+  const stats = countMeasurementStats(data.measurements ?? [])
   const cal = data.instrumento_calibracion
   const budget = metrologiaBudgetForPdf(data.metrologia, cal)
   const unit = cal?.unidad ?? '—'
@@ -223,6 +229,9 @@ function VerificacionRecordPages({
 
   const elaborado = data.signatures?.find((x) => x.rol === 'elaborado')
   const revisado = data.signatures?.find((x) => x.rol === 'revisado')
+  const cond = data.condiciones_ambientales
+  const issues = data.issues ?? []
+  const evidencias = data.evidencias ?? []
 
   return (
     <>
@@ -254,7 +263,10 @@ function VerificacionRecordPages({
         </PdfCard>
 
         <PdfCard title="§3 Condiciones ambientales y responsable">
-          <Kv label="Condiciones" value={meta.condiciones ?? 'No registradas'} />
+          <Kv label="Condiciones (resumen)" value={formatVerificacionCondiciones(cond) ?? 'No registradas'} />
+          {cond?.temperatura ? <Kv label="Temperatura" value={cond.temperatura} /> : null}
+          {cond?.humedad ? <Kv label="Humedad relativa" value={cond.humedad} /> : null}
+          {cond?.lugar ? <Kv label="Lugar" value={cond.lugar} /> : null}
           <Kv label="Ejecutada por" value={meta.verificador ?? '—'} />
           {elaborado ? (
             <Kv label="Firma elaborado" value={`${elaborado.signer_name} · ${elaborado.signed_at}`} />
@@ -266,7 +278,12 @@ function VerificacionRecordPages({
 
         {patronRows.length > 0 && (
           <PdfCard title="§4 Patrones de referencia y trazabilidad metrológica">
-            <PdfTable columns={PATRON_COLS} rows={patronRows} fontSize={7.5} />
+            <PdfTable
+              columns={PATRON_COLS}
+              rows={patronRows}
+              fontSize={7.5}
+              tableWidth={PDF_PORTRAIT_TABLE_WIDTH}
+            />
           </PdfCard>
         )}
 
@@ -301,17 +318,37 @@ function VerificacionRecordPages({
         </PdfCard>
 
         <PdfCard title="§6 Resultados de verificación (lecturas y criterios de aceptación)">
+          <View style={s.summaryStrip}>
+            <Text style={s.summaryItem}>Ítems con dictamen: {stats.total}</Text>
+            <Text style={s.summaryItem}>Cumple: {stats.cumple}</Text>
+            <Text style={s.summaryItem}>No cumple: {stats.noCumple}</Text>
+          </View>
           {(snapshot.sections ?? []).map((sec) => (
             <MeasurementSectionPdf key={sec.id} section={sec} mMap={mMap} />
           ))}
+          {evidencias.length > 0 && (
+            <Kv label="Evidencias adjuntas" value={`${evidencias.length} archivo(s) en el expediente digital`} />
+          )}
+          {issues.length > 0 && (
+            <View style={{ marginTop: 6 }}>
+              <Text style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 4 }}>No conformidades / observaciones</Text>
+              {issues.map((iss, i) => (
+                <Text key={iss.id ?? i} style={{ fontSize: 7.5, marginBottom: 2, color: '#44403C' }}>
+                  · {iss.descripcion || 'Incidencia registrada'}
+                </Text>
+              ))}
+            </View>
+          )}
         </PdfCard>
 
         <PdfCard title="§8 Dictamen de la verificación interna">
           <View style={s.dictamenBox}>
             <Text style={s.dictamenLabel}>Resultado global</Text>
-            <Text style={s.dictamenValue}>{meta.resultado ?? data.resultado}</Text>
+            <Text style={s.dictamenValue}>
+              {VERIFICACION_RESULTADO_LABEL[data.resultado] ?? meta.resultado ?? data.resultado}
+            </Text>
           </View>
-          {meta.observaciones ? <Kv label="Observaciones" value={meta.observaciones} /> : null}
+          {meta.observaciones ? <Kv label="Observaciones generales" value={meta.observaciones} /> : null}
         </PdfCard>
 
         <PdfCard title="§9 Declaraciones y validez">
@@ -371,6 +408,7 @@ function CoverPage({
   lab?: VerificacionPdfLabContext
   generatedAt: string
 }) {
+  const coverCols = buildCoverColumns()
   const rows = items.map((v, i) => {
     const cal = v.instrumento_calibracion
     return [
@@ -394,10 +432,15 @@ function CoverPage({
       <Text style={s.coverTitle}>Índice de registros de verificación interna</Text>
       <Text style={s.coverMeta}>
         Cada registro incluye: identificación del equipo, patrones de referencia, resultados de
-        verificación, presupuesto de incertidumbre GUM (cuando aplique) y dictamen conforme a
-        NMX-EC-17025-IMNC-2018.
+        verificación (punto / esperado / observado / error / dictamen), presupuesto de incertidumbre GUM
+        (cuando aplique) y dictamen conforme a NMX-EC-17025-IMNC-2018.
       </Text>
-      <PdfTable columns={COVER_COLS} rows={rows} fontSize={7} />
+      <PdfTable
+        columns={coverCols}
+        rows={rows}
+        fontSize={7}
+        tableWidth={PDF_PORTRAIT_TABLE_WIDTH}
+      />
       <PdfFooter registroId={items[0]?.id ?? 'informe'} section="Índice" />
     </Page>
   )

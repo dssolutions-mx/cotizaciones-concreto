@@ -54,3 +54,34 @@ export function sectionItemsForDisplay(
 ): VerificacionTemplateItem[] {
   return (section.items ?? []).filter((i) => normalizeTemplateItem(i).item_role !== 'derivado')
 }
+
+export function formatEsperadoItem(item: VerificacionTemplateItem): string {
+  if (item.tipo === 'medicion' && item.valor_esperado != null) {
+    let s = `${item.valor_esperado}${item.unidad ? ` ${item.unidad}` : ''}`
+    if (item.tolerancia != null) s += ` ± ${item.tolerancia}`
+    return s
+  }
+  if (item.tipo === 'booleano') return 'Sí / No'
+  if (item.tipo === 'texto' || item.tipo === 'referencia_equipo') return 'Texto / referencia'
+  return '—'
+}
+
+export function countMeasurementStats(measurements: CompletedVerificacionMeasurement[]): {
+  total: number
+  cumple: number
+  noCumple: number
+} {
+  let cumple = 0
+  let noCumple = 0
+  let total = 0
+  for (const m of measurements) {
+    if (m.cumple === true) {
+      cumple++
+      total++
+    } else if (m.cumple === false) {
+      noCumple++
+      total++
+    }
+  }
+  return { total, cumple, noCumple }
+}
