@@ -367,6 +367,45 @@ export function EmaUncertaintyStudyConfig({
         </section>
       )}
 
+      {/* ── VIGAS — claro del bastidor ────────────────────────────────────── */}
+      {measurand.codigo === 'VIGAS' && (
+        <section className="rounded-lg border border-stone-200 p-4">
+          <h3 className="text-sm font-semibold text-stone-800">
+            Parámetros del ensayo — Vigas
+          </h3>
+          <p className="mt-0.5 text-xs text-stone-500">
+            MR = P·L / (b·d²) — NMX-C-191 / ASTM C78.{' '}
+            <strong>L</strong> es el claro entre apoyos del bastidor, constante para todo el estudio
+            (no se mide por espécimen). Se usa en el cálculo de MR y en los coeficientes de sensibilidad GUM.
+          </p>
+          <div className="mt-3 max-w-xs">
+            <Label htmlFor="vigas-l-span" className="text-xs">
+              Claro entre apoyos <span className="font-mono text-stone-400">(L)</span>
+            </Label>
+            <div className="mt-1 flex items-center gap-1.5">
+              <Input
+                id="vigas-l-span"
+                type="number"
+                step="0.1"
+                min="1"
+                disabled={isLocked}
+                value={envOverrides['L_span'] ?? 45}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value)
+                  if (!isNaN(v) && v > 0) handleOverrideChange('L_span', v)
+                }}
+                className="h-8 w-24 text-sm"
+              />
+              <span className="text-xs text-stone-500">cm</span>
+            </div>
+            <p className="mt-1 text-[10px] text-stone-400">
+              Por defecto: 45 cm (viga 15×15×50 estándar, NMX-C-191 §6.3)
+            </p>
+          </div>
+          {overrideSaving && <p className="mt-2 text-[10px] text-stone-400">Guardando…</p>}
+        </section>
+      )}
+
       {/* ── Masa Unitaria — parámetros del equipo ─────────────────────────── */}
       {measurand.codigo === 'MU' && (
         <section className="rounded-lg border border-stone-200 p-4">

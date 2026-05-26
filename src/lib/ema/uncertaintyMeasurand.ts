@@ -94,10 +94,20 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
       symbols: ['P'],
     },
     {
-      key: 'dimensiones',
-      label: 'Vernier / Flexómetro — Dimensiones (b, d, L)',
-      categories: ['Vernier', 'Flexometro'],
-      symbols: ['L', 'b', 'd'],
+      // L (span) is typically measured with a flexómetro (≈45 cm range).
+      // Kept as a role so calibration U from the flexómetro is included in the budget,
+      // even though L is now a study-level constant (not re-entered per specimen).
+      key: 'span',
+      label: 'Flexómetro — Claro (L)',
+      categories: ['Flexometro'],
+      symbols: ['L'],
+    },
+    {
+      // b and d are section dimensions measured with a vernier (≈15 cm range, 0.02 mm res).
+      key: 'seccion',
+      label: 'Vernier — Sección (b, d)',
+      categories: ['Vernier'],
+      symbols: ['b', 'd'],
     },
   ],
   MU: [

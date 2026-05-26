@@ -494,6 +494,95 @@ console.log(`  u_c=${fcCuboBudget.u_c.toExponential(4)} kg/cm²  U=${fcCuboBudge
 console.log('  ✓ FC_CUBO');
 
 // ===========================================================================
+// 5b. Resistencia a la compresión — cilindro (FC)
+//     f'c = Carga / A,  A = π·d²/4
+//     Unit contract: d in cm → A in cm² → ci in 1/cm² → U in kg/cm²
+//     For d=15 cm: A = π·7.5² ≈ 176.71 cm²
+//     For f'c ≈ 250 kg/cm²: Carga ≈ 44177 kg
+// ===========================================================================
+console.log('5b. FC — Resistencia a la compresión (cilindro)');
+
+const D_CYL = 15.0;                              // cm — standard 15 cm cylinder
+const A_CYL = (Math.PI * D_CYL ** 2) / 4;       // ≈ 176.71 cm²
+const FC_CYL_MEAN = 250;                          // kg/cm²
+const CARGA_CYL = FC_CYL_MEAN * A_CYL;           // ≈ 44177 kg
+
+// Verify sensitivity coefficients with cm-based context
+const c_carga_cyl = sensitivityCoefficient('FC', 'Carga', {
+  carga_mean: CARGA_CYL, d_mean: D_CYL, area_mean: A_CYL,
+});
+const c_d_cyl = sensitivityCoefficient('FC', 'd', {
+  carga_mean: CARGA_CYL, d_mean: D_CYL, area_mean: A_CYL,
+});
+
+// c_Carga = 1/A  (1/cm²) — produces kg/cm² when multiplied by kg
+assert.ok(nearAbs(c_carga_cyl, 1 / A_CYL, 1e-8),
+  `FC cyl: c_Carga = 1/A = ${(1/A_CYL).toExponential(4)} cm⁻², got ${c_carga_cyl.toExponential(4)}`);
+
+// c_d = -2·f'c/d  (kg/cm² per cm = kg/cm³) — negative: larger d → lower f'c for same Carga
+const c_d_expected = -2 * FC_CYL_MEAN / D_CYL;
+assert.ok(nearAbs(c_d_cyl, c_d_expected, 1e-6),
+  `FC cyl: c_d = -2·f'c/d = ${c_d_expected.toFixed(3)}, got ${c_d_cyl.toFixed(3)}`);
+assert.ok(c_d_cyl < 0, 'FC cyl: c_d must be negative');
+
+// Full budget: Type A from replicas (typical low spread) + prensa calibration + vernier calibration
+// U_cert_prensa = 250 kg @ k=2; U_cert_vernier = 0.05 cm @ k=2 (0.5 mm vernier)
+const fcCylBudget = buildBudget({
+  measurandCode: 'FC',
+  measurandName: "Resistencia a la compresión f'c",
+  unit: 'kg/cm²',
+  replicaValues: [248, 252, 249, 251, 250, 253, 248, 251, 250, 252],
+  typeBInputs: [
+    {
+      fuente: 'Calibración de la prensa hidráulica',
+      magnitud_xi: 'Carga',
+      unidad: 'kg',
+      valor_xi: CARGA_CYL,
+      kind: 'calibration',
+      U_cert: 250,
+      k_cert: 2,
+      ci_override: 1 / A_CYL,
+      categoria: 'calibration',
+    },
+    {
+      fuente: 'Calibración del vernier — diámetro',
+      magnitud_xi: 'd',
+      unidad: 'cm',
+      valor_xi: D_CYL,
+      kind: 'calibration',
+      U_cert: 0.05,   // 0.5 mm → 0.05 cm
+      k_cert: 2,
+      ci_override: Math.abs(c_d_cyl),
+      categoria: 'calibration',
+    },
+  ],
+  sensitivityContext: { carga_mean: CARGA_CYL, d_mean: D_CYL, area_mean: A_CYL },
+});
+
+assert.equal(fcCylBudget.components.length, 3, `FC cyl: 3 components, got ${fcCylBudget.components.length}`);
+assert.ok(near(fcCylBudget.U, fcCylBudget.k * fcCylBudget.u_c), 'FC cyl: U = k·u_c');
+
+// Unit sanity: U should be in kg/cm² — for f'c=250, expect U < 5 kg/cm² (< 2% relative)
+assert.ok(fcCylBudget.U < 5, `FC cyl: U should be < 5 kg/cm² (sane magnitude), got ${fcCylBudget.U.toFixed(3)}`);
+assert.ok(fcCylBudget.U > 0.1, `FC cyl: U should be > 0.1 kg/cm² (non-trivial), got ${fcCylBudget.U.toFixed(3)}`);
+
+// Prensa ui_y = (U_cert/k) × (1/A) = (250/2) / 176.71 ≈ 0.707 kg/cm²
+const prensaComp = fcCylBudget.components.find((c) => c.fuente.includes('prensa'))!;
+const expectedUiPrensa = (250 / 2) / A_CYL;
+assert.ok(nearAbs(prensaComp.ui_y, expectedUiPrensa, 1e-4),
+  `FC cyl: ui_y(prensa) = ${expectedUiPrensa.toFixed(4)} kg/cm², got ${prensaComp.ui_y.toFixed(4)}`);
+
+// Vernier ui_y = |c_d| × (U_cert/k) = 33.33 × 0.025 ≈ 0.833 kg/cm²
+const vernierComp_cyl = fcCylBudget.components.find((c) => c.fuente.includes('vernier'))!;
+const expectedUiVernier_cyl = Math.abs(c_d_cyl) * (0.05 / 2);
+assert.ok(nearAbs(vernierComp_cyl.ui_y, expectedUiVernier_cyl, 1e-4),
+  `FC cyl: ui_y(vernier) = ${expectedUiVernier_cyl.toFixed(4)} kg/cm²`);
+
+console.log(`  A_cyl=${A_CYL.toFixed(2)} cm²  c_Carga=${c_carga_cyl.toExponential(4)} cm⁻²  c_d=${c_d_cyl.toFixed(3)} kg/cm³`);
+console.log(`  u_c=${fcCylBudget.u_c.toExponential(4)} kg/cm²  U=${fcCylBudget.U.toExponential(4)} kg/cm²  k=${fcCylBudget.k.toFixed(3)}`);
+console.log('  ✓ FC cilindro');
+
+// ===========================================================================
 // 6. Monotonic increase: adding contributors grows u_c
 // ===========================================================================
 console.log('6. Monotonic u_c growth with contributors');

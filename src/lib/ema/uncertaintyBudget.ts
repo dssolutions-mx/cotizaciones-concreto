@@ -195,8 +195,21 @@ export function welchSatterthwaite(
  * For direct measurands (Temperatura, Revenimiento, Contenido de aire, Masa Unitaria
  * as a single-input ratio), the coefficient is 1.
  *
+ * ── UNIT CONTRACT ──────────────────────────────────────────────────────────────
+ * All `context` length fields (d_mean, L_mean, b_mean) MUST be in **cm**.
+ * All `context` force/load fields (carga_mean, P_mean) MUST be in **kg** or **kgf**
+ * (treated as equal in the Mexican concrete-lab context; see units.ts).
+ * `area_mean` MUST be in **cm²** (i.e. derived from dimensions already in cm).
+ *
+ * This ensures the sensitivity coefficients carry the correct unit ratio
+ * [output_unit / input_unit]:
+ *   • c_carga  → (kg/cm²) / kg  = 1/cm²
+ *   • c_d      → (kg/cm²) / cm  = kg/cm³
+ *   • c_L, c_b → (kg/cm²) / cm
+ * ───────────────────────────────────────────────────────────────────────────────
+ *
  * For Resistencia a la compresión (cylindrical specimen):
- *   f = Carga / A,  A = π·d²/4
+ *   f = Carga / A,  A = π·d²/4   (d in cm, A in cm²)
  *   c_carga = ∂f/∂Carga = 1/A
  *   c_d     = ∂f/∂d     = −2·Carga / (π·d³/4) = −2·f/d
  *
@@ -345,6 +358,12 @@ export interface StudyInput {
   /** Replicate measurand values (already computed from raw readings) */
   replicaValues: number[];
   /**
+   * Optional label override for the Type A repeatability row.
+   * For destructive-test measurands (FC, FC_CUBO, VIGAS) the spread across
+   * replicas is specimen-to-specimen variability, not pure instrument repeatability.
+   */
+  typeALabelOverride?: string;
+  /**
    * Optional: per-operator grouping for ANOVA decomposition.
    * If provided and p ≥ 2 operators, uses ISO 5725-2 ANOVA.
    * Otherwise falls back to single-pool Type A.
@@ -441,6 +460,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
     typeBInputs,
     extraTypeAInputs = [],
     sensitivityContext = {},
+    typeALabelOverride,
   } = input;
 
   const components: UncertaintyComponent[] = [];
@@ -481,7 +501,7 @@ export function buildBudget(input: StudyInput): BudgetResult {
     const { mean: mu, s, u_A, nu } = typeAFromReplicas(replicaValues);
     grandMean = mu;
     typeARows.push({
-      fuente: `Repetibilidad (${replicaValues.length} réplicas)`,
+      fuente: typeALabelOverride ?? `Repetibilidad (${replicaValues.length} réplicas)`,
       s,
       n: replicaValues.length,
       u: u_A,

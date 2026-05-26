@@ -760,6 +760,23 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 
   const replicaValues = replicas.map((r) => r.computed_value as number);
 
+  // VIGAS: check for fracture-zone violations (NMX-C-191 §6.5.2.2 / ASTM C78 §9).
+  // Fracture outside the middle third by > 5% makes the third-point formula invalid.
+  if (measurand.codigo === 'VIGAS') {
+    const allReplicas = study.replicas ?? [];
+    const invalidFracture = allReplicas.filter(
+      (r) => (r.raw_values_json as Record<string, unknown>)['_fracture_zone'] === 'fuera_mas_5',
+    );
+    if (invalidFracture.length > 0) {
+      warnings.push(
+        `⚠ ${invalidFracture.length} réplica(s) con fractura fuera del tercio central (>5%) — ` +
+        `réplica(s) ${invalidFracture.map((r) => r.orden).join(', ')}. ` +
+        `La fórmula MR = P·L/(b·d²) no es válida para estos especímenes (NMX-C-191 §6.5.2.2 / ASTM C78 §9). ` +
+        `Considere excluir estas réplicas del estudio antes de publicar.`,
+      );
+    }
+  }
+
   // Check for multi-operator ANOVA
   const operatorGroups: AnovaGroup[] = [];
   const byOp = new Map<string, number[]>();
@@ -846,7 +863,12 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 
   if (measurand.codigo === 'VIGAS') {
     const Ps = replicas.map((r) => Number(r.raw_values_json['P'] ?? 0)).filter((v) => v > 0);
-    const Ls = replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
+    // L (support span) is a study-level constant stored in env_overrides.L_span.
+    // Fall back to per-replica L values for backward compat with drafts created before this change.
+    const L_span_override = (study.env_overrides as Record<string, number> | null)?.L_span;
+    const Ls = L_span_override && L_span_override > 0
+      ? [L_span_override]
+      : replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
     const bs = replicas.map((r) => Number(r.raw_values_json['b'] ?? 0)).filter((v) => v > 0);
     const ds = replicas.map((r) => Number(r.raw_values_json['d'] ?? 0)).filter((v) => v > 0);
     if (Ps.length > 0 && Ls.length > 0 && bs.length > 0 && ds.length > 0) {
@@ -865,7 +887,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         warnings.push('VIGAS: b o d promedio = 0; los coeficientes de sensibilidad se omiten (ci=1).');
       }
     } else {
-      warnings.push('VIGAS: faltan datos de P/L/b/d en las réplicas; los coeficientes de sensibilidad se omiten (ci=1).');
+      warnings.push('VIGAS: faltan datos de P/b/d en las réplicas o L_span no configurado; los coeficientes de sensibilidad se omiten (ci=1).');
     }
   }
 
@@ -1101,8 +1123,18 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   // Reset seenInstrumentos so the loops below can push calibration rows for each instrument.
   seenInstrumentos.clear();
 
+  // Track which instruments appear per role across replicas to detect mixed-instrument studies.
+  const instrPerRole = new Map<string, Set<string>>(); // roleKey → Set<instrId>
+
   // Loop 1: instruments assigned to individual replicas (track per-replica instrument usage).
   for (const r of replicas) {
+    // Track per-role instrument usage (all replicas, not just unique ones) for mixed-instrument warning.
+    if (r.instrumento_id && rolesDef) {
+      const rk = instrRoles[r.instrumento_id] ?? '__unassigned__';
+      if (!instrPerRole.has(rk)) instrPerRole.set(rk, new Set());
+      instrPerRole.get(rk)!.add(r.instrumento_id);
+    }
+
     if (!r.instrumento_id || seenInstrumentos.has(r.instrumento_id)) continue;
     seenInstrumentos.add(r.instrumento_id);
 
@@ -1121,6 +1153,22 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 
     const added = await processInstrumentCalibration(r.instrumento_id, instrNombre, roleSymbols);
     if (added) instrumensWithCal.add(r.instrumento_id);
+  }
+
+  // Mixed-instrument warning: when different instruments cover the same role across replicas,
+  // there is an unmodeled reproducibility term (inter-instrument) that the GUM budget ignores.
+  if (rolesDef) {
+    for (const role of rolesDef) {
+      const instrSet = instrPerRole.get(role.key);
+      if (instrSet && instrSet.size > 1) {
+        warnings.push(
+          `Se usaron ${instrSet.size} instrumentos distintos para el rol "${role.label}" entre réplicas. ` +
+          `Esto introduce un componente de reproducibilidad inter-instrumento que el modelo GUM no captura. ` +
+          `Considere usar el mismo instrumento en todas las réplicas, o agregar una contribución Tipo B manual ` +
+          `para la variabilidad entre instrumentos.`,
+        );
+      }
+    }
   }
 
   // Loop 2: secondary instruments from two sources:
@@ -1446,6 +1494,13 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
+  // For destructive-test measurands the Type A spread conflates instrument repeatability
+  // with specimen-to-specimen variability. Relabel to avoid misleading "Repetibilidad".
+  const DESTRUCTIVE_CODES = new Set(['FC', 'FC_CUBO', 'VIGAS']);
+  const typeALabelOverride = DESTRUCTIVE_CODES.has(measurand.codigo)
+    ? `Variabilidad de especímenes (s combinada, n=${replicaValues.length})`
+    : undefined;
+
   const studyInput: StudyInput = {
     measurandCode: measurand.codigo as MeasurandCodigo,
     measurandName: measurand.nombre,
@@ -1455,6 +1510,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     typeBInputs,
     extraTypeAInputs: extraTypeAInputs.length > 0 ? extraTypeAInputs : undefined,
     sensitivityContext,
+    typeALabelOverride,
   };
 
   return { input: studyInput, warnings };

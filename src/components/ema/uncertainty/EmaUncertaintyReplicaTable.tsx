@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import { EmaUncertaintyAnovaReadinessBanner } from '@/components/ema/uncertainty/EmaUncertaintyAnovaReadinessBanner'
+import { EmaUncertaintyInputMeansCard } from '@/components/ema/uncertainty/EmaUncertaintyInputMeansCard'
 import { EmaUncertaintyInstrumentEstadoBadge } from '@/components/ema/uncertainty/EmaUncertaintyInstrumentEstadoBadge'
 import {
   MEASURAND_INSTRUMENT_CATEGORIES,
@@ -100,8 +101,13 @@ export function EmaUncertaintyReplicaTable({
   isLocked: boolean
 }) {
   const measurand = study.measurand!
+  // L (support span) for VIGAS is a study-level constant (env_overrides.L_span),
+  // not a per-specimen measurement — hide it from the réplica grid.
+  const excludedSimbolos = new Set(study.excluded_input_simbolos ?? [])
   const inputs = (measurand.inputs ?? [])
     .filter((i) => i.kind === 'measured')
+    .filter((i) => !(measurand.codigo === 'VIGAS' && i.simbolo === 'L'))
+    .filter((i) => !excludedSimbolos.has(i.simbolo))
     .sort((a, b) => a.orden - b.orden)
 
   // Role context for multi-input measurands
@@ -197,6 +203,26 @@ export function EmaUncertaintyReplicaTable({
     () => new Map(instruments.map((i) => [i.id, i])),
     [instruments],
   )
+
+  // Per-replica, per-symbol instrument hint (#9)
+  const symbolInstrHintsByOrden = useMemo(() => {
+    const map = new Map<number, Record<string, string | null>>()
+    if (!rolesDef) return map
+    for (const r of replicas) {
+      const out: Record<string, string | null> = {}
+      rolesDef.forEach((role, ri) => {
+        const instrId = ri === 0
+          ? (r.instrumento_id ?? null)
+          : ((r.raw_values_json[`_instr_${role.key}`] as string | undefined) ?? null)
+        const instr = instrId ? instrumentById.get(instrId) : null
+        for (const sym of role.symbols) {
+          out[sym] = instr?.codigo ?? null
+        }
+      })
+      map.set(r.orden, out)
+    }
+    return map
+  }, [rolesDef, replicas, instrumentById])
 
   const poolActive =
     equipoPool.operator_ids.length > 0 || equipoPool.instrumento_ids.length > 0
@@ -480,6 +506,8 @@ export function EmaUncertaintyReplicaTable({
         </div>
       )}
 
+      <EmaUncertaintyInputMeansCard inputs={measurand.inputs ?? []} replicas={replicas} />
+
       {n >= 2 && (
         <div className="flex flex-wrap gap-3 rounded-lg border border-stone-200 bg-white px-5 py-3 text-sm">
           <div>
@@ -543,6 +571,15 @@ export function EmaUncertaintyReplicaTable({
                   </span>
                 </th>
               ))}
+              {/* Fracture-zone column — VIGAS only (NMX-C-191 §6.5.2.2) */}
+              {measurand.codigo === 'VIGAS' && (
+                <th className="px-3 py-2 text-left min-w-[130px]">
+                  Zona de fractura
+                  <span className="block font-normal normal-case text-[10px] text-stone-400">
+                    NMX-C-191 §6.5.2.2
+                  </span>
+                </th>
+              )}
               <th className="px-3 py-2 text-right text-stone-700">
                 {measurand.nombre}
                 <span className="block font-normal normal-case text-[10px] text-stone-400">
@@ -562,6 +599,9 @@ export function EmaUncertaintyReplicaTable({
               const primaryInstr = replica.instrumento_id
                 ? instrumentById.get(replica.instrumento_id) ?? replica.instrumento
                 : null
+
+              // Map each input symbol to the codigo of the instrument that measures it (#9)
+              const symbolInstrHint = symbolInstrHintsByOrden.get(orden) ?? {}
 
               return (
                 <tr key={orden} className="hover:bg-stone-50/80">
@@ -730,28 +770,62 @@ export function EmaUncertaintyReplicaTable({
                         </td>
                       )}
                   {/* Numeric input fields */}
-                  {inputs.map((inp) => (
-                    <td key={inp.simbolo} className="px-3 py-1.5">
-                      <input
-                        type="number"
-                        step="any"
-                        disabled={isLocked}
-                        value={
-                          typeof replica.raw_values_json[inp.simbolo] === 'number'
-                            ? (replica.raw_values_json[inp.simbolo] as number)
-                            : ''
-                        }
-                        onChange={(e) =>
-                          onReplicaChange(
-                            orden,
-                            inp.simbolo,
-                            e.target.value === '' ? null : Number(e.target.value),
-                          )
-                        }
-                        className="w-20 rounded border border-stone-200 px-2 py-0.5 text-right text-xs font-mono focus:border-stone-400 focus:outline-none disabled:bg-stone-50"
-                      />
-                    </td>
-                  ))}
+                  {inputs.map((inp) => {
+                    const instrCodigo = showRoleColumns ? (symbolInstrHint[inp.simbolo] ?? null) : null
+                    return (
+                      <td key={inp.simbolo} className="px-3 py-1.5">
+                        <input
+                          type="number"
+                          step="any"
+                          disabled={isLocked}
+                          value={
+                            typeof replica.raw_values_json[inp.simbolo] === 'number'
+                              ? (replica.raw_values_json[inp.simbolo] as number)
+                              : ''
+                          }
+                          onChange={(e) =>
+                            onReplicaChange(
+                              orden,
+                              inp.simbolo,
+                              e.target.value === '' ? null : Number(e.target.value),
+                            )
+                          }
+                          className="w-20 rounded border border-stone-200 px-2 py-0.5 text-right text-xs font-mono focus:border-stone-400 focus:outline-none disabled:bg-stone-50"
+                        />
+                        {instrCodigo && (
+                          <div className="mt-0.5 text-[10px] text-stone-400">
+                            medido con: <span className="font-mono">{instrCodigo}</span>
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
+                  {/* Fracture-zone select — VIGAS only */}
+                  {measurand.codigo === 'VIGAS' && (() => {
+                    const fz = (replica.raw_values_json['_fracture_zone'] as string | undefined) ?? ''
+                    return (
+                      <td className="px-2 py-1.5">
+                        <Select
+                          disabled={isLocked}
+                          value={fz}
+                          onValueChange={(v) => onReplicaChange(orden, '_fracture_zone', v || null)}
+                        >
+                          <SelectTrigger className={cn(
+                            'h-8 text-xs',
+                            fz === 'fuera_mas_5' && 'border-red-300 bg-red-50 text-red-800',
+                            fz === 'fuera_5' && 'border-amber-300 bg-amber-50 text-amber-800',
+                          )}>
+                            <SelectValue placeholder="Seleccionar…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="tercio_medio" className="text-xs">Tercio central ✓</SelectItem>
+                            <SelectItem value="fuera_5" className="text-xs text-amber-700">Fuera ≤ 5% ⚠</SelectItem>
+                            <SelectItem value="fuera_mas_5" className="text-xs text-red-700">Fuera &gt; 5% ✗</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    )
+                  })()}
                   <td
                     className="px-3 py-1.5 text-right font-mono text-sm text-stone-700"
                     title={measurand.formula_expr ?? undefined}

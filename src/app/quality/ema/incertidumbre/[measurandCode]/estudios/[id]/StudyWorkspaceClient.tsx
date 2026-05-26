@@ -14,6 +14,7 @@ import {
 } from '@/components/ema/uncertainty/EmaUncertaintyWorkflowHeader'
 import { EmaUncertaintyStudyEstadoBadge } from '@/components/ema/uncertainty/EmaUncertaintyStudyEstadoBadge'
 import { EmaUncertaintyPlantPanel } from '@/components/ema/uncertainty/EmaUncertaintyPlantPanel'
+import { EmaUncertaintyDestructiveBanner } from '@/components/ema/uncertainty/EmaUncertaintyDestructiveBanner'
 import { cn } from '@/lib/utils'
 import { parseEmaApiData } from '@/lib/ema/emaApiClient'
 import {
@@ -136,13 +137,25 @@ export function StudyWorkspaceClient({
         }
       }
 
-      const payload = replicas.map((r) => ({
-        orden: r.orden,
-        operator_id: r.operator_id,
-        instrumento_id: r.instrumento_id,
-        raw_values_json: r.raw_values_json,
-        computed_value: r.computed_value,
-      }))
+      // For VIGAS, inject the study-level span L into every replica's raw_values_json
+      // so the formula evaluator can compute MR = P·L/(b·d²) without L in the grid.
+      const L_span = measurand.codigo === 'VIGAS'
+        ? ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45)
+        : null
+
+      const payload = replicas.map((r) => {
+        const raw = L_span !== null ? { ...r.raw_values_json, L: L_span } : r.raw_values_json
+        const computed = L_span !== null
+          ? computeReplicaMeasurand(measurand, raw)
+          : r.computed_value
+        return {
+          orden: r.orden,
+          operator_id: r.operator_id,
+          instrumento_id: r.instrumento_id,
+          raw_values_json: raw,
+          computed_value: computed,
+        }
+      })
       const res = await fetch(`/api/ema/uncertainty/studies/${study.id}/replicas`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -217,9 +230,16 @@ export function StudyWorkspaceClient({
           else raw[field] = Number(value)
           next = { ...r, raw_values_json: raw }
         }
+        // Inject L_span from study constants so live MR computation stays correct
+        const rawForCompute = measurand.codigo === 'VIGAS'
+          ? {
+              ...next.raw_values_json,
+              L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45),
+            }
+          : next.raw_values_json
         return {
           ...next,
-          computed_value: computeReplicaMeasurand(measurand, next.raw_values_json),
+          computed_value: computeReplicaMeasurand(measurand, rawForCompute),
         }
       })
     })
@@ -364,6 +384,7 @@ export function StudyWorkspaceClient({
             </TabsContent>
 
             <TabsContent value="lecturas" className="mt-0 focus-visible:outline-none">
+              <EmaUncertaintyDestructiveBanner study={study} />
               {!study.plant_id && !isLocked ? (
                 <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/50 px-4 py-8 text-center text-sm text-amber-950">
                   <p className="font-medium">Asigne la planta del estudio</p>
@@ -421,9 +442,12 @@ export function StudyWorkspaceClient({
                           else raw[patch.rawValueField] = patch.rawValueData
                           next = { ...next, raw_values_json: raw }
                         }
+                        const rawForComputeBulk = measurand.codigo === 'VIGAS'
+                          ? { ...next.raw_values_json, L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45) }
+                          : next.raw_values_json
                         return {
                           ...next,
-                          computed_value: computeReplicaMeasurand(measurand, next.raw_values_json),
+                          computed_value: computeReplicaMeasurand(measurand, rawForComputeBulk),
                         }
                       })
                     })
