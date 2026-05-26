@@ -177,7 +177,13 @@ export interface UncertaintyStudyReplica {
   orden: number;
   operator_id: string | null;
   instrumento_id: string | null;
-  raw_values_json: Record<string, number>;
+  /**
+   * Numeric readings keyed by measurand input `simbolo`.
+   * Also stores secondary instrument UUID assignments as strings under `_instr_<roleKey>` keys
+   * (e.g. `_instr_dimensiones` for the Vernier used in a VIGAS study).
+   * String values are never used in measurand formula evaluation — only for instrument tracing.
+   */
+  raw_values_json: Record<string, number | string>;
   computed_value: number | null;
   created_at: string;
   // Joined
@@ -295,7 +301,8 @@ export interface UpsertReplicasInput {
     orden: number;
     operator_id?: string | null;
     instrumento_id?: string | null;
-    raw_values_json: Record<string, number>;
+    /** Numeric readings + optional `_instr_<roleKey>` string UUIDs for secondary instruments */
+    raw_values_json: Record<string, number | string>;
     computed_value?: number | null;
   }>;
 }

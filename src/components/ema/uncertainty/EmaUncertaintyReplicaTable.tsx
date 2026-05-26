@@ -80,6 +80,9 @@ export function EmaUncertaintyReplicaTable({
       operatorRoundRobin?: boolean
       sameOperatorId?: string | null
       sameInstrumentoId?: string | null
+      /** Bulk-set a raw_values_json key to a string value (for secondary instrument UUIDs) */
+      rawValueField?: string
+      rawValueData?: string | null
     },
     helpers?: {
       resolveOperator?: (id: string) => UncertaintyStudyReplica['operator']
@@ -98,13 +101,13 @@ export function EmaUncertaintyReplicaTable({
     .filter((i) => i.kind === 'measured')
     .sort((a, b) => a.orden - b.orden)
 
-  // Role context for multi-input measurands — helps label the instrument column
+  // Role context for multi-input measurands
   const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null
-  // Primary role = first role in the list (load-measuring instrument like Prensa)
-  // This is the instrument the technician assigns per replica.
   const primaryRole = rolesDef?.[0] ?? null
-  // Secondary role = other roles (dimensional instrument, assigned once at pool level)
-  const secondaryRoles = rolesDef?.slice(1) ?? []
+  // Whether to show per-role instrument columns: only when roles are defined AND
+  // the equipo pool has at least one instrument_role assignment configured.
+  const instrRolesFromPool = equipoPool.instrumento_roles ?? {}
+  const showRoleColumns = !!(rolesDef && Object.keys(instrRolesFromPool).length > 0)
 
   const [operators, setOperators] = useState<OperatorOption[]>([])
   const [instruments, setInstruments] = useState<InstrumentOption[]>([])
@@ -213,8 +216,29 @@ export function EmaUncertaintyReplicaTable({
     return list.sort((a, b) => a.codigo.localeCompare(b.codigo))
   }, [instruments, equipoPool.instrumento_ids, replicas])
 
+  // Per-role instrument lists: instruments from the pool assigned each role.
+  // Used when showRoleColumns is true to populate per-role instrument selects.
+  const instrumentsByRoleKey = useMemo(() => {
+    if (!rolesDef) return {} as Record<string, InstrumentOption[]>
+    const map: Record<string, InstrumentOption[]> = {}
+    for (const role of rolesDef) {
+      const assignedIds = new Set(
+        Object.entries(instrRolesFromPool)
+          .filter(([, rk]) => rk === role.key)
+          .map(([id]) => id),
+      )
+      // Instruments in the pool assigned this role
+      const roleInstrs = filteredInstruments.filter((i) => assignedIds.has(i.id))
+      // Fallback to all filtered instruments if no role assignments exist yet
+      map[role.key] = roleInstrs.length > 0 ? roleInstrs : filteredInstruments
+    }
+    return map
+  }, [rolesDef, instrRolesFromPool, filteredInstruments])
+
   const [bulkOperatorId, setBulkOperatorId] = useState<string>('')
   const [bulkInstrumentId, setBulkInstrumentId] = useState<string>('')
+  // Bulk secondary instrument: keyed by roleKey → selected instrumento_id
+  const [bulkSecondaryId, setBulkSecondaryId] = useState<Record<string, string>>({})
 
   const bulkAssignHelpers = useMemo(
     () => ({
@@ -236,17 +260,32 @@ export function EmaUncertaintyReplicaTable({
     <div className="space-y-4">
       <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-4 py-3 text-sm text-sky-950">
         <p className="font-medium">Configurar lecturas</p>
-        <p className="mt-1 text-xs leading-relaxed text-sky-900/90">
-          Por cada réplica elija <strong>operador</strong> e{' '}
-          <strong>{primaryRole ? primaryRole.label : 'instrumento vigente'}</strong>,
-          capture los valores medidos y guarde. Luego calcule el presupuesto de incertidumbre.
-        </p>
-        {secondaryRoles.length > 0 && (
-          <p className="mt-1 text-xs text-sky-800/80">
+        {showRoleColumns && rolesDef ? (
+          <p className="mt-1 text-xs leading-relaxed text-sky-900/90">
+            Por cada réplica elija <strong>operador</strong> y{' '}
+            <strong>un instrumento por función</strong>:{' '}
+            {rolesDef.map((r, i) => (
+              <span key={r.key}>
+                {i > 0 && ', '}
+                <strong>{r.label}</strong>
+              </span>
+            ))}
+            . Capture los valores medidos y guarde.
+          </p>
+        ) : (
+          <p className="mt-1 text-xs leading-relaxed text-sky-900/90">
+            Por cada réplica elija <strong>operador</strong> e{' '}
+            <strong>{primaryRole ? primaryRole.label : 'instrumento vigente'}</strong>,
+            capture los valores medidos y guarde. Luego calcule el presupuesto de incertidumbre.
+          </p>
+        )}
+        {rolesDef && !showRoleColumns && !isLocked && (
+          <p className="mt-1 text-xs text-amber-900">
             <Info className="mr-1 inline h-3 w-3" />
-            {secondaryRoles.map((r) => r.label).join(' y ')} se asigna en{' '}
-            <strong>Configuración → Equipo del estudio</strong> (rol de instrumento) y su calibración
-            entra automáticamente al presupuesto sin necesidad de asignarlo por réplica.
+            Este mesurando usa <strong>múltiples instrumentos</strong> (p. ej. Prensa + Vernier).
+            Asigne un <strong>rol a cada instrumento</strong> en{' '}
+            <strong>Configuración → Equipo del estudio</strong> para activar las columnas
+            por función y que cada calibración use el coeficiente de sensibilidad correcto.
           </p>
         )}
         {!poolActive && !isLocked && (
@@ -316,21 +355,30 @@ export function EmaUncertaintyReplicaTable({
               Repartir operadores
             </Button>
           </div>
+          {/* Primary instrument bulk assign */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-[200px] flex-1">
               <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
-                Instrumento → todas las filas
+                {primaryRole ? primaryRole.label : 'Instrumento'} → todas las filas
               </label>
               <Select
                 value={bulkInstrumentId}
                 onValueChange={setBulkInstrumentId}
-                disabled={filteredInstruments.length === 0}
+                disabled={
+                  (showRoleColumns
+                    ? (instrumentsByRoleKey[primaryRole?.key ?? ''] ?? filteredInstruments)
+                    : filteredInstruments
+                  ).length === 0
+                }
               >
                 <SelectTrigger className="h-8 bg-white text-xs">
                   <SelectValue placeholder="Elegir instrumento" />
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredInstruments.map((inst) => (
+                  {(showRoleColumns && primaryRole
+                    ? (instrumentsByRoleKey[primaryRole.key] ?? filteredInstruments)
+                    : filteredInstruments
+                  ).map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       <span className="font-mono text-xs">{inst.codigo}</span> · {inst.nombre}
                     </SelectItem>
@@ -351,6 +399,56 @@ export function EmaUncertaintyReplicaTable({
               Aplicar
             </Button>
           </div>
+          {/* Secondary instrument bulk assigns (one per non-primary role) */}
+          {showRoleColumns &&
+            rolesDef &&
+            rolesDef.slice(1).map((role) => {
+              const roleInstrs = instrumentsByRoleKey[role.key] ?? []
+              const fieldKey = `_instr_${role.key}`
+              const currentBulk = bulkSecondaryId[role.key] ?? ''
+              return (
+                <div key={role.key} className="flex flex-wrap items-end gap-3">
+                  <div className="min-w-[200px] flex-1">
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                      {role.label} → todas las filas
+                    </label>
+                    <Select
+                      value={currentBulk}
+                      onValueChange={(v) =>
+                        setBulkSecondaryId((prev) => ({ ...prev, [role.key]: v }))
+                      }
+                      disabled={roleInstrs.length === 0}
+                    >
+                      <SelectTrigger className="h-8 bg-white text-xs">
+                        <SelectValue placeholder={`Elegir ${role.label}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roleInstrs.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            <span className="font-mono text-xs">{inst.codigo}</span> · {inst.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={!currentBulk}
+                    onClick={() =>
+                      onBulkAssign(
+                        { rawValueField: fieldKey, rawValueData: currentBulk },
+                        bulkAssignHelpers,
+                      )
+                    }
+                  >
+                    Aplicar
+                  </Button>
+                </div>
+              )
+            })}
         </div>
       )}
 
@@ -397,9 +495,18 @@ export function EmaUncertaintyReplicaTable({
             <tr className="border-b border-stone-200 bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
               <th className="px-3 py-2 text-left">#</th>
               <th className="px-3 py-2 text-left min-w-[140px]">Operador</th>
-              <th className="px-3 py-2 text-left min-w-[160px]">
-                {primaryRole ? primaryRole.label : 'Instrumento'}
-              </th>
+              {/* Per-role instrument columns (VIGAS, FC, FC_CUBO, MU) vs. single column */}
+              {showRoleColumns && rolesDef
+                ? rolesDef.map((role) => (
+                    <th key={role.key} className="px-3 py-2 text-left min-w-[160px]">
+                      {role.label}
+                    </th>
+                  ))
+                : (
+                    <th className="px-3 py-2 text-left min-w-[160px]">
+                      {primaryRole ? primaryRole.label : 'Instrumento'}
+                    </th>
+                  )}
               {inputs.map((inp) => (
                 <th key={inp.simbolo} className="px-3 py-2 text-right">
                   {inp.nombre_display}
@@ -422,13 +529,16 @@ export function EmaUncertaintyReplicaTable({
               const liveComputed =
                 replica.computed_value ??
                 computeReplicaMeasurand(measurand, replica.raw_values_json)
-              const instr = replica.instrumento_id
+
+              // Primary instrument (always stored in instrumento_id)
+              const primaryInstr = replica.instrumento_id
                 ? instrumentById.get(replica.instrumento_id) ?? replica.instrumento
                 : null
 
               return (
                 <tr key={orden} className="hover:bg-stone-50/80">
                   <td className="px-3 py-2 text-stone-500">{orden}</td>
+                  {/* Operator select */}
                   <td className="px-2 py-1.5">
                     <Select
                       disabled={isLocked || loadingCatalog}
@@ -457,65 +567,152 @@ export function EmaUncertaintyReplicaTable({
                       </SelectContent>
                     </Select>
                   </td>
-                  <td className="px-2 py-1.5">
-                    <Select
-                      disabled={isLocked || loadingCatalog}
-                      value={replica.instrumento_id ?? ''}
-                      onValueChange={(v) => {
-                        const inst = v
-                          ? filteredInstruments.find((i) => i.id === v) ?? instrumentById.get(v)
-                          : null
-                        onReplicaChange(orden, 'instrumento_id', v || null, {
-                          instrumento: inst
-                            ? {
-                                id: inst.id,
-                                codigo: inst.codigo,
-                                nombre: inst.nombre,
-                                estado: inst.estado,
-                              }
-                            : null,
-                        })
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        {instr ? (
-                          <span className="truncate">
-                            <InstrumentSelectLabel inst={instr} />
-                          </span>
-                        ) : (
-                          <SelectValue placeholder="Instrumento" />
-                        )}
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filteredInstruments.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            <span className="flex flex-wrap items-center gap-1.5">
-                              <InstrumentSelectLabel inst={inst} />
-                              <EmaUncertaintyInstrumentEstadoBadge estado={inst.estado} />
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {instr && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                        <EmaUncertaintyInstrumentEstadoBadge estado={instr.estado} />
-                        <Link
-                          href={`/quality/instrumentos/${replica.instrumento_id}`}
-                          className="text-[10px] text-sky-700 hover:underline"
-                        >
-                          Ver ficha
-                        </Link>
-                      </div>
-                    )}
-                  </td>
+                  {/* Instrument column(s) */}
+                  {showRoleColumns && rolesDef
+                    ? rolesDef.map((role, roleIdx) => {
+                        const isPrimary = roleIdx === 0
+                        const fieldKey = isPrimary ? 'instrumento_id' : `_instr_${role.key}`
+                        const currentId = isPrimary
+                          ? (replica.instrumento_id ?? '')
+                          : ((replica.raw_values_json[fieldKey] as string | undefined) ?? '')
+                        const currentInstr = isPrimary
+                          ? primaryInstr
+                          : (currentId ? instrumentById.get(currentId) : null)
+                        const roleInstrs = instrumentsByRoleKey[role.key] ?? filteredInstruments
+
+                        return (
+                          <td key={role.key} className="px-2 py-1.5">
+                            <Select
+                              disabled={isLocked || loadingCatalog}
+                              value={currentId}
+                              onValueChange={(v) => {
+                                if (isPrimary) {
+                                  const inst = v
+                                    ? filteredInstruments.find((i) => i.id === v) ??
+                                      instrumentById.get(v)
+                                    : null
+                                  onReplicaChange(orden, 'instrumento_id', v || null, {
+                                    instrumento: inst
+                                      ? {
+                                          id: inst.id,
+                                          codigo: inst.codigo,
+                                          nombre: inst.nombre,
+                                          estado: inst.estado,
+                                        }
+                                      : null,
+                                  })
+                                } else {
+                                  onReplicaChange(orden, fieldKey, v || null)
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                {currentInstr ? (
+                                  <span className="truncate">
+                                    <InstrumentSelectLabel inst={currentInstr} />
+                                  </span>
+                                ) : (
+                                  <SelectValue placeholder={role.label} />
+                                )}
+                              </SelectTrigger>
+                              <SelectContent>
+                                {roleInstrs.map((inst) => (
+                                  <SelectItem key={inst.id} value={inst.id}>
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                      <InstrumentSelectLabel inst={inst} />
+                                      <EmaUncertaintyInstrumentEstadoBadge estado={inst.estado} />
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {currentInstr && isPrimary && (
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                                <EmaUncertaintyInstrumentEstadoBadge estado={currentInstr.estado} />
+                                <Link
+                                  href={`/quality/instrumentos/${currentId}`}
+                                  className="text-[10px] text-sky-700 hover:underline"
+                                >
+                                  Ver ficha
+                                </Link>
+                              </div>
+                            )}
+                            {currentInstr && !isPrimary && (
+                              <div className="mt-0.5">
+                                <EmaUncertaintyInstrumentEstadoBadge estado={currentInstr.estado} />
+                              </div>
+                            )}
+                          </td>
+                        )
+                      })
+                    : (
+                        // Single instrument column (TEMP, REV, AIRE or no roles configured)
+                        <td className="px-2 py-1.5">
+                          <Select
+                            disabled={isLocked || loadingCatalog}
+                            value={replica.instrumento_id ?? ''}
+                            onValueChange={(v) => {
+                              const inst = v
+                                ? filteredInstruments.find((i) => i.id === v) ??
+                                  instrumentById.get(v)
+                                : null
+                              onReplicaChange(orden, 'instrumento_id', v || null, {
+                                instrumento: inst
+                                  ? {
+                                      id: inst.id,
+                                      codigo: inst.codigo,
+                                      nombre: inst.nombre,
+                                      estado: inst.estado,
+                                    }
+                                  : null,
+                              })
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              {primaryInstr ? (
+                                <span className="truncate">
+                                  <InstrumentSelectLabel inst={primaryInstr} />
+                                </span>
+                              ) : (
+                                <SelectValue placeholder="Instrumento" />
+                              )}
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredInstruments.map((inst) => (
+                                <SelectItem key={inst.id} value={inst.id}>
+                                  <span className="flex flex-wrap items-center gap-1.5">
+                                    <InstrumentSelectLabel inst={inst} />
+                                    <EmaUncertaintyInstrumentEstadoBadge estado={inst.estado} />
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {primaryInstr && (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <EmaUncertaintyInstrumentEstadoBadge estado={primaryInstr.estado} />
+                              <Link
+                                href={`/quality/instrumentos/${replica.instrumento_id}`}
+                                className="text-[10px] text-sky-700 hover:underline"
+                              >
+                                Ver ficha
+                              </Link>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                  {/* Numeric input fields */}
                   {inputs.map((inp) => (
                     <td key={inp.simbolo} className="px-3 py-1.5">
                       <input
                         type="number"
                         step="any"
                         disabled={isLocked}
-                        value={replica.raw_values_json[inp.simbolo] ?? ''}
+                        value={
+                          typeof replica.raw_values_json[inp.simbolo] === 'number'
+                            ? (replica.raw_values_json[inp.simbolo] as number)
+                            : ''
+                        }
                         onChange={(e) =>
                           onReplicaChange(
                             orden,

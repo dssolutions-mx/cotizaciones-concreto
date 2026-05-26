@@ -987,28 +987,48 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     if (added) instrumensWithCal.add(r.instrumento_id);
   }
 
-  // Loop 2: pool instruments with role assignments NOT already seen in replicas.
-  // This handles the secondary instrument (e.g., the Vernier that measures dimensions
-  // but is never assigned to individual replicas because the Prensa is the primary one).
-  const unassignedRoleIds = Object.keys(instrRoles).filter(
-    (id) => !seenInstrumentos.has(id) && rolesDef?.some((ro) => ro.key === instrRoles[id]),
-  );
-  if (unassignedRoleIds.length > 0) {
-    // Fetch instrument names for pool instruments not in any replica (no join available).
+  // Loop 2: secondary instruments from two sources:
+  // (a) Per-replica raw_values_json['_instr_<roleKey>'] entries (technician selects per replica)
+  // (b) Pool instrumento_roles assignments not yet seen (pool-level fallback)
+  //
+  // This ensures calibration rows exist for dimensional instruments (Vernier, Recipiente PV)
+  // regardless of whether they were assigned per replica or at the pool level.
+  const secondaryInstrToProcess = new Map<string, string>(); // instrId → roleKey
+
+  // (a) Per-replica secondary instruments
+  if (rolesDef && rolesDef.length > 1) {
+    for (const r of replicas) {
+      for (const role of rolesDef.slice(1)) {
+        const instrId = r.raw_values_json[`_instr_${role.key}`] as string | undefined;
+        if (instrId && !seenInstrumentos.has(instrId) && !secondaryInstrToProcess.has(instrId)) {
+          secondaryInstrToProcess.set(instrId, role.key);
+        }
+      }
+    }
+  }
+
+  // (b) Pool-level assignments not yet seen
+  for (const [instrId, roleKey] of Object.entries(instrRoles)) {
+    if (!seenInstrumentos.has(instrId) && !secondaryInstrToProcess.has(instrId) &&
+        rolesDef?.some((ro) => ro.key === roleKey)) {
+      secondaryInstrToProcess.set(instrId, roleKey);
+    }
+  }
+
+  if (secondaryInstrToProcess.size > 0) {
     const supabase = await createClient();
     const { data: poolInstrData } = await supabase
       .from('instrumentos')
       .select('id, codigo, nombre')
-      .in('id', unassignedRoleIds);
-    const poolInstrByid = new Map((poolInstrData ?? []).map((i) => [i.id, i]));
+      .in('id', [...secondaryInstrToProcess.keys()]);
+    const poolInstrById = new Map((poolInstrData ?? []).map((i) => [i.id, i]));
 
-    for (const instrId of unassignedRoleIds) {
-      const roleKey = instrRoles[instrId];
+    for (const [instrId, roleKey] of secondaryInstrToProcess.entries()) {
       const role = rolesDef?.find((ro) => ro.key === roleKey);
       if (!role) continue;
 
       seenInstrumentos.add(instrId);
-      const instr = poolInstrByid.get(instrId);
+      const instr = poolInstrById.get(instrId);
       const instrNombre = instr ? `${instr.codigo} — ${instr.nombre}` : instrId;
       const added = await processInstrumentCalibration(instrId, instrNombre, role.symbols);
       if (added) instrumensWithCal.add(instrId);
@@ -1061,6 +1081,10 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   // Environmental / method / systematic Type B contributors seeded per measurand.
   // These represent real physical contributions that the lab team identified and that
   // the test method norms permit. Semi-amplitude from DB; u = halfWidth/√3.
+  //
+  // Skip any env contributor whose symbol is already covered by a role-based calibration row
+  // (e.g. MU V_recip when the Recipiente PV has a cert: the cert U replaces the seeded ±0.02 L,
+  // and including both would double-count the volume contribution — GUM §4.3.4).
   const envInputs = inputs.filter(
     (i) =>
       (i.kind === 'environmental' || i.kind === 'method' || i.kind === 'systematic') &&
@@ -1069,6 +1093,22 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   );
   const envOverrides = study.env_overrides ?? {};
   for (const inp of envInputs) {
+    // Check if a calibration row already covers this input symbol
+    const alreadyCoveredByCalibration = typeBInputs.some(
+      (tb) =>
+        tb.categoria === 'calibration' &&
+        tb.magnitud_xi != null &&
+        (tb.magnitud_xi === inp.simbolo ||
+          tb.magnitud_xi.split(',').map((s) => s.trim()).includes(inp.simbolo)),
+    );
+    if (alreadyCoveredByCalibration) {
+      warnings.push(
+        `Contribuyente seeded '${inp.simbolo}' (${inp.nombre_display}) omitido: ` +
+        `ya cubierto por la calibración del instrumento asociado (GUM §4.3.4). ` +
+        `Incluirlo por separado duplicaría la contribución.`,
+      );
+      continue;
+    }
     const halfWidth = envOverrides[inp.simbolo] ?? inp.default_semiamplitud!;
     typeBInputs.push({
       fuente: inp.nombre_display,

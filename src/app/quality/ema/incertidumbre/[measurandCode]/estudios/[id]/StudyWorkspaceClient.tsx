@@ -205,6 +205,12 @@ export function StudyWorkspaceClient({
                   ? r.instrumento
                   : undefined,
           }
+        } else if (field.startsWith('_instr_')) {
+          // Secondary instrument UUID stored as a string in raw_values_json
+          const raw = { ...r.raw_values_json }
+          if (value === null) delete raw[field]
+          else raw[field] = value as string
+          next = { ...r, raw_values_json: raw }
         } else {
           const raw = { ...r.raw_values_json }
           if (value === null) delete raw[field]
@@ -407,6 +413,13 @@ export function StudyWorkspaceClient({
                               helpers?.resolveInstrumento?.(patch.sameInstrumentoId) ??
                               next.instrumento,
                           }
+                        }
+                        if (patch.rawValueField && patch.rawValueData !== undefined) {
+                          // Bulk-assign a raw value field (used for secondary instrument UUIDs)
+                          const raw = { ...next.raw_values_json }
+                          if (patch.rawValueData === null) delete raw[patch.rawValueField]
+                          else raw[patch.rawValueField] = patch.rawValueData
+                          next = { ...next, raw_values_json: raw }
                         }
                         return {
                           ...next,

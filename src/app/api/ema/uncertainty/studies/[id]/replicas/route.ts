@@ -9,7 +9,9 @@ const ReplicaSchema = z.object({
   orden: z.number().int().min(1),
   operator_id: z.string().uuid().nullable().optional(),
   instrumento_id: z.string().uuid().nullable().optional(),
-  raw_values_json: z.record(z.number()),
+  // Numbers for measurand readings; strings (UUIDs) for secondary instrument assignments
+  // stored under _instr_<roleKey> keys (e.g. _instr_dimensiones for the Vernier in VIGAS).
+  raw_values_json: z.record(z.union([z.number(), z.string()])),
   computed_value: z.number().nullable().optional(),
 });
 

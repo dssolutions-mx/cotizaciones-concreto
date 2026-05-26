@@ -107,10 +107,16 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
       categories: ['Balanza'],
       symbols: ['m_total', 'm_tara'],
     },
-    // Recipiente PV covers V_recip, but V_recip is typically a fixed environmental/method
-    // contributor, not a per-replica measured input — handled via V_recip seeded input.
-    // If a lab explicitly calibrates the container and wants it as an instrument role, they
-    // can assign it here, but the sensitivity is already in the env contributor row.
+    {
+      // The Recipiente PV's calibrated volume directly enters the MU formula as V_recip.
+      // When the container has a cert in ema_instrumento_calibraciones (U in litres),
+      // buildStudyInput will use that U to replace the seeded ±0.02 L env contributor,
+      // applying the correct sensitivity c_V = −MU / V (GUM §5.1.3).
+      key: 'volumen',
+      label: 'Recipiente PV — Volumen (V)',
+      categories: ['Recipiente PV'],
+      symbols: ['V_recip'],
+    },
   ],
 };
 
@@ -170,16 +176,24 @@ function hasRequiredMeasuredInputs(
 /**
  * Evaluate the measurand value for one replica from raw input readings.
  * Returns null when inputs are incomplete or formula fails.
+ *
+ * `raw_values_json` may also contain string entries (UUIDs) keyed as `_instr_<roleKey>`
+ * for secondary instrument tracking — these are silently ignored during formula evaluation.
  */
 export function computeReplicaMeasurand(
   measurand: Pick<UncertaintyMeasurand, 'codigo' | 'formula_expr' | 'inputs'>,
-  raw_values_json: Record<string, number>,
+  raw_values_json: Record<string, number | string>,
 ): number | null {
-  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, raw_values_json)) {
+  // Strip non-numeric entries (secondary instrument UUID strings stored under _instr_* keys)
+  const numericRaw: Record<string, number> = Object.fromEntries(
+    Object.entries(raw_values_json).filter(([, v]) => typeof v === 'number'),
+  ) as Record<string, number>;
+
+  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, numericRaw)) {
     return null;
   }
 
-  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, raw_values_json);
+  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, numericRaw);
 
   const expr = measurand.formula_expr?.trim();
   if (expr) {
