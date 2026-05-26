@@ -20,11 +20,11 @@ export const MEASURAND_INSTRUMENT_CATEGORIES: Record<MeasurandCodigo, string[]> 
   // Cylinder compression: press for load + vernier/flexómetro for diameter.
   // Balanza + Molde kept for backward-compat with drafts that selected them, but the
   // metrologically relevant calibrated devices are Prensa + Vernier/Flexómetro.
-  FC: ['Prensa hidráulica', 'Vernier', 'Flexometro', 'Balanza', 'Molde cilíndrico'],
+  FC: ['Equipos de compresión y ensayos mecánicos', 'Vernier', 'Flexometro', 'Balanza', 'Molde cilíndrico'],
   // Cubes: press for load + flexómetro or vernier for side measurement
-  FC_CUBO: ['Prensa hidráulica', 'Flexometro', 'Vernier'],
+  FC_CUBO: ['Equipos de compresión y ensayos mecánicos', 'Flexometro', 'Vernier'],
   // Beams (flexión): press for load + vernier/flexómetro for b, d, L (NMX-C-191 / ASTM C78).
-  VIGAS: ['Prensa hidráulica', 'Vernier', 'Flexometro'],
+  VIGAS: ['Equipos de compresión y ensayos mecánicos', 'Vernier', 'Flexometro'],
 };
 
 /**
@@ -62,7 +62,7 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
     {
       key: 'carga',
       label: 'Prensa — Carga (Carga)',
-      categories: ['Prensa hidráulica'],
+      categories: ['Equipos de compresión y ensayos mecánicos'],
       symbols: ['Carga', 'carga'],
     },
     {
@@ -76,7 +76,7 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
     {
       key: 'carga',
       label: 'Prensa — Carga (Carga)',
-      categories: ['Prensa hidráulica'],
+      categories: ['Equipos de compresión y ensayos mecánicos'],
       symbols: ['Carga', 'carga'],
     },
     {
@@ -90,7 +90,7 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
     {
       key: 'carga',
       label: 'Prensa — Carga máxima (P)',
-      categories: ['Prensa hidráulica'],
+      categories: ['Equipos de compresión y ensayos mecánicos'],
       symbols: ['P'],
     },
     {

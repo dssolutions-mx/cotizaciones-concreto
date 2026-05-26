@@ -884,6 +884,46 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null;
 
   /**
+   * Map from input symbol → declared unit (from ema_uncertainty_measurand_inputs).
+   * Used to determine the correct target unit for cert conversion per role.
+   * e.g. VIGAS: { P: 'kgf', L: 'cm', b: 'cm', d: 'cm' }
+   *      FC:    { Carga: 'kg', d1: 'mm', d2: 'mm' }
+   *      REV:   { R: 'cm' }
+   */
+  const symbolUnitMap = new Map<string, string>(
+    (measurand.inputs ?? []).map((inp) => [inp.simbolo, inp.unidad]),
+  );
+
+  /**
+   * Return the unit that calibration uncertainty should be expressed in for
+   * the given role symbols.  For single-input measurands (roleSymbols null),
+   * fall back to measurand.unidad.
+   *
+   * Logic: find the first roleSymbol that has a declared unit in symbolUnitMap.
+   * All symbols for the same role should share the same physical dimension
+   * (e.g. L/b/d are all lengths in cm; Carga/P are forces in kg/kgf).
+   *
+   * The fallback tries numbered variants (sym+'1', sym+'2') to bridge the gap
+   * between role logical symbols (e.g. 'd', 'dprom') and the actual DB input
+   * symbols (e.g. 'd1', 'd2') — as used by the FC measurand for cylinder diameter.
+   */
+  function getTargetUnitForRole(roleSymbols: string[] | null): string {
+    if (!roleSymbols || roleSymbols.length === 0) return measurand.unidad;
+    for (const sym of roleSymbols) {
+      // Direct lookup (also try lowercase for 'carga' vs 'Carga' etc.)
+      const u = symbolUnitMap.get(sym) ?? symbolUnitMap.get(sym.toLowerCase());
+      if (u) return u;
+      // Fallback: try numbered / suffixed variants (e.g. 'd' → 'd1', 'd2')
+      for (const suffix of ['1', '2', 'prom', '_prom']) {
+        const u2 = symbolUnitMap.get(sym + suffix);
+        if (u2) return u2;
+      }
+    }
+    // Last resort: measurand output unit (correct for single-input measurands)
+    return measurand.unidad;
+  }
+
+  /**
    * Compute the combined GUM sensitivity coefficient for an instrument that covers
    * multiple independent input symbols (e.g. Vernier measures L, b, d independently).
    * Returns undefined when:
@@ -1005,15 +1045,20 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     // ── Case C: valid calibration found ──────────────────────────────────────
     let U_used = calData.u_expandida;
     let conversionNote = '';
-    const calUnit = calData.unidad ?? measurand.unidad;
-    if (calUnit && calUnit !== measurand.unidad) {
-      const conv = convertUnit(U_used, calUnit, measurand.unidad);
+    // For multi-input measurands, convert to the *symbol's* unit (e.g. cm for
+    // a Vernier measuring VIGAS/FC_CUBO dimensions), not the measurand output
+    // unit (kg/cm²).  The GUM sensitivity coefficient ci = ∂f/∂xi already
+    // carries the [output_unit / symbol_unit] conversion inside buildBudget.
+    const calUnit = calData.unidad ?? '';
+    const targetUnit = getTargetUnitForRole(roleSymbols);
+    if (calUnit && targetUnit && calUnit !== targetUnit) {
+      const conv = convertUnit(U_used, calUnit, targetUnit);
       if (conv) {
         U_used = conv.value;
-        if (conv.converted) conversionNote = ` (convertido ${calUnit}→${measurand.unidad})`;
+        if (conv.converted) conversionNote = ` (convertido ${calUnit}→${targetUnit})`;
       } else {
         warnings.push(
-          `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${measurand.unidad}". Se omite la contribución de calibración para evitar error de unidades.`,
+          `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${targetUnit}". Se omite la contribución de calibración para evitar error de unidades.`,
         );
         return false;
       }
@@ -1238,10 +1283,18 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         if (instrId) {
           const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
           if (calData?.type === 'ok' && calData.u_expandida > 0) {
+            // L_meas_err unit is the symbol unit (cm for FC_CUBO sides); convert if needed.
+            const lMeasUnit = typeBInputs[lMeasErrIdx]?.unidad ?? 'cm';
+            let U_lmeas = calData.u_expandida;
+            const calUnitL = calData.unidad ?? '';
+            if (calUnitL && calUnitL !== lMeasUnit) {
+              const conv = convertUnit(U_lmeas, calUnitL, lMeasUnit);
+              if (conv) U_lmeas = conv.value;
+            }
             typeBInputs[lMeasErrIdx] = {
               ...typeBInputs[lMeasErrIdx],
               kind: 'calibration',
-              U_cert: calData.u_expandida,
+              U_cert: U_lmeas,
               k_cert: calData.k_factor,
               cert_numero: calData.numero_certificado ?? undefined,
               norma_ref_override: 'GUM §4.3.4; NMX-CH-002-IMNC-2008',

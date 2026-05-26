@@ -27,7 +27,8 @@ const CATEGORIA_DIV_MIN: Record<string, number> = {
   Balanza: 0.1,        // 0.1 g  (context-dependent — labs may override)
   'Recipiente PV': 1,
   'Equipo contenido de aire': 0.05,
-  'Prensa hidráulica': 1,
+  'Prensa hidráulica': 1,  // legacy alias; kept for backward-compat
+  'Equipos de compresión y ensayos mecánicos': 1,  // DB category name
   'Molde cilíndrico': 0.5,
 };
 
