@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState } from 'react'
-import { CheckCircle2, XCircle } from 'lucide-react'
+import Link from 'next/link'
+import { CheckCircle2, XCircle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +19,35 @@ import {
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import type { PublishPreflight, UncertaintyStudy } from '@/types/ema-uncertainty'
 import { cn } from '@/lib/utils'
+
+/**
+ * Render a detail string that may contain `[ID verificación: <uuid>]` tags
+ * as inline clickable links to the verification page.
+ */
+function DetailWithLinks({ detail }: { detail: string }) {
+  // Split on [ID verificación: uuid] tags
+  const parts = detail.split(/(\[ID verificación:\s*[0-9a-f-]{36}\])/gi)
+  return (
+    <span>
+      {parts.map((part, i) => {
+        const m = part.match(/\[ID verificación:\s*([0-9a-f-]{36})\]/i)
+        if (m) {
+          return (
+            <Link
+              key={i}
+              href={`/quality/ema/verificaciones/${m[1]}`}
+              className="inline-flex items-center gap-0.5 ml-1 underline underline-offset-2 text-amber-700 hover:text-amber-900 font-medium"
+            >
+              Ver verificación
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          )
+        }
+        return <span key={i}>{part}</span>
+      })}
+    </span>
+  )
+}
 
 export function EmaUncertaintyPublishPanel({
   study,
@@ -116,7 +146,9 @@ export function EmaUncertaintyPublishPanel({
                     {displayLabel}
                   </span>
                   {c.detail && (
-                    <span className="ml-auto text-xs text-stone-400">{c.detail}</span>
+                    <span className="ml-auto text-xs text-stone-400">
+                      <DetailWithLinks detail={c.detail} />
+                    </span>
                   )}
                 </div>
               )

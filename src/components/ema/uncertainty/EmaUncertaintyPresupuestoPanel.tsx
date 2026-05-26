@@ -1,11 +1,25 @@
 'use client'
 
 import React from 'react'
-import { BarChart3, RefreshCw, AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
+import { BarChart3, RefreshCw, AlertTriangle, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmaUncertaintyBudgetTable } from '@/components/ema/uncertainty/EmaUncertaintyBudgetTable'
 import type { BudgetResult, UncertaintyPublished } from '@/types/ema-uncertainty'
 import { cn } from '@/lib/utils'
+
+/**
+ * Parse a warning string for an embedded `[ID verificación: <uuid>]` tag.
+ * Returns the clean text and the verification UUID if present.
+ */
+function parseWarning(w: string): { text: string; verificacionId: string | null; isCritical: boolean } {
+  const idMatch = w.match(/\[ID verificación:\s*([0-9a-f-]{36})\]/i)
+  const verificacionId = idMatch ? idMatch[1] : null
+  const text = verificacionId ? w.replace(idMatch![0], '').trim() : w
+  // Warnings that mention an uncomputed verification are critical (red)
+  const isCritical = verificacionId !== null || w.startsWith('⚠')
+  return { text, verificacionId, isCritical }
+}
 
 export function EmaUncertaintyPresupuestoPanel({
   budget,
@@ -78,15 +92,32 @@ export function EmaUncertaintyPresupuestoPanel({
 
       {warnings.length > 0 && (
         <div className="space-y-1">
-          {warnings.map((w, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700"
-            >
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-              {w}
-            </div>
-          ))}
+          {warnings.map((w, i) => {
+            const { text, verificacionId, isCritical } = parseWarning(w)
+            return (
+              <div
+                key={i}
+                className={cn(
+                  'flex items-start gap-2 rounded-lg px-3 py-2 text-xs',
+                  isCritical
+                    ? 'bg-red-50 text-red-700 border border-red-200'
+                    : 'bg-amber-50 text-amber-700',
+                )}
+              >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span className="flex-1">{text}</span>
+                {verificacionId && (
+                  <Link
+                    href={`/quality/ema/verificaciones/${verificacionId}`}
+                    className="ml-1 inline-flex items-center gap-1 shrink-0 font-medium underline underline-offset-2 hover:opacity-80"
+                  >
+                    Recalcular incertidumbre
+                    <ExternalLink className="h-3 w-3" />
+                  </Link>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 

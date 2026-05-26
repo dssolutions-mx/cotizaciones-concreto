@@ -607,22 +607,46 @@ async function instrumentMetrologyOkAtStudyDate(
  *      (rolled up by `emaMetrologyService.computeAndPersistVerificationGumBudget`,
  *      prefixed `VER-INT-…`) and any other calibration events the lab logs here.
  *   2. `certificados_calibracion` — legacy external-certificate table.
+ *   3. `completed_verificaciones` — if the instrument has a closed internal
+ *      verification whose GUM rollup was never computed (historical verifications
+ *      done before the uncertainty module existed), return a
+ *      `'verification_needs_rollup'` sentinel so the caller can push a specific,
+ *      actionable warning instead of a generic "no cert" message.
  *
- * Returns `source: 'internal_verification'` when the chosen row's certificate
- * number starts with `VER-INT-`, `'external_cert'` otherwise.
+ * Returns a tagged union:
+ *   • `{ type: 'ok', ... }` — valid calibration data found (use for Type B row)
+ *   • `{ type: 'verification_needs_rollup', ... }` — has uncomputed verification
+ *   • `null` — no verification or certificate of any kind
  */
 export type CalibrationSource = 'external_cert' | 'internal_verification';
+
+export type CalibrationResolution =
+  | {
+      type: 'ok';
+      u_expandida: number;
+      k_factor: number;
+      numero_certificado: string | null;
+      unidad: string | null;
+      source: CalibrationSource;
+    }
+  | {
+      /**
+       * The instrument has one or more closed internal verifications, but their
+       * GUM uncertainty rollup has never been computed (or failed). No calibration
+       * data is available for the study budget until the rollup is executed.
+       * Deep-link: `/quality/ema/verificaciones/${verificacion_id}`
+       */
+      type: 'verification_needs_rollup';
+      verificacion_id: string;
+      verificacion_fecha: string;
+      gum_rollup_status: string | null;
+    }
+  | null;
 
 async function resolveInstrumentCalibration(
   instrumento_id: string,
   studyDate: string,
-): Promise<{
-  u_expandida: number;
-  k_factor: number;
-  numero_certificado: string | null;
-  unidad: string | null;
-  source: CalibrationSource;
-} | null> {
+): Promise<CalibrationResolution> {
   const supabase = await createClient();
 
   // 1. Prefer ema_instrumento_calibraciones (internal verifications + lab cal events)
@@ -645,6 +669,7 @@ async function resolveInstrumentCalibration(
   if (validCal) {
     const cert = validCal.numero_certificado ?? null;
     return {
+      type: 'ok',
       u_expandida: validCal.u_expandida as number,
       k_factor: validCal.k_factor ?? 2,
       numero_certificado: cert,
@@ -654,7 +679,7 @@ async function resolveInstrumentCalibration(
   }
 
   // 2. Fallback: legacy external certificate
-  const { data } = await supabase
+  const { data: legacyCert } = await supabase
     .from('certificados_calibracion')
     .select('incertidumbre_expandida, factor_cobertura, numero_certificado')
     .eq('instrumento_id', instrumento_id)
@@ -665,15 +690,57 @@ async function resolveInstrumentCalibration(
     .limit(1)
     .maybeSingle();
 
-  if (!data || !data.incertidumbre_expandida) return null;
+  if (legacyCert?.incertidumbre_expandida) {
+    return {
+      type: 'ok',
+      u_expandida: legacyCert.incertidumbre_expandida,
+      k_factor: legacyCert.factor_cobertura ?? 2,
+      numero_certificado: legacyCert.numero_certificado ?? null,
+      unidad: null,
+      source: 'external_cert',
+    };
+  }
 
-  return {
-    u_expandida: data.incertidumbre_expandida,
-    k_factor: data.factor_cobertura ?? 2,
-    numero_certificado: data.numero_certificado ?? null,
-    unidad: null,
-    source: 'external_cert',
-  };
+  // 3. Detect closed internal verifications whose GUM rollup was never computed.
+  // These are historical verifications done before the uncertainty module existed.
+  // The measurement points are stored in completed_verificacion_measurements but
+  // presupuesto_json / gum_rollup_status were never set → no ema_instrumento_calibraciones
+  // row was ever written. Return a sentinel so the caller can show an actionable warning.
+  const { data: closedVerifs } = await supabase
+    .from('completed_verificaciones')
+    .select(`
+      id,
+      fecha_verificacion,
+      ema_verificacion_metrologia ( gum_rollup_status )
+    `)
+    .eq('instrumento_id', instrumento_id)
+    .eq('estado', 'cerrado')
+    .order('fecha_verificacion', { ascending: false })
+    .limit(5);
+
+  const needsRollup = (closedVerifs ?? []).find((v) => {
+    // Either no metrologia row at all, or rollup not ok
+    const meta = Array.isArray(v.ema_verificacion_metrologia)
+      ? v.ema_verificacion_metrologia[0]
+      : v.ema_verificacion_metrologia;
+    const status = (meta as { gum_rollup_status?: string | null } | null)?.gum_rollup_status;
+    return status !== 'ok';
+  });
+
+  if (needsRollup) {
+    const meta = Array.isArray(needsRollup.ema_verificacion_metrologia)
+      ? needsRollup.ema_verificacion_metrologia[0]
+      : needsRollup.ema_verificacion_metrologia;
+    const status = (meta as { gum_rollup_status?: string | null } | null)?.gum_rollup_status;
+    return {
+      type: 'verification_needs_rollup',
+      verificacion_id: needsRollup.id,
+      verificacion_fecha: needsRollup.fecha_verificacion,
+      gum_rollup_status: status ?? null,
+    };
+  }
+
+  return null;
 }
 
 /** Build the StudyInput for the engine from DB data */
@@ -901,17 +968,41 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     roleSymbols: string[] | null,
   ): Promise<boolean> {
     const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
-    if (!calData || calData.u_expandida <= 0) {
+
+    // ── Case A: closed verification exists but GUM rollup was never run ───────
+    // Common for instruments verified before the uncertainty module was deployed.
+    // The measurement points are in the DB but no U/k has been computed yet.
+    if (calData?.type === 'verification_needs_rollup') {
+      const fecha = calData.verificacion_fecha
+        ? new Date(calData.verificacion_fecha).toLocaleDateString('es-MX')
+        : '—';
+      const rollupStatus = calData.gum_rollup_status ?? 'nunca calculada';
+      warnings.push(
+        `⚠ Instrumento ${instrNombre}: tiene una verificación interna cerrada ` +
+        `(${fecha}) pero su incertidumbre GUM no ha sido calculada ` +
+        `(estado: ${rollupStatus}). ` +
+        `Abra la ficha del instrumento, vaya a Verificaciones y ejecute ` +
+        `"Recalcular incertidumbre" para que este presupuesto sea trazable. ` +
+        `[ID verificación: ${calData.verificacion_id}]`,
+      );
+      return false;
+    }
+
+    // ── Case B: no calibration of any kind ───────────────────────────────────
+    if (!calData || calData.type !== 'ok' || calData.u_expandida <= 0) {
       // Only warn if this instrument actually should have a calibration (has a role or is
       // the primary instrument of a single-input measurand).
       if (roleSymbols !== null || !rolesDef) {
         warnings.push(
-          `Instrumento ${instrNombre} no tiene certificado vigente ni verificación con U declarada. Se omite contribución Type B de calibración — el presupuesto no es trazable.`,
+          `Instrumento ${instrNombre} no tiene certificado vigente ni verificación interna. ` +
+          `Se omite contribución Type B de calibración — el presupuesto no es trazable. ` +
+          `Verifique el instrumento o cargue un certificado externo.`,
         );
       }
       return false;
     }
 
+    // ── Case C: valid calibration found ──────────────────────────────────────
     let U_used = calData.u_expandida;
     let conversionNote = '';
     const calUnit = calData.unidad ?? measurand.unidad;
@@ -958,7 +1049,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       seenInstrumentos.add(poolId);
       // Resolve calibration for this pool instrument even if no replica references it.
       const calData = await resolveInstrumentCalibration(poolId, study.fecha_estudio);
-      if (calData && calData.u_expandida > 0) instrumensWithCal.add(poolId);
+      if (calData?.type === 'ok' && calData.u_expandida > 0) instrumensWithCal.add(poolId);
     }
   }
 
@@ -1146,7 +1237,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         const instrId = replicas.find((r) => r.instrumento_id)?.instrumento_id ?? null;
         if (instrId) {
           const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
-          if (calData && calData.u_expandida > 0) {
+          if (calData?.type === 'ok' && calData.u_expandida > 0) {
             typeBInputs[lMeasErrIdx] = {
               ...typeBInputs[lMeasErrIdx],
               kind: 'calibration',
@@ -1155,6 +1246,14 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
               cert_numero: calData.numero_certificado ?? undefined,
               norma_ref_override: 'GUM §4.3.4; NMX-CH-002-IMNC-2008',
             };
+          } else if (calData?.type === 'verification_needs_rollup') {
+            typeBInputs.splice(lMeasErrIdx, 1);
+            const fecha = new Date(calData.verificacion_fecha).toLocaleDateString('es-MX');
+            warnings.push(
+              `FC_CUBO: el instrumento de medición del lado tiene verificación interna (${fecha}) ` +
+              `sin incertidumbre calculada. Recalcule la incertidumbre en la ficha del instrumento. ` +
+              `[ID: ${calData.verificacion_id}]`,
+            );
           } else {
             typeBInputs.splice(lMeasErrIdx, 1);
             warnings.push('FC_CUBO: sin certificado para el instrumento de medición del lado; se omite U_L del presupuesto.');
@@ -1384,6 +1483,67 @@ export async function validatePublishPreflight(studyId: string): Promise<Publish
     passed: failingInstruments.length === 0,
     detail: failingInstruments.map((r) => `${r.label}: ${r.detail}`).join(' · '),
   });
+
+  // Check for instruments with closed verifications whose GUM rollup was never computed.
+  // This happens for instruments verified before the uncertainty module was deployed.
+  // It's a recommendation (not a hard block) because the physical verification was done;
+  // the fix is a single software action (click "Recalcular incertidumbre").
+  const poolInstrIds = [
+    // Primary instruments from replicas
+    ...instrumentIds,
+    // Secondary instruments stored as _instr_* UUID strings in raw_values_json
+    ...replicas.flatMap((r) =>
+      Object.entries(r.raw_values_json ?? {})
+        .filter(([k, v]) => k.startsWith('_instr_') && typeof v === 'string')
+        .map(([, v]) => v as string),
+    ),
+  ];
+  const allInstrIds = [...new Set(poolInstrIds)];
+
+  const rollupChecks = await Promise.all(
+    allInstrIds.map(async (iid) => {
+      const cal = await resolveInstrumentCalibration(iid, study.fecha_estudio);
+      if (cal?.type !== 'verification_needs_rollup') return null;
+      // Fetch instrument label for display
+      const { data: inst } = await supabase
+        .from('instrumentos')
+        .select('codigo, nombre')
+        .eq('id', iid)
+        .maybeSingle();
+      const label = inst ? `${inst.codigo} — ${inst.nombre}` : iid;
+      const fecha = cal.verificacion_fecha
+        ? new Date(cal.verificacion_fecha).toLocaleDateString('es-MX')
+        : '—';
+      return {
+        label,
+        verificacion_id: cal.verificacion_id,
+        fecha,
+        status: cal.gum_rollup_status,
+      };
+    }),
+  );
+  const needsRollupItems = rollupChecks.filter(Boolean) as Array<{
+    label: string;
+    verificacion_id: string;
+    fecha: string;
+    status: string | null;
+  }>;
+
+  if (needsRollupItems.length > 0) {
+    checks.push({
+      label: '[Recomendación] Incertidumbre GUM calculada para verificaciones internas',
+      passed: false,
+      detail:
+        needsRollupItems
+          .map(
+            (r) =>
+              `${r.label}: verificación ${r.fecha} sin GUM calculado` +
+              (r.status ? ` (estado: ${r.status})` : '') +
+              ` [ID verificación: ${r.verificacion_id}]`,
+          )
+          .join(' · '),
+    });
+  }
 
   const blocking = checks.filter((c) => !c.label.startsWith('[Recomendación]'));
   return { ok: blocking.every((c) => c.passed), checks };
