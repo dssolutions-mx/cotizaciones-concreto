@@ -7,6 +7,8 @@ import {
   ArrowLeft, Save, Loader2, ChevronRight, AlertTriangle, Plus, ClipboardList, ExternalLink,
   Settings, Wrench, CheckCircle2, History, Trash2,
 } from 'lucide-react'
+import { VerificacionesBulkPrintBar, VerificacionRowCheckbox } from '@/components/ema/VerificacionesBulkPrintBar'
+import { prepareBulkVerificacionPrint } from '@/lib/ema/bulkVerificacionPrint'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -182,8 +184,30 @@ interface VerifRow {
 }
 
 function VerificacionesTab({ conjuntoId }: { conjuntoId: string }) {
+  const router = useRouter()
   const [rows, setRows] = useState<VerifRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [printError, setPrintError] = useState<string | null>(null)
+
+  const toggleRow = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const handleBulkPrint = () => {
+    setPrintError(null)
+    const result = prepareBulkVerificacionPrint([...selectedIds], `/quality/conjuntos/${conjuntoId}`)
+    if (!result.ok) {
+      setPrintError(result.error)
+      return
+    }
+    router.push('/quality/verificaciones/imprimir')
+  }
 
   useEffect(() => {
     fetch(`/api/ema/conjuntos/${conjuntoId}/verificaciones`)
@@ -232,8 +256,16 @@ function VerificacionesTab({ conjuntoId }: { conjuntoId: string }) {
         </div>
       ) : (
         <>
+          <VerificacionesBulkPrintBar
+            rows={rows}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            onPrint={handleBulkPrint}
+            printError={printError}
+          />
           {/* Table header */}
-          <div className="hidden md:grid grid-cols-[1fr_1fr_auto_auto_auto_auto] gap-3 px-4 py-2 border-b border-stone-100 bg-stone-50/40 text-[10px] font-semibold text-stone-400 uppercase tracking-wide">
+          <div className="hidden md:grid grid-cols-[auto_1fr_1fr_auto_auto_auto_auto] gap-3 px-4 py-2 border-b border-stone-100 bg-stone-50/40 text-[10px] font-semibold text-stone-400 uppercase tracking-wide">
+            <span className="w-4" />
             <span>Instrumento</span>
             <span>Fecha</span>
             <span>Resultado</span>
@@ -243,27 +275,39 @@ function VerificacionesTab({ conjuntoId }: { conjuntoId: string }) {
           </div>
           <div className="divide-y divide-stone-100">
             {rows.map(v => (
-              <Link
+              <div
                 key={v.id}
-                href={`/quality/instrumentos/${v.instrumento_id}/verificaciones/${v.id}`}
-                className="group flex flex-col md:grid md:grid-cols-[1fr_1fr_auto_auto_auto_auto] md:items-center gap-1 md:gap-3 px-4 py-3 hover:bg-stone-50 transition-colors"
+                className="group flex flex-col md:grid md:grid-cols-[auto_1fr_1fr_auto_auto_auto_auto] md:items-center gap-1 md:gap-3 px-4 py-3 hover:bg-stone-50 transition-colors"
               >
+                <VerificacionRowCheckbox
+                  id={v.id}
+                  selected={selectedIds.has(v.id)}
+                  onToggle={toggleRow}
+                />
                 {/* Instrument */}
-                <div className="flex items-center gap-2 min-w-0">
+                <Link
+                  href={`/quality/instrumentos/${v.instrumento_id}/verificaciones/${v.id}`}
+                  className="flex items-center gap-2 min-w-0"
+                >
                   <EmaTipoBadge tipo={v.instrumento_tipo as 'A'|'B'|'C'} />
                   <div className="min-w-0">
-                    <span className="text-sm font-medium text-stone-800 truncate block">{v.instrumento_nombre}</span>
+                    <span className="text-sm font-medium text-stone-800 truncate block group-hover:text-emerald-800">
+                      {v.instrumento_nombre}
+                    </span>
                     <span className="text-xs text-stone-400 font-mono">{v.instrumento_codigo}</span>
                   </div>
-                </div>
+                </Link>
 
                 {/* Date */}
-                <div>
+                <Link
+                  href={`/quality/instrumentos/${v.instrumento_id}/verificaciones/${v.id}`}
+                  className="min-w-0"
+                >
                   <span className="font-mono text-sm text-stone-700">{v.fecha_verificacion}</span>
                   {v.fecha_proxima_verificacion && (
                     <span className="block text-xs text-stone-400">Próxima: {v.fecha_proxima_verificacion}</span>
                   )}
-                </div>
+                </Link>
 
                 {/* Resultado */}
                 <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium whitespace-nowrap', resultadoStyle(v.resultado))}>
@@ -280,8 +324,14 @@ function VerificacionesTab({ conjuntoId }: { conjuntoId: string }) {
                   {v.template_codigo} v{v.template_version_number}
                 </span>
 
-                <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500 shrink-0 hidden md:block" />
-              </Link>
+                <Link
+                  href={`/quality/instrumentos/${v.instrumento_id}/verificaciones/${v.id}`}
+                  className="hidden md:flex items-center justify-end"
+                  aria-label="Ver detalle"
+                >
+                  <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500 shrink-0" />
+                </Link>
+              </div>
             ))}
           </div>
         </>

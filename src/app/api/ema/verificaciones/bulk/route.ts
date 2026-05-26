@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { EMA_VERIFICACION_READ_ROLES } from '@/lib/ema/emaVerificacionApiRoles';
-import { EMA_BULK_VERIFICACION_PRINT_MAX } from '@/lib/ema/bulkVerificacionPrint';
+import { EMA_BULK_VERIFICACION_PRINT_MAX } from '@/lib/ema/emaBulkVerificacionLimits';
 import { fetchCompletedVerificacionesDetalle } from '@/lib/ema/fetchCompletedVerificacionDetalle';
 import { z } from 'zod';
 
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single();
     const readRole = (profile as { role: string } | null)?.role;
-    if (!readRole || !EMA_VERIFICACION_READ_ROLES.includes(readRole as (typeof EMA_VERIFICACION_READ_ROLES)[number])) {
+    if (!readRole || !(EMA_VERIFICACION_READ_ROLES as readonly string[]).includes(readRole)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 

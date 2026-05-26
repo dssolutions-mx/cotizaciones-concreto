@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { Printer } from 'lucide-react'
+import { FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EMA_BULK_VERIFICACION_PRINT_MAX } from '@/lib/ema/bulkVerificacionPrint'
@@ -70,12 +70,12 @@ export function VerificacionesBulkPrintBar({
             <Button
               type="button"
               size="sm"
-              className="h-7 gap-1 text-xs bg-emerald-700 hover:bg-emerald-800 text-white ml-auto"
+              className="h-7 gap-1 text-xs bg-[#1B365D] hover:bg-[#142848] text-white ml-auto"
               disabled={selectedIds.size > EMA_BULK_VERIFICACION_PRINT_MAX}
               onClick={onPrint}
             >
-              <Printer className="h-3 w-3" />
-              Imprimir {selectedIds.size} ficha{selectedIds.size !== 1 ? 's' : ''}
+              <FileDown className="h-3 w-3" />
+              Generar informe PDF ({selectedIds.size})
             </Button>
             <Button
               type="button"

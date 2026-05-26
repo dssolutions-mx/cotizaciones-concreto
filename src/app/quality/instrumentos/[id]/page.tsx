@@ -36,6 +36,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { EmaEstadoBadge } from '@/components/ema/EmaEstadoBadge'
 import { EmaTipoBadge } from '@/components/ema/EmaTipoBadge'
+import { VerificacionesBulkPrintBar, VerificacionRowCheckbox } from '@/components/ema/VerificacionesBulkPrintBar'
+import { prepareBulkVerificacionPrint } from '@/lib/ema/bulkVerificacionPrint'
 import { cn } from '@/lib/utils'
 import {
   publishedPlantillaSummaryFromTemplatesPayload,
@@ -1008,8 +1010,33 @@ function VerificacionesSection({
   verificaciones: CompletedVerificacionCard[]
   plantillaPublicada: PublishedPlantillaSummary | null
 }) {
+  const router = useRouter()
   const verifs = verificaciones
   const template = plantillaPublicada
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [printError, setPrintError] = useState<string | null>(null)
+
+  const toggleRow = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  const handleBulkPrint = () => {
+    setPrintError(null)
+    const result = prepareBulkVerificacionPrint(
+      [...selectedIds],
+      `/quality/instrumentos/${instrumentoId}`,
+    )
+    if (!result.ok) {
+      setPrintError(result.error)
+      return
+    }
+    router.push('/quality/verificaciones/imprimir')
+  }
 
   const resultadoStyle = (r: string) =>
     r === 'conforme' ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
@@ -1045,7 +1072,7 @@ function VerificacionesSection({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <Printer className="h-3 w-3" /> Imprimir ficha
+                  <Printer className="h-3 w-3" /> Vista previa plantilla
                 </Link>
               </Button>
             )}
@@ -1081,38 +1108,56 @@ function VerificacionesSection({
       {verifs.length === 0 ? (
         <EmptyTabState message="Sin verificaciones registradas" />
       ) : (
-        <div className="divide-y divide-stone-100">
-          {verifs.map(v => (
-            <Link
-              key={v.id}
-              href={`/quality/instrumentos/${instrumentoId}/verificaciones/${v.id}`}
-              className="flex items-start gap-3 px-4 py-3 hover:bg-stone-50 transition-colors group"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-sm font-medium text-stone-900">{v.fecha_verificacion}</span>
-                  <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', resultadoStyle(v.resultado))}>
-                    {resultadoLabel(v.resultado)}
-                  </span>
-                  <span className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] text-stone-600">
-                    {estadoLabel(v.estado)}
-                  </span>
-                </div>
-                <div className="font-mono text-xs text-stone-500 mt-0.5">
-                  {v.template_codigo}
-                  {v.template_version_number != null && <> · v{v.template_version_number}</>}
-                  {v.fecha_proxima_verificacion && <> · Próxima: {v.fecha_proxima_verificacion}</>}
-                </div>
-                {v.created_by_name && (
-                  <div className="text-xs text-stone-400 mt-0.5">Por {v.created_by_name}</div>
-                )}
+        <div className="rounded-lg border border-stone-200 overflow-hidden">
+          <VerificacionesBulkPrintBar
+            rows={verifs}
+            selectedIds={selectedIds}
+            onSelectedIdsChange={setSelectedIds}
+            onPrint={handleBulkPrint}
+            printError={printError}
+          />
+          <div className="divide-y divide-stone-100">
+            {verifs.map(v => (
+              <div
+                key={v.id}
+                className="flex items-start gap-3 px-4 py-3 hover:bg-stone-50 transition-colors group"
+              >
+                <VerificacionRowCheckbox
+                  id={v.id}
+                  selected={selectedIds.has(v.id)}
+                  onToggle={toggleRow}
+                />
+                <Link
+                  href={`/quality/instrumentos/${instrumentoId}/verificaciones/${v.id}`}
+                  className="flex flex-1 items-start gap-3 min-w-0"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-sm font-medium text-stone-900">{v.fecha_verificacion}</span>
+                      <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', resultadoStyle(v.resultado))}>
+                        {resultadoLabel(v.resultado)}
+                      </span>
+                      <span className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[10px] text-stone-600">
+                        {estadoLabel(v.estado)}
+                      </span>
+                    </div>
+                    <div className="font-mono text-xs text-stone-500 mt-0.5">
+                      {v.template_codigo}
+                      {v.template_version_number != null && <> · v{v.template_version_number}</>}
+                      {v.fecha_proxima_verificacion && <> · Próxima: {v.fecha_proxima_verificacion}</>}
+                    </div>
+                    {v.created_by_name && (
+                      <div className="text-xs text-stone-400 mt-0.5">Por {v.created_by_name}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-xs text-stone-400">{timeAgo(v.created_at)}</span>
+                    <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500" />
+                  </div>
+                </Link>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="font-mono text-xs text-stone-400">{timeAgo(v.created_at)}</span>
-                <ChevronRight className="h-3.5 w-3.5 text-stone-300 group-hover:text-stone-500" />
-              </div>
-            </Link>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -1,7 +1,10 @@
 'use client'
 
+import { EMA_BULK_VERIFICACION_PRINT_MAX } from '@/lib/ema/emaBulkVerificacionLimits'
+
+export { EMA_BULK_VERIFICACION_PRINT_MAX }
+
 const SESSION_KEY = 'ema.bulkVerificacionPrint'
-export const EMA_BULK_VERIFICACION_PRINT_MAX = 30
 
 export type BulkVerificacionPrintSession = {
   ids: string[]

@@ -9,46 +9,14 @@ import type {
   VerificacionTemplateSnapshot,
 } from '@/types/ema'
 import { effectiveLayout, effectiveSectionRepetitions } from '@/lib/ema/sectionLayout'
-import { normalizeTemplateItem } from '@/lib/ema/templateItem'
+import {
+  buildMeasurementMap,
+  formatVerificacionMeasurement,
+  sectionItemsForDisplay,
+  verificacionCumpleLabel,
+  verificacionRowCumple,
+} from '@/lib/ema/verificacionFichaModel'
 import { cn } from '@/lib/utils'
-
-function formatMeasurement(
-  item: VerificacionTemplateItem,
-  m?: CompletedVerificacionMeasurement,
-): string {
-  if (!m) return '—'
-  if (item.tipo === 'booleano') {
-    if (m.valor_booleano === null) return '—'
-    return m.valor_booleano ? 'Sí' : 'No'
-  }
-  if (item.tipo === 'texto' || item.tipo === 'referencia_equipo') {
-    return m.valor_texto?.trim() || '—'
-  }
-  if (m.valor_observado != null) {
-    return `${m.valor_observado}${item.unidad ? ` ${item.unidad}` : ''}`
-  }
-  return '—'
-}
-
-function cumpleLabel(cumple: boolean | null | undefined): string {
-  if (cumple === true) return 'Sí'
-  if (cumple === false) return 'No'
-  return '—'
-}
-
-function rowCumple(
-  sectionId: string,
-  rep: number,
-  items: VerificacionTemplateItem[],
-  mMap: Map<string, CompletedVerificacionMeasurement>,
-): boolean | null {
-  const contributing = items.filter((it) => normalizeTemplateItem(it).contributes_to_cumple)
-  if (!contributing.length) return null
-  const values = contributing.map((it) => mMap.get(`${sectionId}:${rep}:${it.id}`)?.cumple)
-  if (values.some((v) => v === false)) return false
-  if (values.every((v) => v === true)) return true
-  return null
-}
 
 export interface CompletedVerificacionFichaProps {
   snapshot: VerificacionTemplateSnapshot
@@ -76,9 +44,7 @@ export function CompletedVerificacionFicha({
   const sections = snapshot.sections ?? []
   const headerFields = snapshot.header_fields ?? []
 
-  const mMap = new Map<string, CompletedVerificacionMeasurement>(
-    measurements.map((m) => [`${m.section_id}:${m.section_repeticion}:${m.item_id}`, m]),
-  )
+  const mMap = buildMeasurementMap(measurements)
 
   return (
     <div className={cn('rounded-lg border border-stone-900 overflow-hidden text-sm', className)}>
@@ -175,7 +141,7 @@ function SectionBlock({
     repetible?: boolean
     repeticiones_default?: number
   })
-  const items = (section.items ?? []).filter((i) => normalizeTemplateItem(i).item_role !== 'derivado')
+  const items = sectionItemsForDisplay(section)
 
   return (
     <div className="break-inside-avoid">
@@ -217,12 +183,12 @@ function SectionBlock({
                   const m = mMap.get(`${section.id}:${rep}:${it.id}`)
                   return (
                     <td key={it.id} className="border border-stone-300 px-2 py-2 align-top font-mono text-stone-800">
-                      {formatMeasurement(it, m)}
+                      {formatVerificacionMeasurement(it, m)}
                     </td>
                   )
                 })}
                 <td className="border border-stone-300 px-2 py-2 text-center font-medium">
-                  {cumpleLabel(rowCumple(section.id, rep, items, mMap))}
+                  {verificacionCumpleLabel(verificacionRowCumple(section.id, rep, items, mMap))}
                 </td>
               </tr>
             ))}

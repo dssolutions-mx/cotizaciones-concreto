@@ -220,7 +220,7 @@ export default function VerificacionDetailPage() {
             rel="noopener noreferrer"
           >
             <Printer className="h-3.5 w-3.5" />
-            Imprimir ficha
+            Exportar PDF
           </Link>
         </Button>
       </div>

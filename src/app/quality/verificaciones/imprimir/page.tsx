@@ -1,16 +1,20 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { CompletedVerificacionFicha } from '@/components/ema/CompletedVerificacionFicha'
-import { EmaFichaPrintToolbar } from '@/components/ema/EmaFichaPrintToolbar'
+import { EmaVerificacionReportToolbar } from '@/components/ema/EmaVerificacionReportToolbar'
 import {
   clearBulkVerificacionPrintSession,
   readBulkVerificacionPrintSession,
 } from '@/lib/ema/bulkVerificacionPrint'
-import { verificacionPrintMeta, VERIFICACION_RESULTADO_LABEL } from '@/lib/ema/verificacionPrintMeta'
+import {
+  downloadVerificacionInformePdf,
+  openVerificacionInformePdfInNewTab,
+} from '@/lib/ema/downloadVerificacionInformePdf'
+import { verificacionPrintMeta } from '@/lib/ema/verificacionPrintMeta'
 import type { CompletedVerificacionDetalle } from '@/types/ema'
 
 export default function BulkVerificacionesImprimirPage() {
@@ -20,6 +24,8 @@ export default function BulkVerificacionesImprimirPage() {
   const [items, setItems] = useState<CompletedVerificacionDetalle[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   useEffect(() => {
     const s = readBulkVerificacionPrintSession()
@@ -68,6 +74,31 @@ export default function BulkVerificacionesImprimirPage() {
     }
   }, [])
 
+  const lab = {
+    plantName: currentPlant?.name ?? null,
+    acreditacionEma: null as string | null,
+  }
+
+  const runPdf = useCallback(
+    async (mode: 'download' | 'open') => {
+      if (!items.length) return
+      setPdfBusy(true)
+      setPdfError(null)
+      try {
+        if (mode === 'download') {
+          await downloadVerificacionInformePdf(items, { lab, includeCover: true })
+        } else {
+          await openVerificacionInformePdfInNewTab(items, { lab, includeCover: true })
+        }
+      } catch (e: unknown) {
+        setPdfError(e instanceof Error ? e.message : 'No se pudo generar el PDF')
+      } finally {
+        setPdfBusy(false)
+      }
+    },
+    [items, lab],
+  )
+
   const title =
     items.length > 0
       ? `Informe de verificaciones (${items.length})`
@@ -78,10 +109,28 @@ export default function BulkVerificacionesImprimirPage() {
   const backHref = session?.backHref ?? '/quality/instrumentos'
 
   return (
-    <div className="-m-4 md:-m-6 min-h-screen bg-white print:m-0">
-      <EmaFichaPrintToolbar backHref={backHref} backLabel="Volver al listado" title={title} />
+    <div className="-m-4 md:-m-6 min-h-screen bg-stone-50">
+      <EmaVerificacionReportToolbar
+        backHref={backHref}
+        backLabel="Volver al listado"
+        title={title}
+        downloading={pdfBusy}
+        disabled={items.length === 0 || loading}
+        onDownloadPdf={() => runPdf('download')}
+        onOpenPdf={() => runPdf('open')}
+      />
 
-      <div className="mx-auto max-w-4xl px-4 py-6 print:px-0 print:py-0">
+      <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
+        <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
+          Se generará un único PDF con índice de registros y una ficha por verificación, listo para entregar al
+          centro de verificación EMA. Use <strong>Descargar PDF</strong> o <strong>Abrir PDF</strong> para imprimir
+          desde el visor del sistema.
+        </p>
+
+        {pdfError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{pdfError}</div>
+        )}
+
         {loading && (
           <div className="flex items-center justify-center gap-2 py-16 text-sm text-stone-500">
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -103,69 +152,17 @@ export default function BulkVerificacionesImprimirPage() {
         )}
 
         {!loading && !error && items.length > 0 && (
-          <>
-            <div className="ema-bulk-verificacion-cover mb-8 print:mb-0 rounded-lg border border-stone-300 overflow-hidden text-sm">
-              <div className="bg-slate-800 text-white px-4 py-3 text-center font-semibold">
-                Informe de verificaciones internas
-              </div>
-              <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 text-xs text-stone-700 space-y-1">
-                {currentPlant?.name && (
-                  <p>
-                    <span className="font-semibold">Planta: </span>
-                    {currentPlant.name}
-                  </p>
-                )}
-                <p>
-                  <span className="font-semibold">Registros incluidos: </span>
-                  {items.length}
-                </p>
-              </div>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-emerald-700 text-white">
-                    <th className="border border-stone-400 px-2 py-1 text-left">#</th>
-                    <th className="border border-stone-400 px-2 py-1 text-left">Instrumento</th>
-                    <th className="border border-stone-400 px-2 py-1 text-left">Fecha</th>
-                    <th className="border border-stone-400 px-2 py-1 text-left">Resultado</th>
-                    <th className="border border-stone-400 px-2 py-1 text-left">Plantilla</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((v, i) => (
-                    <tr key={v.id} className="bg-white">
-                      <td className="border border-stone-300 px-2 py-1">{i + 1}</td>
-                      <td className="border border-stone-300 px-2 py-1 font-mono">
-                        {v.instrumento?.codigo ?? '—'} — {v.instrumento?.nombre ?? '—'}
-                      </td>
-                      <td className="border border-stone-300 px-2 py-1 font-mono">{v.fecha_verificacion}</td>
-                      <td className="border border-stone-300 px-2 py-1">
-                        {VERIFICACION_RESULTADO_LABEL[v.resultado] ?? v.resultado}
-                      </td>
-                      <td className="border border-stone-300 px-2 py-1 font-mono text-[10px]">
-                        {v.snapshot?.template?.codigo ?? '—'}
-                        {v.template_version_number != null && ` v${v.template_version_number}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
+          <div className="space-y-8">
             {items.map((data, index) => (
-              <div
-                key={data.id}
-                className={
-                  index < items.length - 1
-                    ? 'ema-verificacion-print-page mb-8 print:mb-0'
-                    : 'ema-verificacion-print-page-last mb-8 print:mb-0'
-                }
-              >
+              <div key={data.id}>
+                <p className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide mb-2">
+                  Registro {index + 1} de {items.length}
+                </p>
                 {data.snapshot ? (
                   <CompletedVerificacionFicha
                     snapshot={data.snapshot}
                     measurements={data.measurements ?? []}
                     meta={verificacionPrintMeta(data)}
-                    className="print:border-stone-600"
                   />
                 ) : (
                   <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -174,11 +171,7 @@ export default function BulkVerificacionesImprimirPage() {
                 )}
               </div>
             ))}
-
-            <p className="print:hidden mt-4 text-[11px] text-stone-500 text-center">
-              {items.length} ficha{items.length !== 1 ? 's' : ''} · Use Imprimir o Ctrl+P para guardar como PDF.
-            </p>
-          </>
+          </div>
         )}
       </div>
     </div>
