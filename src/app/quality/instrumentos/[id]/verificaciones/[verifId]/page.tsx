@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, Clock, FileText } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle, Clock, Printer } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { EmaBreadcrumb } from '@/components/ema/EmaBreadcrumb'
 import { VerificationUncertaintyCard } from '@/components/ema/verificaciones/VerificationUncertaintyCard'
 import { cn } from '@/lib/utils'
@@ -206,6 +207,22 @@ export default function VerificacionDetailPage() {
             {data.template_version_number != null && ` · v${data.template_version_number}`}
           </p>
         </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0 gap-1.5 border-stone-300"
+          asChild
+        >
+          <Link
+            href={`/quality/instrumentos/${instrumentoId}/verificaciones/${verifId}/imprimir`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Imprimir ficha
+          </Link>
+        </Button>
       </div>
 
       {/* Header card */}

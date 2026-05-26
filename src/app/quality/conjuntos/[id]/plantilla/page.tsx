@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Plus, Trash2, Save, BookOpen, CheckCircle2,
-  AlertTriangle, Loader2, ChevronDown, ChevronRight, GripVertical, Eye,
+  AlertTriangle, Loader2, ChevronDown, ChevronRight, GripVertical, Eye, Printer,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1806,8 +1806,24 @@ export default function PlantillaPage() {
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
+              <DialogHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
                 <DialogTitle>Ficha (vista previa)</DialogTitle>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 gap-1.5 border-stone-300"
+                  asChild
+                >
+                  <Link
+                    href={`/quality/conjuntos/${conjuntoId}/plantilla/imprimir?template=${template.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    Imprimir
+                  </Link>
+                </Button>
               </DialogHeader>
               <TemplateFicha
                 template={{

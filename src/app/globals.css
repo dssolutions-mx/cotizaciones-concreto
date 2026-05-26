@@ -463,3 +463,20 @@
     background: rgba(235, 235, 245, 0.5);
   }
 }
+
+/* EMA ficha de verificación — impresión sin chrome de la app */
+@media print {
+  body {
+    background: #fff !important;
+  }
+  aside {
+    display: none !important;
+  }
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  main > div.mb-4.flex.md\\:hidden {
+    display: none !important;
+  }
+}

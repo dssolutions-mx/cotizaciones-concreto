@@ -24,6 +24,7 @@ import {
   FileWarning,
   RefreshCw,
   ScrollText,
+  Printer,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -1036,7 +1037,19 @@ function VerificacionesSection({
       <SectionHeader
         title="Verificaciones internas"
         action={
-          canStart ? (
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            {canStart && (
+              <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
+                <Link
+                  href={`/quality/instrumentos/${instrumentoId}/ficha-verificacion${template ? `?template=${template.id}` : ''}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Printer className="h-3 w-3" /> Imprimir ficha
+                </Link>
+              </Button>
+            )}
+            {canStart ? (
             <Button size="sm" variant="outline" className="h-7 border-stone-300 text-stone-700 gap-1 text-xs" asChild>
               <Link href={`/quality/instrumentos/${instrumentoId}/verificar`}>
                 <Plus className="h-3 w-3" /> Iniciar verificación
@@ -1048,7 +1061,8 @@ function VerificacionesSection({
                 <FileSignature className="h-3 w-3" /> Configurar plantilla
               </Link>
             </Button>
-          ) : null
+          ) : null}
+          </div>
         }
       />
       {!canStart && (
