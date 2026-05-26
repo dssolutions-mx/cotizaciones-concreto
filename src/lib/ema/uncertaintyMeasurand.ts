@@ -151,7 +151,105 @@ function getRawQuantity(raw: Record<string, number>, sym: string): number | unde
   return undefined;
 }
 
-/** NMX-C-083: d1+d2 (mm) averaged to dprom, or single dprom/d reading. */
+function inputUnitForSymbol(
+  measurand: UncertaintyMeasurand,
+  symbol: string,
+): string | null {
+  return measurand.inputs?.find((i) => i.simbolo === symbol)?.unidad?.trim() ?? null;
+}
+
+/**
+ * Convert a length reading to cm using the symbol's catalog `unidad`.
+ * FC (cilindro): d1/d2 are typically mm (NMX-C-083).
+ * FC_CUBO: L1/L2 are cm in the measurand catalog — do not divide by 10.
+ */
+export function lengthReadingToCm(
+  measurand: UncertaintyMeasurand,
+  symbol: string,
+  value: number,
+): number {
+  const declared = inputUnitForSymbol(measurand, symbol);
+  const fallbackUnit: 'mm' | 'cm' = measurand.codigo === 'FC' ? 'mm' : 'cm';
+  return diameterReadingToCm(value, declared, fallbackUnit);
+}
+
+function diameterReadingToCm(
+  value: number,
+  unidad: string | null,
+  fallbackUnit: 'mm' | 'cm',
+): number {
+  const u = (unidad?.trim() || fallbackUnit).toLowerCase();
+  if (u === 'cm') return value;
+  if (u === 'mm') return value / 10;
+  if (u === 'm') return value * 100;
+  return value;
+}
+
+/**
+ * FC f'c [kg/cm²] = Carga [kg] / A [cm²],  A = π·d²/4.
+ * Per replica: two diameter readings (d1, d2) → mean diameter → area; plus Carga from press.
+ */
+export function computeFcCompressiveStrength(
+  measurand: UncertaintyMeasurand,
+  raw: Record<string, number>,
+): number | null {
+  const enriched = enrichFcReplicaRaw(raw);
+  if (!fcReplicaInputsComplete(enriched)) return null;
+
+  const carga = getRawQuantity(enriched, 'Carga');
+  if (!carga) return null;
+
+  let d_cm: number | undefined;
+  const d1 = getRawQuantity(enriched, 'd1');
+  const d2 = getRawQuantity(enriched, 'd2');
+  if (d1 !== undefined && d2 !== undefined) {
+    const u =
+      inputUnitForSymbol(measurand, 'd1') ??
+      inputUnitForSymbol(measurand, 'd2') ??
+      'mm';
+    d_cm = (diameterReadingToCm(d1, u, 'mm') + diameterReadingToCm(d2, u, 'mm')) / 2;
+  } else {
+    const dprom = getRawQuantity(enriched, 'dprom') ?? getRawQuantity(enriched, 'd');
+    if (dprom !== undefined) {
+      const u =
+        inputUnitForSymbol(measurand, 'dprom') ??
+        inputUnitForSymbol(measurand, 'd');
+      d_cm = diameterReadingToCm(dprom, u, 'mm');
+    }
+  }
+
+  if (!d_cm || d_cm <= 0) return null;
+  const area_cm2 = (Math.PI * d_cm ** 2) / 4;
+  if (area_cm2 <= 0) return null;
+  return carga / area_cm2;
+}
+
+function fcCuboReplicaInputsComplete(raw: Record<string, number>): boolean {
+  if (!getRawQuantity(raw, 'Carga')) return false;
+  return getRawQuantity(raw, 'L1') !== undefined && getRawQuantity(raw, 'L2') !== undefined;
+}
+
+/**
+ * FC_CUBO f′c [kg/cm²] = Carga / (L1 × L2).
+ * L1, L2 are entered in **cm** (as shown in the measurand catalog / réplica grid).
+ */
+export function computeFcCuboCompressiveStrength(
+  measurand: UncertaintyMeasurand,
+  raw: Record<string, number>,
+): number | null {
+  if (!fcCuboReplicaInputsComplete(raw)) return null;
+
+  const carga = getRawQuantity(raw, 'Carga')!;
+  const L1 = getRawQuantity(raw, 'L1')!;
+  const L2 = getRawQuantity(raw, 'L2')!;
+  const L1_cm = lengthReadingToCm(measurand, 'L1', L1);
+  const L2_cm = lengthReadingToCm(measurand, 'L2', L2);
+  const area_cm2 = L1_cm * L2_cm;
+  if (area_cm2 <= 0) return null;
+  return carga / area_cm2;
+}
+
+/** NMX-C-083: d1+d2 averaged to dprom for formula scope / legacy expr. */
 function enrichFcReplicaRaw(raw: Record<string, number>): Record<string, number> {
   const out = { ...raw };
   const d1 = out.d1;
@@ -221,6 +319,9 @@ function hasRequiredMeasuredInputs(
   if (measurand.codigo === 'FC') {
     return fcReplicaInputsComplete(raw);
   }
+  if (measurand.codigo === 'FC_CUBO') {
+    return fcCuboReplicaInputsComplete(raw);
+  }
 
   const measured = (measurand.inputs ?? []).filter((i) => i.kind === 'measured');
   if (measured.length === 0) return Object.values(raw).some((v) => Number.isFinite(v));
@@ -261,16 +362,19 @@ export function computeReplicaMeasurand(
     });
   }
 
-  let workingRaw = numericRaw;
   if (measurand.codigo === 'FC') {
-    workingRaw = enrichFcReplicaRaw(numericRaw);
+    return computeFcCompressiveStrength(measurand as UncertaintyMeasurand, numericRaw);
   }
 
-  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, workingRaw)) {
+  if (measurand.codigo === 'FC_CUBO') {
+    return computeFcCuboCompressiveStrength(measurand as UncertaintyMeasurand, numericRaw);
+  }
+
+  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, numericRaw)) {
     return null;
   }
 
-  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, workingRaw);
+  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, numericRaw);
 
   const expr = measurand.formula_expr?.trim();
   if (expr) {

@@ -370,6 +370,30 @@ export function EmaUncertaintyReplicaTable({
 
       <EmaUncertaintyAnovaReadinessBanner replicas={replicas} />
 
+      {measurand.codigo === 'FC' && (
+        <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-4 py-3 text-sm text-sky-950">
+          <p className="font-medium">Resistencia a compresión (cilindro)</p>
+          <p className="mt-1 text-xs text-sky-900/90">
+            Por réplica capture <strong>Carga</strong> (prensa) y dos diámetros perpendiculares{' '}
+            <strong>d1</strong>, <strong>d2</strong> (vernier, normalmente en mm). El sistema calcula{' '}
+            <span className="font-mono">f′c = Carga / (π·d²/4)</span> con{' '}
+            <span className="font-mono">d = (d1+d2)/2</span> convertido a cm para el área.
+          </p>
+        </div>
+      )}
+
+      {measurand.codigo === 'FC_CUBO' && (
+        <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-4 py-3 text-sm text-sky-950">
+          <p className="font-medium">Resistencia a compresión (cubo)</p>
+          <p className="mt-1 text-xs text-sky-900/90">
+            Por réplica capture <strong>Carga</strong> (prensa) y dos lados perpendiculares{' '}
+            <strong>L1</strong>, <strong>L2</strong> en <strong>cm</strong> (como en la columna del
+            catálogo). El sistema calcula <span className="font-mono">f′c = Carga / (L1·L2)</span>.
+            El presupuesto GUM usa la misma geometría para los coeficientes de sensibilidad.
+          </p>
+        </div>
+      )}
+
       {measurand.codigo === 'VIGAS' && vigasCfg && (
         <div className="space-y-2">
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-950">
@@ -659,6 +683,9 @@ export function EmaUncertaintyReplicaTable({
                 if (measurand.codigo === 'VIGAS' && vigasCfg) {
                   const raw = injectVigasStudyConstants(vigasCfg, replica.raw_values_json)
                   return computeReplicaMeasurand(measurand, raw, { vigasConfig: vigasCfg })
+                }
+                if (measurand.codigo === 'FC' || measurand.codigo === 'FC_CUBO') {
+                  return computeReplicaMeasurand(measurand, replica.raw_values_json)
                 }
                 return (
                   replica.computed_value ??

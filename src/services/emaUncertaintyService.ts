@@ -13,7 +13,11 @@ import {
   type TypeBInput,
 } from '@/lib/ema/uncertaintyBudget';
 import { anovaOneWay, type AnovaGroup } from '@/lib/ema/anovaOneWay';
-import { computeReplicaMeasurand, MEASURAND_INSTRUMENT_ROLES } from '@/lib/ema/uncertaintyMeasurand';
+import {
+  computeReplicaMeasurand,
+  lengthReadingToCm,
+  MEASURAND_INSTRUMENT_ROLES,
+} from '@/lib/ema/uncertaintyMeasurand';
 import { assessAnovaReadiness, parseEquipoPool } from '@/lib/ema/uncertaintyStudyDesign';
 import { getInstrumentosCardsByIds, validateInstrumentos } from '@/services/emaInstrumentoService';
 import type { InstrumentoSeleccionado } from '@/types/ema';
@@ -920,8 +924,19 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     const cargas = replicas
       .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
       .filter((v) => v > 0);
-    const L1s = replicas.map((r) => Number(r.raw_values_json['L1'] ?? 0)).filter((v) => v > 0);
-    const L2s = replicas.map((r) => Number(r.raw_values_json['L2'] ?? 0)).filter((v) => v > 0);
+    const m = study.measurand!;
+    const L1s = replicas
+      .map((r) => {
+        const v = Number(r.raw_values_json['L1'] ?? 0);
+        return v > 0 ? lengthReadingToCm(m, 'L1', v) : 0;
+      })
+      .filter((v) => v > 0);
+    const L2s = replicas
+      .map((r) => {
+        const v = Number(r.raw_values_json['L2'] ?? 0);
+        return v > 0 ? lengthReadingToCm(m, 'L2', v) : 0;
+      })
+      .filter((v) => v > 0);
     if (cargas.length > 0 && L1s.length > 0 && L2s.length > 0) {
       const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
       const L1_mean = L1s.reduce((s, v) => s + v, 0) / L1s.length;
