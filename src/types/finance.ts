@@ -1,7 +1,40 @@
 export type PayableStatus = 'open' | 'partially_paid' | 'paid' | 'void'
 export type InvoiceStatus = 'open' | 'partially_paid' | 'paid' | 'void'
-export type InvoiceSource = 'system' | 'historical'
+export type InvoiceSource = 'system' | 'historical' | 'mixed'
 export type InvoiceCostCategory = 'material' | 'fleet'
+export type InvoiceLineSource = 'entry' | 'manual'
+export type InvoiceManualReason =
+  | 'period_gap'
+  | 'orphan_fleet'
+  | 'provider_adjustment'
+  | 'other'
+
+export interface InvoiceRetentionInput {
+  impuesto_sat: string
+  label?: string | null
+  base_amount?: number | null
+  rate?: number | null
+  amount: number
+  sort_order?: number
+}
+
+export interface SupplierInvoiceRetention {
+  id: string
+  invoice_id: string
+  impuesto_sat: string
+  label: string | null
+  base_amount: number | null
+  rate: number | null
+  amount: number
+  sort_order: number
+  created_at: string
+}
+
+export interface CfdiRetencion {
+  impuesto_sat: string
+  importe: number
+  tasa_o_cuota?: number
+}
 export type CreditNoteReason = 'price_adjustment' | 'return' | 'defect' | 'other'
 export type CreditNoteStatus = 'open' | 'partially_applied' | 'fully_applied' | 'void'
 export type CfdiCaptureMode = 'manual' | 'cfdi'
@@ -81,6 +114,7 @@ export interface SupplierInvoice {
   credit_applied_subtotal?: number
   credit_applied_total?: number
   balance?: number
+  retentions?: SupplierInvoiceRetention[]
 }
 
 export interface InvoiceCreditNote {
@@ -142,18 +176,54 @@ export interface SatCfdiRecibido {
   moneda: string
   tipo_cambio: number | null
   cfdi_relacionados: Array<{ uuid: string; tipo_relacion: string }> | null
-  pagos_doctos: Array<{
-    uuid: string
-    docto_relacionado_uuid: string
-    imp_pagado: number
-    num_parcialidad: number
-  }> | null
+  pagos_doctos: CfdiPagoDocto[] | null
   estado_sat: CfdiEstadoSat
   estado_checked_at: string | null
   raw_xml_path: string | null
   imported_by: string | null
   imported_at: string
   source: 'manual_zip' | 'manual_xml' | 'pac'
+}
+
+export interface CfdiPagoDocto {
+  uuid: string
+  docto_relacionado_uuid: string
+  imp_pagado: number
+  num_parcialidad: number
+  fecha_pago: string | null
+  forma_pago_p: string | null
+  moneda_p?: string | null
+}
+
+export type RepPaymentPreviewStatus =
+  | 'ready'
+  | 'already_applied'
+  | 'invoice_not_found'
+  | 'no_payable'
+  | 'overpayment'
+  | 'invoice_void'
+  | 'invoice_paid'
+  | 'skipped_not_p'
+
+export interface RepPaymentPreviewRow {
+  rep_uuid: string
+  docto_uuid: string
+  num_parcialidad: number
+  status: RepPaymentPreviewStatus
+  imp_pagado: number
+  fecha_pago: string | null
+  forma_pago_p: string | null
+  emisor_rfc: string
+  emisor_nombre: string | null
+  rep_serie: string | null
+  rep_folio: string | null
+  supplier_invoice_id: string | null
+  invoice_number: string | null
+  balance: number | null
+  proposed_payment_date: string | null
+  proposed_amount: number | null
+  proposed_method: string | null
+  message?: string
 }
 
 export interface CfdiConcepto {
@@ -188,19 +258,59 @@ export interface ParsedCfdi {
   vat_rate: number
   retention_isr_rate: number
   retention_iva_rate: number
+  retenciones: CfdiRetencion[]
   metodo_pago: string | null
   forma_pago: string | null
   uso_cfdi: string | null
   moneda: string
   tipo_cambio: number
   cfdi_relacionados: Array<{ uuid: string; tipo_relacion: string }>
-  pagos_doctos: Array<{
-    uuid: string
-    docto_relacionado_uuid: string
-    imp_pagado: number
-    num_parcialidad: number
-  }>
+  pagos_doctos: CfdiPagoDocto[]
   conceptos: CfdiConcepto[]
+}
+
+export type PaymentSource = 'manual' | 'sat_rep'
+
+export interface PaymentReconciliationReport {
+  matched: Array<{
+    rep_uuid: string
+    docto_uuid: string
+    num_parcialidad: number
+    invoice_number: string | null
+    sat_amount: number
+    system_amount: number
+    amount_match: boolean
+  }>
+  rep_not_applied: Array<{
+    rep_uuid: string
+    docto_uuid: string
+    num_parcialidad: number
+    imp_pagado: number
+    emisor_rfc: string
+    fecha_emision: string
+  }>
+  payment_without_rep: Array<{
+    payment_id: string
+    payment_date: string
+    amount: number
+    invoice_number: string | null
+    method: string | null
+  }>
+  amount_mismatch: Array<{
+    rep_uuid: string
+    docto_uuid: string
+    invoice_number: string | null
+    sat_amount: number
+    system_amount: number
+    diff: number
+  }>
+  summary: {
+    total_rep_doctos: number
+    matched: number
+    rep_not_applied: number
+    payment_without_rep: number
+    amount_mismatch: number
+  }
 }
 
 export interface ReconciliationReport {
@@ -249,6 +359,8 @@ export interface SupplierInvoiceItem {
   id: string
   invoice_id: string
   entry_id: string | null
+  line_source: InvoiceLineSource
+  manual_reason: InvoiceManualReason | null
   cost_category: InvoiceCostCategory | null
   description: string | null
   qty: number | null
@@ -292,6 +404,10 @@ export interface Payment {
   amount: number;
   method?: string;
   reference?: string;
+  source?: PaymentSource;
+  cfdi_rep_uuid?: string | null;
+  cfdi_docto_uuid?: string | null;
+  cfdi_num_parcialidad?: number | null;
   created_by?: string;
   created_at: string;
 }

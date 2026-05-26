@@ -80,7 +80,7 @@ export default function CxpWorkspace({ workspacePlantId = '', embedded = false }
             </TabsTrigger>
           </TabsList>
           <Link
-            href="/finanzas/cxp/sat"
+            href="/finanzas/cxp/sat?tab=complementos"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-stone-200 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-800 transition-colors"
           >
             <ShieldCheck className="h-3.5 w-3.5" />

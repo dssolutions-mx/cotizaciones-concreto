@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  buildInvoiceTotalsFromBody,
+  deriveInvoiceSource,
+  normalizeInvoiceItems,
+} from '@/lib/ap/normalizeInvoicePayload'
+import { roundMoney } from '@/lib/ap/invoiceTotals'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
@@ -37,8 +43,11 @@ export async function GET(request: NextRequest) {
         cfdi_capture_mode,
         created_by, created_at,
         supplier_group:supplier_groups!supplier_group_id(id, name, rfc),
+        retentions:supplier_invoice_retentions(
+          id, impuesto_sat, label, base_amount, rate, amount, sort_order
+        ),
         items:supplier_invoice_items(
-          id, entry_id, cost_category, description, qty, unit_price, amount,
+          id, entry_id, line_source, manual_reason, cost_category, description, qty, unit_price, amount,
           entry:material_entries!entry_id(
             id, entry_number, entry_date, received_qty_entered, received_uom,
             unit_price, landed_unit_price, supplier_invoice
@@ -122,7 +131,8 @@ export async function POST(request: NextRequest) {
       discount_amount: rawDiscount = 0,
       retention_isr_rate: rawIsrRate = 0,
       retention_iva_rate: rawIvaRetRate = 0,
-      source = 'system',
+      retentions: rawRetentions,
+      source: clientSource,
       notes = null,
       document_url = null,
       xml_url = null,
@@ -194,16 +204,83 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Compute totals server-side from canonical formula
-    const discountAmt = Math.round(Number(rawDiscount) * 100) / 100
-    const isrRate     = Number(rawIsrRate)
-    const ivaRetRate  = Number(rawIvaRetRate)
-    const taxableBase = Math.round((Number(subtotal) - discountAmt) * 100) / 100
-    const tax         = Math.round(taxableBase * Number(vat_rate) * 100) / 100
-    const isrAmt      = Math.round(taxableBase * isrRate * 100) / 100
-    // retention_iva_rate is a fraction of taxable base (same as SAT TasaOCuota convention)
-    const ivaRetAmt   = Math.round(taxableBase * ivaRetRate * 100) / 100
-    const total       = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
+    const { items: normalizedItems, error: itemsError } = normalizeInvoiceItems(items)
+    if (itemsError) {
+      return NextResponse.json({ error: itemsError }, { status: 400 })
+    }
+
+    const itemsSum = normalizedItems.reduce((s, it) => s + it.amount, 0)
+    const declaredSubtotal = roundMoney(Number(subtotal))
+    if (Math.abs(itemsSum - declaredSubtotal) > 1.0) {
+      return NextResponse.json(
+        {
+          error: `La suma de las líneas (${itemsSum.toFixed(2)}) no coincide con el subtotal declarado (${declaredSubtotal.toFixed(2)}). Diferencia: ${Math.abs(itemsSum - declaredSubtotal).toFixed(2)}`,
+        },
+        { status: 400 },
+      )
+    }
+
+    const entryIds = [
+      ...new Set(normalizedItems.filter(it => it.entry_id).map(it => it.entry_id as string)),
+    ]
+    const warnings: string[] = []
+    if (entryIds.length > 0) {
+      const { data: entryRows, error: entErr } = await supabase
+        .from('material_entries')
+        .select('id, plant_id, total_cost, fleet_cost')
+        .in('id', entryIds)
+      if (entErr) {
+        return NextResponse.json({ error: entErr.message }, { status: 500 })
+      }
+      const byId = new Map((entryRows ?? []).map(e => [e.id, e]))
+      for (const it of normalizedItems) {
+        if (!it.entry_id) continue
+        const row = byId.get(it.entry_id)
+        if (!row) {
+          return NextResponse.json({ error: `Entrada no encontrada: ${it.entry_id}` }, { status: 400 })
+        }
+        if (row.plant_id !== plant_id) {
+          return NextResponse.json(
+            { error: `La entrada ${it.entry_id} pertenece a otra planta` },
+            { status: 400 },
+          )
+        }
+        const expected =
+          it.cost_category === 'fleet'
+            ? Number(row.fleet_cost ?? 0)
+            : Number(row.total_cost ?? 0)
+        if (expected > 0 && Math.abs(it.amount - expected) > 1.0) {
+          warnings.push(
+            `Línea ${it.description ?? it.entry_id}: monto ${it.amount.toFixed(2)} difiere del registrado ${expected.toFixed(2)}`,
+          )
+        }
+      }
+    }
+
+    const invoiceSource =
+      clientSource && ['system', 'historical', 'mixed'].includes(clientSource)
+        ? clientSource
+        : deriveInvoiceSource(normalizedItems)
+
+    const totalsBody = {
+      ...body,
+      discount_amount: rawDiscount,
+      retention_isr_rate: rawIsrRate,
+      retention_iva_rate: rawIvaRetRate,
+      retentions: rawRetentions,
+      vat_rate,
+    }
+    const {
+      discountAmt,
+      taxableBase,
+      tax,
+      total,
+      retention_isr_rate: isrRate,
+      retention_isr_amount: isrAmt,
+      retention_iva_rate: ivaRetRate,
+      retention_iva_amount: ivaRetAmt,
+      retentionRows,
+    } = buildInvoiceTotalsFromBody(totalsBody, declaredSubtotal)
 
     // Resolve invoice_number: for internal invoices auto-generate INT-YYYY-NNNNN
     let invoice_number = rawInvoiceNumber?.trim() || ''
@@ -229,7 +306,7 @@ export async function POST(request: NextRequest) {
         invoice_date,
         due_date,
         vat_rate: Number(vat_rate),
-        subtotal: Number(subtotal),
+        subtotal: declaredSubtotal,
         discount_amount: discountAmt,
         tax,
         total,
@@ -238,7 +315,7 @@ export async function POST(request: NextRequest) {
         retention_iva_rate: ivaRetRate,
         retention_iva_amount: ivaRetAmt,
         status: 'open',
-        source,
+        source: invoiceSource,
         notes,
         document_url,
         xml_url,
@@ -263,44 +340,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: invErr?.message ?? 'Error al crear factura' }, { status: 500 })
     }
 
-    // Cross-validate: sum of item amounts must be within $1.00 of declared subtotal.
-    // Catches client-side bugs where items don't add up to what was posted.
-    if (items.length > 0) {
-      const itemsSum = items.reduce((s: number, it: any) => s + Number(it.amount ?? 0), 0)
-      if (Math.abs(itemsSum - Number(subtotal)) > 1.00) {
-        await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
-        return NextResponse.json(
-          {
-            error: `La suma de las líneas (${itemsSum.toFixed(2)}) no coincide con el subtotal declarado (${Number(subtotal).toFixed(2)}). Diferencia: ${Math.abs(itemsSum - Number(subtotal)).toFixed(2)}`,
-          },
-          { status: 400 },
-        )
-      }
-    }
-
-    // Insert line items
-    if (items.length > 0) {
-      const itemRows = items.map((it: any) => ({
+    if (normalizedItems.length > 0) {
+      const itemRows = normalizedItems.map(it => ({
         invoice_id: invoice.id,
-        entry_id: it.entry_id ?? null,
-        cost_category: it.cost_category ?? null,
-        description: it.description ?? null,
-        qty: it.qty != null ? Number(it.qty) : null,
-        unit_price: it.unit_price != null ? Number(it.unit_price) : null,
-        amount: Number(it.amount),
+        entry_id: it.entry_id,
+        line_source: it.line_source,
+        manual_reason: it.manual_reason,
+        cost_category: it.cost_category,
+        description: it.description,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        amount: it.amount,
       }))
       const { error: itemErr } = await supabase.from('supplier_invoice_items').insert(itemRows)
       if (itemErr) {
-        // Roll back invoice (best-effort)
         await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
         return NextResponse.json({ error: itemErr.message }, { status: 500 })
+      }
+    }
+
+    if (retentionRows.length > 0) {
+      const retentionInserts = retentionRows.map((r, idx) => ({
+        invoice_id: invoice.id,
+        impuesto_sat: r.impuesto_sat,
+        label: r.label ?? null,
+        base_amount: r.base_amount ?? taxableBase,
+        rate: r.rate ?? null,
+        amount: r.amount,
+        sort_order: r.sort_order ?? idx,
+      }))
+      const { error: retErr } = await supabase
+        .from('supplier_invoice_retentions')
+        .insert(retentionInserts)
+      if (retErr) {
+        await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
+        return NextResponse.json({ error: retErr.message }, { status: 500 })
       }
     }
 
     // Create linked payable for payment tracking.
     // Strategy: prefer group→plant lookup; fall back to supplier_id via first entry_id
     // (handles suppliers with no group_id, e.g. MAPEI).
-    const warnings: string[] = []
     let supplierIdForPayable: string | null = null
 
     if (supplier_group_id) {
@@ -316,8 +396,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Fallback: derive supplier_id from the first entry that has one
-    if (!supplierIdForPayable && items.length > 0) {
-      const firstEntryId = items.find((it: any) => it.entry_id)?.entry_id
+    if (!supplierIdForPayable && normalizedItems.length > 0) {
+      const firstEntryId = normalizedItems.find(it => it.entry_id)?.entry_id
       if (firstEntryId) {
         const { data: entryRow } = await supabase
           .from('material_entries')
@@ -325,7 +405,9 @@ export async function POST(request: NextRequest) {
           .eq('id', firstEntryId)
           .maybeSingle()
         // Use fleet_supplier_id when all items are fleet cost, otherwise material supplier
-        const allFleet = items.length > 0 && items.every((it: any) => it.cost_category === 'fleet')
+        const allFleet =
+          normalizedItems.length > 0 &&
+          normalizedItems.every(it => it.cost_category === 'fleet')
         supplierIdForPayable = allFleet
           ? (entryRow?.fleet_supplier_id ?? entryRow?.supplier_id ?? null)
           : (entryRow?.supplier_id ?? null)
@@ -343,7 +425,7 @@ export async function POST(request: NextRequest) {
           invoice_date,
           due_date,
           vat_rate: Number(vat_rate),
-          subtotal: Number(subtotal),
+          subtotal: declaredSubtotal,
           tax,
           total,
           status: 'open',
@@ -356,16 +438,15 @@ export async function POST(request: NextRequest) {
         // Payable failure is non-fatal (invoice already committed) but must be surfaced
         console.error('/api/ap/invoices payable creation error:', payErr.message)
         warnings.push(`Factura creada pero no se pudo crear el registro de cuentas por pagar: ${payErr.message}`)
-      } else if (payable && items.length > 0) {
-        // Create payable_items for each invoice line that has an entry
-        const payableItemRows = items
-          .filter((it: any) => it.entry_id)
-          .map((it: any) => ({
+      } else if (payable && normalizedItems.length > 0) {
+        const payableItemRows = normalizedItems
+          .filter(it => it.entry_id)
+          .map(it => ({
             payable_id: payable.id,
             invoice_id: invoice.id,
             entry_id: it.entry_id,
-            amount: Number(it.amount),
-            cost_category: it.cost_category ?? 'material',
+            amount: it.amount,
+            cost_category: it.cost_category,
           }))
         if (payableItemRows.length > 0) {
           const { error: piErr } = await supabase.from('payable_items').insert(payableItemRows)

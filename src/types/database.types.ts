@@ -11963,6 +11963,50 @@ export type Database = {
         }
         Relationships: []
       }
+      supplier_invoice_retentions: {
+        Row: {
+          amount: number
+          base_amount: number | null
+          created_at: string
+          id: string
+          impuesto_sat: string
+          invoice_id: string
+          label: string | null
+          rate: number | null
+          sort_order: number
+        }
+        Insert: {
+          amount: number
+          base_amount?: number | null
+          created_at?: string
+          id?: string
+          impuesto_sat: string
+          invoice_id: string
+          label?: string | null
+          rate?: number | null
+          sort_order?: number
+        }
+        Update: {
+          amount?: number
+          base_amount?: number | null
+          created_at?: string
+          id?: string
+          impuesto_sat?: string
+          invoice_id?: string
+          label?: string | null
+          rate?: number | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_invoice_retentions_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supplier_invoice_items: {
         Row: {
           amount: number
@@ -11972,6 +12016,8 @@ export type Database = {
           entry_id: string | null
           id: string
           invoice_id: string
+          line_source: string
+          manual_reason: string | null
           qty: number | null
           unit_price: number | null
         }
@@ -11983,6 +12029,8 @@ export type Database = {
           entry_id?: string | null
           id?: string
           invoice_id: string
+          line_source?: string
+          manual_reason?: string | null
           qty?: number | null
           unit_price?: number | null
         }
@@ -11994,6 +12042,8 @@ export type Database = {
           entry_id?: string | null
           id?: string
           invoice_id?: string
+          line_source?: string
+          manual_reason?: string | null
           qty?: number | null
           unit_price?: number | null
         }

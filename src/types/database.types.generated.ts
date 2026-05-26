@@ -8430,6 +8430,9 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          cfdi_docto_uuid: string | null
+          cfdi_num_parcialidad: number | null
+          cfdi_rep_uuid: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -8437,9 +8440,13 @@ export type Database = {
           payable_id: string
           payment_date: string
           reference: string | null
+          source: string
         }
         Insert: {
           amount: number
+          cfdi_docto_uuid?: string | null
+          cfdi_num_parcialidad?: number | null
+          cfdi_rep_uuid?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -8447,9 +8454,13 @@ export type Database = {
           payable_id: string
           payment_date: string
           reference?: string | null
+          source?: string
         }
         Update: {
           amount?: number
+          cfdi_docto_uuid?: string | null
+          cfdi_num_parcialidad?: number | null
+          cfdi_rep_uuid?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -8457,6 +8468,7 @@ export type Database = {
           payable_id?: string
           payment_date?: string
           reference?: string | null
+          source?: string
         }
         Relationships: [
           {

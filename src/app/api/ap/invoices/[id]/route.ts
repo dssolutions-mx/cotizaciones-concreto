@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { computeInvoiceTotals } from '@/lib/ap/retentionRates'
+import {
+  buildInvoiceTotalsFromBody,
+  deriveInvoiceSource,
+  normalizeInvoiceItems,
+} from '@/lib/ap/normalizeInvoicePayload'
+import { roundMoney } from '@/lib/ap/invoiceTotals'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
@@ -22,8 +27,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .select(`
         *,
         supplier_group:supplier_groups!supplier_group_id(id, name, rfc),
+        retentions:supplier_invoice_retentions(
+          id, impuesto_sat, label, base_amount, rate, amount, sort_order
+        ),
         items:supplier_invoice_items(
-          id, entry_id, cost_category, description, qty, unit_price, amount,
+          id, entry_id, line_source, manual_reason, cost_category, description, qty, unit_price, amount,
           entry:material_entries!entry_id(
             id, entry_number, entry_date, received_qty_entered, received_uom,
             unit_price, landed_unit_price, supplier_invoice, po_id, fleet_po_id
@@ -68,7 +76,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { data: existing, error: fetchErr } = await supabase
       .from('supplier_invoices')
       .select(`
-        id, status, subtotal, vat_rate, discount_amount,
+        id, status, plant_id, subtotal, vat_rate, discount_amount,
         retention_isr_rate, retention_iva_rate,
         payable:payables!invoice_id(id, status, payments:payments!payable_id(amount)),
         cn_allocations:credit_note_invoice_allocations(allocated_total)
@@ -88,41 +96,104 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const itemUpdates: Array<{ id: string; amount: number }> = Array.isArray(body.items)
       ? body.items.filter((it: any) => it?.id != null && it.amount != null)
       : []
+    const itemsToAdd = Array.isArray(body.items_to_add) ? body.items_to_add : []
+    const itemIdsToDelete: string[] = Array.isArray(body.items_to_delete)
+      ? body.items_to_delete.map(String)
+      : []
 
-    let subtotal = Number(existing.subtotal)
-    if ('subtotal' in body) {
-      subtotal = Number(body.subtotal)
-    } else if (itemUpdates.length > 0) {
-      const { data: currentItems } = await supabase
-        .from('supplier_invoice_items')
-        .select('id, amount')
-        .eq('invoice_id', id)
-      const amountById = new Map(itemUpdates.map(it => [it.id, it.amount]))
-      subtotal = (currentItems ?? []).reduce((sum, row) => {
-        const amt = amountById.has(row.id) ? amountById.get(row.id)! : Number(row.amount)
-        return sum + amt
-      }, 0)
-      subtotal = Math.round(subtotal * 100) / 100
+    if (itemsToAdd.length > 0) {
+      const { items: newItems, error: addErr } = normalizeInvoiceItems(itemsToAdd)
+      if (addErr) return NextResponse.json({ error: addErr }, { status: 400 })
+      const rows = newItems.map(it => ({
+        invoice_id: id,
+        entry_id: it.entry_id,
+        line_source: it.line_source,
+        manual_reason: it.manual_reason,
+        cost_category: it.cost_category,
+        description: it.description,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        amount: it.amount,
+      }))
+      const { error: insErr } = await supabase.from('supplier_invoice_items').insert(rows)
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
     }
+
+    if (itemIdsToDelete.length > 0) {
+      const { data: toDelete } = await supabase
+        .from('supplier_invoice_items')
+        .select('id, line_source')
+        .eq('invoice_id', id)
+        .in('id', itemIdsToDelete)
+      const blocked = (toDelete ?? []).some(r => r.line_source === 'entry')
+      if (blocked) {
+        return NextResponse.json(
+          { error: 'No se pueden eliminar líneas vinculadas a entradas' },
+          { status: 400 },
+        )
+      }
+      const { error: delErr } = await supabase
+        .from('supplier_invoice_items')
+        .delete()
+        .eq('invoice_id', id)
+        .in('id', itemIdsToDelete)
+        .eq('line_source', 'manual')
+      if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+    }
+
+    if (itemUpdates.length > 0) {
+      for (const it of itemUpdates) {
+        const amt = roundMoney(Number(it.amount))
+        const { error: itemErr } = await supabase
+          .from('supplier_invoice_items')
+          .update({ amount: amt })
+          .eq('id', it.id)
+          .eq('invoice_id', id)
+        if (itemErr) return NextResponse.json({ error: itemErr.message }, { status: 500 })
+      }
+    }
+
+    const { data: allItems } = await supabase
+      .from('supplier_invoice_items')
+      .select('id, entry_id, line_source, amount')
+      .eq('invoice_id', id)
+
+    if (!allItems?.length) {
+      return NextResponse.json({ error: 'La factura debe tener al menos una línea' }, { status: 400 })
+    }
+
+    let subtotal = (allItems ?? []).reduce((sum, row) => sum + Number(row.amount), 0)
+    subtotal = roundMoney(subtotal)
 
     const vatRate = 'vat_rate' in body ? Number(body.vat_rate) : Number(existing.vat_rate)
     const discountAmt = 'discount_amount' in body
-      ? Math.round(Number(body.discount_amount) * 100) / 100
+      ? roundMoney(Number(body.discount_amount))
       : Number(existing.discount_amount ?? 0)
-    const isrRate = 'retention_isr_rate' in body
-      ? Number(body.retention_isr_rate)
-      : Number(existing.retention_isr_rate ?? 0)
-    const ivaRetRate = 'retention_iva_rate' in body
-      ? Number(body.retention_iva_rate)
-      : Number(existing.retention_iva_rate ?? 0)
 
-    const { tax, isrAmt, ivaRetAmt, total } = computeInvoiceTotals({
-      subtotal,
-      discount: discountAmt,
-      vatRate,
-      isrRate,
-      ivaRetRate,
-    })
+    const totalsPayload = {
+      ...body,
+      discount_amount: discountAmt,
+      vat_rate: vatRate,
+      retention_isr_rate: body.retention_isr_rate ?? existing.retention_isr_rate,
+      retention_iva_rate: body.retention_iva_rate ?? existing.retention_iva_rate,
+    }
+    const {
+      tax,
+      total,
+      retention_isr_rate: isrRate,
+      retention_isr_amount: isrAmt,
+      retention_iva_rate: ivaRetRate,
+      retention_iva_amount: ivaRetAmt,
+      retentionRows,
+      taxableBase,
+    } = buildInvoiceTotalsFromBody(totalsPayload, subtotal)
+
+    const invoiceSource = deriveInvoiceSource(
+      (allItems ?? []).map(r => ({
+        line_source: r.line_source,
+        entry_id: r.entry_id,
+      })),
+    )
 
     const payable = Array.isArray(existing.payable) ? (existing.payable as any[])[0] : existing.payable
     const payments: any[] = payable?.payments ?? []
@@ -137,24 +208,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }, { status: 400 })
     }
 
-  type InvoiceUpdate = {
-      status?: string
-      notes?: string | null
-      document_url?: string
-      xml_url?: string
-      due_date?: string
-      vat_rate?: number
-      subtotal?: number
-      discount_amount?: number
-      retention_isr_rate?: number
-      retention_isr_amount?: number
-      retention_iva_rate?: number
-      retention_iva_amount?: number
-      tax?: number
-      total?: number
+    if (Array.isArray(body.retentions)) {
+      await supabase.from('supplier_invoice_retentions').delete().eq('invoice_id', id)
+      if (retentionRows.length > 0) {
+        const retentionInserts = retentionRows.map((r, idx) => ({
+          invoice_id: id,
+          impuesto_sat: r.impuesto_sat,
+          label: r.label ?? null,
+          base_amount: r.base_amount ?? taxableBase,
+          rate: r.rate ?? null,
+          amount: r.amount,
+          sort_order: r.sort_order ?? idx,
+        }))
+        const { error: retErr } = await supabase
+          .from('supplier_invoice_retentions')
+          .insert(retentionInserts)
+        if (retErr) return NextResponse.json({ error: retErr.message }, { status: 500 })
+      }
     }
 
-    const update: InvoiceUpdate = {
+    const update: Record<string, unknown> = {
       subtotal,
       vat_rate: vatRate,
       discount_amount: discountAmt,
@@ -164,6 +237,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       retention_iva_amount: ivaRetAmt,
       tax,
       total,
+      source: invoiceSource,
     }
 
     if ('status' in body) update.status = body.status
@@ -176,24 +250,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       .from('supplier_invoices')
       .update(update)
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        retentions:supplier_invoice_retentions(*),
+        items:supplier_invoice_items(*)
+      `)
       .single()
 
     if (error || !invoice) return NextResponse.json({ error: error?.message ?? 'Error' }, { status: 500 })
-
-    if (itemUpdates.length > 0) {
-      for (const it of itemUpdates) {
-        const amt = Math.round(Number(it.amount) * 100) / 100
-        const { error: itemErr } = await supabase
-          .from('supplier_invoice_items')
-          .update({ amount: amt })
-          .eq('id', it.id)
-          .eq('invoice_id', id)
-        if (itemErr) {
-          return NextResponse.json({ error: itemErr.message }, { status: 500 })
-        }
-      }
-    }
 
     if (payable?.id) {
       const payableUpdate: Record<string, unknown> = {
@@ -215,7 +279,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           .in('id', itemUpdates.map(it => it.id))
 
         for (const it of itemUpdates) {
-          const amt = Math.round(Number(it.amount) * 100) / 100
+          const amt = roundMoney(Number(it.amount))
           const entryId = invoiceItems?.find(row => row.id === it.id)?.entry_id
           if (!entryId) continue
           await supabase

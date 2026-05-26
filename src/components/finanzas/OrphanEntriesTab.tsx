@@ -114,9 +114,41 @@ function FleetPendingSection({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [orphanFleetDrawerOpen, setOrphanFleetDrawerOpen] = useState(false)
   const [drawerEntries, setDrawerEntries] = useState<OrphanEntry[]>([])
+  const [materialSupplierFilter, setMaterialSupplierFilter] = useState('')
+  const [materialFilter, setMaterialFilter] = useState('')
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
+
+  const materialSupplierOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of entries) {
+      const id = e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id
+      if (!map.has(id)) map.set(id, supplierGroupDisplayName(e.supplier))
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+  }, [entries])
+
+  const materialOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const e of entries) {
+      const id = e.material?.id ?? e.material_id
+      if (!map.has(id)) map.set(id, e.material?.material_name ?? id)
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+  }, [entries])
+
+  const filteredEntries = useMemo(() => {
+    return entries.filter(e => {
+      const groupKey = e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id
+      if (materialSupplierFilter && groupKey !== materialSupplierFilter) return false
+      if (materialFilter && (e.material?.id ?? e.material_id) !== materialFilter) return false
+      return true
+    })
+  }, [entries, materialSupplierFilter, materialFilter])
+
+  const hasActiveFilter = !!materialSupplierFilter || !!materialFilter
 
   useEffect(() => {
     const controller = new AbortController()
@@ -171,13 +203,13 @@ function FleetPendingSection({
   // fleet_supplier_id is plant-scoped and would produce duplicates.
   const grouped = useMemo(() => {
     const map = new Map<string, { fleetSupplier: OrphanEntry['fleet_supplier']; groupKey: string; entries: OrphanEntry[] }>()
-    for (const e of entries) {
+    for (const e of filteredEntries) {
       const key = e.fleet_supplier?.group_id ?? e.fleet_supplier_id ?? '__sin_proveedor__'
       if (!map.has(key)) map.set(key, { fleetSupplier: e.fleet_supplier, groupKey: key, entries: [] })
       map.get(key)!.entries.push(e)
     }
     return map
-  }, [entries])
+  }, [filteredEntries])
 
   const toggleEntry = (id: string) => setSelected(prev => {
     const next = new Set(prev)
@@ -232,6 +264,61 @@ function FleetPendingSection({
         </Select>
         )}
 
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs gap-1 border-amber-300 text-amber-800 hover:bg-amber-50"
+          onClick={() => setOrphanFleetDrawerOpen(true)}
+        >
+          <Truck className="h-3.5 w-3.5" />
+          Flete sin entrada
+        </Button>
+
+        {materialSupplierOptions.length > 1 && (
+          <Select value={materialSupplierFilter || '__all__'} onValueChange={v => setMaterialSupplierFilter(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-[200px] bg-white border-stone-300">
+              <SelectValue placeholder="Proveedores de material" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Proveedores de material</SelectItem>
+              {materialSupplierOptions.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {materialOptions.length > 1 && (
+          <Select value={materialFilter || '__all__'} onValueChange={v => setMaterialFilter(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-[200px] bg-white border-stone-300">
+              <SelectValue placeholder="Todos los materiales" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos los materiales</SelectItem>
+              {materialOptions.map(m => (
+                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {hasActiveFilter && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs gap-1 text-stone-500"
+            onClick={() => {
+              setMaterialSupplierFilter('')
+              setMaterialFilter('')
+            }}
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpiar filtros
+          </Button>
+        )}
+
         {selected.size > 0 && (
           <div className="flex items-center gap-2 ml-2 pl-2 border-l border-stone-200">
             <span className="text-xs text-stone-600 font-medium">{selected.size} seleccionada{selected.size !== 1 ? 's' : ''}</span>
@@ -258,7 +345,9 @@ function FleetPendingSection({
         <div className="ml-auto text-xs text-stone-500">
           {entries.length === 0
             ? 'Sin fletes pendientes de facturar'
-            : `${entries.length} entrada${entries.length !== 1 ? 's' : ''} con flete sin facturar`}
+            : hasActiveFilter && filteredEntries.length !== entries.length
+              ? `${filteredEntries.length} de ${entries.length} entrada${entries.length !== 1 ? 's' : ''} con flete sin facturar`
+              : `${entries.length} entrada${entries.length !== 1 ? 's' : ''} con flete sin facturar`}
         </div>
       </div>
 
@@ -272,6 +361,14 @@ function FleetPendingSection({
             {dateFrom || dateTo
               ? 'Prueba ampliar el rango de recepción o quitar el filtro de fechas.'
               : 'Las entradas con flete aparecen aquí una vez que su costo de material ya fue facturado.'}
+          </p>
+        </div>
+      ) : filteredEntries.length === 0 ? (
+        <div className="py-16 text-center text-stone-500">
+          <Truck className="h-10 w-10 mx-auto mb-3 text-stone-300" />
+          <p className="text-sm font-medium">Sin fletes con estos filtros</p>
+          <p className="text-xs text-stone-400 mt-1">
+            Prueba cambiar el proveedor o material, o usa Limpiar filtros.
           </p>
         </div>
       ) : (
@@ -337,6 +434,7 @@ function FleetPendingSection({
                           {format(new Date(entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                         </span>
                         <span className="text-stone-600">{entry.material?.material_name ?? entry.material_id}</span>
+                        <span className="text-stone-400">{supplierGroupDisplayName(entry.supplier)}</span>
                         <span className="text-stone-400">
                           {entry.received_qty_entered != null
                             ? `${Number(entry.received_qty_entered).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${entry.received_uom ?? 'kg'}`
@@ -372,6 +470,17 @@ function FleetPendingSection({
         onSuccess={() => {
           setDrawerOpen(false)
           setSelected(new Set())
+          onReload()
+        }}
+      />
+      <CreateSupplierInvoiceDrawer
+        open={orphanFleetDrawerOpen}
+        onOpenChange={setOrphanFleetDrawerOpen}
+        plantId={plantFilter || undefined}
+        fleetOnly
+        orphanFleetOnly
+        onSuccess={() => {
+          setOrphanFleetDrawerOpen(false)
           onReload()
         }}
       />

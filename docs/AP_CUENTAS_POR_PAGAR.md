@@ -37,18 +37,29 @@ Factura de proveedor. Columnas clave:
 | `retention_iva_rate` | numeric | Tasa de retención IVA (e.g. `0.04` = 4% s/IVA). Default 0. |
 | `retention_iva_amount` | numeric | IVA retenido = round(tax × retention_iva_rate, 2) |
 | `status` | text | `open` \| `partially_paid` \| `paid` \| `void` |
-| `source` | text | `'system'` (de entrada) \| `'historical'` (manual) |
+| `source` | text | `'system'` (solo entradas) \| `'historical'` (solo manual) \| `'mixed'` (entradas + líneas sin entrada) |
 | `is_internal` | bool | Factura inter-planta |
 
 #### Fórmula de totales
 ```
 taxable_base          = subtotal - discount_amount
 tax                   = round(taxable_base × vat_rate, 2)
-retention_isr_amount  = round(taxable_base × retention_isr_rate, 2)
-retention_iva_amount  = round(tax × retention_iva_rate, 2)
-total                 = taxable_base + tax - retention_isr_amount - retention_iva_amount
+total                 = taxable_base + tax - Σ(supplier_invoice_retentions.amount)
 ```
+Las columnas `retention_isr_*` y `retention_iva_*` en cabecera son **rollups** (suma de filas con `impuesto_sat` 001 y 002) para reportes y compatibilidad.
+
 `total` es el **monto neto a pagar al proveedor** (lo que va en el cheque/transferencia). Las retenciones quedan registradas como obligación fiscal a pagar a SAT en nombre del proveedor.
+
+### `supplier_invoice_retentions`
+Una o más retenciones por factura (CFDI puede traer varias filas ISR/IVA).
+
+| Columna | Descripción |
+|---------|-------------|
+| `invoice_id` | FK a `supplier_invoices` |
+| `impuesto_sat` | `001` ISR, `002` IVA retenido |
+| `label` | Etiqueta en UI |
+| `amount` | Importe retenido (fuente de verdad para el total) |
+| `rate`, `base_amount` | Opcionales / informativos |
 
 #### Tasas de retención más comunes (México)
 | Tipo | retention_isr_rate | retention_iva_rate |
@@ -65,10 +76,16 @@ Línea de factura. Una factura puede tener ≥1 ítems (material + flete).
 | Columna | Descripción |
 |---------|-------------|
 | `invoice_id` | FK a `supplier_invoices` |
-| `entry_id` | FK a `material_entries` (nullable en históricas) |
+| `entry_id` | FK a `material_entries` (null en líneas manuales AP-only) |
+| `line_source` | `'entry'` \| `'manual'` |
+| `manual_reason` | Si manual: `period_gap`, `orphan_fleet`, `provider_adjustment`, `other` |
 | `cost_category` | `'material'` \| `'fleet'` |
-| `description` | Texto libre |
+| `description` | Texto libre (obligatorio en manual) |
 | `amount` | Monto sin IVA de esta línea |
+
+**Líneas manuales** no crean ni modifican `material_entries` (solo precisión de factura / CFDI). Casos típicos:
+- `period_gap`: recepción de un periodo anterior no registrada en inventario (ej. marzo antes del protocolo de abril).
+- `orphan_fleet`: flete facturado sin entrada de flete en el sistema.
 
 ### `invoice_credit_notes`
 Nota de crédito **standalone** (documento independiente). Una NC puede aplicarse a una o más facturas del mismo grupo de proveedor.
@@ -132,7 +149,9 @@ Recepción de material
                  └─ payables (vinculado vía payable.invoice_id)
 ```
 
-También se puede crear una **factura histórica** directamente desde la tab CxP (sin entrada de material asociada). En ese caso `entry_id = null` en todos los ítems.
+También se puede crear una **factura histórica** (todas las líneas manuales) o una **factura mixta** (recepciones seleccionadas + líneas manuales sin `entry_id`, p. ej. periodo no registrado o flete sin entrada). Las líneas manuales no afectan inventario.
+
+**Flete sin entrada:** desde Fletes pendientes o CxP → factura solo con líneas `orphan_fleet` (`line_source = manual`).
 
 ### 2 — Nota de crédito (multi-factura)
 
@@ -171,19 +190,41 @@ allocated[i] = round(item[i].amount / Σitem.amount × invoice_allocated_subtota
 
 ### 3 — Registro de pago
 
+#### Manual (CxP)
+
 ```
 Usuario → botón "Registrar pago" (visible si status ∈ {open, partially_paid} y existe payable)
   └─ RecordPaymentModal
        ├─ Muestra pagos existentes via GET /api/ap/payments?payable_id=
        ├─ Valida contra: balance pendiente, duplicados, overpayment
        └─ POST /api/ap/payments
-            ├─ INSERT payments { payable_id, payment_date, amount, method, reference }
+            ├─ INSERT payments { payable_id, payment_date, amount, method, reference, source: 'manual' }
             ├─ DB trigger payments_recalc → recalc_payable_totals(payable_id)
             │    ├─ SUM payable_items.amount → subtotal/tax/total
             │    ├─ SUM payments.amount → v_paid
             │    └─ UPDATE payables SET status = open|partially_paid|paid
-            └─ API lee payable actualizado → UPDATE supplier_invoices SET status = payable.status
-                 WHERE id = payable.invoice_id
+            └─ syncInvoiceStatusFromPayable → supplier_invoices.status
+```
+
+#### Complemento de pago SAT (REP, tipo P)
+
+Ruta UI: `/finanzas/cxp/sat?tab=complementos`
+
+```
+Usuario → importa ZIP/XML de REP (solo tipo P)
+  └─ POST /api/ap/sat-pagos-import
+       ├─ parseCfdiXml → pagos_doctos (DoctoRelacionado.IdDocumento = UUID factura)
+       ├─ upsert sat_cfdi_recibidos
+       └─ preview: match supplier_invoices.cfdi_uuid, valida saldo (total − pagos − NC)
+
+Usuario → selecciona filas "Listo" → Aplicar
+  └─ POST /api/ap/sat-pagos-apply
+       ├─ INSERT payments { source: 'sat_rep', cfdi_rep_uuid, cfdi_docto_uuid, cfdi_num_parcialidad, ... }
+       └─ syncInvoiceStatusFromPayable (mismo trigger payments_recalc)
+
+Idempotencia: índice único (cfdi_rep_uuid, cfdi_docto_uuid, cfdi_num_parcialidad).
+
+Facturas sin cfdi_uuid en el sistema no pueden vincularse automáticamente (estado preview: invoice_not_found).
 ```
 
 Estado resultante:
@@ -272,7 +313,18 @@ invoice_credit_note_allocations
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `GET` | `/api/ap/payments?payable_id=` | Lista pagos de un payable |
-| `POST` | `/api/ap/payments` | Registra pago → trigger actualiza `payables.status` → API sincroniza `supplier_invoices.status` |
+| `POST` | `/api/ap/payments` | Registra pago manual → trigger + sync `supplier_invoices.status` |
+| `POST` | `/api/ap/sat-pagos-import` | Importa REP (ZIP/XML), upsert SAT, devuelve `preview` |
+| `POST` | `/api/ap/sat-pagos-apply` | Aplica pagos seleccionados desde preview REP |
+| `GET` | `/api/ap/payment-reconciliation?from=&to=` | Concilia REP en SAT vs pagos en sistema |
+
+### SAT (inventario y conciliación CFDI)
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| `POST` | `/api/ap/sat-import` | Importa CFDI recibidos (I, E, P, …) a `sat_cfdi_recibidos` |
+| `GET` | `/api/ap/sat-inventory?from=&to=` | Lista inventario SAT |
+| `GET` | `/api/ap/reconciliation?from=&to=` | Conciliación facturas I/E vs `supplier_invoices` |
 
 ### Grupos de proveedores
 

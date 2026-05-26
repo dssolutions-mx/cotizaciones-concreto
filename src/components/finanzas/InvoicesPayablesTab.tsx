@@ -91,6 +91,7 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set())
   const [paymentInvoice, setPaymentInvoice] = useState<InvoiceWithEnrichment | null>(null)
   const [historicalDrawerOpen, setHistoricalDrawerOpen] = useState(false)
+  const [orphanFleetDrawerOpen, setOrphanFleetDrawerOpen] = useState(false)
   const [editInvoice, setEditInvoice] = useState<InvoiceWithEnrichment | null>(null)
   // CN drawer: tracks which supplier group + optional pre-selected invoice
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string; preselectedId?: string } | null>(null)
@@ -159,7 +160,7 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
     const rows = invoices.map(inv => ({
       Proveedor: inv.supplier_group?.name ?? '',
       Factura: inv.invoice_number,
-      Tipo: inv.source === 'historical' ? 'Histórico' : inv.is_internal ? 'Interno' : 'Normal',
+      Tipo: inv.source === 'mixed' ? 'Mixta' : inv.source === 'historical' ? 'Histórico' : inv.is_internal ? 'Interno' : 'Normal',
       Fecha: inv.invoice_date,
       Vencimiento: inv.due_date,
       Subtotal: inv.subtotal,
@@ -220,6 +221,14 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
         <div className="ml-auto flex gap-2">
           <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void exportExcel()} disabled={invoices.length === 0}>
             <Download className="h-3.5 w-3.5" /> Excel
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1 border-amber-300 text-amber-800"
+            onClick={() => setOrphanFleetDrawerOpen(true)}
+          >
+            <Truck className="h-3.5 w-3.5" /> Flete sin entrada
           </Button>
           <Button
             size="sm"
@@ -312,6 +321,9 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                                 </span>
                                 {inv.source === 'historical' && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-500 border border-stone-200">Histórico</span>
+                                )}
+                                {inv.source === 'mixed' && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-violet-50 text-violet-700 border border-violet-200">Mixta</span>
                                 )}
                                 {inv.is_internal && (
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-50 text-orange-600 border border-orange-200">Interno</span>
@@ -568,6 +580,14 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
         open={historicalDrawerOpen}
         onOpenChange={setHistoricalDrawerOpen}
         plantId={plantFilter || undefined}
+        onSuccess={() => setReloadKey(k => k + 1)}
+      />
+      <CreateSupplierInvoiceDrawer
+        open={orphanFleetDrawerOpen}
+        onOpenChange={setOrphanFleetDrawerOpen}
+        plantId={plantFilter || undefined}
+        fleetOnly
+        orphanFleetOnly
         onSuccess={() => setReloadKey(k => k + 1)}
       />
 

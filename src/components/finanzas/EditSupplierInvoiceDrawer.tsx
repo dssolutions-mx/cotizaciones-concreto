@@ -5,41 +5,36 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { AlertTriangle, Package, Truck } from 'lucide-react'
-import type { SupplierInvoice } from '@/types/finance'
-import RetentionRateSelect, { useRetentionRateState } from '@/components/finanzas/RetentionRateSelect'
-import {
-  ISR_RETENTION_PRESETS,
-  IVA_RETENTION_PRESETS,
-  computeInvoiceTotals,
-} from '@/lib/ap/retentionRates'
+import { AlertTriangle, Package, Plus, Trash2, Truck } from 'lucide-react'
+import type { InvoiceManualReason, SupplierInvoice } from '@/types/finance'
+import InvoiceRetentionsEditor, {
+  retentionsFromApi,
+  toRetentionPayload,
+  type RetentionRowState,
+} from '@/components/finanzas/InvoiceRetentionsEditor'
+import { computeInvoiceTotals, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
 
 type EditableItem = {
-  id: string
+  key: string
+  id?: string
+  line_source: 'entry' | 'manual'
+  manual_reason?: InvoiceManualReason
   cost_category: 'material' | 'fleet'
-  description: string | null
+  description: string
   amount: string
-}
-
-type InvoiceForEdit = SupplierInvoice & {
-  items?: Array<{
-    id: string
-    cost_category: 'material' | 'fleet'
-    description: string | null
-    amount: number
-  }>
-  paid_to_date?: number
-  credit_applied_total?: number
 }
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  invoice: InvoiceForEdit | null
+  invoice: SupplierInvoice | null
   onSuccess: () => void
 }
 
@@ -49,26 +44,47 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
   const [discountAmount, setDiscountAmount] = useState('')
   const [vatRate, setVatRate] = useState('0.16')
   const [items, setItems] = useState<EditableItem[]>([])
+  const [deletedIds, setDeletedIds] = useState<string[]>([])
+  const [retentionRows, setRetentionRows] = useState<RetentionRowState[]>([])
   const [loading, setLoading] = useState(false)
-
-  const isrRetention = useRetentionRateState(0, ISR_RETENTION_PRESETS)
-  const ivaRetention = useRetentionRateState(0, IVA_RETENTION_PRESETS)
+  const [fetching, setFetching] = useState(false)
+  const [paidToDate, setPaidToDate] = useState(0)
+  const [creditApplied, setCreditApplied] = useState(0)
+  const [invoiceMeta, setInvoiceMeta] = useState<SupplierInvoice | null>(null)
 
   useEffect(() => {
-    if (!open || !invoice) return
-    setDueDate(invoice.due_date)
-    setNotes(invoice.notes ?? '')
-    setDiscountAmount(String(invoice.discount_amount ?? 0))
-    setVatRate(String(invoice.vat_rate))
-    isrRetention.reset(Number(invoice.retention_isr_rate ?? 0))
-    ivaRetention.reset(Number(invoice.retention_iva_rate ?? 0))
-    setItems((invoice.items ?? []).map(it => ({
-      id: it.id,
-      cost_category: it.cost_category,
-      description: it.description,
-      amount: String(it.amount),
-    })))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!open || !invoice?.id) return
+    setFetching(true)
+    setDeletedIds([])
+    fetch(`/api/ap/invoices/${invoice.id}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data.invoice) return
+        const inv = data.invoice as SupplierInvoice
+        setInvoiceMeta(inv)
+        setDueDate(inv.due_date)
+        setNotes(inv.notes ?? '')
+        setDiscountAmount(String(inv.discount_amount ?? 0))
+        setVatRate(String(inv.vat_rate))
+        setPaidToDate(Number(data.invoice.paid_to_date ?? 0))
+        setCreditApplied(0)
+        if (inv.retentions?.length) {
+          setRetentionRows(retentionsFromApi(inv.retentions))
+        } else {
+          setRetentionRows([])
+        }
+        setItems((inv.items ?? []).map(it => ({
+          key: it.id,
+          id: it.id,
+          line_source: it.line_source ?? (it.entry_id ? 'entry' : 'manual'),
+          manual_reason: it.manual_reason ?? undefined,
+          cost_category: (it.cost_category ?? 'material') as 'material' | 'fleet',
+          description: it.description ?? '',
+          amount: String(it.amount),
+        })))
+      })
+      .catch(() => toast.error('No se pudo cargar la factura'))
+      .finally(() => setFetching(false))
   }, [open, invoice?.id])
 
   const subtotal = useMemo(
@@ -78,27 +94,49 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
 
   const discount = parseFloat(discountAmount) || 0
   const vat = parseFloat(vatRate) || 0
-  const totals = useMemo(() => computeInvoiceTotals({
-    subtotal,
-    discount,
-    vatRate: vat,
-    isrRate: isrRetention.rate,
-    ivaRetRate: ivaRetention.rate,
-  }), [subtotal, discount, vat, isrRetention.rate, ivaRetention.rate])
+  const totals = useMemo(
+    () => computeInvoiceTotals({
+      subtotal,
+      discount,
+      vatRate: vat,
+      retentions: toRetentionPayload(retentionRows),
+    }),
+    [subtotal, discount, vat, retentionRows],
+  )
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
-  const paidToDate = Number(invoice?.paid_to_date ?? 0)
-  const creditApplied = Number(invoice?.credit_applied_total ?? 0)
   const minTotal = paidToDate + creditApplied
+  const canEdit = invoiceMeta && invoiceMeta.status !== 'paid' && invoiceMeta.status !== 'void'
 
-  const canEdit = invoice && invoice.status !== 'paid' && invoice.status !== 'void'
+  const addManualLine = (cost_category: 'material' | 'fleet') => {
+    setItems(prev => [...prev, {
+      key: crypto.randomUUID(),
+      line_source: 'manual',
+      manual_reason: cost_category === 'fleet' ? 'orphan_fleet' : 'period_gap',
+      cost_category,
+      description: '',
+      amount: '',
+    }])
+  }
+
+  const removeItem = (key: string) => {
+    const row = items.find(i => i.key === key)
+    if (row?.line_source === 'entry') return
+    if (row?.id) setDeletedIds(prev => [...prev, row.id!])
+    setItems(prev => prev.filter(i => i.key !== key))
+  }
 
   const handleSubmit = async () => {
-    if (!invoice || !canEdit) return
+    if (!invoiceMeta || !canEdit) return
     if (!dueDate) { toast.error('Fecha de vencimiento requerida'); return }
+    if (items.length === 0) { toast.error('Agrega al menos una línea'); return }
     if (items.some(it => !it.amount || parseFloat(it.amount) <= 0)) {
       toast.error('Todas las líneas deben tener monto positivo')
+      return
+    }
+    if (items.some(it => it.line_source === 'manual' && !it.description.trim())) {
+      toast.error('Las líneas manuales requieren descripción')
       return
     }
     if (totals.total < minTotal - 0.01) {
@@ -106,23 +144,39 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
       return
     }
 
+    const existingUpdates = items
+      .filter(it => it.id)
+      .map(it => ({ id: it.id!, amount: parseFloat(it.amount) }))
+
+    const itemsToAdd = items
+      .filter(it => !it.id)
+      .map(it => ({
+        entry_id: null,
+        line_source: 'manual' as const,
+        manual_reason: it.manual_reason ?? 'other',
+        cost_category: it.cost_category,
+        description: it.description.trim(),
+        amount: parseFloat(it.amount),
+      }))
+
     setLoading(true)
     try {
-      const res = await fetch(`/api/ap/invoices/${invoice.id}`, {
+      const res = await fetch(`/api/ap/invoices/${invoiceMeta.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           due_date: dueDate,
           notes: notes.trim() || null,
           vat_rate: vat,
-          subtotal,
           discount_amount: discount,
-          retention_isr_rate: isrRetention.rate,
-          retention_iva_rate: ivaRetention.rate,
-          items: items.map(it => ({
-            id: it.id,
-            amount: parseFloat(it.amount),
+          retentions: toRetentionPayload(retentionRows).map((r, idx) => ({
+            ...r,
+            base_amount: r.base_amount ?? totals.taxableBase,
+            sort_order: idx,
           })),
+          items: existingUpdates,
+          items_to_add: itemsToAdd,
+          items_to_delete: deletedIds,
         }),
       })
       const data = await res.json()
@@ -130,7 +184,7 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
         toast.error(data.error ?? 'Error al guardar')
         return
       }
-      toast.success(`Factura ${invoice.invoice_number} actualizada`)
+      toast.success(`Factura ${invoiceMeta.invoice_number} actualizada`)
       onOpenChange(false)
       onSuccess()
     } finally {
@@ -144,20 +198,22 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
         <SheetHeader>
           <SheetTitle>Editar factura</SheetTitle>
           <SheetDescription>
-            Ajusta montos, retenciones o vencimiento cuando la factura no coincide con el CFDI o la recepción.
+            Ajusta montos, retenciones, líneas manuales o vencimiento cuando la factura no coincide con el CFDI.
           </SheetDescription>
         </SheetHeader>
 
-        {!invoice ? null : !canEdit ? (
+        {fetching ? (
+          <p className="mt-6 text-sm text-stone-500">Cargando…</p>
+        ) : !invoiceMeta ? null : !canEdit ? (
           <p className="mt-6 text-sm text-stone-500">
-            Esta factura no se puede editar porque está {invoice.status === 'paid' ? 'pagada' : 'anulada'}.
+            Esta factura no se puede editar porque está {invoiceMeta.status === 'paid' ? 'pagada' : 'anulada'}.
           </p>
         ) : (
           <div className="mt-6 space-y-5 pb-8">
             <div className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-sm">
-              <div className="font-mono font-semibold">{invoice.invoice_number}</div>
+              <div className="font-mono font-semibold">{invoiceMeta.invoice_number}</div>
               <div className="text-xs text-stone-500 mt-0.5">
-                {invoice.supplier_group?.name ?? 'Proveedor'}
+                {invoiceMeta.supplier_group?.name ?? 'Proveedor'}
               </div>
             </div>
 
@@ -201,70 +257,87 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
 
             <section className="space-y-3">
               <h3 className="text-sm font-semibold text-stone-900">Descuentos y retenciones</h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Descuento (pre-IVA)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={discountAmount}
-                    onChange={e => setDiscountAmount(e.target.value)}
-                    className="bg-white"
-                    placeholder="0.00"
-                  />
-                </div>
-                <RetentionRateSelect
-                  label="Retención ISR"
-                  presets={ISR_RETENTION_PRESETS}
-                  presetOptions={[
-                    { value: '0', label: '0% (ninguna)' },
-                    { value: '0.0125', label: '1.25% — fletes / RIF' },
-                    { value: '0.10', label: '10% — honorarios PF' },
-                  ]}
-                  selectValue={isrRetention.selectValue}
-                  customDraft={isrRetention.customDraft}
-                  editingCustom={isrRetention.editingCustom}
-                  onSelectValueChange={isrRetention.setSelectValue}
-                  onCustomDraftChange={isrRetention.setCustomDraft}
-                  onEditingCustomChange={isrRetention.setEditingCustom}
-                />
-                <RetentionRateSelect
-                  label="Retención IVA"
-                  presets={IVA_RETENTION_PRESETS}
-                  presetOptions={[
-                    { value: '0', label: '0% (ninguna)' },
-                    { value: '0.04', label: '4% — autotransporte' },
-                    { value: '0.106667', label: '10.67% — servicios 2/3' },
-                  ]}
-                  selectValue={ivaRetention.selectValue}
-                  customDraft={ivaRetention.customDraft}
-                  editingCustom={ivaRetention.editingCustom}
-                  onSelectValueChange={ivaRetention.setSelectValue}
-                  onCustomDraftChange={ivaRetention.setCustomDraft}
-                  onEditingCustomChange={ivaRetention.setEditingCustom}
+              <div className="space-y-1">
+                <Label className="text-xs">Descuento (pre-IVA)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={discountAmount}
+                  onChange={e => setDiscountAmount(e.target.value)}
+                  className="bg-white"
+                  placeholder="0.00"
                 />
               </div>
+              <InvoiceRetentionsEditor
+                rows={retentionRows}
+                onChange={setRetentionRows}
+                taxableBase={totals.taxableBase}
+              />
             </section>
 
             <Separator />
 
             <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-stone-900">Líneas de factura</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-stone-900">Líneas de factura</h3>
+                <div className="flex gap-1">
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => addManualLine('material')}>
+                    + Material
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => addManualLine('fleet')}>
+                    + Flete
+                  </Button>
+                </div>
+              </div>
               <div className="space-y-2">
                 {items.map(it => (
-                  <div key={it.id} className="flex items-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
-                    {it.cost_category === 'fleet'
-                      ? <Truck className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                      : <Package className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
-                    <span className="flex-1 text-xs text-stone-700 truncate">{it.description || '—'}</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={it.amount}
-                      onChange={e => setItems(prev => prev.map(row => row.id === it.id ? { ...row, amount: e.target.value } : row))}
-                      className="w-28 h-7 text-xs bg-white tabular-nums"
-                    />
+                  <div key={it.key} className="rounded-md border border-stone-200 bg-stone-50 px-3 py-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                      {it.cost_category === 'fleet'
+                        ? <Truck className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                        : <Package className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
+                      {it.line_source === 'manual' && (
+                        <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800">Sin entrada</span>
+                      )}
+                      {it.line_source === 'manual' ? (
+                        <Input
+                          value={it.description}
+                          onChange={e => setItems(prev => prev.map(row => row.key === it.key ? { ...row, description: e.target.value } : row))}
+                          className="flex-1 h-7 text-xs bg-white"
+                          placeholder="Descripción"
+                        />
+                      ) : (
+                        <span className="flex-1 text-xs text-stone-700 truncate">{it.description || '—'}</span>
+                      )}
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={it.amount}
+                        onChange={e => setItems(prev => prev.map(row => row.key === it.key ? { ...row, amount: e.target.value } : row))}
+                        className="w-28 h-7 text-xs bg-white tabular-nums"
+                      />
+                      {it.line_source === 'manual' && (
+                        <button type="button" onClick={() => removeItem(it.key)} className="text-stone-400 hover:text-red-600">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {it.line_source === 'manual' && (
+                      <Select
+                        value={it.manual_reason ?? 'other'}
+                        onValueChange={v => setItems(prev => prev.map(row => row.key === it.key ? { ...row, manual_reason: v as InvoiceManualReason } : row))}
+                      >
+                        <SelectTrigger className="h-7 text-xs bg-white">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(MANUAL_REASON_LABELS).map(([k, label]) => (
+                            <SelectItem key={k} value={k}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 ))}
               </div>
@@ -285,18 +358,12 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
                 <span className="text-stone-600">+ IVA ({Math.round(vat * 100)}%)</span>
                 <span className="tabular-nums">{mxn.format(totals.tax)}</span>
               </div>
-              {totals.isrAmt > 0 && (
-                <div className="flex justify-between text-rose-700">
-                  <span>− Ret. ISR ({(isrRetention.rate * 100).toFixed(2)}%)</span>
-                  <span className="tabular-nums">−{mxn.format(totals.isrAmt)}</span>
+              {retentionRows.map(r => Number(r.amount) > 0 && (
+                <div key={r.key} className="flex justify-between text-rose-700">
+                  <span>− {r.label}</span>
+                  <span className="tabular-nums">−{mxn.format(Number(r.amount))}</span>
                 </div>
-              )}
-              {totals.ivaRetAmt > 0 && (
-                <div className="flex justify-between text-rose-700">
-                  <span>− Ret. IVA ({(ivaRetention.rate * 100).toFixed(2)}% s/base)</span>
-                  <span className="tabular-nums">−{mxn.format(totals.ivaRetAmt)}</span>
-                </div>
-              )}
+              ))}
               <div className="flex justify-between font-semibold border-t border-stone-200 pt-2">
                 <span>Total a pagar</span>
                 <span className="tabular-nums">{mxn.format(totals.total)}</span>

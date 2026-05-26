@@ -1,5 +1,5 @@
 import { XMLParser } from 'fast-xml-parser'
-import type { CfdiConcepto, ParsedCfdi, CfdiTipoComprobante } from '@/types/finance'
+import type { CfdiConcepto, ParsedCfdi, CfdiRetencion, CfdiTipoComprobante } from '@/types/finance'
 
 export class CfdiParseError extends Error {
   constructor(message: string, public field?: string) {
@@ -85,13 +85,23 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
   }
   let isr_retenido = 0
   let iva_retenido = 0
+  const retenciones: CfdiRetencion[] = []
+  const impuestoCounts: Record<string, number> = {}
   if (impuestos?.Retenciones) {
-    const retenciones = asArray(impuestos.Retenciones.Retencion)
-    for (const r of retenciones) {
-      const imp = String(r?.['@_Impuesto'])
+    const retencionNodes = asArray(impuestos.Retenciones.Retencion)
+    for (const r of retencionNodes) {
+      const imp = String(r?.['@_Impuesto'] ?? '')
       const importe = num(r?.['@_Importe'])
-      if (imp === '001') isr_retenido += importe // ISR
-      else if (imp === '002') iva_retenido += importe // IVA retenido
+      const tasa = num(r?.['@_TasaOCuota'])
+      if (imp === '001') isr_retenido += importe
+      else if (imp === '002') iva_retenido += importe
+      const idx = impuestoCounts[imp] ?? 0
+      impuestoCounts[imp] = idx + 1
+      retenciones.push({
+        impuesto_sat: imp,
+        importe,
+        tasa_o_cuota: tasa > 0 ? tasa : undefined,
+      })
     }
   }
 
@@ -135,18 +145,26 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
 
   // REP (Complemento de Pago) — present when tipo='P'
   const pagos_doctos: ParsedCfdi['pagos_doctos'] = []
+  const repUuid = String(tfd['@_UUID']).toLowerCase()
   if (tipo_comprobante === 'P' && complemento?.Pagos) {
     const pagos = asArray(complemento.Pagos.Pago)
     for (const p of pagos) {
+      const fechaPagoRaw = str(p?.['@_FechaPago'])
+      const fecha_pago = fechaPagoRaw ? fechaPagoRaw.slice(0, 10) : null
+      const forma_pago_p = str(p?.['@_FormaDePagoP'])
+      const moneda_p = str(p?.['@_MonedaP'])
       const doctos = asArray(p?.DoctoRelacionado)
       for (const d of doctos) {
         const docUuid = str(d?.['@_IdDocumento'])
         if (!docUuid) continue
         pagos_doctos.push({
-          uuid: String(tfd['@_UUID']).toLowerCase(),
+          uuid: repUuid,
           docto_relacionado_uuid: docUuid.toLowerCase(),
           imp_pagado: num(d?.['@_ImpPagado']),
           num_parcialidad: num(d?.['@_NumParcialidad'], 1),
+          fecha_pago,
+          forma_pago_p,
+          moneda_p,
         })
       }
     }
@@ -172,6 +190,7 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     vat_rate,
     retention_isr_rate,
     retention_iva_rate,
+    retenciones,
     metodo_pago: str(comprobante['@_MetodoPago']),
     forma_pago: str(comprobante['@_FormaPago']),
     uso_cfdi: str(receptor?.['@_UsoCFDI']),

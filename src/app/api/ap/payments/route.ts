@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { syncInvoiceStatusFromPayable } from '@/lib/ap/syncPayableInvoiceStatus';
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,12 +73,8 @@ export async function POST(request: NextRequest) {
       .eq('id', payable_id)
       .single();
 
-    // Sync supplier_invoices.status to match the trigger-updated payable status
-    if (payable?.invoice_id && payable.status) {
-      await supabase
-        .from('supplier_invoices')
-        .update({ status: payable.status })
-        .eq('id', payable.invoice_id)
+    if (payable?.id) {
+      await syncInvoiceStatusFromPayable(supabase, payable.id)
     }
 
     return NextResponse.json({ payment, payable });

@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
 import { parsedCfdiToSatRow } from '@/lib/sat/satCfdiRow'
+import { buildRepPaymentPreview } from '@/lib/sat/repPayments'
+import type { ParsedCfdi } from '@/types/finance'
 import JSZip from 'jszip'
 
-const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
+const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
-// POST /api/ap/sat-import — multipart with zip_file or xml_file
-// Parses each XML, upserts into sat_cfdi_recibidos keyed by UUID.
-// Returns { imported, skipped, errors: [{ file, message }] }
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -28,16 +27,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Se requiere zip_file o xml_file' }, { status: 400 })
     }
 
-    // Collect (filename, xmlText) pairs to process
     const entries: Array<{ name: string; text: string }> = []
-
     if (zipFile instanceof File) {
       const buffer = await zipFile.arrayBuffer()
       const zip = await JSZip.loadAsync(buffer)
       for (const [name, entry] of Object.entries(zip.files)) {
         if (!name.toLowerCase().endsWith('.xml') || entry.dir) continue
-        const text = await entry.async('string')
-        entries.push({ name, text })
+        entries.push({ name, text: await entry.async('string') })
       }
     } else if (xmlFile instanceof File) {
       entries.push({ name: xmlFile.name, text: await xmlFile.text() })
@@ -48,11 +44,12 @@ export async function POST(request: NextRequest) {
     }
 
     let admin: ReturnType<typeof createServiceClient>
-    try { admin = createServiceClient() } catch {
+    try {
+      admin = createServiceClient()
+    } catch {
       return NextResponse.json({ error: 'Configuración del servidor incompleta' }, { status: 503 })
     }
 
-    // Get company RFC for receptor validation
     const { data: setting } = await supabase
       .from('system_settings')
       .select('value')
@@ -60,6 +57,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     const companyRfc = (setting?.value ?? '').trim().toUpperCase()
 
+    const source = zipFile instanceof File ? 'manual_zip' : 'manual_xml'
+    const parsedRep: ParsedCfdi[] = []
     let imported = 0
     let skipped = 0
     const errors: Array<{ file: string; message: string }> = []
@@ -68,18 +67,22 @@ export async function POST(request: NextRequest) {
       try {
         const cfdi = parseCfdiXml(text)
 
-        // Only import CFDIs directed to the company
         if (companyRfc && cfdi.receptor_rfc !== companyRfc) {
           skipped++
           continue
         }
 
-        const row = parsedCfdiToSatRow(
-          cfdi,
-          user.id,
-          zipFile instanceof File ? 'manual_zip' : 'manual_xml',
-        )
+        if (cfdi.tipo_comprobante !== 'P') {
+          skipped++
+          continue
+        }
 
+        if (cfdi.pagos_doctos.length === 0) {
+          errors.push({ file: name, message: 'REP sin documentos relacionados' })
+          continue
+        }
+
+        const row = parsedCfdiToSatRow(cfdi, user.id, source)
         const { error: upsertErr } = await admin
           .from('sat_cfdi_recibidos')
           .upsert(row, { onConflict: 'uuid', ignoreDuplicates: false })
@@ -88,6 +91,7 @@ export async function POST(request: NextRequest) {
           errors.push({ file: name, message: upsertErr.message })
         } else {
           imported++
+          parsedRep.push(cfdi)
         }
       } catch (err) {
         const msg = err instanceof CfdiParseError ? err.message : 'XML inválido o no es CFDI'
@@ -95,9 +99,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ imported, skipped, errors })
+    const preview = await buildRepPaymentPreview(supabase, parsedRep)
+
+    return NextResponse.json({ imported, skipped, preview, errors })
   } catch (err) {
-    console.error('POST /api/ap/sat-import error:', err)
+    console.error('POST /api/ap/sat-pagos-import error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }
 }

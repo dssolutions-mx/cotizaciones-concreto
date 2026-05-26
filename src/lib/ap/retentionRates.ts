@@ -59,18 +59,12 @@ export function initRetentionState(
   return { selectValue: 'custom', customDraft: String(rate), editingCustom: false }
 }
 
-export function computeInvoiceTotals(input: {
-  subtotal: number
-  discount: number
-  vatRate: number
-  isrRate: number
-  ivaRetRate: number
-}) {
-  const discountAmt = Math.round(input.discount * 100) / 100
-  const taxableBase = Math.round((input.subtotal - discountAmt) * 100) / 100
-  const tax = Math.round(taxableBase * input.vatRate * 100) / 100
-  const isrAmt = Math.round(taxableBase * input.isrRate * 100) / 100
-  const ivaRetAmt = Math.round(taxableBase * input.ivaRetRate * 100) / 100
-  const total = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
-  return { discountAmt, taxableBase, tax, isrAmt, ivaRetAmt, total }
-}
+export {
+  computeInvoiceTotals,
+  computeInvoiceTotalsFromRates,
+  rollupRetentionsToHeader,
+  deriveInvoiceSource,
+  MANUAL_REASON_LABELS,
+  retentionLabelForImpuesto,
+  roundMoney,
+} from '@/lib/ap/invoiceTotals'

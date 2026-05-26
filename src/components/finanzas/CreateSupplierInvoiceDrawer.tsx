@@ -15,10 +15,19 @@ import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { Plus, Trash2, AlertTriangle, FileUp, FileCheck2, X, CheckCircle2, Truck } from 'lucide-react'
-import type { InvoiceCostCategory, ParsedCfdi, CfdiCaptureMode } from '@/types/finance'
+import type {
+  InvoiceCostCategory,
+  InvoiceManualReason,
+  ParsedCfdi,
+  CfdiCaptureMode,
+} from '@/types/finance'
 import { c_FormaPago, c_MetodoPago, c_UsoCFDI } from '@/lib/sat/codigosSat'
-import RetentionRateSelect, { useRetentionRateState } from '@/components/finanzas/RetentionRateSelect'
-import { ISR_RETENTION_PRESETS, IVA_RETENTION_PRESETS } from '@/lib/ap/retentionRates'
+import InvoiceRetentionsEditor, {
+  retentionsFromCfdi,
+  toRetentionPayload,
+  type RetentionRowState,
+} from '@/components/finanzas/InvoiceRetentionsEditor'
+import { computeInvoiceTotals, deriveInvoiceSource, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
 
 export type OrphanEntry = {
   id: string
@@ -70,6 +79,8 @@ type LineItem = {
   amount: string
   /** When true the amount is derived from entry data and cannot be edited. */
   locked?: boolean
+  line_source?: 'entry' | 'manual'
+  manual_reason?: InvoiceManualReason
 }
 
 type SupplierGroup = {
@@ -93,6 +104,8 @@ interface Props {
    * Used from the "Fletes pendientes" workflow.
    */
   fleetOnly?: boolean
+  /** Fleet invoice with no material_entries (manual fleet lines only). */
+  orphanFleetOnly?: boolean
   onSuccess: () => void
 }
 
@@ -176,8 +189,19 @@ function CfdiPill() {
   )
 }
 
-export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entries, plantId, queueInfo, fleetOnly = false, onSuccess }: Props) {
-  const isHistorical = !entries || entries.length === 0
+export default function CreateSupplierInvoiceDrawer({
+  open,
+  onOpenChange,
+  entries,
+  plantId,
+  queueInfo,
+  fleetOnly = false,
+  orphanFleetOnly = false,
+  onSuccess,
+}: Props) {
+  const hasEntries = Boolean(entries && entries.length > 0)
+  const isFullManual = !hasEntries && !fleetOnly && !orphanFleetOnly
+  const isOrphanFleet = orphanFleetOnly || (fleetOnly && !hasEntries)
 
   // ── supplier group ─────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<SupplierGroup[]>([])
@@ -203,8 +227,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
 
   // ── discounts & retentions ─────────────────────────────────────────────────
   const [discountAmount, setDiscountAmount] = useState('')
-  const isrRetention = useRetentionRateState(0, ISR_RETENTION_PRESETS)
-  const ivaRetention = useRetentionRateState(0, IVA_RETENTION_PRESETS)
+  const [retentionRows, setRetentionRows] = useState<RetentionRowState[]>([])
 
   // ── line items (split) ─────────────────────────────────────────────────────
   const [materialLines, setMaterialLines] = useState<LineItem[]>([])
@@ -248,8 +271,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setNotes('')
     setNewGroupName('')
     setDiscountAmount('')
-    isrRetention.reset(0)
-    ivaRetention.reset(0)
+    setRetentionRows([])
     setCfdiCaptureMode('manual')
     setParsedCfdi(null)
     setCfdiFile(null)
@@ -260,7 +282,39 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setCfdiPrefilled(new Set())
     setFleetGroupId('')
 
-    if (isHistorical) {
+    if (isOrphanFleet) {
+      setGroupId('')
+      setVatRate(String(DEFAULT_VAT))
+      setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
+      setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
+      setInvoiceNumber('')
+      setMaterialLines([])
+      setFleetLines([{
+        key: crypto.randomUUID(),
+        entry_id: null,
+        line_source: 'manual',
+        manual_reason: 'orphan_fleet',
+        cost_category: 'fleet',
+        description: '',
+        qty: '',
+        unit_price: '',
+        amount: '',
+        locked: false,
+      }])
+      setIncludeFleetInThisInvoice(false)
+      setRetentionRows([{
+        key: crypto.randomUUID(),
+        impuesto_sat: '001',
+        label: 'ISR autotransporte 1.25%',
+        base_amount: null,
+        rate: 0.0125,
+        amount: 0,
+        sort_order: 0,
+      }])
+      return
+    }
+
+    if (isFullManual) {
       setGroupId('')
       setVatRate(String(DEFAULT_VAT))
       setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
@@ -269,11 +323,14 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       setMaterialLines([{
         key: crypto.randomUUID(),
         entry_id: null,
+        line_source: 'manual',
+        manual_reason: 'other',
         cost_category: 'material',
         description: '',
         qty: '',
         unit_price: '',
         amount: '',
+        locked: false,
       }])
       setFleetLines([])
       setIncludeFleetInThisInvoice(false)
@@ -296,7 +353,15 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       // If no group_id set, the fleet supplier may not be in supplier_groups yet — leave picker empty
       setGroupId(fleetGroupIds.length === 1 ? (fleetGroupIds[0] as string) : '')
       setVatRate(String(DEFAULT_VAT))
-      isrRetention.reset(0.0125) // 1.25% is the standard transport ISR retention
+      setRetentionRows([{
+        key: crypto.randomUUID(),
+        impuesto_sat: '001',
+        label: 'ISR autotransporte 1.25%',
+        base_amount: null,
+        rate: 0.0125,
+        amount: 0,
+        sort_order: 0,
+      }])
       const dueFromFleet = entries?.[0]?.ap_due_date_fleet
       if (dueFromFleet) setDueDate(dueFromFleet)
       else setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
@@ -344,11 +409,11 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setInvoiceNumber(entries?.[0]?.supplier_invoice ?? '')
     setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, entries, isHistorical, fleetOnly])
+  }, [open, entries, isFullManual, isOrphanFleet, fleetOnly])
 
   // Auto-update VAT + due date when group changes (historical/picker mode)
   useEffect(() => {
-    if (!isHistorical) return
+    if (!isFullManual && !isOrphanFleet) return
     const g = groups.find(x => x.id === groupId)
     if (g?.plant_supplier?.default_vat_rate != null) {
       setVatRate(String(g.plant_supplier.default_vat_rate))
@@ -367,7 +432,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     value: string,
   ) => {
     setter(prev => prev.map(l => {
-      if (l.key !== key || l.locked) return l
+      if (l.key !== key || (l.locked && field !== 'manual_reason')) return l
       const updated = { ...l, [field]: value }
       if (field === 'qty' || field === 'unit_price') {
         const q = parseFloat(updated.qty)
@@ -383,15 +448,22 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     key: string,
   ) => setter(prev => prev.filter(l => l.key !== key))
 
-  const addLine = (setter: React.Dispatch<React.SetStateAction<LineItem[]>>) =>
+  const addManualLine = (
+    setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
+    cost_category: InvoiceCostCategory,
+    manual_reason: InvoiceManualReason,
+  ) =>
     setter(prev => [...prev, {
       key: crypto.randomUUID(),
       entry_id: null,
-      cost_category: 'material',
+      line_source: 'manual',
+      manual_reason,
+      cost_category,
       description: '',
       qty: '',
       unit_price: '',
       amount: '',
+      locked: false,
     }])
 
   // ── computed totals ────────────────────────────────────────────────────────
@@ -407,7 +479,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   // Mirrors the detection logic in the reset effect:
   //  A) Same supplier_groups.id (cross-plant)
   //  B) Same plant-scoped supplier row (supplier_id === fleet_supplier_id) — covers suppliers without a group
-  const sameFleetSupplier = !isHistorical && !fleetOnly && (() => {
+  const sameFleetSupplier = hasEntries && !fleetOnly && !isOrphanFleet && (() => {
     const ents = entries ?? []
     if (ents.length === 0) return false
     const byGroup = !!groupId && !!fleetGroupId && groupId === fleetGroupId
@@ -418,20 +490,23 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
   // In fleet-only mode, base = fleet lines.
   // When merging same-supplier fleet into the material invoice, base = material + fleet combined.
   // Otherwise base = material lines only.
-  const effectiveSubtotal = fleetOnly
+  const effectiveSubtotal = isOrphanFleet || fleetOnly
     ? fleetSubtotal
     : (sameFleetSupplier && includeFleetInThisInvoice && fleetLines.length > 0)
       ? subtotal + fleetSubtotal
       : subtotal
-  const vat            = parseFloat(vatRate) || 0
-  const discount       = parseFloat(discountAmount) || 0
-  const isrRateNum     = isrRetention.rate
-  const ivaRetRateNum  = ivaRetention.rate
-  const taxableBase    = Math.max(0, effectiveSubtotal - discount)
-  const tax            = Math.round(taxableBase * vat * 100) / 100
-  const isrAmt         = Math.round(taxableBase * isrRateNum * 100) / 100
-  const ivaRetAmt      = Math.round(taxableBase * ivaRetRateNum * 100) / 100
-  const total          = Math.round((taxableBase + tax - isrAmt - ivaRetAmt) * 100) / 100
+  const vat = parseFloat(vatRate) || 0
+  const discount = parseFloat(discountAmount) || 0
+  const invoiceTotals = useMemo(
+    () => computeInvoiceTotals({
+      subtotal: effectiveSubtotal,
+      discount,
+      vatRate: vat,
+      retentions: toRetentionPayload(retentionRows),
+    }),
+    [effectiveSubtotal, discount, vat, retentionRows],
+  )
+  const { taxableBase, tax, total, isrAmt, ivaRetAmt, retentionTotal } = invoiceTotals
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -501,17 +576,12 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       } else {
         setDiscountAmount('')
       }
-      if (cfdi.retention_isr_rate > 0) {
-        isrRetention.reset(cfdi.retention_isr_rate)
-        prefilled.add('isrRate')
+      const baseForRet = Math.max(0, cfdi.subtotal - (cfdi.descuento || 0))
+      if (cfdi.retenciones?.length) {
+        setRetentionRows(retentionsFromCfdi(cfdi.retenciones, baseForRet))
+        prefilled.add('retentions')
       } else {
-        isrRetention.reset(0)
-      }
-      if (cfdi.retention_iva_rate > 0) {
-        ivaRetention.reset(cfdi.retention_iva_rate)
-        prefilled.add('ivaRetRate')
-      } else {
-        ivaRetention.reset(0)
+        setRetentionRows([])
       }
 
       setCfdiPrefilled(prefilled)
@@ -524,27 +594,47 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       // Build lines from cfdi:Conceptos (one line per concept).
       // In non-historical mode with locked entry lines we don't override, but we
       // still populate for historical / manual mode.
-      if (isHistorical) {
-        if (cfdi.conceptos.length > 0) {
+      if (isFullManual || isOrphanFleet) {
+        if (isOrphanFleet) {
+          if (cfdi.conceptos.length > 0) {
+            setFleetLines(cfdi.conceptos.map(c => ({
+              key: crypto.randomUUID(),
+              entry_id: null,
+              line_source: 'manual' as const,
+              manual_reason: 'orphan_fleet' as const,
+              cost_category: 'fleet' as const,
+              description: c.descripcion,
+              qty: String(c.cantidad),
+              unit_price: c.valor_unitario.toFixed(2),
+              amount: (c.importe - c.descuento).toFixed(2),
+              locked: false,
+            })))
+          }
+        } else if (cfdi.conceptos.length > 0) {
           setMaterialLines(cfdi.conceptos.map(c => ({
             key: crypto.randomUUID(),
             entry_id: null,
+            line_source: 'manual',
+            manual_reason: 'other',
             cost_category: 'material' as const,
             description: c.descripcion,
             qty: String(c.cantidad),
             unit_price: c.valor_unitario.toFixed(2),
             amount: (c.importe - c.descuento).toFixed(2),
+            locked: false,
           })))
         } else {
-          // Fallback: single line with full subtotal
           setMaterialLines([{
             key: crypto.randomUUID(),
             entry_id: null,
+            line_source: 'manual',
+            manual_reason: 'other',
             cost_category: 'material',
             description: cfdi.emisor_nombre ?? `CFDI ${cfdi.serie ?? ''}${cfdi.folio ?? ''}`,
             qty: '1',
             unit_price: cfdi.subtotal.toFixed(2),
             amount: cfdi.subtotal.toFixed(2),
+            locked: false,
           }])
         }
         setFleetLines([])
@@ -570,16 +660,34 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     setCfdiPrefilled(new Set())
   }
 
+  type ApiItemPayload = {
+    entry_id: string | null
+    line_source: 'entry' | 'manual'
+    manual_reason?: InvoiceManualReason
+    cost_category: string
+    description: string | null
+    qty: number | null
+    unit_price: number | null
+    amount: number
+  }
+
+  const pushManualOrEntryLine = (items: ApiItemPayload[], l: LineItem) => {
+    const isManual = l.line_source === 'manual' || (!l.entry_id && !l.sourceEntries?.length)
+    items.push({
+      entry_id: isManual ? null : l.entry_id,
+      line_source: isManual ? 'manual' : 'entry',
+      manual_reason: isManual ? (l.manual_reason ?? 'other') : undefined,
+      cost_category: l.cost_category,
+      description: l.description?.trim() || null,
+      qty: l.qty ? parseFloat(l.qty) : null,
+      unit_price: l.unit_price ? parseFloat(l.unit_price) : null,
+      amount: parseFloat(l.amount),
+    })
+  }
+
   /** Expand aggregated material display lines into individual API items. */
   const buildApiItems = () => {
-    const items: Array<{
-      entry_id: string | null
-      cost_category: string
-      description: string | null
-      qty: number | null
-      unit_price: number | null
-      amount: number
-    }> = []
+    const items: ApiItemPayload[] = []
 
     for (const l of materialLines) {
       if (l.sourceEntries && l.sourceEntries.length > 0) {
@@ -588,6 +696,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           if (amt <= 0) continue
           items.push({
             entry_id: e.id,
+            line_source: 'entry',
             cost_category: 'material',
             description: `${e.material?.material_name ?? ''} — ${e.entry_number}`,
             qty: e.received_qty_entered ?? null,
@@ -596,14 +705,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           })
         }
       } else {
-        items.push({
-          entry_id: l.entry_id,
-          cost_category: l.cost_category,
-          description: l.description || null,
-          qty: l.qty ? parseFloat(l.qty) : null,
-          unit_price: l.unit_price ? parseFloat(l.unit_price) : null,
-          amount: parseFloat(l.amount),
-        })
+        pushManualOrEntryLine(items, l)
       }
     }
     return items
@@ -611,14 +713,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
 
   /** Expand aggregated fleet display lines into individual API items. */
   const buildFleetApiItems = () => {
-    const items: Array<{
-      entry_id: string | null
-      cost_category: string
-      description: string | null
-      qty: number | null
-      unit_price: number | null
-      amount: number
-    }> = []
+    const items: ApiItemPayload[] = []
 
     for (const l of fleetLines) {
       if (l.sourceEntries && l.sourceEntries.length > 0) {
@@ -627,6 +722,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           if (amt <= 0) continue
           items.push({
             entry_id: e.id,
+            line_source: 'entry',
             cost_category: 'fleet',
             description: `Flete — ${e.entry_number}`,
             qty: null,
@@ -635,18 +731,18 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           })
         }
       } else {
-        items.push({
-          entry_id: l.entry_id,
-          cost_category: 'fleet',
-          description: l.description || null,
-          qty: l.qty ? parseFloat(l.qty) : null,
-          unit_price: l.unit_price ? parseFloat(l.unit_price) : null,
-          amount: parseFloat(l.amount),
-        })
+        pushManualOrEntryLine(items, l)
       }
     }
     return items
   }
+
+  const retentionPayload = () =>
+    toRetentionPayload(retentionRows).map((r, idx) => ({
+      ...r,
+      base_amount: r.base_amount ?? taxableBase,
+      sort_order: idx,
+    }))
 
   const handleSubmit = async () => {
     if (!groupId) { toast.error('Selecciona o crea un grupo de proveedor'); return }
@@ -654,8 +750,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     if (!invoiceDate || !dueDate) { toast.error('Fecha de factura y vencimiento requeridos'); return }
     if (!isInternal && !invoiceNumber.trim()) { toast.error('Número de factura requerido'); return }
 
-    // Fleet-only mode: validate fleet lines instead of material lines
-    if (fleetOnly) {
+    // Fleet-only / orphan fleet: validate fleet lines instead of material lines
+    if (fleetOnly || isOrphanFleet) {
       if (fleetLines.length === 0) { toast.error('Agrega al menos una línea de flete'); return }
       const invalidFleet = fleetLines.find(l => !l.amount || parseFloat(l.amount) <= 0)
       if (invalidFleet) { toast.error('Todas las líneas deben tener monto'); return }
@@ -677,9 +773,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             vat_rate: vat,
             subtotal: fleetSubtotalAmt,
             discount_amount: discount,
-            retention_isr_rate: isrRateNum,
-            retention_iva_rate: ivaRetRateNum,
-            source: 'system',
+            retentions: retentionPayload(),
+            source: deriveInvoiceSource(fleetItems),
             notes: notes.trim() || null,
             items: fleetItems,
             cfdi_uuid: parsedCfdi?.uuid ?? null,
@@ -746,9 +841,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           vat_rate: vat,
           subtotal: effectiveSubtotal,
           discount_amount: discount,
-          retention_isr_rate: isrRateNum,
-          retention_iva_rate: ivaRetRateNum,
-          source: isHistorical ? 'historical' : 'system',
+          retentions: retentionPayload(),
+          source: deriveInvoiceSource(combinedItems),
           notes: notes.trim() || null,
           items: combinedItems,
           cfdi_uuid: parsedCfdi?.uuid ?? null,
@@ -791,9 +885,8 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               vat_rate: vat,
               subtotal: fleetSubtotalAmt,
               discount_amount: 0,
-              retention_isr_rate: 0.0125,
-              retention_iva_rate: 0,
-              source: isHistorical ? 'historical' : 'system',
+              retentions: retentionPayload(),
+              source: deriveInvoiceSource(fleetItems),
               notes: `Flete — generado junto con factura ${data.invoice.invoice_number}`,
               items: fleetItems,
               cfdi_uuid: null,
@@ -837,6 +930,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
     lines: LineItem[],
     setter: React.Dispatch<React.SetStateAction<LineItem[]>>,
     showAddButton: boolean,
+    addOptions?: { cost_category: InvoiceCostCategory; manual_reason: InvoiceManualReason; label: string },
   ) => (
     <div className="space-y-2">
       {lines.map(l => (
@@ -867,6 +961,11 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               />
             )}
             {!l.locked && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                Sin entrada
+              </span>
+            )}
+            {!l.locked && (
               <button
                 type="button"
                 onClick={() => removeLine(setter, l.key)}
@@ -877,6 +976,23 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               </button>
             )}
           </div>
+          {!l.locked && (
+            <div className="flex gap-2 items-center">
+              <Select
+                value={l.manual_reason ?? 'other'}
+                onValueChange={v => updateLine(setter, l.key, 'manual_reason', v)}
+              >
+                <SelectTrigger className="h-7 text-xs flex-1 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(MANUAL_REASON_LABELS).map(([k, label]) => (
+                    <SelectItem key={k} value={k}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="flex gap-2">
             <div className="flex-1 space-y-0.5">
               <span className="text-[10px] text-stone-500">Cantidad</span>
@@ -919,8 +1035,23 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
           )}
         </div>
       ))}
-      {showAddButton && (
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1 mt-1" onClick={() => addLine(setter)}>
+      {showAddButton && addOptions && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs gap-1 mt-1"
+          onClick={() => addManualLine(setter, addOptions.cost_category, addOptions.manual_reason)}
+        >
+          <Plus className="h-3.5 w-3.5" /> {addOptions.label}
+        </Button>
+      )}
+      {showAddButton && !addOptions && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs gap-1 mt-1"
+          onClick={() => addManualLine(setter, 'material', 'other')}
+        >
           <Plus className="h-3.5 w-3.5" /> Agregar línea
         </Button>
       )}
@@ -932,11 +1063,13 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
       <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0 gap-0 overflow-hidden">
         <SheetHeader className="px-6 pt-5 pb-4 border-b border-stone-200 shrink-0">
           <SheetTitle className="flex items-center gap-2">
-            {fleetOnly
-              ? `Factura de flete (${entries?.length ?? 0} entrada${(entries?.length ?? 0) !== 1 ? 's' : ''})`
-              : isHistorical
-                ? 'Nueva factura histórica'
-                : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
+            {isOrphanFleet
+              ? 'Flete sin entrada'
+              : fleetOnly
+                ? `Factura de flete (${entries?.length ?? 0} entrada${(entries?.length ?? 0) !== 1 ? 's' : ''})`
+                : isFullManual
+                  ? 'Nueva factura histórica'
+                  : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
             {queueInfo && queueInfo.remaining > 0 && (
               <span className="ml-1 px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-xs font-medium">
                 {queueInfo.remaining} más después
@@ -944,10 +1077,12 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
             )}
           </SheetTitle>
           <SheetDescription className="text-xs">
-            {fleetOnly
-              ? 'Registra la factura del proveedor de transporte/flete para las entradas seleccionadas.'
-              : isHistorical
-                ? 'Registra una factura anterior al sistema sin recepciones vinculadas.'
+            {isOrphanFleet
+              ? 'Factura de flete sin recepción en inventario (solo cuentas por pagar).'
+              : fleetOnly
+                ? 'Registra la factura del proveedor de transporte/flete para las entradas seleccionadas.'
+                : isFullManual
+                  ? 'Registra una factura anterior al sistema sin recepciones vinculadas.'
                 : queueInfo && queueInfo.remaining > 0
                   ? 'Completa esta factura y se abrirá automáticamente la siguiente recepción.'
                   : 'La factura agrupa las recepciones seleccionadas en una sola cuenta por pagar.'}
@@ -1082,7 +1217,7 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               )
             })()}
 
-            {isHistorical ? (
+            {(isFullManual || isOrphanFleet) ? (
               <>
                 <div className="flex gap-2">
                   <Select value={groupId || '__none__'} onValueChange={v => setGroupId(v === '__none__' ? '' : v)}>
@@ -1304,42 +1439,18 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                   placeholder="0.00"
                 />
               </div>
-              <RetentionRateSelect
-                label={<>Retención ISR{cfdiPrefilled.has('isrRate') && <CfdiPill />}</>}
-                presets={ISR_RETENTION_PRESETS}
-                presetOptions={[
-                  { value: '0', label: '0% (ninguna)' },
-                  { value: '0.0125', label: '1.25% — fletes / RIF' },
-                  { value: '0.10', label: '10% — honorarios PF' },
-                ]}
-                selectValue={isrRetention.selectValue}
-                customDraft={isrRetention.customDraft}
-                editingCustom={isrRetention.editingCustom}
-                onSelectValueChange={v => {
-                  isrRetention.setSelectValue(v)
-                  setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('isrRate'); return s })
-                }}
-                onCustomDraftChange={isrRetention.setCustomDraft}
-                onEditingCustomChange={isrRetention.setEditingCustom}
-              />
-              <RetentionRateSelect
-                label={<>Retención IVA{cfdiPrefilled.has('ivaRetRate') && <CfdiPill />}</>}
-                presets={IVA_RETENTION_PRESETS}
-                presetOptions={[
-                  { value: '0', label: '0% (ninguna)' },
-                  { value: '0.04', label: '4% — autotransporte' },
-                  { value: '0.106667', label: '10.67% — servicios 2/3' },
-                ]}
-                selectValue={ivaRetention.selectValue}
-                customDraft={ivaRetention.customDraft}
-                editingCustom={ivaRetention.editingCustom}
-                onSelectValueChange={v => {
-                  ivaRetention.setSelectValue(v)
-                  setCfdiPrefilled(prev => { const s = new Set(prev); s.delete('ivaRetRate'); return s })
-                }}
-                onCustomDraftChange={ivaRetention.setCustomDraft}
-                onEditingCustomChange={ivaRetention.setEditingCustom}
-              />
+              <div className="md:col-span-2">
+                <InvoiceRetentionsEditor
+                  rows={retentionRows}
+                  onChange={setRetentionRows}
+                  taxableBase={taxableBase}
+                />
+                {cfdiPrefilled.has('retentions') && (
+                  <p className="text-[10px] text-emerald-700 flex items-center gap-1 mt-1">
+                    <CheckCircle2 className="h-3 w-3" /> Retenciones importadas del CFDI
+                  </p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -1351,24 +1462,29 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               <h3 className="text-sm font-semibold text-stone-900">Líneas de factura</h3>
             </div>
 
-            {fleetOnly ? (
-              /* Fleet-only mode: fleet lines are the primary content */
+            {fleetOnly || isOrphanFleet ? (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-amber-700 uppercase tracking-wide flex items-center gap-1">
                   <Truck className="h-3 w-3" /> Flete / Transporte
                 </p>
-                {renderLineCards(fleetLines, setFleetLines, false)}
+                {renderLineCards(fleetLines, setFleetLines, true, {
+                  cost_category: 'fleet',
+                  manual_reason: 'orphan_fleet',
+                  label: 'Agregar flete sin entrada',
+                })}
               </div>
             ) : (
               <>
-                {/* Material sub-section */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-stone-600 uppercase tracking-wide">Material</p>
-                  {renderLineCards(materialLines, setMaterialLines, isHistorical)}
+                  {renderLineCards(materialLines, setMaterialLines, isFullManual || hasEntries, hasEntries ? {
+                    cost_category: 'material',
+                    manual_reason: 'period_gap',
+                    label: 'Agregar línea sin entrada',
+                  } : undefined)}
                 </div>
 
-                {/* Fleet sub-section — only in non-historical mode when there are fleet lines */}
-                {!isHistorical && fleetLines.length > 0 && (
+                {(hasEntries || isFullManual) && fleetLines.length > 0 && (
                   <div className="space-y-2 mt-4">
                     <p className="text-xs font-medium text-stone-600 uppercase tracking-wide">Flete</p>
 
@@ -1413,7 +1529,11 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
                         )}
 
                         {/* Fleet line cards */}
-                        {renderLineCards(fleetLines, setFleetLines, false)}
+                        {renderLineCards(fleetLines, setFleetLines, hasEntries, hasEntries ? {
+                          cost_category: 'fleet',
+                          manual_reason: 'orphan_fleet',
+                          label: 'Agregar flete sin entrada',
+                        } : undefined)}
 
                         {/* Fleet subtotal */}
                         <div className="flex justify-between text-xs text-stone-600 pt-1">
@@ -1455,16 +1575,18 @@ export default function CreateSupplierInvoiceDrawer({ open, onOpenChange, entrie
               <span className="text-stone-600">+ IVA ({Math.round(vat * 100)}%)</span>
               <span className="tabular-nums">{mxn.format(tax)}</span>
             </div>
-            {isrAmt > 0 && (
+            {retentionRows.map(r => (
+              Number(r.amount) > 0 && (
+                <div key={r.key} className="flex justify-between text-rose-700">
+                  <span>− {r.label ?? r.impuesto_sat}</span>
+                  <span className="tabular-nums">−{mxn.format(Number(r.amount))}</span>
+                </div>
+              )
+            ))}
+            {retentionTotal > 0 && retentionRows.length === 0 && (
               <div className="flex justify-between text-rose-700">
-                <span>− Ret. ISR ({(isrRateNum * 100).toFixed(2)}%)</span>
-                <span className="tabular-nums">−{mxn.format(isrAmt)}</span>
-              </div>
-            )}
-            {ivaRetAmt > 0 && (
-              <div className="flex justify-between text-rose-700">
-                <span>− Ret. IVA ({(ivaRetRateNum * 100).toFixed(2)}% s/base)</span>
-                <span className="tabular-nums">−{mxn.format(ivaRetAmt)}</span>
+                <span>− Retenciones</span>
+                <span className="tabular-nums">−{mxn.format(retentionTotal)}</span>
               </div>
             )}
 

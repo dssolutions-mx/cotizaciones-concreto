@@ -1,16 +1,19 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { AlertTriangle, CheckCircle2, FileUp, Loader2, RefreshCw, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ReconciliationReport } from '@/lib/sat/reconciliation'
+import type { RepPaymentPreviewRow, PaymentReconciliationReport } from '@/types/finance'
 
 const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
 
@@ -460,27 +463,449 @@ function MatchedTable({ rows }: { rows: any[] }) {
   )
 }
 
+const REP_STATUS_LABELS: Record<RepPaymentPreviewRow['status'], string> = {
+  ready: 'Listo',
+  already_applied: 'Ya aplicado',
+  invoice_not_found: 'Factura no encontrada',
+  no_payable: 'Sin CxP',
+  overpayment: 'Excede saldo',
+  invoice_void: 'Factura anulada',
+  invoice_paid: 'Factura pagada',
+  skipped_not_p: 'No es REP',
+}
+
+function repRowKey(r: RepPaymentPreviewRow) {
+  return `${r.rep_uuid}|${r.docto_uuid}|${r.num_parcialidad}`
+}
+
+// ── Complementos de pago tab ───────────────────────────────────────────────────
+
+function ComplementosDePagoTab() {
+  const [uploading, setUploading] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [importResult, setImportResult] = useState<{
+    imported: number
+    skipped: number
+    errors: { file: string; message: string }[]
+  } | null>(null)
+  const [preview, setPreview] = useState<RepPaymentPreviewRow[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const readyRows = preview.filter((r) => r.status === 'ready')
+
+  const handleImport = async (file: File) => {
+    setUploading(true)
+    setImportResult(null)
+    setPreview([])
+    setSelected(new Set())
+    try {
+      const form = new FormData()
+      const isZip = file.name.toLowerCase().endsWith('.zip')
+      form.append(isZip ? 'zip_file' : 'xml_file', file)
+      const res = await fetch('/api/ap/sat-pagos-import', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Error al importar')
+        return
+      }
+      setImportResult({ imported: data.imported, skipped: data.skipped, errors: data.errors ?? [] })
+      setPreview(data.preview ?? [])
+      const readyKeys = (data.preview ?? [])
+        .filter((r: RepPaymentPreviewRow) => r.status === 'ready')
+        .map((r: RepPaymentPreviewRow) => repRowKey(r))
+      setSelected(new Set(readyKeys))
+      toast.success(`${data.imported} REP(s) importado(s)`)
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const toggleRow = (key: string, checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (checked) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
+
+  const handleApply = async () => {
+    const items = preview
+      .filter((r) => selected.has(repRowKey(r)) && r.status === 'ready')
+      .map((r) => ({
+        rep_uuid: r.rep_uuid,
+        docto_uuid: r.docto_uuid,
+        num_parcialidad: r.num_parcialidad,
+      }))
+    if (items.length === 0) {
+      toast.error('Seleccione al menos un pago listo')
+      return
+    }
+    setApplying(true)
+    try {
+      const res = await fetch('/api/ap/sat-pagos-apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Error al aplicar')
+        return
+      }
+      toast.success(`${data.applied} pago(s) registrado(s)`)
+      if (data.errors?.length) {
+        toast.warning(`${data.skipped} omitido(s) — ver detalle en tabla`)
+      }
+      setPreview((prev) =>
+        prev.map((r) =>
+          items.some(
+            (i) =>
+              i.rep_uuid === r.rep_uuid &&
+              i.docto_uuid === r.docto_uuid &&
+              i.num_parcialidad === r.num_parcialidad,
+          )
+            ? { ...r, status: 'already_applied' as const, message: 'Pago REP ya registrado' }
+            : r,
+        ),
+      )
+      setSelected(new Set())
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-stone-600">
+        Importe complementos de pago (CFDI tipo P). Se vinculan a facturas por UUID del documento relacionado.
+        Revise la vista previa y aplique los pagos seleccionados.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <label
+          htmlFor="rep-import-file"
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors',
+            uploading
+              ? 'border-sky-300 bg-sky-50 text-sky-700 cursor-wait'
+              : 'border-stone-300 bg-white hover:bg-stone-50 text-stone-700',
+          )}
+        >
+          <FileUp className="h-3.5 w-3.5" />
+          {uploading ? 'Importando…' : 'Importar ZIP / XML (REP)'}
+        </label>
+        <input
+          id="rep-import-file"
+          ref={fileRef}
+          type="file"
+          accept=".zip,.xml,text/xml,application/xml,application/zip"
+          className="hidden"
+          disabled={uploading}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void handleImport(f)
+          }}
+        />
+        {readyRows.length > 0 && (
+          <Button
+            size="sm"
+            className="bg-emerald-700 hover:bg-emerald-800 text-white"
+            disabled={applying || selected.size === 0}
+            onClick={() => void handleApply()}
+          >
+            {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+            Aplicar seleccionados ({selected.size})
+          </Button>
+        )}
+      </div>
+
+      {importResult && (
+        <div
+          className={cn(
+            'rounded-md border p-3 text-xs space-y-1',
+            importResult.errors.length > 0 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50',
+          )}
+        >
+          <div className="font-medium">
+            {importResult.imported} REP importado(s) · {importResult.skipped} omitido(s) ·{' '}
+            {importResult.errors.length} error(es)
+          </div>
+          {importResult.errors.map((e, i) => (
+            <div key={i} className="text-red-700">
+              {e.file}: {e.message}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {preview.length > 0 && (
+        <div className="rounded-lg border border-stone-200 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-stone-50 border-b border-stone-200">
+              <tr>
+                <th className="px-2 py-2 w-8" />
+                <th className="px-3 py-2 text-left font-medium text-stone-600">Estado</th>
+                <th className="px-3 py-2 text-left font-medium text-stone-600">Factura</th>
+                <th className="px-3 py-2 text-left font-medium text-stone-600">Proveedor</th>
+                <th className="px-3 py-2 text-center font-medium text-stone-600">Parc.</th>
+                <th className="px-3 py-2 text-left font-medium text-stone-600">Fecha pago</th>
+                <th className="px-3 py-2 text-right font-medium text-stone-600">Importe REP</th>
+                <th className="px-3 py-2 text-right font-medium text-stone-600">Saldo</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {preview.map((r) => {
+                const key = repRowKey(r)
+                const isReady = r.status === 'ready'
+                return (
+                  <tr key={key} className="hover:bg-stone-50">
+                    <td className="px-2 py-2">
+                      {isReady ? (
+                        <Checkbox
+                          checked={selected.has(key)}
+                          onCheckedChange={(v) => toggleRow(key, v === true)}
+                        />
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={cn(
+                          'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                          isReady
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : r.status === 'already_applied'
+                              ? 'bg-stone-100 text-stone-600'
+                              : 'bg-amber-100 text-amber-800',
+                        )}
+                        title={r.message}
+                      >
+                        {REP_STATUS_LABELS[r.status]}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 font-mono font-semibold">{r.invoice_number ?? '—'}</td>
+                    <td className="px-3 py-2">{r.emisor_nombre ?? r.emisor_rfc}</td>
+                    <td className="px-3 py-2 text-center">{r.num_parcialidad}</td>
+                    <td className="px-3 py-2">
+                      {r.fecha_pago
+                        ? format(new Date(r.fecha_pago + 'T00:00:00'), 'dd MMM yyyy', { locale: es })
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">{mxn.format(r.imp_pagado)}</td>
+                    <td className="px-3 py-2 text-right">
+                      {r.balance != null ? mxn.format(r.balance) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Payment reconciliation tab ─────────────────────────────────────────────────
+
+function PaymentReconciliationTab() {
+  const [from, setFrom] = useState(() => {
+    const d = new Date()
+    d.setDate(1)
+    return d.toISOString().slice(0, 10)
+  })
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [emisorRfc, setEmisorRfc] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [report, setReport] = useState<PaymentReconciliationReport | null>(null)
+
+  const fetchReport = async () => {
+    setLoading(true)
+    try {
+      let url = `/api/ap/payment-reconciliation?from=${from}&to=${to}`
+      if (emisorRfc.trim()) url += `&emisor_rfc=${encodeURIComponent(emisorRfc.trim())}`
+      const res = await fetch(url)
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Error')
+        return
+      }
+      setReport(data)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Desde</Label>
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-36 bg-white" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Hasta</Label>
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-36 bg-white" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">RFC Emisor (opcional)</Label>
+          <Input value={emisorRfc} onChange={(e) => setEmisorRfc(e.target.value)} placeholder="Todos" className="w-40 bg-white" />
+        </div>
+        <Button size="sm" onClick={() => void fetchReport()} disabled={loading} className="bg-sky-700 hover:bg-sky-800 text-white">
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+          Conciliar pagos
+        </Button>
+      </div>
+
+      {report && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <KpiCard label="Doctos REP" value={report.summary.total_rep_doctos} color="text-stone-800" />
+            <KpiCard label="Conciliados" value={report.summary.matched} color="text-emerald-700" />
+            <KpiCard label="REP sin aplicar" value={report.summary.rep_not_applied} color="text-amber-600" />
+            <KpiCard label="Pago sin REP" value={report.summary.payment_without_rep} color="text-blue-600" />
+            <KpiCard label="Monto distinto" value={report.summary.amount_mismatch} color="text-orange-600" />
+          </div>
+
+          <Section title="REP sin pago en sistema" color="amber" icon={<AlertTriangle className="h-4 w-4 text-amber-600" />} count={report.rep_not_applied.length}>
+            <table className="w-full text-xs">
+              <thead className="bg-stone-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">REP UUID</th>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">Docto UUID</th>
+                  <th className="px-3 py-2 text-center font-medium text-stone-600">Parc.</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">Importe</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {report.rep_not_applied.map((r) => (
+                  <tr key={`${r.rep_uuid}-${r.docto_uuid}-${r.num_parcialidad}`}>
+                    <td className="px-3 py-2 font-mono text-[10px]" title={r.rep_uuid}>{r.rep_uuid.slice(0, 8)}…</td>
+                    <td className="px-3 py-2 font-mono text-[10px]" title={r.docto_uuid}>{r.docto_uuid.slice(0, 8)}…</td>
+                    <td className="px-3 py-2 text-center">{r.num_parcialidad}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.imp_pagado)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
+          <Section title="Pagos manuales sin REP" color="blue" icon={<AlertTriangle className="h-4 w-4 text-blue-600" />} count={report.payment_without_rep.length}>
+            <table className="w-full text-xs">
+              <thead className="bg-stone-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">Fecha</th>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">Factura</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">Monto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {report.payment_without_rep.map((r) => (
+                  <tr key={r.payment_id}>
+                    <td className="px-3 py-2">{format(new Date(r.payment_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}</td>
+                    <td className="px-3 py-2 font-mono">{r.invoice_number ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
+          <Section title="Monto no coincide" color="orange" icon={<AlertTriangle className="h-4 w-4 text-orange-600" />} count={report.amount_mismatch.length}>
+            <table className="w-full text-xs">
+              <thead className="bg-stone-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">Factura</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">SAT</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">Sistema</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {report.amount_mismatch.map((r) => (
+                  <tr key={`${r.rep_uuid}-${r.docto_uuid}`}>
+                    <td className="px-3 py-2 font-mono">{r.invoice_number ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.sat_amount)}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.system_amount)}</td>
+                    <td className="px-3 py-2 text-right font-medium">{mxn.format(r.diff)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
+          <Section title="Conciliados" color="emerald" icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} count={report.matched.length}>
+            <table className="w-full text-xs">
+              <thead className="bg-stone-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-stone-600">Factura</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">SAT</th>
+                  <th className="px-3 py-2 text-right font-medium text-stone-600">Sistema</th>
+                  <th className="px-3 py-2 text-center font-medium text-stone-600">Monto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {report.matched.map((r) => (
+                  <tr key={`${r.rep_uuid}-${r.docto_uuid}-${r.num_parcialidad}`}>
+                    <td className="px-3 py-2 font-mono">{r.invoice_number ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.sat_amount)}</td>
+                    <td className="px-3 py-2 text-right">{mxn.format(r.system_amount)}</td>
+                    <td className="px-3 py-2 text-center">
+                      {r.amount_match ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 mx-auto" />
+                      ) : (
+                        <AlertTriangle className="h-3.5 w-3.5 text-orange-500 mx-auto" />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
+const SAT_TABS = ['inventario', 'conciliacion', 'complementos', 'conciliacion-pagos'] as const
+
 export default function SatPage() {
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const defaultTab = SAT_TABS.includes(tabParam as (typeof SAT_TABS)[number])
+    ? (tabParam as (typeof SAT_TABS)[number])
+    : 'inventario'
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
       <div>
         <h1 className="text-xl font-bold text-stone-900">SAT — Conciliación CFDI</h1>
         <p className="text-sm text-stone-500 mt-0.5">
-          Importa el inventario de CFDIs recibidos del SAT y compáralo contra las facturas registradas en el sistema.
+          Inventario CFDI, conciliación de facturas y complementos de pago (REP) contra CxP.
         </p>
       </div>
-      <Tabs defaultValue="inventario">
-        <TabsList>
+      <Tabs defaultValue={defaultTab} key={defaultTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="inventario">Inventario SAT</TabsTrigger>
-          <TabsTrigger value="conciliacion">Conciliación</TabsTrigger>
+          <TabsTrigger value="conciliacion">Conciliación facturas</TabsTrigger>
+          <TabsTrigger value="complementos">Complementos de pago</TabsTrigger>
+          <TabsTrigger value="conciliacion-pagos">Conciliación pagos</TabsTrigger>
         </TabsList>
         <TabsContent value="inventario" className="pt-4">
           <SatInventoryTab />
         </TabsContent>
         <TabsContent value="conciliacion" className="pt-4">
           <ReconciliationTab />
+        </TabsContent>
+        <TabsContent value="complementos" className="pt-4">
+          <ComplementosDePagoTab />
+        </TabsContent>
+        <TabsContent value="conciliacion-pagos" className="pt-4">
+          <PaymentReconciliationTab />
         </TabsContent>
       </Tabs>
     </div>
