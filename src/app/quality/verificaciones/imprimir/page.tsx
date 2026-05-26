@@ -122,9 +122,9 @@ export default function BulkVerificacionesImprimirPage() {
 
       <div className="mx-auto max-w-4xl px-4 py-6 space-y-6">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
-          Se generará un único PDF con índice de registros y una ficha por verificación, listo para entregar al
-          centro de verificación EMA. Use <strong>Descargar PDF</strong> o <strong>Abrir PDF</strong> para imprimir
-          desde el visor del sistema.
+          El PDF incluye por cada registro: trazabilidad de patrones, lecturas con criterios de aceptación,
+          presupuesto de incertidumbre GUM (tabla CENAM en horizontal), U expandida, TUR y dictamen conforme
+          NMX-EC-17025. Use <strong>Descargar PDF</strong> para el expediente ante la entidad de acreditación.
         </p>
 
         {pdfError && (

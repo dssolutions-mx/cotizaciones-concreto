@@ -476,7 +476,7 @@
     padding: 0 !important;
     overflow: visible !important;
   }
-  main > div.mb-4.flex.md\\:hidden {
+  .app-mobile-topbar {
     display: none !important;
   }
 

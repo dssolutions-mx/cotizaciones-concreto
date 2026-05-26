@@ -538,6 +538,25 @@ export interface VerificacionIssue {
   created_by: string | null;
 }
 
+export interface VerificacionMetrologiaRecord {
+  gum_rollup_status: string | null;
+  gum_rollup_attempted_at: string | null;
+  gum_rollup_skipped_reason: string | null;
+  presupuesto_json: unknown;
+  tur_min_observado: number | null;
+  updated_at?: string | null;
+}
+
+export interface InstrumentoCalibracionResumen {
+  u_expandida: number | null;
+  k_factor: number | null;
+  unidad: string | null;
+  numero_certificado: string | null;
+  fecha_emision: string | null;
+  proveedor: string | null;
+  vigente_hasta: string | null;
+}
+
 export interface CompletedVerificacionDetalle extends CompletedVerificacion {
   snapshot: VerificacionTemplateSnapshot;
   template_version_number: number | null;
@@ -548,6 +567,8 @@ export interface CompletedVerificacionDetalle extends CompletedVerificacion {
   instrumento?: InstrumentoCard;
   instrumentos_maestro?: InstrumentoCard[];
   created_by_profile?: { id: string; full_name: string } | null;
+  metrologia?: VerificacionMetrologiaRecord | null;
+  instrumento_calibracion?: InstrumentoCalibracionResumen | null;
 }
 
 export type CreateCompletedVerificacionInput = {

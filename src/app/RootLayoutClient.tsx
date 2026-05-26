@@ -1069,7 +1069,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
       {/* Contenido principal - scroll independiente del sidebar */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden bg-[#f5f3f0] p-4 md:p-6 pb-24 md:pb-6">
         {/* Header móvil */}
-        <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2 md:hidden">
+        <div className="app-mobile-topbar mb-4 flex min-w-0 flex-wrap items-center justify-between gap-2 md:hidden">
           <Link href="/dashboard">
             <Image 
               src="/images/dcconcretos/logo-dark.svg" 

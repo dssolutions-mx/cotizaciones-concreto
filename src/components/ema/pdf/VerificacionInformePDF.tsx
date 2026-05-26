@@ -9,7 +9,14 @@ import {
   verificacionCumpleLabel,
   verificacionRowCumple,
 } from '@/lib/ema/verificacionFichaModel'
+import {
+  buildMeasurementColumns,
+  measurementTableFontSize,
+} from '@/components/ema/pdf/verificacionPdfTable'
+import { metrologiaBudgetForPdf } from '@/lib/ema/rebuildVerificationBudget'
 import { verificacionPrintMeta, VERIFICACION_RESULTADO_LABEL } from '@/lib/ema/verificacionPrintMeta'
+import { VerificacionUncertaintyBudgetPDF } from '@/components/ema/pdf/VerificacionUncertaintyBudgetPDF'
+import { PdfTable, type PdfTableColumn } from '@/components/ema/pdf/verificacionPdfTable'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'
 import type {
   CompletedVerificacionDetalle,
@@ -25,10 +32,45 @@ export type VerificacionPdfLabContext = {
 export type VerificacionInformePDFProps = {
   items: CompletedVerificacionDetalle[]
   lab?: VerificacionPdfLabContext
-  /** When true and items.length > 1, prepend an index cover page. */
   includeCover?: boolean
   generatedAt?: string
 }
+
+const ESTADO_DOC: Record<string, string> = {
+  cerrado: 'Cerrada',
+  firmado_operador: 'Firmada (operador)',
+  firmado_revisor: 'Firmada (revisor)',
+  en_proceso: 'En proceso',
+  cancelado: 'Cancelada',
+}
+
+const LEGAL = [
+  'Este registro documenta la verificación interna del estado de un instrumento de medición, conforme al procedimiento del laboratorio y a la NMX-EC-17025-IMNC-2018.',
+  'La trazabilidad metrológica de las mediciones se establece mediante patrones de referencia calibrados y/o verificados, cuyos certificados o registros internos se citan en este documento.',
+  'El presupuesto de incertidumbre (cuando aplica) se elaboró según la Guía GUM (JCGM 100:2008) y constituye evidencia objetiva del cumplimiento del requisito 7.6.',
+  'Documento controlado generado por el sistema de gestión de calidad del laboratorio. Reproducciones no controladas pueden no reflejar el estado vigente del registro.',
+]
+
+const COVER_COLS: PdfTableColumn[] = [
+  { key: 'n', label: '#', width: '4%', align: 'center' },
+  { key: 'reg', label: 'Registro', width: '10%', mono: true },
+  { key: 'inst', label: 'Instrumento verificado', width: '28%' },
+  { key: 'fecha', label: 'Fecha', width: '10%', mono: true },
+  { key: 'res', label: 'Dictamen', width: '12%' },
+  { key: 'tpl', label: 'Formato', width: '14%', mono: true },
+  { key: 'u', label: 'U expandida', width: '12%', mono: true, align: 'right' },
+  { key: 'tur', label: 'TUR mín.', width: '10%', align: 'right' },
+]
+
+const PATRON_COLS: PdfTableColumn[] = [
+  { key: 'cod', label: 'Código patrón', width: '14%', mono: true },
+  { key: 'nom', label: 'Denominación', width: '28%' },
+  { key: 'u', label: 'U', width: '12%', align: 'right', mono: true },
+  { key: 'k', label: 'k', width: '8%', align: 'center', mono: true },
+  { key: 'un', label: 'Unidad', width: '10%', align: 'center' },
+  { key: 'est', label: 'Estado', width: '12%' },
+  { key: 'prox', label: 'Próx. evento', width: '16%', mono: true },
+]
 
 function logoSrc(): string {
   if (typeof window !== 'undefined') {
@@ -40,46 +82,65 @@ function logoSrc(): string {
 function PdfFooter({
   registroId,
   instrumentoCodigo,
+  section,
 }: {
   registroId: string
   instrumentoCodigo?: string
+  section?: string
 }) {
   return (
     <View style={s.footer} fixed>
       <Text>
         {DC_DOCUMENT_CONTACT.companyLine}
-        {instrumentoCodigo ? ` · ${instrumentoCodigo}` : ''} · Reg. {registroId.slice(0, 8).toUpperCase()}
+        {instrumentoCodigo ? ` · ${instrumentoCodigo}` : ''}
+        {section ? ` · ${section}` : ''} · VER-{registroId.slice(0, 8).toUpperCase()}
       </Text>
       <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
     </View>
   )
 }
 
-function MetaGrid({ meta }: { meta: ReturnType<typeof verificacionPrintMeta> }) {
-  const rows = [
-    meta.instrumentoCodigo && { label: 'Código', value: meta.instrumentoCodigo },
-    meta.instrumentoNombre && { label: 'Instrumento', value: meta.instrumentoNombre },
-    meta.fechaVerificacion && { label: 'Fecha verificación', value: meta.fechaVerificacion },
-    meta.fechaProxima && { label: 'Próxima verificación', value: meta.fechaProxima },
-    meta.resultado && { label: 'Resultado', value: meta.resultado },
-    meta.verificador && { label: 'Registrado por', value: meta.verificador },
-  ].filter(Boolean) as { label: string; value: string }[]
-
-  if (!rows.length) return null
-
+function PdfCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <View style={s.metaGrid}>
-      {rows.map((row) => (
-        <View key={row.label} style={s.metaRow}>
-          <Text style={s.metaLabel}>{row.label}</Text>
-          <Text style={s.metaValue}>{row.value}</Text>
-        </View>
-      ))}
+    <View style={s.card}>
+      <View style={s.cardHeader}>
+        <Text style={s.cardHeaderText}>{title}</Text>
+      </View>
+      <View style={s.cardBody}>{children}</View>
     </View>
   )
 }
 
-function SectionTable({
+function Kv({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <View style={s.kvRow}>
+      <Text style={s.kvLabel}>{label}</Text>
+      <Text style={mono ? s.kvValueMono : s.kvValue}>{value}</Text>
+    </View>
+  )
+}
+
+function DocumentHeader({ lab, docLine }: { lab?: VerificacionPdfLabContext; docLine: string }) {
+  return (
+    <View style={s.header}>
+      <Image src={logoSrc()} style={s.logo} />
+      <View style={s.headerText}>
+        <Text style={s.docTitle}>REGISTRO DE VERIFICACIÓN INTERNA DE INSTRUMENTOS</Text>
+        <Text style={s.docSubtitle}>{DC_DOCUMENT_CONTACT.companyLine}</Text>
+        {lab?.plantName ? <Text style={s.docSubtitle}>Planta / ubicación: {lab.plantName}</Text> : null}
+        {lab?.acreditacionEma ? (
+          <Text style={s.docSubtitle}>Acreditación EMA del laboratorio: {lab.acreditacionEma}</Text>
+        ) : null}
+        <Text style={s.docSubtitle}>
+          NMX-EC-17025-IMNC-2018 · JCGM 100:2008 (GUM) · Documento para entidad de acreditación
+        </Text>
+        <Text style={s.docCode}>{docLine}</Text>
+      </View>
+    </View>
+  )
+}
+
+function MeasurementSectionPdf({
   section,
   mMap,
 }: {
@@ -91,148 +152,213 @@ function SectionTable({
     section as VerificacionTemplateSection & { repetible?: boolean; repeticiones_default?: number },
   )
   const items = sectionItemsForDisplay(section)
-  const colCount = items.length + (layout === 'instrument_grid' ? 1 : 0) + 1
-  const cellStyle = colCount > 6 ? s.tdMono : s.td
-
-  const headerCells: React.ReactNode[] = []
-  if (layout === 'instrument_grid') {
-    headerCells.push(
-      <Text key="code-h" style={s.th}>
-        Código
-      </Text>,
-    )
-  }
-  for (const it of items) {
-    headerCells.push(
-      <Text key={it.id} style={s.th}>
-        {it.punto}
-      </Text>,
-    )
-  }
-  headerCells.push(
-    <Text key="cumple-h" style={[s.th, { width: 48, flexGrow: 0 }]}>
-      ¿Cumple?
-    </Text>,
+  const columns = buildMeasurementColumns(
+    layout,
+    items.map((it) => ({ id: it.id, punto: it.punto })),
   )
+  const fontSize = measurementTableFontSize(columns.length)
 
-  const bodyRows = Array.from({ length: reps }, (_, i) => i + 1).map((rep, rowIdx) => {
-    const rowStyle = rowIdx % 2 === 1 ? s.tableRowAlt : s.tableRow
-    const cells: React.ReactNode[] = []
+  const rows: string[][] = []
+  for (let rep = 1; rep <= reps; rep++) {
+    const cells: string[] = []
     if (layout === 'instrument_grid') {
       const code =
         items
           .map((it) => mMap.get(`${section.id}:${rep}:${it.id}`)?.instance_code)
           .find((c) => c?.trim()) ?? '—'
-      cells.push(
-        <Text key="code" style={cellStyle}>
-          {code}
-        </Text>,
-      )
+      cells.push(code)
     }
     for (const it of items) {
-      const m = mMap.get(`${section.id}:${rep}:${it.id}`)
-      cells.push(
-        <Text key={it.id} style={cellStyle}>
-          {formatVerificacionMeasurement(it, m)}
-        </Text>,
-      )
+      cells.push(formatVerificacionMeasurement(it, mMap.get(`${section.id}:${rep}:${it.id}`)))
     }
-    cells.push(
-      <Text key="cumple" style={s.tdCumple}>
-        {verificacionCumpleLabel(verificacionRowCumple(section.id, rep, items, mMap))}
-      </Text>,
-    )
-    return (
-      <View key={rep} style={rowStyle}>
-        {cells}
-      </View>
-    )
-  })
+    cells.push(verificacionCumpleLabel(verificacionRowCumple(section.id, rep, items, mMap)))
+    rows.push(cells)
+  }
 
   return (
-    <View>
-      <View style={s.sectionTitle}>
-        <Text>
-          {section.titulo}
-          {layout ? ` (${layout})` : ''}
-        </Text>
-      </View>
-      {section.descripcion ? <Text style={s.sectionDesc}>{section.descripcion}</Text> : null}
-      <View style={s.tableHeader}>{headerCells}</View>
-      {bodyRows}
+    <View style={{ marginBottom: 8 }}>
+      <Text style={s.sectionBlockTitle}>{section.titulo}</Text>
+      {section.descripcion ? <Text style={s.sectionBlockDesc}>{section.descripcion}</Text> : null}
+      {rows.length > 0 ? (
+        <PdfTable columns={columns} rows={rows} fontSize={fontSize} />
+      ) : (
+        <Text style={{ fontSize: 8, color: '#78716C' }}>Sin lecturas registradas en esta sección.</Text>
+      )}
     </View>
   )
 }
 
-function VerificacionFichaPages({
+function VerificacionRecordPages({
   data,
   lab,
+  recordIndex,
+  recordTotal,
 }: {
   data: CompletedVerificacionDetalle
   lab?: VerificacionPdfLabContext
+  recordIndex: number
+  recordTotal: number
 }) {
   const snapshot = data.snapshot
-  if (!snapshot?.template) {
-    return (
-      <Page size="A4" style={s.page} wrap>
-        <Text>Verificación sin snapshot de plantilla ({data.id.slice(0, 8)}).</Text>
-        <PdfFooter registroId={data.id} />
-      </Page>
-    )
-  }
+  if (!snapshot?.template) return null
 
   const template = snapshot.template
   const meta = verificacionPrintMeta(data)
   const mMap = buildMeasurementMap(data.measurements ?? [])
-  const sections = snapshot.sections ?? []
+  const cal = data.instrumento_calibracion
+  const budget = metrologiaBudgetForPdf(data.metrologia, cal)
+  const unit = cal?.unidad ?? '—'
+  const docLine = `VER-${data.id.slice(0, 8).toUpperCase()} · Registro ${recordIndex} de ${recordTotal} · Estado: ${ESTADO_DOC[data.estado] ?? data.estado}`
+
+  const patronRows =
+    data.instrumentos_maestro?.map((m) => [
+      m.codigo,
+      m.nombre,
+      m.incertidumbre_expandida != null ? String(m.incertidumbre_expandida) : '—',
+      m.incertidumbre_k != null ? String(m.incertidumbre_k) : '—',
+      m.incertidumbre_unidad ?? '—',
+      m.estado ?? '—',
+      m.fecha_proximo_evento ?? '—',
+    ]) ?? []
+
+  const elaborado = data.signatures?.find((x) => x.rol === 'elaborado')
+  const revisado = data.signatures?.find((x) => x.rol === 'revisado')
 
   return (
-    <Page size="A4" style={s.page} wrap>
-      <View style={s.header}>
-        <Image src={logoSrc()} style={s.logo} />
-        <View style={s.headerText}>
-          <Text style={s.docTitle}>REGISTRO DE VERIFICACIÓN INTERNA</Text>
-          <Text style={s.docSubtitle}>
-            {DC_DOCUMENT_CONTACT.companyLine}
-            {lab?.plantName ? ` · ${lab.plantName}` : ''}
-          </Text>
-          {lab?.acreditacionEma ? (
-            <Text style={s.docSubtitle}>Acreditación EMA: {lab.acreditacionEma}</Text>
+    <>
+      <Page size="A4" style={s.page} wrap>
+        <DocumentHeader lab={lab} docLine={docLine} />
+
+        <Text style={s.procedureTitle}>{template.nombre}</Text>
+        {template.norma_referencia ? <Text style={s.normaBand}>{template.norma_referencia}</Text> : null}
+        {template.descripcion ? <Text style={s.procedureDesc}>{template.descripcion}</Text> : null}
+
+        <PdfCard title="§1 Control del documento y trazabilidad del registro">
+          <Kv label="Identificador único" value={`VER-${data.id.slice(0, 8).toUpperCase()}`} mono />
+          <Kv label="ID sistema" value={data.id} mono />
+          <Kv
+            label="Formato / versión"
+            value={`${template.codigo ?? '—'} · v${data.template_version_number ?? '—'}`}
+            mono
+          />
+          <Kv label="Fecha de verificación" value={data.fecha_verificacion} mono />
+          <Kv label="Próxima verificación" value={data.fecha_proxima_verificacion ?? '—'} mono />
+          <Kv label="Estado del registro" value={ESTADO_DOC[data.estado] ?? data.estado} />
+        </PdfCard>
+
+        <PdfCard title="§2 Equipo bajo verificación">
+          <Kv label="Código" value={meta.instrumentoCodigo ?? '—'} mono />
+          <Kv label="Denominación" value={meta.instrumentoNombre ?? '—'} />
+          <Kv label="Tipo instrumento" value={data.instrumento?.tipo ?? '—'} />
+          <Kv label="Estado operativo" value={data.instrumento?.estado ?? '—'} />
+        </PdfCard>
+
+        <PdfCard title="§3 Condiciones ambientales y responsable">
+          <Kv label="Condiciones" value={meta.condiciones ?? 'No registradas'} />
+          <Kv label="Ejecutada por" value={meta.verificador ?? '—'} />
+          {elaborado ? (
+            <Kv label="Firma elaborado" value={`${elaborado.signer_name} · ${elaborado.signed_at}`} />
           ) : null}
-          <Text style={s.docSubtitle}>
-            NMX-EC-17025-IMNC-2018 · Documento para revisión de acreditación
-          </Text>
+          {revisado ? (
+            <Kv label="Firma revisado" value={`${revisado.signer_name} · ${revisado.signed_at}`} />
+          ) : null}
+        </PdfCard>
+
+        {patronRows.length > 0 && (
+          <PdfCard title="§4 Patrones de referencia y trazabilidad metrológica">
+            <PdfTable columns={PATRON_COLS} rows={patronRows} fontSize={7.5} />
+          </PdfCard>
+        )}
+
+        <PdfCard title="§5 Resultado metrológico emitido (verificación interna)">
+          <Kv
+            label="Certificado / registro interno"
+            value={cal?.numero_certificado ?? 'Pendiente de emisión'}
+            mono
+          />
+          <Kv label="Fecha emisión U" value={cal?.fecha_emision ?? '—'} mono />
+          <Kv label="Proveedor calibración" value={cal?.proveedor ?? 'Laboratorio interno'} />
+          <Kv label="Vigencia" value={cal?.vigente_hasta ?? '—'} mono />
+          <Kv
+            label="Incertidumbre expandida U"
+            value={
+              cal?.u_expandida != null
+                ? `${cal.u_expandida} ${cal.unidad ?? unit} (k = ${cal.k_factor ?? 2})`
+                : '—'
+            }
+            mono
+          />
+          {data.metrologia?.tur_min_observado != null && (
+            <Kv label="TUR mínimo observado" value={String(data.metrologia.tur_min_observado)} mono />
+          )}
+          <Kv
+            label="Estado presupuesto GUM"
+            value={data.metrologia?.gum_rollup_status ?? 'No calculado'}
+          />
+          {data.metrologia?.gum_rollup_skipped_reason && (
+            <Kv label="Detalle GUM" value={data.metrologia.gum_rollup_skipped_reason} />
+          )}
+        </PdfCard>
+
+        <PdfCard title="§6 Resultados de verificación (lecturas y criterios de aceptación)">
+          {(snapshot.sections ?? []).map((sec) => (
+            <MeasurementSectionPdf key={sec.id} section={sec} mMap={mMap} />
+          ))}
+        </PdfCard>
+
+        <PdfCard title="§8 Dictamen de la verificación interna">
+          <View style={s.dictamenBox}>
+            <Text style={s.dictamenLabel}>Resultado global</Text>
+            <Text style={s.dictamenValue}>{meta.resultado ?? data.resultado}</Text>
+          </View>
+          {meta.observaciones ? <Kv label="Observaciones" value={meta.observaciones} /> : null}
+        </PdfCard>
+
+        <PdfCard title="§9 Declaraciones y validez">
+          {LEGAL.map((t, i) => (
+            <Text key={i} style={s.legalText}>
+              {i + 1}. {t}
+            </Text>
+          ))}
+        </PdfCard>
+
+        <View style={s.signatureRow}>
+          <View style={s.signatureBox}>
+            <Text style={s.signatureLabel}>Elaboró (operador de verificación)</Text>
+            {elaborado ? (
+              <Text style={s.signatureName}>{elaborado.signer_name}</Text>
+            ) : (
+              <Text style={s.signatureName}>{meta.verificador ?? '________________________'}</Text>
+            )}
+          </View>
+          <View style={s.signatureBox}>
+            <Text style={s.signatureLabel}>Revisó (responsable técnico)</Text>
+            {revisado ? (
+              <Text style={s.signatureName}>{revisado.signer_name}</Text>
+            ) : (
+              <Text style={s.signatureName}>________________________</Text>
+            )}
+          </View>
         </View>
-      </View>
 
-      <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#1B365D', marginBottom: 4, textAlign: 'center' }}>
-        {template.nombre}
-      </Text>
-      {template.norma_referencia ? <Text style={s.normaBand}>{template.norma_referencia}</Text> : null}
-      {template.descripcion ? <Text style={s.templateDesc}>{template.descripcion}</Text> : null}
+        <PdfFooter
+          registroId={data.id}
+          instrumentoCodigo={data.instrumento?.codigo}
+          section="Registro de verificación"
+        />
+      </Page>
 
-      <MetaGrid meta={meta} />
-
-      {(meta.condiciones || meta.observaciones) && (
-        <View style={s.notesBox}>
-          {meta.condiciones ? <Text>Condiciones: {meta.condiciones}</Text> : null}
-          {meta.observaciones ? <Text>Observaciones: {meta.observaciones}</Text> : null}
-        </View>
-      )}
-
-      {data.instrumentos_maestro && data.instrumentos_maestro.length > 0 && (
-        <Text style={[s.notesBox, { marginBottom: 6 }]}>
-          Patrones:{' '}
-          {data.instrumentos_maestro.map((m) => `${m.codigo} (${m.nombre})`).join(' · ')}
-        </Text>
-      )}
-
-      {sections.map((sec) => (
-        <SectionTable key={sec.id} section={sec} mMap={mMap} />
-      ))}
-
-      <PdfFooter registroId={data.id} instrumentoCodigo={data.instrumento?.codigo} />
-    </Page>
+      <VerificacionUncertaintyBudgetPDF
+        budget={budget}
+        unit={unit}
+        metrologiaStatus={data.metrologia?.gum_rollup_status ?? null}
+        skippedReason={data.metrologia?.gum_rollup_skipped_reason}
+        turMin={data.metrologia?.tur_min_observado}
+        certificado={cal?.numero_certificado}
+        registroId={data.id}
+        instrumentoCodigo={data.instrumento?.codigo}
+      />
+    </>
   )
 }
 
@@ -245,51 +371,34 @@ function CoverPage({
   lab?: VerificacionPdfLabContext
   generatedAt: string
 }) {
+  const rows = items.map((v, i) => {
+    const cal = v.instrumento_calibracion
+    return [
+      String(i + 1),
+      v.id.slice(0, 8).toUpperCase(),
+      `${v.instrumento?.codigo ?? '—'} — ${v.instrumento?.nombre ?? '—'}`,
+      v.fecha_verificacion,
+      VERIFICACION_RESULTADO_LABEL[v.resultado] ?? v.resultado,
+      `${v.snapshot?.template?.codigo ?? '—'} v${v.template_version_number ?? '—'}`,
+      cal?.u_expandida != null ? `${cal.u_expandida} ${cal.unidad ?? ''}` : '—',
+      v.metrologia?.tur_min_observado != null ? v.metrologia.tur_min_observado.toFixed(1) : '—',
+    ]
+  })
+
   return (
     <Page size="A4" style={s.page}>
-      <View style={s.header}>
-        <Image src={logoSrc()} style={s.logo} />
-        <View style={s.headerText}>
-          <Text style={s.docTitle}>INFORME DE VERIFICACIONES INTERNAS</Text>
-          <Text style={s.docSubtitle}>{DC_DOCUMENT_CONTACT.companyLine}</Text>
-          {lab?.plantName ? <Text style={s.docSubtitle}>Planta: {lab.plantName}</Text> : null}
-          {lab?.acreditacionEma ? (
-            <Text style={s.docSubtitle}>Acreditación EMA: {lab.acreditacionEma}</Text>
-          ) : null}
-        </View>
-      </View>
-
-      <Text style={s.coverTitle}>Índice de registros</Text>
-      <Text style={s.coverMeta}>Fecha de emisión del informe: {generatedAt}</Text>
-      <Text style={s.coverMeta}>Total de verificaciones: {items.length}</Text>
-
-      <View style={{ marginTop: 10, borderWidth: 1, borderColor: '#D6D3D1' }}>
-        <View style={[s.tableHeader, { backgroundColor: '#1B365D' }]}>
-          <Text style={[s.th, { width: 24, flexGrow: 0 }]}>#</Text>
-          <Text style={s.th}>Instrumento</Text>
-          <Text style={[s.th, { width: 72, flexGrow: 0 }]}>Fecha</Text>
-          <Text style={[s.th, { width: 64, flexGrow: 0 }]}>Resultado</Text>
-          <Text style={s.th}>Plantilla</Text>
-        </View>
-        {items.map((v, i) => (
-          <View key={v.id} style={i % 2 === 1 ? s.tableRowAlt : s.tableRow}>
-            <Text style={[s.td, { width: 24, flexGrow: 0 }]}>{i + 1}</Text>
-            <Text style={s.td}>
-              {v.instrumento?.codigo ?? '—'} — {v.instrumento?.nombre ?? '—'}
-            </Text>
-            <Text style={[s.tdMono, { width: 72, flexGrow: 0 }]}>{v.fecha_verificacion}</Text>
-            <Text style={[s.td, { width: 64, flexGrow: 0 }]}>
-              {VERIFICACION_RESULTADO_LABEL[v.resultado] ?? v.resultado}
-            </Text>
-            <Text style={s.tdMono}>
-              {v.snapshot?.template?.codigo ?? '—'}
-              {v.template_version_number != null ? ` v${v.template_version_number}` : ''}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <PdfFooter registroId={items[0]?.id ?? 'informe'} />
+      <DocumentHeader
+        lab={lab}
+        docLine={`Informe consolidado · ${items.length} registro(s) · Emitido ${generatedAt}`}
+      />
+      <Text style={s.coverTitle}>Índice de registros de verificación interna</Text>
+      <Text style={s.coverMeta}>
+        Cada registro incluye: identificación del equipo, patrones de referencia, resultados de
+        verificación, presupuesto de incertidumbre GUM (cuando aplique) y dictamen conforme a
+        NMX-EC-17025-IMNC-2018.
+      </Text>
+      <PdfTable columns={COVER_COLS} rows={rows} fontSize={7} />
+      <PdfFooter registroId={items[0]?.id ?? 'informe'} section="Índice" />
     </Page>
   )
 }
@@ -313,7 +422,7 @@ export function VerificacionInformePDF({
     <Document
       title={
         items.length === 1
-          ? `Verificación ${items[0]?.instrumento?.codigo ?? ''} ${items[0]?.fecha_verificacion ?? ''}`
+          ? `VER-${items[0]?.id.slice(0, 8)} ${items[0]?.instrumento?.codigo ?? ''}`
           : `Informe verificaciones (${items.length})`
       }
       author={DC_DOCUMENT_CONTACT.companyLine}
@@ -321,8 +430,14 @@ export function VerificacionInformePDF({
       {showCover && items.length > 0 ? (
         <CoverPage items={items} lab={lab} generatedAt={issued} />
       ) : null}
-      {items.map((data) => (
-        <VerificacionFichaPages key={data.id} data={data} lab={lab} />
+      {items.map((data, index) => (
+        <VerificacionRecordPages
+          key={data.id}
+          data={data}
+          lab={lab}
+          recordIndex={index + 1}
+          recordTotal={items.length}
+        />
       ))}
     </Document>
   )

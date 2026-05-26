@@ -94,8 +94,8 @@ export default function VerificacionImprimirPage() {
 
       <div className="mx-auto max-w-4xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
-          Vista previa en pantalla. El documento oficial para la entidad de acreditación es el{' '}
-          <strong>PDF</strong> (membrete, numeración de páginas y formato NMX-EC-17025).
+          Vista previa simplificada. El <strong>PDF</strong> oficial incluye el presupuesto GUM completo,
+          trazabilidad de patrones, U/k, TUR y secciones numeradas para revisión por la entidad de acreditación.
         </p>
 
         {pdfError && (

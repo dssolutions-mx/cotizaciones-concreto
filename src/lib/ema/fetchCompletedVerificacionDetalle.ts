@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchLatestVigenteCertUncertaintyByInstrumentIds } from '@/services/emaInstrumentoService'
-import type { CompletedVerificacionDetalle, InstrumentoCard, VerificacionTemplateSnapshot } from '@/types/ema'
+import type {
+  CompletedVerificacionDetalle,
+  InstrumentoCalibracionResumen,
+  InstrumentoCard,
+  VerificacionMetrologiaRecord,
+  VerificacionTemplateSnapshot,
+} from '@/types/ema'
 
 type AdminClient = SupabaseClient
 
@@ -103,6 +109,9 @@ function assembleDetalle(
   created_by_profile: { id: string; full_name: string } | null,
   instrumento_maestro_ids: string[],
   instrumentos_maestro: InstrumentoCard[],
+  metrologia: VerificacionMetrologiaRecord | null,
+  instrumento_calibracion: InstrumentoCalibracionResumen | null,
+  signatures: CompletedVerificacionDetalle['signatures'],
 ): CompletedVerificacionDetalle {
   return {
     ...(vRow as CompletedVerificacionDetalle),
@@ -112,11 +121,33 @@ function assembleDetalle(
     template_version_number: version?.version_number ?? null,
     measurements: measurements as CompletedVerificacionDetalle['measurements'],
     evidencias: [],
-    signatures: [],
+    signatures,
     issues: [],
     instrumento: instrumento as CompletedVerificacionDetalle['instrumento'],
     created_by_profile,
+    metrologia,
+    instrumento_calibracion,
   }
+}
+
+function latestCalibracionByInstrumento(
+  rows: Record<string, unknown>[],
+): Map<string, InstrumentoCalibracionResumen> {
+  const map = new Map<string, InstrumentoCalibracionResumen>()
+  for (const row of rows) {
+    const iid = row.instrumento_id as string
+    if (map.has(iid)) continue
+    map.set(iid, {
+      u_expandida: (row.u_expandida as number | null) ?? null,
+      k_factor: (row.k_factor as number | null) ?? null,
+      unidad: (row.unidad as string | null) ?? null,
+      numero_certificado: (row.numero_certificado as string | null) ?? null,
+      fecha_emision: (row.fecha_emision as string | null) ?? null,
+      proveedor: (row.proveedor as string | null) ?? null,
+      vigente_hasta: (row.vigente_hasta as string | null) ?? null,
+    })
+  }
+  return map
 }
 
 /** Load one completed verification with snapshot, measurements, and related rows. */
@@ -168,6 +199,9 @@ export async function fetchCompletedVerificacionesDetalle(
     { data: instrumentos },
     { data: profiles },
     { cardsByCompleted: maestrosByCompleted, maestroIdsByCompleted },
+    { data: metrologiaRows },
+    { data: calRows },
+    { data: signatureRows },
   ] = await Promise.all([
       admin
         .from('verificacion_template_versions')
@@ -186,6 +220,23 @@ export async function fetchCompletedVerificacionesDetalle(
         ? admin.from('user_profiles').select('id, full_name').in('id', creatorIds)
         : Promise.resolve({ data: [] as { id: string; full_name: string }[] }),
       loadMaestrosForCompletedIds(admin, uniqueIds),
+      admin
+        .from('ema_verificacion_metrologia')
+        .select(
+          'completed_verificacion_id, gum_rollup_status, gum_rollup_attempted_at, gum_rollup_skipped_reason, presupuesto_json, tur_min_observado, updated_at',
+        )
+        .in('completed_verificacion_id', uniqueIds),
+      admin
+        .from('ema_instrumento_calibraciones')
+        .select(
+          'instrumento_id, u_expandida, k_factor, unidad, numero_certificado, fecha_emision, proveedor, vigente_hasta',
+        )
+        .in('instrumento_id', instrumentoIds)
+        .order('fecha_emision', { ascending: false }),
+      admin
+        .from('verificacion_signatures')
+        .select('completed_id, rol, signer_name, signed_at')
+        .in('completed_id', uniqueIds),
     ])
 
   const versionById = new Map(
@@ -202,6 +253,21 @@ export async function fetchCompletedVerificacionesDetalle(
   }
   const instrumentoById = new Map((instrumentos ?? []).map((i) => [i.id as string, i]))
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]))
+  const metrologiaByCompleted = new Map(
+    (metrologiaRows ?? []).map((m) => [
+      (m as { completed_verificacion_id: string }).completed_verificacion_id,
+      m as VerificacionMetrologiaRecord,
+    ]),
+  )
+  const calByInstrumento = latestCalibracionByInstrumento(
+    (calRows ?? []) as Record<string, unknown>[],
+  )
+  const signaturesByCompleted = new Map<string, CompletedVerificacionDetalle['signatures']>()
+  for (const id of uniqueIds) signaturesByCompleted.set(id, [])
+  for (const sig of signatureRows ?? []) {
+    const row = sig as { completed_id: string }
+    signaturesByCompleted.get(row.completed_id)!.push(sig as CompletedVerificacionDetalle['signatures'][0])
+  }
 
   const assembledById = new Map<string, CompletedVerificacionDetalle>()
   for (const id of uniqueIds) {
@@ -222,6 +288,9 @@ export async function fetchCompletedVerificacionesDetalle(
         vRow.created_by ? (profileById.get(vRow.created_by) ?? null) : null,
         maestroIdsByCompleted.get(id) ?? [],
         maestrosByCompleted.get(id) ?? [],
+        metrologiaByCompleted.get(id) ?? null,
+        calByInstrumento.get(vRow.instrumento_id) ?? null,
+        signaturesByCompleted.get(id) ?? [],
       ),
     )
   }
