@@ -1,23 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { UpsertReplicasPayloadSchema } from '@/lib/ema/uncertaintyReplicaPayload';
 import { upsertReplicas } from '@/services/emaUncertaintyService';
 
 const WRITE_ROLES = ['QUALITY_TEAM', 'EXECUTIVE', 'ADMIN'];
-
-const ReplicaSchema = z.object({
-  orden: z.number().int().min(1),
-  operator_id: z.string().uuid().nullable().optional(),
-  instrumento_id: z.string().uuid().nullable().optional(),
-  // Numbers for measurand readings; strings (UUIDs) for secondary instrument assignments
-  // stored under _instr_<roleKey> keys (e.g. _instr_dimensiones for the Vernier in VIGAS).
-  raw_values_json: z.record(z.union([z.number(), z.string()])),
-  computed_value: z.number().nullable().optional(),
-});
-
-const UpsertReplicasSchema = z.object({
-  replicas: z.array(ReplicaSchema).min(1),
-});
 
 export async function PUT(
   request: NextRequest,
@@ -35,9 +21,17 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const parsed = UpsertReplicasSchema.safeParse(body);
-    if (!parsed.success)
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
+    const parsed = UpsertReplicasPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      const flat = parsed.error.flatten();
+      const fieldErrors = Object.entries(flat.fieldErrors)
+        .flatMap(([k, msgs]) => (msgs ?? []).map((m) => `${k}: ${m}`));
+      const message =
+        fieldErrors.length > 0
+          ? fieldErrors.slice(0, 5).join(' · ')
+          : 'Datos de réplicas inválidos';
+      return NextResponse.json({ error: message, details: flat }, { status: 422 });
+    }
 
     const replicas = await upsertReplicas(id, parsed.data);
     return NextResponse.json({ data: replicas });

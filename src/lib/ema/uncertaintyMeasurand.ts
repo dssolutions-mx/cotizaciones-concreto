@@ -140,6 +140,45 @@ const SYMBOL_ALIASES: Record<string, string[]> = {
   d: ['dprom', 'diametro'],
 };
 
+/** Positive numeric reading for symbol or its aliases (FC/VIGAS grid keys). */
+function getRawQuantity(raw: Record<string, number>, sym: string): number | undefined {
+  const v = raw[sym];
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+  for (const a of SYMBOL_ALIASES[sym] ?? []) {
+    const av = raw[a];
+    if (typeof av === 'number' && Number.isFinite(av) && av > 0) return av;
+  }
+  return undefined;
+}
+
+/** NMX-C-083: d1+d2 (mm) averaged to dprom, or single dprom/d reading. */
+function enrichFcReplicaRaw(raw: Record<string, number>): Record<string, number> {
+  const out = { ...raw };
+  const d1 = out.d1;
+  const d2 = out.d2;
+  if (
+    typeof d1 === 'number' &&
+    Number.isFinite(d1) &&
+    d1 > 0 &&
+    typeof d2 === 'number' &&
+    Number.isFinite(d2) &&
+    d2 > 0
+  ) {
+    const avg = (d1 + d2) / 2;
+    if (out.dprom === undefined) out.dprom = avg;
+    if (out.d === undefined) out.d = avg;
+  }
+  return out;
+}
+
+function fcReplicaInputsComplete(raw: Record<string, number>): boolean {
+  if (!getRawQuantity(raw, 'Carga')) return false;
+  const d1 = getRawQuantity(raw, 'd1');
+  const d2 = getRawQuantity(raw, 'd2');
+  if (d1 !== undefined && d2 !== undefined) return true;
+  return getRawQuantity(raw, 'dprom') !== undefined || getRawQuantity(raw, 'd') !== undefined;
+}
+
 function normalizeFormulaExpr(expr: string): string {
   return expr.replace(/\bPI\s*\(\s*\)/gi, 'pi');
 }
@@ -179,12 +218,14 @@ function hasRequiredMeasuredInputs(
   measurand: UncertaintyMeasurand,
   raw: Record<string, number>,
 ): boolean {
+  if (measurand.codigo === 'FC') {
+    return fcReplicaInputsComplete(raw);
+  }
+
   const measured = (measurand.inputs ?? []).filter((i) => i.kind === 'measured');
   if (measured.length === 0) return Object.values(raw).some((v) => Number.isFinite(v));
-  return measured.every((inp) => {
-    const v = raw[inp.simbolo];
-    return v !== undefined && Number.isFinite(Number(v));
-  });
+
+  return measured.every((inp) => getRawQuantity(raw, inp.simbolo) !== undefined);
 }
 
 /**
@@ -220,11 +261,16 @@ export function computeReplicaMeasurand(
     });
   }
 
-  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, numericRaw)) {
+  let workingRaw = numericRaw;
+  if (measurand.codigo === 'FC') {
+    workingRaw = enrichFcReplicaRaw(numericRaw);
+  }
+
+  if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, workingRaw)) {
     return null;
   }
 
-  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, numericRaw);
+  const scope = buildFormulaScope(measurand as UncertaintyMeasurand, workingRaw);
 
   const expr = measurand.formula_expr?.trim();
   if (expr) {

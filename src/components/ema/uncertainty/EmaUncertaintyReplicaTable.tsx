@@ -873,20 +873,26 @@ export function EmaUncertaintyReplicaTable({
                   })}
                   {/* Fracture-zone select — VIGAS only */}
                   {measurand.codigo === 'VIGAS' && (() => {
-                    const fz = (replica.raw_values_json['_fracture_zone'] as string | undefined) ?? ''
+                    const fzRaw = replica.raw_values_json['_fracture_zone']
+                    const fz =
+                      typeof fzRaw === 'string' &&
+                      (fzRaw === 'tercio_medio' || fzRaw === 'fuera_5' || fzRaw === 'fuera_mas_5')
+                        ? fzRaw
+                        : undefined
                     return (
                       <td className="px-2 py-1.5">
                         <Select
                           disabled={isLocked}
                           value={fz}
-                          onValueChange={(v) => onReplicaChange(orden, '_fracture_zone', v || null)}
+                          onValueChange={(v) => onReplicaChange(orden, '_fracture_zone', v)}
                         >
                           <SelectTrigger className={cn(
                             'h-8 text-xs',
                             fz === 'fuera_mas_5' && 'border-red-300 bg-red-50 text-red-800',
                             fz === 'fuera_5' && 'border-amber-300 bg-amber-50 text-amber-800',
+                            !fz && 'border-amber-200 bg-amber-50/50',
                           )}>
-                            <SelectValue placeholder="Seleccionar…" />
+                            <SelectValue placeholder="Seleccionar zona…" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="tercio_medio" className="text-xs">Tercio central ✓</SelectItem>

@@ -21,6 +21,7 @@ import {
   buildReplicaRows,
   computeReplicaMeasurand,
 } from '@/lib/ema/uncertaintyMeasurand'
+import { sanitizeRawValuesJson } from '@/lib/ema/uncertaintyReplicaPayload'
 import {
   injectVigasStudyConstants,
   parseVigasStudyConfig,
@@ -161,12 +162,14 @@ export function StudyWorkspaceClient({
         const computed = (vigasCfg || V_recip_mu !== null)
           ? computeReplicaMeasurand(measurand, raw, vigasCfg ? { vigasConfig: vigasCfg } : undefined)
           : r.computed_value
+        const computedFinite =
+          typeof computed === 'number' && Number.isFinite(computed) ? computed : null
         return {
           orden: r.orden,
-          operator_id: r.operator_id,
-          instrumento_id: r.instrumento_id,
-          raw_values_json: raw,
-          computed_value: computed,
+          operator_id: r.operator_id || null,
+          instrumento_id: r.instrumento_id || null,
+          raw_values_json: sanitizeRawValuesJson(raw as Record<string, unknown>),
+          computed_value: computedFinite,
         }
       })
       const res = await fetch(`/api/ema/uncertainty/studies/${study.id}/replicas`, {
@@ -176,7 +179,16 @@ export function StudyWorkspaceClient({
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error((d as { error?: string }).error ?? 'Error guardando réplicas')
+        const errBody = d as { error?: string; details?: { fieldErrors?: Record<string, string[]> } }
+        const detailMsg = errBody.details?.fieldErrors
+          ? Object.entries(errBody.details.fieldErrors)
+              .flatMap(([k, msgs]) => (msgs ?? []).map((m) => `${k}: ${m}`))
+              .slice(0, 3)
+              .join(' · ')
+          : ''
+        throw new Error(
+          [errBody.error, detailMsg].filter(Boolean).join(' — ') || 'Error guardando réplicas',
+        )
       }
       const saved = await parseEmaApiData<UncertaintyStudyReplica[]>(res)
       setReplicas(
@@ -231,16 +243,20 @@ export function StudyWorkspaceClient({
                   ? r.instrumento
                   : undefined,
           }
-        } else if (field.startsWith('_instr_')) {
-          // Secondary instrument UUID stored as a string in raw_values_json
-          const raw = { ...r.raw_values_json }
-          if (value === null) delete raw[field]
-          else raw[field] = value as string
-          next = { ...r, raw_values_json: raw }
         } else {
           const raw = { ...r.raw_values_json }
-          if (value === null) delete raw[field]
-          else raw[field] = Number(value)
+          if (value === null) {
+            delete raw[field]
+          } else if (
+            field.startsWith('_instr_') ||
+            field.startsWith('_fracture') ||
+            typeof value === 'string'
+          ) {
+            // Metadata: secondary instrument UUIDs, fracture zone (VIGAS), etc.
+            raw[field] = value
+          } else {
+            raw[field] = Number(value)
+          }
           next = { ...r, raw_values_json: raw }
         }
         let rawForCompute = next.raw_values_json

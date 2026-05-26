@@ -493,9 +493,18 @@ export async function upsertReplicas(
     }
   }
 
+  const vigasCfgUpsert =
+    study.measurand!.codigo === 'VIGAS'
+      ? parseVigasStudyConfig(study.env_overrides as Record<string, number> | null)
+      : null;
+
   const rows = input.replicas.map((r) => {
     const computed =
-      computeReplicaMeasurand(study.measurand!, r.raw_values_json) ??
+      (vigasCfgUpsert
+        ? computeReplicaMeasurand(study.measurand!, r.raw_values_json, {
+            vigasConfig: vigasCfgUpsert,
+          })
+        : computeReplicaMeasurand(study.measurand!, r.raw_values_json)) ??
       r.computed_value ??
       null;
     return {
