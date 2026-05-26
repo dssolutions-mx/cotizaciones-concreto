@@ -17,9 +17,14 @@ export const MEASURAND_INSTRUMENT_CATEGORIES: Record<MeasurandCodigo, string[]> 
   REV: ['Flexometro'],
   AIRE: ['Equipo contenido de aire'],
   MU: ['Balanza', 'Recipiente PV'],
-  FC: ['Balanza', 'Molde cilíndrico'],
+  // Cylinder compression: press for load + vernier/flexómetro for diameter.
+  // Balanza + Molde kept for backward-compat with drafts that selected them, but the
+  // metrologically relevant calibrated devices are Prensa + Vernier/Flexómetro.
+  FC: ['Prensa hidráulica', 'Vernier', 'Flexometro', 'Balanza', 'Molde cilíndrico'],
   // Cubes: press for load + flexómetro or vernier for side measurement
   FC_CUBO: ['Prensa hidráulica', 'Flexometro', 'Vernier'],
+  // Beams (flexión): press for load + vernier/flexómetro for b, d, L (NMX-C-191 / ASTM C78).
+  VIGAS: ['Prensa hidráulica', 'Vernier', 'Flexometro'],
 };
 
 const SYMBOL_ALIASES: Record<string, string[]> = {

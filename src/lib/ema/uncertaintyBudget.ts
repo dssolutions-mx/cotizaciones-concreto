@@ -211,7 +211,7 @@ export function welchSatterthwaite(
  * Ref: GUM §5.1.3, Eq. (13): cᵢ = ∂f/∂xᵢ |_{x=best_estimate}
  */
 export function sensitivityCoefficient(
-  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO',
+  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO' | 'VIGAS',
   inputSymbol: string,
   context: {
     /** Mean load (kg) — required for FC / FC_CUBO */
@@ -230,6 +230,12 @@ export function sensitivityCoefficient(
     mu_mean?: number;
     /** Container volume (L) — required for MU V_recip */
     V_recipiente?: number;
+    /** Mean max load P (kgf) — required for VIGAS */
+    P_mean?: number;
+    /** Mean ancho b (cm) — required for VIGAS */
+    b_mean?: number;
+    /** Mean MR (kg/cm²) — required for VIGAS */
+    MR_mean?: number;
   } = {},
 ): number {
   switch (measurandCode) {
@@ -296,6 +302,33 @@ export function sensitivityCoefficient(
       return 1;
     }
 
+    case 'VIGAS': {
+      // MR = P·L / (b·d²) — third-point loading per NMX-C-191 / ASTM C78
+      // c_P = MR/P  ;  c_L = MR/L  ;  c_b = -MR/b  ;  c_d = -2·MR/d (dominant)
+      const MR = context.MR_mean;
+      const P = context.P_mean;
+      const L = context.L_mean;
+      const b = context.b_mean;
+      const d = context.d_mean;
+      if (inputSymbol === 'P') {
+        if (!MR || !P) throw new Error('sensitivityCoefficient VIGAS P: MR_mean and P_mean required');
+        return MR / P;
+      }
+      if (inputSymbol === 'L') {
+        if (!MR || !L) throw new Error('sensitivityCoefficient VIGAS L: MR_mean and L_mean required');
+        return MR / L;
+      }
+      if (inputSymbol === 'b') {
+        if (!MR || !b) throw new Error('sensitivityCoefficient VIGAS b: MR_mean and b_mean required');
+        return -MR / b;
+      }
+      if (inputSymbol === 'd') {
+        if (!MR || !d) throw new Error('sensitivityCoefficient VIGAS d: MR_mean and d_mean required');
+        return -2 * MR / d;
+      }
+      return 1;
+    }
+
     default:
       return 1;
   }
@@ -306,7 +339,7 @@ export function sensitivityCoefficient(
 // ---------------------------------------------------------------------------
 
 export interface StudyInput {
-  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO';
+  measurandCode: 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO' | 'VIGAS';
   measurandName: string;
   unit: string;
   /** Replicate measurand values (already computed from raw readings) */

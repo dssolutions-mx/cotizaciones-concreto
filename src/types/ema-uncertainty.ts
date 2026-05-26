@@ -28,7 +28,7 @@ export interface GumReference {
 // ---------------------------------------------------------------------------
 // Measurand catalogue
 // ---------------------------------------------------------------------------
-export type MeasurandCodigo = 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO';
+export type MeasurandCodigo = 'TEMP' | 'REV' | 'AIRE' | 'MU' | 'FC' | 'FC_CUBO' | 'VIGAS';
 
 export interface UncertaintyMeasurand {
   id: string;
@@ -135,6 +135,15 @@ export interface UncertaintyStudy {
   notas: string | null;
   equipo_pool_json?: UncertaintyEquipoPool | null;
   env_overrides?: Record<string, number> | null;
+  /**
+   * Per-study list of measurand-input `simbolo` values to EXCLUDE from the budget.
+   * `buildStudyInput` skips any seeded measurand input whose simbolo appears here.
+   * Useful when a lab's actual test conditions don't include a particular seeded
+   * contributor (e.g., the lab doesn't cap cubes, so `capping` should be removed
+   * from a specific FC_CUBO study). Published studies snapshot presupuesto_json,
+   * so the exclusion list never retroactively changes a published budget.
+   */
+  excluded_input_simbolos?: string[] | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;

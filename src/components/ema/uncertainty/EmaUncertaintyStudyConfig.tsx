@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Plus, Pencil, Trash2, RotateCcw } from 'lucide-react'
+import { Plus, Pencil, Trash2, RotateCcw, X } from 'lucide-react'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { EmaNormReferenceChip } from '@/components/ema/uncertainty/EmaNormReferenceChip'
 import { EmaUncertaintyMeasurandPanel } from '@/components/ema/uncertainty/EmaUncertaintyMeasurandPanel'
@@ -39,12 +39,14 @@ function AutoContributorRow({
   isLocked,
   onOverrideChange,
   onReset,
+  onExclude,
 }: {
   inp: UncertaintyMeasurandInput
   overrideValue: number | null
   isLocked: boolean
   onOverrideChange: (simbolo: string, value: number | null) => void
   onReset: (simbolo: string) => void
+  onExclude: (simbolo: string) => void
 }) {
   const defaultVal = inp.default_semiamplitud
   const displayVal = overrideValue ?? defaultVal
@@ -97,6 +99,22 @@ function AutoContributorRow({
       <td className="px-3 py-1.5 text-center">
         <EmaNormReferenceChip ref_norma={inp.norma_ref ?? 'GUM §4.3.6'} formula_display={inp.descripcion ?? undefined} />
       </td>
+      <td className="px-2 py-1.5 text-center">
+        {!isLocked && (
+          <button
+            type="button"
+            title="Excluir esta variable del presupuesto de este estudio (no afecta al catálogo global ni a estudios publicados)"
+            onClick={() => {
+              if (confirm(`¿Excluir "${inp.nombre_display}" (${inp.simbolo}) del presupuesto de este estudio?\n\nNo se afecta al catálogo global ni a estudios publicados. Podrá restaurarla en cualquier momento desde la sección "Variables excluidas".`)) {
+                onExclude(inp.simbolo)
+              }
+            }}
+            className="rounded p-1 text-stone-400 hover:bg-red-50 hover:text-red-600"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </td>
     </tr>
   )
 }
@@ -146,6 +164,12 @@ export function EmaUncertaintyStudyConfig({
     (study.env_overrides as Record<string, number>) ?? {},
   )
   const [overrideSaving, setOverrideSaving] = useState(false)
+  // Per-study exclusion list — simbolos of measurand inputs the user has removed
+  // from THIS study's budget. Mirrored to the server via PATCH so the engine skips them.
+  const [excludedSimbolos, setExcludedSimbolos] = useState<string[]>(
+    (study.excluded_input_simbolos as string[] | null | undefined) ?? [],
+  )
+  const [exclusionSaving, setExclusionSaving] = useState(false)
 
   // Custom inputs state
   const [customInputs, setCustomInputs] = useState<StudyCustomInput[]>([])
@@ -246,6 +270,48 @@ export function EmaUncertaintyStudyConfig({
   function handleOverrideReset(simbolo: string) {
     handleOverrideChange(simbolo, null)
   }
+
+  async function patchExcludedSimbolos(next: string[]) {
+    setExclusionSaving(true)
+    try {
+      const res = await fetch(`/api/ema/uncertainty/studies/${study.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excluded_input_simbolos: next }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error((d as { error?: string }).error ?? 'Error guardando exclusiones')
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Error')
+      // Revert local state on failure
+      setExcludedSimbolos((study.excluded_input_simbolos as string[] | null | undefined) ?? [])
+    } finally {
+      setExclusionSaving(false)
+    }
+  }
+
+  function handleExcludeSimbolo(simbolo: string) {
+    if (excludedSimbolos.includes(simbolo)) return
+    const next = [...excludedSimbolos, simbolo]
+    setExcludedSimbolos(next)
+    patchExcludedSimbolos(next)
+  }
+
+  function handleRestoreSimbolo(simbolo: string) {
+    const next = excludedSimbolos.filter((s) => s !== simbolo)
+    setExcludedSimbolos(next)
+    patchExcludedSimbolos(next)
+  }
+
+  // Split auto-contributors into visible vs. excluded so the user can see + restore exclusions.
+  const visibleAutoContributors = autoContributors.filter((inp) => !excludedSimbolos.includes(inp.simbolo))
+  const excludedAutoContributors = autoContributors.filter((inp) => excludedSimbolos.includes(inp.simbolo))
+  // Also surface measured inputs that have been excluded (so users can restore them).
+  const excludedMeasuredInputs = (measurand.inputs ?? []).filter(
+    (inp) => inp.kind === 'measured' && excludedSimbolos.includes(inp.simbolo),
+  )
 
   return (
     <div className="space-y-6">
@@ -360,17 +426,22 @@ export function EmaUncertaintyStudyConfig({
         </section>
       )}
 
-      {autoContributors.length > 0 && (
+      {visibleAutoContributors.length > 0 && (
         <section>
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-stone-800">
               Condiciones del ensayo — contribuyentes Tipo B
             </h3>
             {overrideSaving && <span className="text-[10px] text-stone-400">Guardando…</span>}
+            {excludedSimbolos.length > 0 && (
+              <span className="rounded bg-stone-200 px-1.5 py-0.5 text-[10px] font-medium text-stone-700">
+                {excludedSimbolos.length} excluida{excludedSimbolos.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-xs text-stone-500">
             Semi-amplitudes por defecto según la norma citada. Edite solo si las condiciones del ensayo
-            difieren del valor típico (p. ej. temperatura ambiente inusualmente alta).
+            difieren del valor típico, o use la X para excluir una variable del presupuesto de este estudio.
           </p>
           <div className="mt-2 overflow-hidden rounded-lg border border-stone-200">
             <table className="w-full text-left">
@@ -381,10 +452,11 @@ export function EmaUncertaintyStudyConfig({
                   <th className="w-28 px-3 py-2 text-center">Categoría</th>
                   <th className="w-40 px-3 py-2 text-right" title="Semi-amplitud ±a de la distribución rectangular. Modifique si las condiciones del día difieren del valor típico.">Semi-amplitud ±a</th>
                   <th className="w-24 px-3 py-2 text-center">Norma</th>
+                  <th className="w-10 px-2 py-2 text-center" title="Excluir de este estudio">×</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-stone-100">
-                {autoContributors.map((inp) => (
+                {visibleAutoContributors.map((inp) => (
                   <AutoContributorRow
                     key={inp.id}
                     inp={inp}
@@ -392,11 +464,46 @@ export function EmaUncertaintyStudyConfig({
                     isLocked={isLocked}
                     onOverrideChange={handleOverrideChange}
                     onReset={handleOverrideReset}
+                    onExclude={handleExcludeSimbolo}
                   />
                 ))}
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {(excludedAutoContributors.length > 0 || excludedMeasuredInputs.length > 0) && (
+        <section className="rounded-lg border border-dashed border-stone-300 bg-stone-50/60 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-stone-700">Variables excluidas de este estudio</h3>
+            {exclusionSaving && <span className="text-[10px] text-stone-400">Guardando…</span>}
+          </div>
+          <p className="mt-0.5 text-[11px] text-stone-500">
+            Estas variables están en el catálogo del mensurando pero no se incluirán en el presupuesto de este estudio.
+            Puede restaurarlas en cualquier momento. Los estudios publicados conservan su presupuesto original.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {[...excludedAutoContributors, ...excludedMeasuredInputs].map((inp) => (
+              <li key={inp.id} className="flex items-center justify-between gap-2 rounded border border-stone-200 bg-white px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono text-xs text-stone-600">{inp.simbolo}</span>
+                  <span className="ml-2 text-sm text-stone-800">{inp.nombre_display}</span>
+                  <span className="ml-2 text-[10px] text-stone-400">({inp.kind})</span>
+                </div>
+                {!isLocked && (
+                  <button
+                    type="button"
+                    onClick={() => handleRestoreSimbolo(inp.simbolo)}
+                    className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800 hover:bg-emerald-200"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Restaurar
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

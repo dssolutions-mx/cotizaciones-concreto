@@ -49,6 +49,7 @@ export async function PATCH(
       plant_id?: string | null;
       equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[] } | null;
       env_overrides?: Record<string, number> | null;
+      excluded_input_simbolos?: string[];
     } = {};
     if ('notas' in body) fields.notas = body.notas ?? null;
     if ('plant_id' in body) fields.plant_id = body.plant_id ?? null;
@@ -73,6 +74,19 @@ export async function PATCH(
         }
         fields.env_overrides = Object.keys(overrides).length > 0 ? overrides : null;
       }
+    }
+    if ('excluded_input_simbolos' in body) {
+      // Block updates to published studies — their presupuesto is snapshotted.
+      const current = await getStudy(id);
+      if (current?.estado === 'publicado') {
+        return NextResponse.json(
+          { error: 'No se pueden modificar variables excluidas en un estudio publicado' },
+          { status: 409 },
+        );
+      }
+      fields.excluded_input_simbolos = Array.isArray(body.excluded_input_simbolos)
+        ? body.excluded_input_simbolos.filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+        : [];
     }
     if (Object.keys(fields).length > 0) {
       await updateStudyFields(id, fields);

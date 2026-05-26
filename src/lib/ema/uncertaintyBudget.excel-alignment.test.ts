@@ -534,4 +534,59 @@ assert.ok(nearAbs(c_L_300 / c_L_200, 1.5, 1e-3),
 
 console.log('  ✓ FC_CUBO sensitivity proportionality');
 
+// ===========================================================================
+// 8. VIGAS — Módulo de rotura (flexión, carga en tercios)
+//    Reference: NMX-C-191-ONNCCE-2017 / ASTM C78
+//    MR = P·L / (b·d²)
+//    Sensitivities: c_P = MR/P; c_L = MR/L; c_b = -MR/b; c_d = -2·MR/d (dominant)
+// ===========================================================================
+console.log('8. VIGAS — Módulo de rotura (flexión)');
+
+// Hand computation for a typical 15×15×50 beam, span 45 cm, P_max ≈ 2960 kgf:
+//   MR = 2960 · 45 / (15 · 15²) = 133200 / 3375 = 39.47 kg/cm²
+// Replicas with small spread (Type A small); plus Type B from calibration of prensa.
+const vigasReplicas = [39.5, 39.4, 39.6, 39.3, 39.5];  // kg/cm²
+const vigasMean = mean(vigasReplicas);
+assert.ok(nearAbs(vigasMean, 39.46, 0.05), `VIGAS mean ≈ 39.46 kg/cm², got ${vigasMean.toFixed(2)}`);
+
+// Sensitivity coefficient sanity: c_d should dominate (factor 2 vs c_b, much larger
+// than c_P since P_mean ≫ MR_mean).
+const ctx = { P_mean: 2960, L_mean: 45, b_mean: 15, d_mean: 15, MR_mean: 39.47 };
+const c_P = sensitivityCoefficient('VIGAS', 'P', ctx);
+const c_L = sensitivityCoefficient('VIGAS', 'L', ctx);
+const c_b = sensitivityCoefficient('VIGAS', 'b', ctx);
+const c_d = sensitivityCoefficient('VIGAS', 'd', ctx);
+assert.ok(nearAbs(c_P, 39.47 / 2960, 1e-6), `c_P = MR/P; got ${c_P}`);
+assert.ok(nearAbs(c_L, 39.47 / 45, 1e-6),   `c_L = MR/L; got ${c_L}`);
+assert.ok(nearAbs(c_b, -39.47 / 15, 1e-6),  `c_b = -MR/b; got ${c_b}`);
+assert.ok(nearAbs(c_d, -2 * 39.47 / 15, 1e-6), `c_d = -2·MR/d; got ${c_d}`);
+assert.ok(Math.abs(c_d) > Math.abs(c_b),    'c_d dominates c_b (factor of 2)');
+console.log(`  c_P=${c_P.toExponential(2)}  c_L=${c_L.toExponential(2)}  c_b=${c_b.toExponential(2)}  c_d=${c_d.toExponential(2)}`);
+
+// Full budget smoke: Type A repetibilidad + 1 Type B (calibration of the prensa)
+const vigasBudget = buildBudget({
+  measurandCode: 'VIGAS',
+  measurandName: 'Módulo de rotura',
+  unit: 'kg/cm²',
+  replicaValues: vigasReplicas,
+  typeBInputs: [
+    {
+      fuente: 'Calibración de la prensa',
+      magnitud_xi: 'P',                  // U is in kgf; sensitivity converts to kg/cm²
+      unidad: 'kgf',
+      valor_xi: 0,
+      kind: 'calibration',
+      U_cert: 30,                         // ±30 kgf @ k=2 (typical prensa cert)
+      k_cert: 2,
+      categoria: 'calibration',
+    },
+  ],
+  sensitivityContext: ctx,
+});
+assert.ok(vigasBudget.u_c > 0,                          'VIGAS u_c > 0');
+assert.ok(vigasBudget.U > 2 * vigasBudget.u_c * 0.9,    'VIGAS U ≈ k·u_c, k near 2');
+assert.equal(vigasBudget.components.length, 2,          'VIGAS budget should have exactly 2 components (1 Type A + 1 Type B)');
+console.log(`  u_c=${vigasBudget.u_c.toExponential(4)} kg/cm²  U=${vigasBudget.U.toExponential(4)} kg/cm²  k=${vigasBudget.k.toFixed(3)}`);
+console.log('  ✓ VIGAS');
+
 console.log('\n✅ All Excel-alignment parity tests passed.');

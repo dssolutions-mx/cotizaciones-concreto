@@ -19,14 +19,18 @@ export function requiredMeasurandsForMuestreo(input: {
   if (input.contenido_aire != null) out.push({ codigo: 'AIRE', reason: 'Contenido de aire' });
   if (input.masa_unitaria != null) out.push({ codigo: 'MU', reason: 'Masa unitaria' });
 
-  const hasCilindroViga = input.specimenTypes.some((t) => t === 'CILINDRO' || t === 'VIGA');
+  const hasCilindro = input.specimenTypes.some((t) => t === 'CILINDRO');
+  const hasViga = input.specimenTypes.some((t) => t === 'VIGA');
   const hasCubo = input.specimenTypes.some((t) => t === 'CUBO');
-  if (hasCilindroViga) out.push({ codigo: 'FC', reason: 'Resistencia cilindro/viga' });
+  if (hasCilindro) out.push({ codigo: 'FC', reason: 'Resistencia cilindro' });
+  if (hasViga) out.push({ codigo: 'VIGAS', reason: 'Módulo de rotura (vigas, NMX-C-191)' });
   if (hasCubo) out.push({ codigo: 'FC_CUBO', reason: 'Resistencia cubo' });
 
   return out;
 }
 
 export function fcMeasurandForTipo(tipo: string): MeasurandCodigo {
-  return tipo === 'CUBO' ? 'FC_CUBO' : 'FC';
+  if (tipo === 'CUBO') return 'FC_CUBO';
+  if (tipo === 'VIGA') return 'VIGAS';
+  return 'FC';
 }

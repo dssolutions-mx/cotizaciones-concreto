@@ -344,6 +344,7 @@ export async function updateStudyFields(
     plant_id?: string | null;
     equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[] } | null;
     env_overrides?: Record<string, number> | null;
+    excluded_input_simbolos?: string[];
   },
 ): Promise<void> {
   const supabase = await createClient();
@@ -352,6 +353,7 @@ export async function updateStudyFields(
   if ('plant_id' in fields) patch.plant_id = fields.plant_id ?? null;
   if ('equipo_pool_json' in fields) patch.equipo_pool_json = fields.equipo_pool_json ?? null;
   if ('env_overrides' in fields) patch.env_overrides = fields.env_overrides ?? null;
+  if ('excluded_input_simbolos' in fields) patch.excluded_input_simbolos = fields.excluded_input_simbolos ?? [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await supabase.from('ema_uncertainty_studies').update(patch as any).eq('id', id);
   if (error) throw error;
@@ -793,11 +795,31 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
+  // Per-study exclusion: skip any seeded measurand input whose simbolo is in the
+  // study's excluded_input_simbolos list. Lets a lab remove a contributor from
+  // a specific budget without touching the global catalog (e.g., "this study didn't
+  // cap the cubes, so omit the capping row"). Published studies snapshot
+  // presupuesto_json so the exclusion list never retroactively changes them.
+  const excludedSimbolos = new Set<string>(study.excluded_input_simbolos ?? []);
+  const allInputs = measurand.inputs ?? [];
+  const inputs = excludedSimbolos.size > 0
+    ? allInputs.filter((i) => !excludedSimbolos.has(i.simbolo))
+    : allInputs;
+  if (excludedSimbolos.size > 0) {
+    const droppedSimbolos = allInputs
+      .filter((i) => excludedSimbolos.has(i.simbolo))
+      .map((i) => i.simbolo);
+    if (droppedSimbolos.length > 0) {
+      warnings.push(
+        `Variables seeded excluidas de este estudio por decisión del usuario: ${droppedSimbolos.join(', ')}.`,
+      );
+    }
+  }
+
   // Resolution Type B from measurand inputs defaults.
   // Suppressed when any study instrument already has a resolved calibration/verification,
   // because the instrument's resolution is already embedded inside that calibration U
   // (GUM §4.3.4). Adding it separately would double-count the contribution.
-  const inputs = measurand.inputs ?? [];
   const measuredInputs = inputs.filter((i) => i.kind === 'measured' && i.default_resolucion);
   if (instrumensWithCal.size > 0 && measuredInputs.length > 0) {
     warnings.push(
@@ -939,6 +961,35 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     sensitivityContext.mu_mean = mu_mean;
     sensitivityContext.V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
     sensitivityContext.factor_correccion = (muOvr['factor_correccion'] as number | undefined) ?? 1;
+  }
+
+  // VIGAS — flexural beam, modulus of rupture (third-point loading per NMX-C-191 / ASTM C78).
+  // MR = P·L / (b·d²). Sensitivities: ci_P = MR/P; ci_L = MR/L; ci_b = -MR/b; ci_d = -2·MR/d.
+  // The peralte (d) dominates the budget because it enters squared.
+  if (measurand.codigo === 'VIGAS') {
+    const Ps = replicas.map((r) => Number(r.raw_values_json['P'] ?? 0)).filter((v) => v > 0);
+    const Ls = replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
+    const bs = replicas.map((r) => Number(r.raw_values_json['b'] ?? 0)).filter((v) => v > 0);
+    const ds = replicas.map((r) => Number(r.raw_values_json['d'] ?? 0)).filter((v) => v > 0);
+
+    if (Ps.length > 0 && Ls.length > 0 && bs.length > 0 && ds.length > 0) {
+      const P_mean = Ps.reduce((s, v) => s + v, 0) / Ps.length;
+      const L_mean = Ls.reduce((s, v) => s + v, 0) / Ls.length;
+      const b_mean = bs.reduce((s, v) => s + v, 0) / bs.length;
+      const d_mean = ds.reduce((s, v) => s + v, 0) / ds.length;
+      const MR_mean = (P_mean * L_mean) / (b_mean * d_mean * d_mean);
+      if (b_mean > 0 && d_mean > 0) {
+        sensitivityContext.P_mean = P_mean;
+        sensitivityContext.L_mean = L_mean;
+        sensitivityContext.b_mean = b_mean;
+        sensitivityContext.d_mean = d_mean;
+        sensitivityContext.MR_mean = MR_mean;
+      } else {
+        warnings.push('VIGAS: b o d promedio = 0; los coeficientes de sensibilidad se omiten (ci=1).');
+      }
+    } else {
+      warnings.push('VIGAS: faltan datos de P/L/b/d en las réplicas; los coeficientes de sensibilidad se omiten (ci=1).');
+    }
   }
 
   // Custom per-study inputs (user-defined Type A and Type B variables)
