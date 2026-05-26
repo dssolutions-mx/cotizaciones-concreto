@@ -23,6 +23,7 @@ import { Check, X, MoreVertical, Eye, FileText, Search, Trash2 } from 'lucide-re
 import { toast } from 'sonner';
 import { getEffectiveFloorPrice } from '@/lib/supabase/listPrices';
 import { format } from 'date-fns';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 const RANGE_ORDER: Record<'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G', number> = {
   A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7,
@@ -136,6 +137,9 @@ interface SupabaseQuoteDetail {
 }
 
 export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFilter, initialQuoteId }: PendingApprovalTabProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [quotes, setQuotes] = useState<PendingQuote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -700,6 +704,12 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
 
   const closeQuoteDetails = () => {
     setSelectedQuote(null);
+    if (searchParams.get('id')) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('id');
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
   };
 
   return (

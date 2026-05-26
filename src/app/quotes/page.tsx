@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import QuoteBuilder from '@/components/prices/QuoteBuilder';
 import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
@@ -114,10 +114,22 @@ function QuotesContent() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Get the active tab from URL or default to 'pending'
-  // When ?id= is present, force pending tab so the quote detail modal can open
   const quoteIdFromUrl = searchParams.get('id');
-  const activeTab = (quoteIdFromUrl ? 'pending' : (searchParams.get('tab') as TabId)) || 'pending';
+  const tabFromUrl = searchParams.get('tab');
+  const tabFromUrlValid: TabId | null =
+    tabFromUrl === 'pending' || tabFromUrl === 'approved' || tabFromUrl === 'create'
+      ? tabFromUrl
+      : null;
+
+  const [optimisticTab, setOptimisticTab] = useState<TabId | null>(null);
+  const activeTab: TabId = optimisticTab ?? tabFromUrlValid ?? (quoteIdFromUrl ? 'pending' : 'pending');
+
+  useEffect(() => {
+    if (!optimisticTab) return;
+    if (tabFromUrlValid === optimisticTab) {
+      setOptimisticTab(null);
+    }
+  }, [tabFromUrlValid, optimisticTab]);
 
   // Get filters from URL params
   const statusFilter = searchParams.get('status') || 'todos';
@@ -219,8 +231,7 @@ function QuotesContent() {
     return roleTabs;
   };
 
-  // Get tabs based on user role
-  const TABS = getRoleTabs();
+  const TABS = useMemo(() => getRoleTabs(), [profile, hasRole]);
 
   // Handle filter changes (only for status - client filter is managed by child components)
   const handleFilterChange = useCallback(
@@ -238,21 +249,22 @@ function QuotesContent() {
 
   // If the active tab is not available for the current role, redirect to the first available tab
   useEffect(() => {
-    if (TABS.length > 0 && !TABS.some((tab) => tab.id === activeTab)) {
+    if (!profile || TABS.length === 0) return;
+    if (!TABS.some((tab) => tab.id === activeTab)) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', TABS[0].id);
-      router.push(`${pathname}?${params.toString()}`);
+      params.delete('id');
+      router.replace(`${pathname}?${params.toString()}`);
     }
   }, [profile, TABS, activeTab, pathname, router, searchParams]);
 
-  // When ?id= is present, ensure URL shows tab=pending for consistency
+  // Deep link with ?id= but no tab — open on Pendientes once
   useEffect(() => {
-    if (quoteIdFromUrl && searchParams.get('tab') !== 'pending') {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', 'pending');
-      if (quoteIdFromUrl) params.set('id', quoteIdFromUrl);
-      router.replace(`${pathname}?${params.toString()}`);
-    }
+    if (!quoteIdFromUrl || searchParams.get('tab')) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', 'pending');
+    params.set('id', quoteIdFromUrl);
+    router.replace(`${pathname}?${params.toString()}`);
   }, [quoteIdFromUrl, pathname, router, searchParams]);
 
   const handleDataSaved = () => {
@@ -263,8 +275,15 @@ function QuotesContent() {
 
   // Navigate to a different tab
   const handleTabChange = (value: string) => {
+    const nextTab = value as TabId;
+    setOptimisticTab(nextTab);
+
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', value);
+    // Leaving Pendientes must drop deep-link id or tab snaps back to pending
+    if (nextTab !== 'pending') {
+      params.delete('id');
+    }
 
     // Preserve existing filters when changing tabs
     if (statusFilter) {

@@ -25,11 +25,12 @@ function OrdersContent() {
   const { currentPlant } = usePlantContext();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { 
-    preferences, 
-    updatePreferences, 
-    setTemporaryState, 
-    getTemporaryState 
+  const {
+    preferences,
+    isHydrated,
+    updatePreferences,
+    setTemporaryState,
+    getTemporaryState,
   } = useOrderPreferences();
   
   // Always initialize refs and state first
@@ -47,11 +48,31 @@ function OrdersContent() {
     totalAmount: Number(searchParams.get('totalAmount')) || savedState.totalAmount || 0
   });
 
-  // Get tab from URL params, with fallback to preferences
-  const currentTab = useMemo(() => 
-    (searchParams.get('tab') || preferences.activeTab || 'list') as 'list' | 'create' | 'credit' | 'rejected' | 'calendar',
-    [searchParams, preferences.activeTab]
-  );
+  type OrderTab = 'list' | 'create' | 'credit' | 'rejected' | 'calendar';
+  const ORDER_TABS: OrderTab[] = ['list', 'create', 'credit', 'rejected', 'calendar'];
+
+  // Optimistic tab while router.push is in flight (URL lags behind clicks)
+  const [optimisticTab, setOptimisticTab] = useState<OrderTab | null>(null);
+
+  const currentTab = useMemo(() => {
+    if (optimisticTab) return optimisticTab;
+    const fromUrl = searchParams.get('tab');
+    if (fromUrl && ORDER_TABS.includes(fromUrl as OrderTab)) {
+      return fromUrl as OrderTab;
+    }
+    if (isHydrated && ORDER_TABS.includes(preferences.activeTab)) {
+      return preferences.activeTab;
+    }
+    return 'list';
+  }, [optimisticTab, searchParams, preferences.activeTab, isHydrated]);
+
+  useEffect(() => {
+    if (!optimisticTab) return;
+    const fromUrl = searchParams.get('tab');
+    if (fromUrl === optimisticTab) {
+      setOptimisticTab(null);
+    }
+  }, [searchParams, optimisticTab]);
   
   // Get filters from URL params or temporary state
   const [estadoFilter, setEstadoFilter] = useState(
@@ -82,12 +103,22 @@ function OrdersContent() {
     }
   }, [currentPlant?.id]);
 
+  // Seed URL once when landing without ?tab= (avoids tab flicker from default → localStorage)
+  useEffect(() => {
+    if (!isHydrated || searchParams.get('tab')) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', preferences.activeTab || 'list');
+    if (!params.has('estado')) params.set('estado', estadoFilter);
+    if (!params.has('credito')) params.set('credito', creditoFilter);
+    urlUpdatePending.current = true;
+    router.replace(`/orders?${params.toString()}`, { scroll: false });
+  }, [isHydrated, searchParams, preferences.activeTab, estadoFilter, creditoFilter, router]);
+
   // Save current tab to preferences when it changes
   useEffect(() => {
-    if (preferences.activeTab !== currentTab) {
-      updatePreferences({ activeTab: currentTab });
-    }
-  }, [currentTab, updatePreferences, preferences.activeTab]);
+    if (!isHydrated || preferences.activeTab === currentTab) return;
+    updatePreferences({ activeTab: currentTab });
+  }, [currentTab, updatePreferences, preferences.activeTab, isHydrated]);
 
   // Sync URL params to state when they change - only run when searchParams actually changes
   useEffect(() => {
@@ -120,10 +151,15 @@ function OrdersContent() {
       isInitialRender.current = false;
       return;
     }
-    
-    // Create new params
-    const params = new URLSearchParams();
-    params.set('tab', currentTab);
+
+    if (urlUpdatePending.current) {
+      return;
+    }
+
+    // Preserve deep-link params and tab; only sync filters (tab changes go through handleTabChange)
+    const params = new URLSearchParams(searchParams.toString());
+    const tabInUrl = params.get('tab') || currentTab;
+    params.set('tab', tabInUrl);
     params.set('estado', estadoFilter);
     params.set('credito', creditoFilter);
     
@@ -153,13 +189,14 @@ function OrdersContent() {
       });
     }
   }, [
-    currentTab, 
-    estadoFilter, 
-    creditoFilter, 
-    selectedQuoteId, 
-    selectedQuoteData, 
-    router, 
-    setTemporaryState
+    estadoFilter,
+    creditoFilter,
+    selectedQuoteId,
+    selectedQuoteData,
+    currentTab,
+    router,
+    searchParams,
+    setTemporaryState,
   ]);
   
   // Use effect to run the saveStateToURL function with debouncing
@@ -208,20 +245,16 @@ function OrdersContent() {
   );
 
   // Callbacks for child components
-  const handleTabChange = useCallback((tab: 'list' | 'create' | 'credit' | 'rejected' | 'calendar') => {
-    // First update preferences 
+  const handleTabChange = useCallback((tab: OrderTab) => {
+    setOptimisticTab(tab);
     updatePreferences({ activeTab: tab });
-    
-    // Directly update URL to change tab immediately
+
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
     params.set('estado', estadoFilter);
     params.set('credito', creditoFilter);
-    
-    // Flag that we're updating the URL ourselves to avoid loops
+
     urlUpdatePending.current = true;
-    
-    // Update URL without causing a reload
     router.push(`/orders?${params.toString()}`, { scroll: false });
   }, [updatePreferences, searchParams, estadoFilter, creditoFilter, router]);
   

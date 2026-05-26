@@ -22,6 +22,8 @@ interface OrderPreferences {
 
 interface OrderPreferencesContextType {
   preferences: OrderPreferences;
+  /** False until localStorage/sessionStorage preferences have been read */
+  isHydrated: boolean;
   updatePreferences: (newPrefs: Partial<OrderPreferences>) => void;
   resetPreferences: () => void;
   // Métodos específicos para estado temporal
@@ -49,6 +51,7 @@ const OrderPreferencesContext = createContext<OrderPreferencesContextType | unde
 
 export function OrderPreferencesProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<OrderPreferences>(defaultPreferences);
+  const [isHydrated, setIsHydrated] = useState(false);
   
   // Cargar preferencias persistentes (localStorage) al iniciar
   useEffect(() => {
@@ -88,6 +91,8 @@ export function OrderPreferencesProvider({ children }: { children: ReactNode }) 
       // Clear potentially corrupted storage
       localStorage.removeItem(STORAGE_KEYS.PERSISTENT);
       sessionStorage.removeItem(STORAGE_KEYS.TEMPORARY);
+    } finally {
+      setIsHydrated(true);
     }
   }, []);
   
@@ -261,12 +266,14 @@ export function OrderPreferencesProvider({ children }: { children: ReactNode }) 
   // Memoize the context value to prevent unnecessary re-renders
   const contextValue = React.useMemo(() => ({
     preferences,
+    isHydrated,
     updatePreferences,
     resetPreferences,
     setTemporaryState,
     getTemporaryState
   }), [
     preferences,
+    isHydrated,
     updatePreferences,
     resetPreferences,
     setTemporaryState,
