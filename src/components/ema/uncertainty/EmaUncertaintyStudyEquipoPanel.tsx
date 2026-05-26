@@ -108,12 +108,17 @@ export function EmaUncertaintyStudyEquipoPanel({
   const [operatorIds, setOperatorIds] = useState<string[]>(initial.operator_ids)
   const [instrumentoIds, setInstrumentoIds] = useState<string[]>(initial.instrumento_ids)
   // instrumento_roles: maps instrumento_id → role key.
-  // Migrate old 'dimensiones' key (pre-split) to 'seccion' for VIGAS studies.
+  // Migrate legacy pool role keys for VIGAS studies.
   const migratedRoles = useMemo(() => {
     const raw = initial.instrumento_roles ?? {}
-    if (!Object.values(raw).includes('dimensiones')) return raw
+    const needsMigrate = Object.values(raw).some((rk) => rk === 'dimensiones' || rk === 'span')
+    if (!needsMigrate) return raw
     return Object.fromEntries(
-      Object.entries(raw).map(([id, rk]) => [id, rk === 'dimensiones' ? 'seccion' : rk]),
+      Object.entries(raw).map(([id, rk]) => {
+        if (rk === 'dimensiones') return [id, 'seccion']
+        if (rk === 'span') return [id, 'bastidor']
+        return [id, rk]
+      }),
     )
   }, [initial.instrumento_roles])
   const [instrRoles, setInstrRoles] = useState<Record<string, string>>(migratedRoles)

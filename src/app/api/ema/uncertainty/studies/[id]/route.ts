@@ -77,7 +77,13 @@ export async function PATCH(
       } else if (typeof body.env_overrides === 'object' && !Array.isArray(body.env_overrides)) {
         const overrides: Record<string, number> = {};
         for (const [k, v] of Object.entries(body.env_overrides as Record<string, unknown>)) {
-          if (typeof v === 'number' && isFinite(v) && v > 0) overrides[k] = v;
+          if (typeof v !== 'number' || !isFinite(v)) continue;
+          // _scheme: 0 = four_point, 1 = third_point (must allow zero)
+          if (k === '_scheme' && (v === 0 || v === 1)) {
+            overrides[k] = v;
+          } else if (v > 0) {
+            overrides[k] = v;
+          }
         }
         fields.env_overrides = Object.keys(overrides).length > 0 ? overrides : null;
       }

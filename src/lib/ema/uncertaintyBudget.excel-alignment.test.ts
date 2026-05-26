@@ -695,12 +695,10 @@ assert.ok(nearAbs(c_L_300 / c_L_200, 1.5, 1e-3),
 console.log('  ✓ FC_CUBO sensitivity proportionality');
 
 // ===========================================================================
-// 8. VIGAS — Módulo de rotura (flexión, carga en tercios)
-//    Reference: NMX-C-191-ONNCCE-2017 / ASTM C78
-//    MR = P·L / (b·d²)
-//    Sensitivities: c_P = MR/P; c_L = MR/L; c_b = -MR/b; c_d = -2·MR/d (dominant)
+// 8. VIGAS — engine smoke (NOT Excel sheet parity; workbook has no VIGAS tab)
+//    Third-point example: MR = P·L / (b·d²) — NMX-C-191 / ASTM C78
 // ===========================================================================
-console.log('8. VIGAS — Módulo de rotura (flexión)');
+console.log('8. VIGAS — engine smoke (third-point sensitivities)');
 
 // Hand computation for a typical 15×15×50 beam, span 45 cm, P_max ≈ 2960 kgf:
 //   MR = 2960 · 45 / (15 · 15²) = 133200 / 3375 = 39.47 kg/cm²
@@ -711,7 +709,14 @@ assert.ok(nearAbs(vigasMean, 39.46, 0.05), `VIGAS mean ≈ 39.46 kg/cm², got ${
 
 // Sensitivity coefficient sanity: c_d should dominate (factor 2 vs c_b, much larger
 // than c_P since P_mean ≫ MR_mean).
-const ctx = { P_mean: 2960, L_mean: 45, b_mean: 15, d_mean: 15, MR_mean: 39.47 };
+const ctx = {
+  P_mean: 2960,
+  L_mean: 45,
+  b_mean: 15,
+  d_mean: 15,
+  MR_mean: 39.47,
+  loading_scheme: 'third_point' as const,
+};
 const c_P = sensitivityCoefficient('VIGAS', 'P', ctx);
 const c_L = sensitivityCoefficient('VIGAS', 'L', ctx);
 const c_b = sensitivityCoefficient('VIGAS', 'b', ctx);
@@ -750,9 +755,8 @@ console.log(`  u_c=${vigasBudget.u_c.toExponential(4)} kg/cm²  U=${vigasBudget.
 console.log('  ✓ VIGAS');
 
 // ===========================================================================
-// 9. Instrument role combined ci (Vernier covering L, b, d in VIGAS)
-//    Validates the quadratic combination used by buildStudyInput when one
-//    instrument covers multiple input symbols (GUM §5.1.3).
+// 9. VIGAS — engine smoke: combined ci for multi-symbol role (GUM §5.1.3)
+//    NOT Excel parity. Vernier on b,d only in production; L/a on bastidor.
 //    ci_combined = √(c_L² + c_b² + c_d²)
 //    For ctx above: c_L=0.877, c_b=-2.632, c_d=-5.263
 //    ci_combined = √(0.769 + 6.927 + 27.699) = √35.395 ≈ 5.949

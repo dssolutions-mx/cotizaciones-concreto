@@ -20,6 +20,14 @@ import {
   MEASURAND_INSTRUMENT_ROLES,
   computeReplicaMeasurand,
 } from '@/lib/ema/uncertaintyMeasurand'
+import {
+  injectVigasStudyConstants,
+  isLegacyVigasEnv,
+  parseVigasStudyConfig,
+  validateVigasStudyConfig,
+  vigasFormulaDisplay,
+  vigasFormulaNormRef,
+} from '@/lib/ema/vigasFlexureModel'
 import { operatorRoleLabel } from '@/lib/ema/uncertaintyStudyDesign'
 import type {
   MeasurandCodigo,
@@ -101,12 +109,22 @@ export function EmaUncertaintyReplicaTable({
   isLocked: boolean
 }) {
   const measurand = study.measurand!
-  // L (support span) for VIGAS is a study-level constant (env_overrides.L_span),
-  // not a per-specimen measurement — hide it from the réplica grid.
+  const vigasCfg = useMemo(
+    () =>
+      measurand.codigo === 'VIGAS'
+        ? parseVigasStudyConfig(study.env_overrides as Record<string, number> | null)
+        : null,
+    [measurand.codigo, study.env_overrides],
+  )
+  const vigasConfigIssues = useMemo(
+    () => (vigasCfg ? validateVigasStudyConfig(vigasCfg) : []),
+    [vigasCfg],
+  )
+  // L / a are study-level (bastidor) — not per replica.
   const excludedSimbolos = new Set(study.excluded_input_simbolos ?? [])
   const inputs = (measurand.inputs ?? [])
     .filter((i) => i.kind === 'measured')
-    .filter((i) => !(measurand.codigo === 'VIGAS' && i.simbolo === 'L'))
+    .filter((i) => !(measurand.codigo === 'VIGAS' && (i.simbolo === 'L' || i.simbolo === 'a')))
     .filter((i) => !excludedSimbolos.has(i.simbolo))
     .sort((a, b) => a.orden - b.orden)
 
@@ -352,6 +370,46 @@ export function EmaUncertaintyReplicaTable({
 
       <EmaUncertaintyAnovaReadinessBanner replicas={replicas} />
 
+      {measurand.codigo === 'VIGAS' && vigasCfg && (
+        <div className="space-y-2">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-950">
+            <p className="font-medium">
+              Ensayo:{' '}
+              {vigasCfg.loading_scheme === 'four_point'
+                ? 'Flexión en cuatro puntos'
+                : 'Flexión en tercios (NMX-C-191)'}
+            </p>
+            <p className="mt-1 font-mono text-xs text-emerald-900/90">
+              {vigasFormulaDisplay(vigasCfg)} · {vigasFormulaNormRef(vigasCfg)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-900/80">
+              Constantes del bastidor: L = {vigasCfg.L_span_cm} cm
+              {vigasCfg.loading_scheme === 'four_point' && (
+                <> · a = {vigasCfg.four_point_a_cm} cm</>
+              )}
+              . Solo capture <strong>P, b, d</strong> por réplica. Cambie geometría en{' '}
+              <strong>Configuración</strong>.
+            </p>
+          </div>
+          {isLegacyVigasEnv(study.env_overrides as Record<string, number> | null) && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-950">
+              Este estudio no tiene esquema de carga guardado; se asume <strong>cuatro puntos</strong>.
+              Si se ensayó en tercios, confirme el esquema en Configuración antes de publicar.
+            </div>
+          )}
+          {vigasConfigIssues.length > 0 && (
+            <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-xs text-red-900">
+              <p className="font-medium">Revise la geometría del ensayo:</p>
+              <ul className="mt-1 list-inside list-disc">
+                {vigasConfigIssues.map((msg) => (
+                  <li key={msg}>{msg}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       {!isLocked && (
         <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50/60 px-4 py-3">
           <p className="text-xs font-medium text-stone-700">Asignación masiva</p>
@@ -506,7 +564,11 @@ export function EmaUncertaintyReplicaTable({
         </div>
       )}
 
-      <EmaUncertaintyInputMeansCard inputs={measurand.inputs ?? []} replicas={replicas} />
+      <EmaUncertaintyInputMeansCard
+        inputs={measurand.inputs ?? []}
+        replicas={replicas}
+        excludeSimbolos={measurand.codigo === 'VIGAS' ? ['L', 'a'] : []}
+      />
 
       {n >= 2 && (
         <div className="flex flex-wrap gap-3 rounded-lg border border-stone-200 bg-white px-5 py-3 text-sm">
@@ -576,7 +638,9 @@ export function EmaUncertaintyReplicaTable({
                 <th className="px-3 py-2 text-left min-w-[130px]">
                   Zona de fractura
                   <span className="block font-normal normal-case text-[10px] text-stone-400">
-                    NMX-C-191 §6.5.2.2
+                    {vigasCfg?.loading_scheme === 'four_point'
+                      ? 'Entre cargas internas'
+                      : 'Tercio central §6.5.2.2'}
                   </span>
                 </th>
               )}
@@ -591,9 +655,16 @@ export function EmaUncertaintyReplicaTable({
           <tbody className="divide-y divide-stone-100">
             {Array.from({ length: study.n_replicas }, (_, i) => i + 1).map((orden) => {
               const replica = replicas.find((r) => r.orden === orden)!
-              const liveComputed =
-                replica.computed_value ??
-                computeReplicaMeasurand(measurand, replica.raw_values_json)
+              const liveComputed = (() => {
+                if (measurand.codigo === 'VIGAS' && vigasCfg) {
+                  const raw = injectVigasStudyConstants(vigasCfg, replica.raw_values_json)
+                  return computeReplicaMeasurand(measurand, raw, { vigasConfig: vigasCfg })
+                }
+                return (
+                  replica.computed_value ??
+                  computeReplicaMeasurand(measurand, replica.raw_values_json)
+                )
+              })()
 
               // Primary instrument (always stored in instrumento_id)
               const primaryInstr = replica.instrumento_id
@@ -840,8 +911,17 @@ export function EmaUncertaintyReplicaTable({
       </div>
 
       <p className="text-xs text-stone-400">
-        Modelo: <span className="font-mono">{measurand.formula_expr ?? measurand.nombre}</span>
-        {measurand.formula_descr && ` — ${measurand.formula_descr}`}
+        Modelo:{' '}
+        <span className="font-mono">
+          {measurand.codigo === 'VIGAS' && vigasCfg
+            ? vigasFormulaDisplay(vigasCfg)
+            : (measurand.formula_expr ?? measurand.nombre)}
+        </span>
+        {measurand.codigo === 'VIGAS' && vigasCfg
+          ? ` — ${vigasFormulaNormRef(vigasCfg)}`
+          : measurand.formula_descr
+            ? ` — ${measurand.formula_descr}`
+            : ''}
       </p>
 
       {!isLocked && (

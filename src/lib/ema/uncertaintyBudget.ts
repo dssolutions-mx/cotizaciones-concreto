@@ -11,6 +11,7 @@
 
 import { tStudent95 } from './studentT';
 import { anovaOneWay, type AnovaGroup } from './anovaOneWay';
+import { vigasSensitivityCoefficient } from './vigasFlexureModel';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -246,8 +247,14 @@ export function sensitivityCoefficient(
     P_mean?: number;
     /** Mean ancho b (cm) — required for VIGAS */
     b_mean?: number;
+    /** Mean alto d (cm) — required for VIGAS */
+    d_mean?: number;
     /** Mean MR (kg/cm²) — required for VIGAS */
     MR_mean?: number;
+    /** Four-point: mean distance support → load (cm) */
+    a_mean?: number;
+    /** VIGAS loading scheme (default four_point when absent in legacy studies) */
+    loading_scheme?: 'four_point' | 'third_point';
   } = {},
 ): number {
   switch (measurandCode) {
@@ -323,30 +330,16 @@ export function sensitivityCoefficient(
     }
 
     case 'VIGAS': {
-      // MR = P·L / (b·d²) — third-point loading per NMX-C-191 / ASTM C78
-      // c_P = MR/P  ;  c_L = MR/L  ;  c_b = -MR/b  ;  c_d = -2·MR/d (dominant)
-      const MR = context.MR_mean;
-      const P = context.P_mean;
-      const L = context.L_mean;
-      const b = context.b_mean;
-      const d = context.d_mean;
-      if (inputSymbol === 'P') {
-        if (!MR || !P) throw new Error('sensitivityCoefficient VIGAS P: MR_mean and P_mean required');
-        return MR / P;
-      }
-      if (inputSymbol === 'L') {
-        if (!MR || !L) throw new Error('sensitivityCoefficient VIGAS L: MR_mean and L_mean required');
-        return MR / L;
-      }
-      if (inputSymbol === 'b') {
-        if (!MR || !b) throw new Error('sensitivityCoefficient VIGAS b: MR_mean and b_mean required');
-        return -MR / b;
-      }
-      if (inputSymbol === 'd') {
-        if (!MR || !d) throw new Error('sensitivityCoefficient VIGAS d: MR_mean and d_mean required');
-        return -2 * MR / d;
-      }
-      return 1;
+      const scheme = context.loading_scheme ?? 'four_point';
+      return vigasSensitivityCoefficient(inputSymbol, {
+        P_mean: context.P_mean,
+        L_mean: context.L_mean,
+        a_mean: context.a_mean,
+        b_mean: context.b_mean,
+        d_mean: context.d_mean,
+        MR_mean: context.MR_mean,
+        loading_scheme: scheme,
+      });
     }
 
     default:

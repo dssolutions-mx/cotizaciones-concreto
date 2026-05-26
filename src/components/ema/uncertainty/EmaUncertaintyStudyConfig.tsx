@@ -13,6 +13,16 @@ import { EmaUncertaintyReplicaSetupTable } from '@/components/ema/uncertainty/Em
 import { EmaUncertaintyStudyEquipoPanel } from '@/components/ema/uncertainty/EmaUncertaintyStudyEquipoPanel'
 import { CustomInputDialog } from '@/components/ema/uncertainty/CustomInputDialog'
 import { RecommendedContributorsCard } from '@/components/ema/uncertainty/RecommendedContributorsCard'
+import {
+  isLegacyVigasEnv,
+  parseVigasStudyConfig,
+  validateVigasStudyConfig,
+  vigasConfigToEnvOverrides,
+  vigasFormulaDisplay,
+  vigasFormulaNormRef,
+  VIGAS_SCHEME_FOUR_POINT,
+  VIGAS_SCHEME_THIRD_POINT,
+} from '@/lib/ema/vigasFlexureModel'
 import type {
   UncertaintyEquipoPool,
   UncertaintyMeasurandInput,
@@ -143,6 +153,7 @@ export function EmaUncertaintyStudyConfig({
   onNotesSaved,
   onGoToLecturas,
   onEquipoPoolSaved,
+  onEnvOverridesSaved,
 }: {
   study: UncertaintyStudy
   replicas: UncertaintyStudyReplica[]
@@ -150,6 +161,7 @@ export function EmaUncertaintyStudyConfig({
   onNotesSaved: (notas: string) => void
   onGoToLecturas?: () => void
   onEquipoPoolSaved: (pool: UncertaintyEquipoPool) => void
+  onEnvOverridesSaved?: (env: Record<string, number> | null) => void
 }) {
   const measurand = study.measurand!
   const gumRefs = measurand.gum_references_json ?? []
@@ -191,6 +203,10 @@ export function EmaUncertaintyStudyConfig({
   }, [study.id])
 
   useEffect(() => { fetchCustomInputs() }, [fetchCustomInputs])
+
+  useEffect(() => {
+    setEnvOverrides((study.env_overrides as Record<string, number>) ?? {})
+  }, [study.env_overrides])
 
   async function handleDeleteCustom(id: string) {
     if (!confirm('¿Eliminar esta variable?')) return
@@ -249,6 +265,7 @@ export function EmaUncertaintyStudyConfig({
         body: JSON.stringify({ env_overrides: Object.keys(next).length > 0 ? next : null }),
       })
       if (!res.ok) throw new Error('Error guardando condiciones')
+      onEnvOverridesSaved?.(Object.keys(next).length > 0 ? next : null)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Error')
     } finally {
@@ -367,44 +384,206 @@ export function EmaUncertaintyStudyConfig({
         </section>
       )}
 
-      {/* ── VIGAS — claro del bastidor ────────────────────────────────────── */}
-      {measurand.codigo === 'VIGAS' && (
-        <section className="rounded-lg border border-stone-200 p-4">
-          <h3 className="text-sm font-semibold text-stone-800">
-            Parámetros del ensayo — Vigas
-          </h3>
-          <p className="mt-0.5 text-xs text-stone-500">
-            MR = P·L / (b·d²) — NMX-C-191 / ASTM C78.{' '}
-            <strong>L</strong> es el claro entre apoyos del bastidor, constante para todo el estudio
-            (no se mide por espécimen). Se usa en el cálculo de MR y en los coeficientes de sensibilidad GUM.
-          </p>
-          <div className="mt-3 max-w-xs">
-            <Label htmlFor="vigas-l-span" className="text-xs">
-              Claro entre apoyos <span className="font-mono text-stone-400">(L)</span>
-            </Label>
-            <div className="mt-1 flex items-center gap-1.5">
-              <Input
-                id="vigas-l-span"
-                type="number"
-                step="0.1"
-                min="1"
-                disabled={isLocked}
-                value={envOverrides['L_span'] ?? 45}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value)
-                  if (!isNaN(v) && v > 0) handleOverrideChange('L_span', v)
-                }}
-                className="h-8 w-24 text-sm"
-              />
-              <span className="text-xs text-stone-500">cm</span>
-            </div>
-            <p className="mt-1 text-[10px] text-stone-400">
-              Por defecto: 45 cm (viga 15×15×50 estándar, NMX-C-191 §6.3)
+      {/* ── VIGAS — esquema de carga y geometría del bastidor ─────────────── */}
+      {measurand.codigo === 'VIGAS' && (() => {
+        const vigasCfg = parseVigasStudyConfig(envOverrides)
+        const isFourPoint = vigasCfg.loading_scheme === 'four_point'
+
+        function patchVigasEnv(next: Record<string, number>) {
+          setEnvOverrides(next)
+          patchEnvOverrides(next)
+        }
+
+        function applyVigasField(key: string, value: number) {
+          const merged = { ...envOverrides, [key]: value }
+          if (key === 'specimen_length_cm' || key === 'bearing_length_cm') {
+            const spec = key === 'specimen_length_cm' ? value : merged.specimen_length_cm ?? vigasCfg.specimen_length_cm
+            const bear = key === 'bearing_length_cm' ? value : merged.bearing_length_cm ?? vigasCfg.bearing_length_cm
+            if (spec > 0 && bear > 0) {
+              merged.L_span = spec - 2 * bear
+              if (vigasCfg.loading_scheme === 'four_point') {
+                merged.four_point_a_cm = merged.L_span / 3
+              }
+            }
+          }
+          if (key === 'L_span' && vigasCfg.loading_scheme === 'four_point') {
+            const wasTypicalThird = Math.abs(vigasCfg.four_point_a_cm - vigasCfg.L_span_cm / 3) < 0.25
+            if (wasTypicalThird) merged.four_point_a_cm = value / 3
+          }
+          patchVigasEnv(vigasConfigToEnvOverrides(parseVigasStudyConfig(merged)))
+        }
+
+        function setLoadingScheme(scheme: 'four_point' | 'third_point') {
+          if (scheme === vigasCfg.loading_scheme) return
+          const hasReadings = replicas.some((r) => r.computed_value !== null)
+          if (
+            hasReadings &&
+            !confirm(
+              scheme === 'four_point'
+                ? '¿Cambiar a flexión en cuatro puntos? Se recalculará MR (P·a/(b·d²)) en todas las réplicas con lecturas.'
+                : '¿Cambiar a flexión en tercios? Se recalculará MR (P·L/(b·d²)) en todas las réplicas con lecturas.',
+            )
+          ) {
+            return
+          }
+          const merged = {
+            ...envOverrides,
+            _scheme: scheme === 'third_point' ? VIGAS_SCHEME_THIRD_POINT : VIGAS_SCHEME_FOUR_POINT,
+          }
+          patchVigasEnv(vigasConfigToEnvOverrides(parseVigasStudyConfig(merged)))
+        }
+
+        return (
+          <section className="rounded-lg border border-stone-200 p-4">
+            <h3 className="text-sm font-semibold text-stone-800">
+              Parámetros del ensayo — Vigas
+            </h3>
+            <p className="mt-0.5 text-xs text-stone-500">
+              <span className="font-mono">{vigasFormulaDisplay(vigasCfg)}</span>
+              {' · '}
+              {vigasFormulaNormRef(vigasCfg)}.{' '}
+              {isFourPoint ? (
+                <>
+                  <strong>a</strong> (brazo de carga) y <strong>L</strong> (claro) son constantes del bastidor;
+                  <strong> P, b, d</strong> por réplica.
+                </>
+              ) : (
+                <>
+                  <strong>L</strong> (claro) es constante del bastidor;
+                  <strong> P, b, d</strong> por réplica.
+                </>
+              )}
             </p>
-          </div>
-          {overrideSaving && <p className="mt-2 text-[10px] text-stone-400">Guardando…</p>}
-        </section>
-      )}
+            {isLegacyVigasEnv(envOverrides) && (
+              <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                Estudio anterior sin esquema guardado: al guardar se fijará{' '}
+                <strong>cuatro puntos</strong> salvo que elija tercios.
+              </p>
+            )}
+            {validateVigasStudyConfig(vigasCfg).map((msg) => (
+              <p key={msg} className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-900">
+                {msg}
+              </p>
+            ))}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={isFourPoint ? 'default' : 'outline'}
+                disabled={isLocked}
+                onClick={() => setLoadingScheme('four_point')}
+              >
+                Cuatro puntos (predeterminado)
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!isFourPoint ? 'default' : 'outline'}
+                disabled={isLocked}
+                onClick={() => setLoadingScheme('third_point')}
+              >
+                Tercios (NMX-C-191)
+              </Button>
+            </div>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label htmlFor="vigas-spec-len" className="text-xs">Longitud del espécimen</Label>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <Input
+                    id="vigas-spec-len"
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    disabled={isLocked}
+                    value={vigasCfg.specimen_length_cm}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      if (!isNaN(v) && v > 0) applyVigasField('specimen_length_cm', v)
+                    }}
+                    className="h-8 w-24 text-sm"
+                  />
+                  <span className="text-xs text-stone-500">cm</span>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="vigas-bearing" className="text-xs">Longitud de apoyo (por lado)</Label>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <Input
+                    id="vigas-bearing"
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    disabled={isLocked}
+                    value={vigasCfg.bearing_length_cm}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      if (!isNaN(v) && v > 0) applyVigasField('bearing_length_cm', v)
+                    }}
+                    className="h-8 w-24 text-sm"
+                  />
+                  <span className="text-xs text-stone-500">cm</span>
+                </div>
+              </div>
+              <div>
+                <Label htmlFor="vigas-l-span" className="text-xs">
+                  Claro entre apoyos <span className="font-mono text-stone-400">(L)</span>
+                  {!isFourPoint && (
+                    <span className="ml-1 text-stone-400">— entra en MR</span>
+                  )}
+                </Label>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <Input
+                    id="vigas-l-span"
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    disabled={isLocked}
+                    value={vigasCfg.L_span_cm}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      if (!isNaN(v) && v > 0) applyVigasField('L_span', v)
+                    }}
+                    className="h-8 w-24 text-sm"
+                  />
+                  <span className="text-xs text-stone-500">cm</span>
+                </div>
+                <p className="mt-1 text-[10px] text-stone-400">
+                  Calculado: longitud − 2×apoyo = {vigasCfg.specimen_length_cm - 2 * vigasCfg.bearing_length_cm} cm
+                </p>
+              </div>
+              {isFourPoint && (
+                <div>
+                  <Label htmlFor="vigas-a-span" className="text-xs">
+                    Brazo de carga <span className="font-mono text-stone-400">(a)</span>
+                  </Label>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <Input
+                      id="vigas-a-span"
+                      type="number"
+                      step="0.1"
+                      min="1"
+                      disabled={isLocked}
+                      value={vigasCfg.four_point_a_cm}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value)
+                        if (!isNaN(v) && v > 0) applyVigasField('four_point_a_cm', v)
+                      }}
+                      className="h-8 w-24 text-sm"
+                    />
+                    <span className="text-xs text-stone-500">cm</span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-stone-400">
+                    Distancia apoyo → carga más cercana (típico L/3)
+                  </p>
+                </div>
+              )}
+            </div>
+            {overrideSaving && <p className="mt-2 text-[10px] text-stone-400">Guardando…</p>}
+          </section>
+        )
+      })()}
 
       {/* ── Masa Unitaria — parámetros del equipo ─────────────────────────── */}
       {measurand.codigo === 'MU' && (

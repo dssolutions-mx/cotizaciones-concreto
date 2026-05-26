@@ -4,7 +4,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { convertLengthUnit, convertUnit, isLengthUnit } from './units';
+import { convertForceUnit, convertLengthUnit, convertUnit, isForceUnit, isLengthUnit } from './units';
 
 console.log('units — convertLengthUnit / convertUnit');
 
@@ -49,5 +49,13 @@ assert.ok(len && Math.abs(len.value - 0.0579072) < 1e-9 && len.converted === tru
 
 const unknown = convertUnit(1, 'mm', 'g');
 assert.equal(unknown, null, 'unsupported pair returns null');
+
+// Force: kN → kgf (lab context: kg ≈ kgf)
+assert.ok(isForceUnit('kN'));
+assert.ok(isForceUnit('kg'));
+const knToKgf = convertForceUnit(1, 'kN', 'kgf');
+assert.ok(knToKgf !== null && Math.abs(knToKgf - 101.9716213) < 1e-4, '1 kN ≈ 101.97 kgf');
+const knToKg = convertUnit(2, 'kN', 'kg');
+assert.ok(knToKg && knToKg.converted && Math.abs(knToKg.value - 203.9432426) < 1e-3);
 
 console.log('  ✓ all units tests passed');

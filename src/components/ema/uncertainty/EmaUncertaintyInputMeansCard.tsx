@@ -11,13 +11,17 @@ import type { UncertaintyMeasurandInput, UncertaintyStudyReplica } from '@/types
 export function EmaUncertaintyInputMeansCard({
   inputs,
   replicas,
+  excludeSimbolos = [],
 }: {
   inputs: UncertaintyMeasurandInput[]
   replicas: UncertaintyStudyReplica[]
+  /** Study-level constants (e.g. VIGAS L, a) — omit from per-replica means. */
+  excludeSimbolos?: string[]
 }) {
+  const exclude = useMemo(() => new Set(excludeSimbolos), [excludeSimbolos])
   const measuredInputs = useMemo(
-    () => inputs.filter((i) => i.kind === 'measured'),
-    [inputs],
+    () => inputs.filter((i) => i.kind === 'measured' && !exclude.has(i.simbolo)),
+    [inputs, exclude],
   )
 
   const validReplicas = useMemo(

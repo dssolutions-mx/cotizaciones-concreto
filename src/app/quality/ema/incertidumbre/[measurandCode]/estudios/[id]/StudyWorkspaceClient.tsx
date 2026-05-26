@@ -21,6 +21,10 @@ import {
   buildReplicaRows,
   computeReplicaMeasurand,
 } from '@/lib/ema/uncertaintyMeasurand'
+import {
+  injectVigasStudyConstants,
+  parseVigasStudyConfig,
+} from '@/lib/ema/vigasFlexureModel'
 import { parseEquipoPool, validateUncertaintyInstrumentSelection } from '@/lib/ema/uncertaintyStudyDesign'
 import type {
   UncertaintyStudy,
@@ -86,12 +90,14 @@ export function StudyWorkspaceClient({
   const unit = measurand.unidad
   const isLocked = study.estado !== 'borrador'
 
+  const studyRowCtx = {
+    id: study.id,
+    n_replicas: study.n_replicas,
+    env_overrides: (study.env_overrides as Record<string, number> | null) ?? null,
+  }
+
   const [replicas, setReplicas] = useState(() =>
-    buildReplicaRows(
-      { id: study.id, n_replicas: study.n_replicas },
-      study.replicas ?? [],
-      measurand,
-    ),
+    buildReplicaRows(studyRowCtx, study.replicas ?? [], measurand),
   )
   const [replicasPendingSave, setReplicasPendingSave] = useState(false)
   const [savingReplicas, setSavingReplicas] = useState(false)
@@ -137,11 +143,10 @@ export function StudyWorkspaceClient({
         }
       }
 
-      // For VIGAS, inject the study-level span L into every replica's raw_values_json
-      // so the formula evaluator can compute MR = P·L/(b·d²) without L in the grid.
-      const L_span = measurand.codigo === 'VIGAS'
-        ? ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45)
-        : null
+      const vigasCfg =
+        measurand.codigo === 'VIGAS'
+          ? parseVigasStudyConfig(study.env_overrides as Record<string, number> | null)
+          : null
 
       // For MU, inject V_recip from env_overrides so the formula (m_total−m_tara)*1000/V_recip
       // can be evaluated.  V_recip is a study constant (container volume), not entered per-replica.
@@ -151,10 +156,10 @@ export function StudyWorkspaceClient({
 
       const payload = replicas.map((r) => {
         let raw = r.raw_values_json
-        if (L_span !== null) raw = { ...raw, L: L_span }
+        if (vigasCfg) raw = injectVigasStudyConstants(vigasCfg, raw)
         if (V_recip_mu !== null) raw = { ...raw, V_recip: V_recip_mu }
-        const computed = (L_span !== null || V_recip_mu !== null)
-          ? computeReplicaMeasurand(measurand, raw)
+        const computed = (vigasCfg || V_recip_mu !== null)
+          ? computeReplicaMeasurand(measurand, raw, vigasCfg ? { vigasConfig: vigasCfg } : undefined)
           : r.computed_value
         return {
           orden: r.orden,
@@ -175,7 +180,7 @@ export function StudyWorkspaceClient({
       }
       const saved = await parseEmaApiData<UncertaintyStudyReplica[]>(res)
       setReplicas(
-        buildReplicaRows({ id: study.id, n_replicas: study.n_replicas }, saved, measurand),
+        buildReplicaRows(studyRowCtx, saved, measurand),
       )
       setReplicasPendingSave(false)
       void refreshPreflight()
@@ -188,7 +193,7 @@ export function StudyWorkspaceClient({
     } finally {
       setSavingReplicas(false)
     }
-  }, [replicas, study.id, study.n_replicas, measurand, router, refreshPreflight])
+  }, [replicas, studyRowCtx, study.env_overrides, measurand, router, refreshPreflight])
 
   function handleReplicaChange(
     orden: number,
@@ -200,7 +205,7 @@ export function StudyWorkspaceClient({
     },
   ) {
     setReplicas((prev) => {
-      const base = buildReplicaRows({ id: study.id, n_replicas: study.n_replicas }, prev, measurand)
+      const base = buildReplicaRows(studyRowCtx, prev, measurand)
       return base.map((r) => {
         if (r.orden !== orden) return r
         let next: typeof r
@@ -238,15 +243,13 @@ export function StudyWorkspaceClient({
           else raw[field] = Number(value)
           next = { ...r, raw_values_json: raw }
         }
-        // Inject study-level constants so live formula computation stays correct:
-        //   VIGAS → L_span (claro del bastidor)
-        //   MU    → V_recip (volumen del recipiente)
         let rawForCompute = next.raw_values_json
-        if (measurand.codigo === 'VIGAS') {
-          rawForCompute = {
-            ...rawForCompute,
-            L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45),
-          }
+        const vigasCfgLive =
+          measurand.codigo === 'VIGAS'
+            ? parseVigasStudyConfig(study.env_overrides as Record<string, number> | null)
+            : null
+        if (vigasCfgLive) {
+          rawForCompute = injectVigasStudyConstants(vigasCfgLive, rawForCompute)
         }
         if (measurand.codigo === 'MU') {
           rawForCompute = {
@@ -256,7 +259,11 @@ export function StudyWorkspaceClient({
         }
         return {
           ...next,
-          computed_value: computeReplicaMeasurand(measurand, rawForCompute),
+          computed_value: computeReplicaMeasurand(
+            measurand,
+            rawForCompute,
+            vigasCfgLive ? { vigasConfig: vigasCfgLive } : undefined,
+          ),
         }
       })
     })
@@ -397,6 +404,30 @@ export function StudyWorkspaceClient({
                   setEquipoPool(pool)
                   setStudy((s) => ({ ...s, equipo_pool_json: pool }))
                 }}
+                onEnvOverridesSaved={(env) => {
+                  setStudy((s) => ({ ...s, env_overrides: env }))
+                  if (measurand.codigo !== 'VIGAS') return
+                  const cfg = parseVigasStudyConfig(env)
+                  setReplicas((prev) => {
+                    const ctx = {
+                      id: study.id,
+                      n_replicas: study.n_replicas,
+                      env_overrides: env,
+                    }
+                    const base = buildReplicaRows(ctx, prev, measurand)
+                    return base.map((r) => {
+                      const raw = injectVigasStudyConstants(cfg, r.raw_values_json)
+                      return {
+                        ...r,
+                        raw_values_json: raw,
+                        computed_value: computeReplicaMeasurand(measurand, raw, {
+                          vigasConfig: cfg,
+                        }),
+                      }
+                    })
+                  })
+                  setReplicasPendingSave(true)
+                }}
               />
             </TabsContent>
 
@@ -418,11 +449,7 @@ export function StudyWorkspaceClient({
                   onReplicaChange={handleReplicaChange}
                   onBulkAssign={(patch, helpers) => {
                     setReplicas((prev) => {
-                      const base = buildReplicaRows(
-                        { id: study.id, n_replicas: study.n_replicas },
-                        prev,
-                        measurand,
-                      )
+                      const base = buildReplicaRows(studyRowCtx, prev, measurand)
                       return base.map((r, idx) => {
                         let next = { ...r }
                         if (patch.sameOperatorId) {
@@ -460,15 +487,26 @@ export function StudyWorkspaceClient({
                           next = { ...next, raw_values_json: raw }
                         }
                         let rawForComputeBulk = next.raw_values_json
-                        if (measurand.codigo === 'VIGAS') {
-                          rawForComputeBulk = { ...rawForComputeBulk, L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45) }
+                        const vigasCfgBulk =
+                          measurand.codigo === 'VIGAS'
+                            ? parseVigasStudyConfig(study.env_overrides as Record<string, number> | null)
+                            : null
+                        if (vigasCfgBulk) {
+                          rawForComputeBulk = injectVigasStudyConstants(vigasCfgBulk, rawForComputeBulk)
                         }
                         if (measurand.codigo === 'MU') {
-                          rawForComputeBulk = { ...rawForComputeBulk, V_recip: ((study.env_overrides as Record<string, number> | null)?.V_recipiente ?? 7.06) }
+                          rawForComputeBulk = {
+                            ...rawForComputeBulk,
+                            V_recip: ((study.env_overrides as Record<string, number> | null)?.V_recipiente ?? 7.06),
+                          }
                         }
                         return {
                           ...next,
-                          computed_value: computeReplicaMeasurand(measurand, rawForComputeBulk),
+                          computed_value: computeReplicaMeasurand(
+                            measurand,
+                            rawForComputeBulk,
+                            vigasCfgBulk ? { vigasConfig: vigasCfgBulk } : undefined,
+                          ),
                         }
                       })
                     })

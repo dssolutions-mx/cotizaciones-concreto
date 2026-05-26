@@ -22,6 +22,14 @@ import {
   stdDevSample,
 } from '@/lib/ema/uncertaintyBudget';
 import { convertUnit, isForceUnit } from '@/lib/ema/units';
+import {
+  buildVigasSensitivityContext,
+  defaultVigasEnvOverrides,
+  isLegacyVigasEnv,
+  parseVigasStudyConfig,
+  validateVigasStudyConfig,
+  type VigasStudyConfig,
+} from '@/lib/ema/vigasFlexureModel';
 import type {
   ExtraTypeAInput,
   UncertaintyMeasurand,
@@ -294,15 +302,24 @@ export async function createStudy(
   input: CreateStudyInput,
 ): Promise<UncertaintyStudy> {
   const supabase = await createClient();
+  const { data: measurandRow } = await supabase
+    .from('ema_uncertainty_measurands')
+    .select('codigo')
+    .eq('id', input.measurand_id)
+    .maybeSingle();
+  const insertRow: Record<string, unknown> = {
+    measurand_id: input.measurand_id,
+    plant_id: input.plant_id ?? null,
+    fecha_estudio: input.fecha_estudio,
+    notas: input.notas ?? null,
+    estado: 'borrador',
+  };
+  if (measurandRow?.codigo === 'VIGAS') {
+    insertRow.env_overrides = defaultVigasEnvOverrides();
+  }
   const { data, error } = await supabase
     .from('ema_uncertainty_studies')
-    .insert({
-      measurand_id: input.measurand_id,
-      plant_id: input.plant_id ?? null,
-      fecha_estudio: input.fecha_estudio,
-      notas: input.notas ?? null,
-      estado: 'borrador',
-    })
+    .insert(insertRow)
     .select()
     .single();
   if (error) throw error;
@@ -668,12 +685,17 @@ async function resolveInstrumentCalibration(
   });
   if (validCal) {
     const cert = validCal.numero_certificado ?? null;
+    const unidad = await enrichCalibrationUnit(
+      instrumento_id,
+      studyDate,
+      validCal.unidad ?? null,
+    );
     return {
       type: 'ok',
       u_expandida: validCal.u_expandida as number,
       k_factor: validCal.k_factor ?? 2,
       numero_certificado: cert,
-      unidad: validCal.unidad ?? null,
+      unidad,
       source: cert?.startsWith('VER-INT-') ? 'internal_verification' : 'external_cert',
     };
   }
@@ -691,16 +713,17 @@ async function resolveInstrumentCalibration(
     .maybeSingle();
 
   if (legacyCert?.incertidumbre_expandida) {
+    const unidad = await enrichCalibrationUnit(
+      instrumento_id,
+      studyDate,
+      legacyCert.incertidumbre_unidad ?? null,
+    );
     return {
       type: 'ok',
       u_expandida: legacyCert.incertidumbre_expandida,
       k_factor: legacyCert.factor_cobertura ?? 2,
       numero_certificado: legacyCert.numero_certificado ?? null,
-      // incertidumbre_unidad carries the unit of U (e.g. 'kN', 'kg', 'mm').
-      // When present, the caller converts U to the role's target unit (e.g. kN→kg).
-      // When null (older certs entered before the unit field was used), conversion
-      // is skipped and a warning is surfaced so the user can update the cert record.
-      unidad: legacyCert.incertidumbre_unidad ?? null,
+      unidad,
       source: 'external_cert',
     };
   }
@@ -747,6 +770,37 @@ async function resolveInstrumentCalibration(
   return null;
 }
 
+/** Fill missing calibration unit from instrument row, conjunto, or vigente cert. */
+async function enrichCalibrationUnit(
+  instrumento_id: string,
+  _studyDate: string,
+  unidad: string | null,
+): Promise<string | null> {
+  if (unidad?.trim()) return unidad.trim();
+  const supabase = await createClient();
+  const { data: inst } = await supabase
+    .from('instrumentos')
+    .select('incertidumbre_unidad, conjuntos_herramientas(unidad_medicion)')
+    .eq('id', instrumento_id)
+    .maybeSingle();
+  if (inst?.incertidumbre_unidad?.trim()) return inst.incertidumbre_unidad.trim();
+  const conj = inst?.conjuntos_herramientas as { unidad_medicion?: string | null } | null;
+  if (conj?.unidad_medicion?.trim()) return conj.unidad_medicion.trim();
+  const { data: legacy } = await supabase
+    .from('certificados_calibracion')
+    .select('incertidumbre_unidad')
+    .eq('instrumento_id', instrumento_id)
+    .eq('is_vigente', true)
+    .order('fecha_emision', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return legacy?.incertidumbre_unidad?.trim() ?? null;
+}
+
+function vigasBastidorRoleSymbols(cfg: VigasStudyConfig): string[] {
+  return cfg.loading_scheme === 'four_point' ? ['a'] : ['L'];
+}
+
 /** Build the StudyInput for the engine from DB data */
 async function buildStudyInput(study: UncertaintyStudy): Promise<{
   input: StudyInput;
@@ -767,16 +821,29 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   // VIGAS: check for fracture-zone violations (NMX-C-191 §6.5.2.2 / ASTM C78 §9).
   // Fracture outside the middle third by > 5% makes the third-point formula invalid.
   if (measurand.codigo === 'VIGAS') {
+    const vigasCfgWarn = parseVigasStudyConfig(study.env_overrides);
+    if (isLegacyVigasEnv(study.env_overrides)) {
+      warnings.push(
+        '⚠ Estudio VIGAS sin esquema de carga guardado (_scheme). Se asume flexión en cuatro puntos. ' +
+        'Confirme en Configuración → Parámetros del ensayo si el estudio usó tercios (NMX-C-191).',
+      );
+    }
+    for (const msg of validateVigasStudyConfig(vigasCfgWarn)) {
+      warnings.push(`⚠ VIGAS — ${msg}`);
+    }
     const allReplicas = study.replicas ?? [];
     const invalidFracture = allReplicas.filter(
       (r) => (r.raw_values_json as Record<string, unknown>)['_fracture_zone'] === 'fuera_mas_5',
     );
     if (invalidFracture.length > 0) {
+      const formulaHint =
+        vigasCfgWarn.loading_scheme === 'four_point'
+          ? 'MR = P·a/(b·d²) no es válido si la fractura queda fuera de la zona entre cargas.'
+          : 'MR = P·L/(b·d²) no es válido (NMX-C-191 §6.5.2.2 / ASTM C78 §9).';
       warnings.push(
-        `⚠ ${invalidFracture.length} réplica(s) con fractura fuera del tercio central (>5%) — ` +
-        `réplica(s) ${invalidFracture.map((r) => r.orden).join(', ')}. ` +
-        `La fórmula MR = P·L/(b·d²) no es válida para estos especímenes (NMX-C-191 §6.5.2.2 / ASTM C78 §9). ` +
-        `Considere excluir estas réplicas del estudio antes de publicar.`,
+        `⚠ ${invalidFracture.length} réplica(s) con fractura fuera de zona válida (>5%) — ` +
+        `réplica(s) ${invalidFracture.map((r) => r.orden).join(', ')}. ${formulaHint} ` +
+        `Considere excluir estas réplicas antes de publicar.`,
       );
     }
   }
@@ -881,33 +948,24 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     // directly from V_recipiente.  Legacy env_overrides.factor_correccion values are ignored.
   }
 
-  if (measurand.codigo === 'VIGAS') {
-    const Ps = replicas.map((r) => Number(r.raw_values_json['P'] ?? 0)).filter((v) => v > 0);
-    // L (support span) is a study-level constant stored in env_overrides.L_span.
-    // Fall back to per-replica L values for backward compat with drafts created before this change.
-    const L_span_override = (study.env_overrides as Record<string, number> | null)?.L_span;
-    const Ls = L_span_override && L_span_override > 0
-      ? [L_span_override]
-      : replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
-    const bs = replicas.map((r) => Number(r.raw_values_json['b'] ?? 0)).filter((v) => v > 0);
-    const ds = replicas.map((r) => Number(r.raw_values_json['d'] ?? 0)).filter((v) => v > 0);
-    if (Ps.length > 0 && Ls.length > 0 && bs.length > 0 && ds.length > 0) {
-      const P_mean = Ps.reduce((s, v) => s + v, 0) / Ps.length;
-      const L_mean = Ls.reduce((s, v) => s + v, 0) / Ls.length;
-      const b_mean = bs.reduce((s, v) => s + v, 0) / bs.length;
-      const d_mean = ds.reduce((s, v) => s + v, 0) / ds.length;
-      const MR_mean = (P_mean * L_mean) / (b_mean * d_mean * d_mean);
-      if (b_mean > 0 && d_mean > 0) {
-        sensitivityContext.P_mean = P_mean;
-        sensitivityContext.L_mean = L_mean;
-        sensitivityContext.b_mean = b_mean;
-        sensitivityContext.d_mean = d_mean;
-        sensitivityContext.MR_mean = MR_mean;
-      } else {
-        warnings.push('VIGAS: b o d promedio = 0; los coeficientes de sensibilidad se omiten (ci=1).');
-      }
+  const vigasCfg =
+    measurand.codigo === 'VIGAS' ? parseVigasStudyConfig(study.env_overrides) : null;
+
+  if (measurand.codigo === 'VIGAS' && vigasCfg) {
+    const vCtx = buildVigasSensitivityContext(vigasCfg, replicas);
+    if (vCtx.MR_mean && vCtx.P_mean && vCtx.b_mean && vCtx.d_mean) {
+      sensitivityContext.P_mean = vCtx.P_mean;
+      sensitivityContext.L_mean = vCtx.L_mean;
+      sensitivityContext.a_mean = vCtx.a_mean;
+      sensitivityContext.b_mean = vCtx.b_mean;
+      sensitivityContext.d_mean = vCtx.d_mean;
+      sensitivityContext.MR_mean = vCtx.MR_mean;
+      sensitivityContext.loading_scheme = vCtx.loading_scheme;
     } else {
-      warnings.push('VIGAS: faltan datos de P/b/d en las réplicas o L_span no configurado; los coeficientes de sensibilidad se omiten (ci=1).');
+      warnings.push(
+        'VIGAS: faltan datos de P/b/d en las réplicas o parámetros de ensayo incompletos; ' +
+        'los coeficientes de sensibilidad se omiten (ci=1).',
+      );
     }
   }
 
@@ -975,6 +1033,16 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
    * Combined ci = √(Σ cᵢ²) — quadratic combination for uncorrelated measurements with
    * the same u (instrument used N times for N independent dimensions, GUM §5.1.3).
    */
+  function resolveRoleSymbols(role: { key: string; symbols: string[] } | null): string[] | null {
+    if (!role) return null;
+    if (measurand.codigo === 'VIGAS' && vigasCfg) {
+      if (role.key === 'bastidor' || role.key === 'span') {
+        return vigasBastidorRoleSymbols(vigasCfg);
+      }
+    }
+    return role.symbols;
+  }
+
   function computeRoleCiOverride(symbols: string[]): number | undefined {
     if (symbols.length <= 1) return undefined;
     const cis: number[] = [];
@@ -1023,10 +1091,12 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       ci_override = undefined;
     }
 
+    const calUnidad = getTargetUnitForRole(roleSymbols) || measurand.unidad;
+
     return {
       fuente: `Calibración — ${instrNombre}`,
       magnitud_xi,
-      unidad: measurand.unidad,
+      unidad: calUnidad,
       valor_xi: 0, // correction assumed applied; U_cert is residual (GUM §4.3.4)
       kind: 'calibration',
       U_cert: U_used,
@@ -1109,16 +1179,13 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         return false;
       }
     } else if (!calUnit && isForceUnit(targetUnit)) {
-      // Unit is missing from the cert record AND the role expects a force unit.
-      // Conversion cannot be performed — this is a real risk: a Prensa cert in kN
-      // used without conversion would underestimate U by a factor of ~102.
-      // Emit a warning but still include the row so the budget is not silently empty.
       warnings.push(
         `⚠ Instrumento ${instrNombre}: el certificado no tiene unidad registrada (campo "incertidumbre_unidad" vacío). ` +
-        `La unidad esperada para este rol es "${targetUnit}". Si el certificado está en kN y se usa sin convertir, ` +
-        `la incertidumbre del presupuesto será ~102× demasiado pequeña. ` +
-        `Edite el certificado y especifique la unidad (kN, kg o kgf) para que la conversión sea automática.`,
+        `La unidad esperada para este rol es "${targetUnit}". ` +
+        `Se omite la contribución de calibración para evitar un error de ~102× si el certificado está en kN. ` +
+        `Edite el certificado y especifique la unidad (kN, kg o kgf).`,
       );
+      return false;
     }
 
     const provenance = calData.source === 'internal_verification'
@@ -1177,7 +1244,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     // Look up role for this instrument (pool role map may assign a specific role)
     const roleKey = instrRoles[r.instrumento_id];
     const role = roleKey && rolesDef ? rolesDef.find((ro) => ro.key === roleKey) : null;
-    const roleSymbols = role ? role.symbols : (rolesDef ? null : null);
+    const roleSymbols = role ? resolveRoleSymbols(role) : (rolesDef ? null : null);
 
     // For multi-input measurands without role assignment, warn once
     if (rolesDef && !role) {
@@ -1249,7 +1316,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       seenInstrumentos.add(instrId);
       const instr = poolInstrById.get(instrId);
       const instrNombre = instr ? `${instr.codigo} — ${instr.nombre}` : instrId;
-      const added = await processInstrumentCalibration(instrId, instrNombre, role.symbols);
+      const added = await processInstrumentCalibration(instrId, instrNombre, resolveRoleSymbols(role));
       if (added) instrumensWithCal.add(instrId);
     }
   }

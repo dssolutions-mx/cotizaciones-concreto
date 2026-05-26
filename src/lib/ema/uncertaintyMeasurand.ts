@@ -3,6 +3,13 @@
  */
 
 import { evaluateFormula, parseFormula } from '@/lib/ema/formula';
+import {
+  computeVigasMR,
+  injectVigasStudyConstants,
+  parseVigasStudyConfig,
+  vigasReplicaInputsComplete,
+  type VigasStudyConfig,
+} from '@/lib/ema/vigasFlexureModel';
 import type { MeasurandCodigo, UncertaintyMeasurand, UncertaintyStudyReplica } from '@/types/ema-uncertainty';
 
 /**
@@ -89,24 +96,21 @@ export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, Measura
   VIGAS: [
     {
       key: 'carga',
-      label: 'Prensa — Carga máxima (P)',
+      label: 'Prensa / módulo de flexión — Carga máxima (P)',
       categories: ['Equipos de compresión y ensayos mecánicos'],
       symbols: ['P'],
     },
     {
-      // L (span) is typically measured with a flexómetro (≈45 cm range).
-      // Kept as a role so calibration U from the flexómetro is included in the budget,
-      // even though L is now a study-level constant (not re-entered per specimen).
-      key: 'span',
-      label: 'Flexómetro — Claro (L)',
-      categories: ['Flexometro'],
-      symbols: ['L'],
+      // Bastidor: claro L (third-point) or montaje a (four-point) — study constant, not per replica.
+      key: 'bastidor',
+      label: 'Bastidor — Geometría de flexión (L / a)',
+      categories: ['Equipos de compresión y ensayos mecánicos'],
+      symbols: ['L', 'a'],
     },
     {
-      // b and d are section dimensions measured with a vernier (≈15 cm range, 0.02 mm res).
       key: 'seccion',
-      label: 'Vernier — Sección (b, d)',
-      categories: ['Vernier'],
+      label: 'Vernier / flexómetro — Sección (b, d)',
+      categories: ['Vernier', 'Flexometro'],
       symbols: ['b', 'd'],
     },
   ],
@@ -193,11 +197,28 @@ function hasRequiredMeasuredInputs(
 export function computeReplicaMeasurand(
   measurand: Pick<UncertaintyMeasurand, 'codigo' | 'formula_expr' | 'inputs'>,
   raw_values_json: Record<string, number | string>,
+  options?: { vigasConfig?: VigasStudyConfig },
 ): number | null {
   // Strip non-numeric entries (secondary instrument UUID strings stored under _instr_* keys)
   const numericRaw: Record<string, number> = Object.fromEntries(
     Object.entries(raw_values_json).filter(([, v]) => typeof v === 'number'),
   ) as Record<string, number>;
+
+  if (measurand.codigo === 'VIGAS') {
+    const cfg = options?.vigasConfig ?? parseVigasStudyConfig(null);
+    const withConstants = injectVigasStudyConstants(cfg, raw_values_json);
+    if (!vigasReplicaInputsComplete(withConstants)) {
+      return null;
+    }
+    const numericWithConst: Record<string, number> = Object.fromEntries(
+      Object.entries(withConstants).filter(([, v]) => typeof v === 'number'),
+    ) as Record<string, number>;
+    return computeVigasMR(cfg, {
+      P: numericWithConst.P,
+      b: numericWithConst.b,
+      d: numericWithConst.d,
+    });
+  }
 
   if (!hasRequiredMeasuredInputs(measurand as UncertaintyMeasurand, numericRaw)) {
     return null;
@@ -245,10 +266,12 @@ export type ReplicaRowSource = Pick<
  * Merge DB replicas with empty placeholder rows up to study.n_replicas.
  */
 export function buildReplicaRows(
-  study: { id: string; n_replicas: number },
+  study: { id: string; n_replicas: number; env_overrides?: Record<string, number> | null },
   existing: ReplicaRowSource[] = [],
   measurand?: Pick<UncertaintyMeasurand, 'codigo' | 'formula_expr' | 'inputs'> | null,
 ): UncertaintyStudyReplica[] {
+  const vigasConfig =
+    measurand?.codigo === 'VIGAS' ? parseVigasStudyConfig(study.env_overrides) : undefined;
   const byOrden = new Map(existing.map((r) => [r.orden, r]));
   const rows: UncertaintyStudyReplica[] = [];
 
@@ -257,7 +280,7 @@ export function buildReplicaRows(
     const raw = prev?.raw_values_json ?? {};
     const computed =
       prev?.computed_value ??
-      (measurand ? computeReplicaMeasurand(measurand, raw) : null);
+      (measurand ? computeReplicaMeasurand(measurand, raw, { vigasConfig }) : null);
 
     rows.push({
       id: prev?.id ?? '',
