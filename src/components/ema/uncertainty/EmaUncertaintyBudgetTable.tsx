@@ -11,6 +11,14 @@ interface EmaUncertaintyBudgetTableProps {
   unit: string
   studyDate?: string
   className?: string
+  /**
+   * Override the "Media x̄" header label.
+   * Useful when the table is used in a verification context where `mean_value`
+   * represents the mean instrument error (systematic bias) rather than the
+   * measurand mean of a study.
+   * Defaults to "Media x̄".
+   */
+  meanLabel?: string
 }
 
 /**
@@ -23,6 +31,7 @@ export function EmaUncertaintyBudgetTable({
   budget,
   unit,
   className,
+  meanLabel = 'Media x̄',
 }: EmaUncertaintyBudgetTableProps) {
   const { components, mean_value, u_c, nu_eff, k, U, U_rel_pct } = budget
 
@@ -37,7 +46,7 @@ export function EmaUncertaintyBudgetTable({
       {/* Header info row */}
       <div className="flex flex-wrap gap-4 rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 text-sm">
         <div>
-          <span className="text-stone-500">Media x̄ =&nbsp;</span>
+          <span className="text-stone-500">{meanLabel} =&nbsp;</span>
           <span className="font-semibold text-stone-800">
             {mean_value?.toFixed(4)} {unit}
           </span>

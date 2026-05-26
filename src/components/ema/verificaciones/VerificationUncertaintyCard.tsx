@@ -1,15 +1,22 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Calculator, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronRight, Info } from 'lucide-react'
+import { Calculator, CheckCircle2, AlertCircle, Loader2, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { UncertaintyComponent } from '@/types/ema-uncertainty'
+import { tStudent95 } from '@/lib/ema/studentT'
+import { EmaUncertaintyBudgetTable } from '@/components/ema/uncertainty/EmaUncertaintyBudgetTable'
+import type { BudgetResult, UncertaintyComponent } from '@/types/ema-uncertainty'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface VerificationMetrologia {
   gum_rollup_status: string | null
   gum_rollup_attempted_at: string | null
   gum_rollup_skipped_reason: string | null
-  presupuesto_json: UncertaintyComponent[] | { tolerance_band_ref?: number; maestro_ids?: string[] } | null
+  presupuesto_json:
+    | UncertaintyComponent[]
+    | { tolerance_band_ref?: number; maestro_ids?: string[] }
+    | null
   tur_min_observado: number | null
 }
 
@@ -33,11 +40,58 @@ interface RecomputeResponse {
   error?: string
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 /**
- * Card shown on the verification detail page. Surfaces the GUM uncertainty
- * rollup status, the resulting U (if computed), and a manual "Recalcular"
- * button gated by role on the server side. Refreshes its own state after a
- * successful recompute.
+ * Reconstruct a full `BudgetResult` from stored `UncertaintyComponent[]` and
+ * the calibration summary row. All math is client-side (pure GUM formulas):
+ *   u_c  = √(Σ uᵢ²(y))                          GUM §5.1.2
+ *   νeff = u_c⁴ / Σ(uᵢ²(y)² / νᵢ)               GUM Annex G.4
+ *   k    = t₉₅.₄₅%(νeff)                         GUM §6.3
+ *   U    = k · u_c                                GUM §6.2
+ */
+function rebuildBudgetResult(
+  components: UncertaintyComponent[],
+  u_expandida: number | null,
+  k_factor: number | null,
+): BudgetResult {
+  const u_c = Math.sqrt(components.reduce((s, c) => s + c.ui2_y, 0))
+
+  // Welch–Satterthwaite
+  const denom = components.reduce((s, c) => {
+    if (!isFinite(c.nu) || c.nu === 0) return s
+    return s + c.ui2_y ** 2 / c.nu
+  }, 0)
+  const nu_eff = denom > 0 ? u_c ** 4 / denom : Infinity
+
+  const k = k_factor ?? tStudent95(nu_eff)
+  const U = u_expandida ?? u_c * k
+
+  // mean_value: the Type A repeatability valor_xi is the mean instrument error —
+  // the closest analogue to the study's "media x̄" for a verification budget.
+  const typeAComp = components.find((c) => c.tipo === 'A')
+  const mean_value = typeAComp?.valor_xi ?? 0
+
+  return {
+    components,
+    mean_value,
+    u_c,
+    nu_eff,
+    k,
+    U,
+    U_rel_pct: null,
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+/**
+ * Card shown on the verification detail page.
+ *
+ * Surfaces the GUM uncertainty rollup status, the "Recalcular" button, and —
+ * when the rollup is `ok` — the full CENAM-style presupuesto de incertidumbre
+ * rendered via `EmaUncertaintyBudgetTable`, the same component used in study
+ * workspaces, so the layout is visually identical across both flows.
  */
 export function VerificationUncertaintyCard({
   verificationId,
@@ -51,7 +105,6 @@ export function VerificationUncertaintyCard({
   const [loading, setLoading] = useState(true)
   const [recomputing, setRecomputing] = useState(false)
   const [recomputeError, setRecomputeError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(false)
 
   const fetchState = useCallback(async () => {
     try {
@@ -75,7 +128,9 @@ export function VerificationUncertaintyCard({
     }
   }, [verificationId, instrumentoId])
 
-  useEffect(() => { fetchState() }, [fetchState])
+  useEffect(() => {
+    fetchState()
+  }, [fetchState])
 
   async function handleRecompute() {
     setRecomputing(true)
@@ -88,7 +143,7 @@ export function VerificationUncertaintyCard({
       const body = (await res.json()) as RecomputeResponse
       if (!res.ok) {
         setRecomputeError(body.error ?? 'Error al recalcular')
-        await fetchState() // pick up persisted failure status
+        await fetchState()
         return
       }
       if (body.status === 'skipped') {
@@ -105,7 +160,8 @@ export function VerificationUncertaintyCard({
   if (loading) {
     return (
       <div className="rounded-lg border border-stone-200 bg-white p-4 animate-pulse">
-        <div className="h-4 w-32 bg-stone-200 rounded" />
+        <div className="h-4 w-48 bg-stone-200 rounded" />
+        <div className="mt-3 h-32 bg-stone-100 rounded" />
       </div>
     )
   }
@@ -114,159 +170,151 @@ export function VerificationUncertaintyCard({
   const isOk = status === 'ok'
   const isSkipped = status?.startsWith('skipped:') ?? false
   const isFailed = status?.startsWith('failed:') ?? false
-  const isPending = !status
 
-  const components = Array.isArray(metrologia?.presupuesto_json)
+  // Reconstruct BudgetResult from stored components when rollup is ok
+  const rawComponents = Array.isArray(metrologia?.presupuesto_json)
     ? (metrologia!.presupuesto_json as UncertaintyComponent[])
     : []
-  const hasComponents = components.length > 0
+  const budget: BudgetResult | null =
+    isOk && rawComponents.length > 0
+      ? rebuildBudgetResult(
+          rawComponents,
+          instrumentoCal?.u_expandida ?? null,
+          instrumentoCal?.k_factor ?? null,
+        )
+      : null
+
+  const unit = instrumentoCal?.unidad ?? ''
 
   return (
     <div className="rounded-lg border border-stone-200 bg-white">
+      {/* ── Header ── */}
       <div className="px-4 py-3 flex items-center justify-between gap-3 border-b border-stone-100">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <Calculator className="h-4 w-4 text-stone-500 shrink-0" />
-          <h3 className="text-sm font-semibold text-stone-700">Presupuesto de incertidumbre (GUM)</h3>
+          <h3 className="text-sm font-semibold text-stone-700">
+            Presupuesto de incertidumbre (GUM)
+          </h3>
           <StatusPill status={status} />
+          {isOk && instrumentoCal?.u_expandida != null && (
+            <span className="text-sm font-mono font-semibold text-stone-800 ml-1">
+              U = {instrumentoCal.u_expandida} {unit}
+              <span className="ml-2 text-xs font-normal text-stone-400">
+                k = {instrumentoCal.k_factor ?? 2}
+              </span>
+            </span>
+          )}
+          {metrologia?.tur_min_observado != null && (
+            <span className="text-xs text-stone-400 ml-auto">
+              TUR mín = {metrologia.tur_min_observado.toFixed(1)}
+            </span>
+          )}
         </div>
         <button
           type="button"
           onClick={handleRecompute}
           disabled={recomputing}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+            'inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
             recomputing
               ? 'border-stone-200 text-stone-400'
               : 'border-stone-300 text-stone-700 hover:bg-stone-50',
           )}
         >
-          {recomputing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Calculator className="h-3 w-3" />}
+          {recomputing ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Calculator className="h-3 w-3" />
+          )}
           {recomputing ? 'Recalculando…' : 'Recalcular incertidumbre'}
         </button>
       </div>
 
-      <div className="px-4 py-3 space-y-2">
-        {/* Summary line */}
-        {isOk && instrumentoCal?.u_expandida != null ? (
-          <div className="flex items-baseline gap-3 text-sm">
-            <span className="text-stone-500">U =</span>
-            <span className="font-mono text-base font-semibold text-stone-900">
-              {instrumentoCal.u_expandida} {instrumentoCal.unidad ?? ''}
-            </span>
-            <span className="text-xs text-stone-400">
-              k = {instrumentoCal.k_factor ?? 2}
-            </span>
-            {instrumentoCal.numero_certificado && (
-              <span className="text-xs text-stone-400">· cert {instrumentoCal.numero_certificado}</span>
-            )}
-            {metrologia?.tur_min_observado != null && (
-              <span className="ml-auto text-xs text-stone-400">
-                TUR mín = {metrologia.tur_min_observado.toFixed(1)}
-              </span>
-            )}
-          </div>
-        ) : isSkipped ? (
-          <div className="flex items-start gap-2 text-xs text-amber-700">
+      {/* ── Body ── */}
+      <div className="p-4 space-y-3">
+        {/* Error / skipped / pending states */}
+        {isSkipped && (
+          <div className="flex items-start gap-2 text-xs text-amber-700 rounded-md bg-amber-50 px-3 py-2">
             <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
-              <span className="font-semibold">Saltado.</span> {metrologia?.gum_rollup_skipped_reason ?? status?.slice('skipped: '.length)}
+              <span className="font-semibold">Saltado. </span>
+              {metrologia?.gum_rollup_skipped_reason ?? status?.slice('skipped:'.length)}
             </span>
           </div>
-        ) : isFailed ? (
-          <div className="flex items-start gap-2 text-xs text-red-700">
+        )}
+        {isFailed && (
+          <div className="flex items-start gap-2 text-xs text-red-700 rounded-md bg-red-50 px-3 py-2">
             <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
-              <span className="font-semibold">Error en el cálculo.</span> {status?.slice('failed: '.length)}
+              <span className="font-semibold">Error en el cálculo. </span>
+              {status?.slice('failed:'.length)}
             </span>
           </div>
-        ) : isPending ? (
-          <div className="text-xs text-stone-500">
-            Aún no se ha calculado el presupuesto GUM para esta verificación. Pulsa <em>Recalcular</em>.
+        )}
+        {!status && (
+          <div className="text-xs text-stone-500 rounded-md bg-stone-50 px-3 py-2">
+            Aún no se ha calculado el presupuesto GUM para esta verificación.
+            Pulsa <em>Recalcular incertidumbre</em> para generarlo.
           </div>
-        ) : null}
-
+        )}
         {recomputeError && (
           <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
             {recomputeError}
           </div>
         )}
 
-        {/* Components expander */}
-        {hasComponents && (
-          <div className="pt-1">
-            <button
-              type="button"
-              className="flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-800"
-              onClick={() => setExpanded((v) => !v)}
-            >
-              {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              Ver presupuesto ({components.length} contribuyentes)
-            </button>
-            {expanded && (
-              <div className="mt-2 overflow-hidden rounded-md border border-stone-200">
-                <table className="w-full text-xs">
-                  <thead className="bg-stone-50 text-[10px] uppercase tracking-wide text-stone-500">
-                    <tr>
-                      <th className="px-2 py-1.5 text-left">Fuente</th>
-                      <th className="px-2 py-1.5 text-center">Tipo</th>
-                      <th className="px-2 py-1.5 text-center">Distribución</th>
-                      <th className="px-2 py-1.5 text-right">u(xᵢ)</th>
-                      <th className="px-2 py-1.5 text-right">uᵢ²(y)</th>
-                      <th className="px-2 py-1.5 text-left">Ref.</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {components.map((c, i) => (
-                      <tr key={i} className="hover:bg-stone-50/50">
-                        <td className="px-2 py-1.5 text-stone-700">{c.fuente}</td>
-                        <td className="px-2 py-1.5 text-center">
-                          <span className={cn(
-                            'rounded px-1 py-0.5 text-[10px] font-semibold',
-                            c.tipo === 'A' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700',
-                          )}>{c.tipo}</span>
-                        </td>
-                        <td className="px-2 py-1.5 text-center text-stone-500">{c.distribucion}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-stone-700">{c.u_xi?.toExponential(3)}</td>
-                        <td className="px-2 py-1.5 text-right font-mono text-stone-500">{c.ui2_y?.toExponential(3)}</td>
-                        <td className="px-2 py-1.5 text-stone-400 text-[10px]">{c.ref_norma}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        {/* ── Full CENAM-style budget table (same as study workspace) ── */}
+        {budget && (
+          <EmaUncertaintyBudgetTable
+            budget={budget}
+            unit={unit}
+            meanLabel="Error medio ē"
+            className="mt-1"
+          />
+        )}
+
+        {/* Cert reference footer */}
+        {isOk && instrumentoCal?.numero_certificado && (
+          <p className="text-[10px] text-stone-400">
+            Certificado / verificación: <span className="font-mono">{instrumentoCal.numero_certificado}</span>
+            {instrumentoCal.fecha_emision && (
+              <> · emitido {new Date(instrumentoCal.fecha_emision + 'T00:00:00').toLocaleDateString('es-MX')}</>
             )}
-          </div>
+          </p>
         )}
       </div>
     </div>
   )
 }
 
+// ─── Status pill ──────────────────────────────────────────────────────────────
+
 function StatusPill({ status }: { status: string | null }) {
   if (!status) {
     return (
-      <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-500">
-        🟡 sin calcular
+      <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+        sin calcular
       </span>
     )
   }
   if (status === 'ok') {
     return (
-      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 inline-flex items-center gap-1">
-        <CheckCircle2 className="h-2.5 w-2.5" /> ok
+      <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 inline-flex items-center gap-1">
+        <CheckCircle2 className="h-2.5 w-2.5" />
+        ok
       </span>
     )
   }
   if (status.startsWith('skipped:')) {
     return (
-      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-        🟡 saltado
+      <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+        saltado
       </span>
     )
   }
   return (
-    <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-      🔴 error
+    <span className="rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+      error
     </span>
   )
 }
