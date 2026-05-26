@@ -119,6 +119,21 @@ export type StudyEstado = 'borrador' | 'publicado' | 'reemplazado';
 export interface UncertaintyEquipoPool {
   operator_ids: string[];
   instrumento_ids: string[];
+  /**
+   * Optional role assignment per instrument, keyed by instrumento_id.
+   * Values are `MeasurandInstrumentRole.key` strings from MEASURAND_INSTRUMENT_ROLES.
+   *
+   * Multi-input measurands (FC, FC_CUBO, VIGAS) require two physical instrument types
+   * (e.g. Prensa for load, Vernier for dimensions). Without role assignment the engine
+   * cannot apply the correct GUM sensitivity coefficient to each instrument's calibration U.
+   *
+   * Single-input measurands (TEMP, REV, AIRE) leave this field absent — all pool
+   * instruments implicitly cover the single measured symbol with c_i = 1.
+   *
+   * Example (VIGAS):
+   *   { "uuid-prensa": "carga", "uuid-vernier": "dimensiones" }
+   */
+  instrumento_roles?: Record<string, string>;
 }
 
 export interface UncertaintyStudy {

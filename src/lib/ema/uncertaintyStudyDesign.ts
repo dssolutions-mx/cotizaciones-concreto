@@ -70,6 +70,12 @@ export function listUniqueOperatorIds(replicas: UncertaintyStudyReplica[]): stri
 export interface UncertaintyEquipoPool {
   operator_ids: string[];
   instrumento_ids: string[];
+  /**
+   * Optional role assignment per instrument (instrumento_id → role key).
+   * Values are MeasurandInstrumentRole.key from MEASURAND_INSTRUMENT_ROLES.
+   * Used by buildStudyInput to apply correct GUM sensitivity coefficients per instrument.
+   */
+  instrumento_roles?: Record<string, string>;
 }
 
 export function parseEquipoPool(raw: unknown): UncertaintyEquipoPool {
@@ -84,6 +90,13 @@ export function parseEquipoPool(raw: unknown): UncertaintyEquipoPool {
     instrumento_ids: Array.isArray(o.instrumento_ids)
       ? o.instrumento_ids.filter((id): id is string => typeof id === 'string')
       : [],
+    instrumento_roles:
+      o.instrumento_roles && typeof o.instrumento_roles === 'object' && !Array.isArray(o.instrumento_roles)
+        ? Object.fromEntries(
+            Object.entries(o.instrumento_roles as Record<string, unknown>)
+              .filter(([, v]) => typeof v === 'string') as [string, string][],
+          )
+        : undefined,
   };
 }
 

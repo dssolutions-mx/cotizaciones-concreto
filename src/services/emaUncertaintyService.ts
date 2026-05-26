@@ -8,11 +8,12 @@
 import { createServiceClient as createClient } from '@/lib/supabase/server';
 import {
   buildBudget,
+  sensitivityCoefficient,
   type StudyInput,
   type TypeBInput,
 } from '@/lib/ema/uncertaintyBudget';
 import { anovaOneWay, type AnovaGroup } from '@/lib/ema/anovaOneWay';
-import { computeReplicaMeasurand } from '@/lib/ema/uncertaintyMeasurand';
+import { computeReplicaMeasurand, MEASURAND_INSTRUMENT_ROLES } from '@/lib/ema/uncertaintyMeasurand';
 import { assessAnovaReadiness, parseEquipoPool } from '@/lib/ema/uncertaintyStudyDesign';
 import { getInstrumentosCardsByIds, validateInstrumentos } from '@/services/emaInstrumentoService';
 import type { InstrumentoSeleccionado } from '@/types/ema';
@@ -713,7 +714,231 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
-  // Type B inputs: per unique instrument referenced in replicas OR in the equipo pool.
+  // ── SENSITIVITY CONTEXT ─────────────────────────────────────────────────────
+  // Build before calibration loops so we can compute ci_override for multi-symbol
+  // instrument roles (e.g. Vernier covering L, b, d in VIGAS with combined ci).
+  // Only depends on replicas + study settings — safe to compute here.
+  const sensitivityContext: StudyInput['sensitivityContext'] = {};
+
+  if (measurand.codigo === 'FC') {
+    const cargas = replicas
+      .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
+      .filter((v) => v > 0);
+    const dproms = replicas
+      .map((r) => Number(r.raw_values_json['dprom'] ?? r.raw_values_json['d1'] ?? r.raw_values_json['d'] ?? 0))
+      .filter((v) => v > 0);
+    if (cargas.length > 0 && dproms.length > 0) {
+      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
+      const d_mean = dproms.reduce((s, v) => s + v, 0) / dproms.length;
+      const area_mean = (Math.PI * d_mean ** 2) / 4;
+      if (area_mean > 0) {
+        sensitivityContext.carga_mean = carga_mean;
+        sensitivityContext.d_mean = d_mean;
+        sensitivityContext.area_mean = area_mean;
+      } else {
+        warnings.push('FC: diámetro promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
+      }
+    } else {
+      warnings.push('FC: sin datos de carga o diámetro en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
+    }
+  }
+
+  if (measurand.codigo === 'FC_CUBO') {
+    const cargas = replicas
+      .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
+      .filter((v) => v > 0);
+    const L1s = replicas.map((r) => Number(r.raw_values_json['L1'] ?? 0)).filter((v) => v > 0);
+    const L2s = replicas.map((r) => Number(r.raw_values_json['L2'] ?? 0)).filter((v) => v > 0);
+    if (cargas.length > 0 && L1s.length > 0 && L2s.length > 0) {
+      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
+      const L1_mean = L1s.reduce((s, v) => s + v, 0) / L1s.length;
+      const L2_mean = L2s.reduce((s, v) => s + v, 0) / L2s.length;
+      const L_mean = (L1_mean + L2_mean) / 2;
+      const area_mean = L1_mean * L2_mean;
+      const fc_mean = carga_mean / area_mean;
+      if (area_mean > 0) {
+        sensitivityContext.carga_mean = carga_mean;
+        sensitivityContext.L_mean = L_mean;
+        sensitivityContext.fc_mean = fc_mean;
+        sensitivityContext.area_mean = area_mean;
+      } else {
+        warnings.push('FC_CUBO: lados promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
+      }
+    } else {
+      warnings.push('FC_CUBO: sin datos de carga o lados en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
+    }
+  }
+
+  if (measurand.codigo === 'MU') {
+    const mu_mean = replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
+    const muOvr = study.env_overrides ?? {};
+    sensitivityContext.mu_mean = mu_mean;
+    sensitivityContext.V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
+    sensitivityContext.factor_correccion = (muOvr['factor_correccion'] as number | undefined) ?? 1;
+  }
+
+  if (measurand.codigo === 'VIGAS') {
+    const Ps = replicas.map((r) => Number(r.raw_values_json['P'] ?? 0)).filter((v) => v > 0);
+    const Ls = replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
+    const bs = replicas.map((r) => Number(r.raw_values_json['b'] ?? 0)).filter((v) => v > 0);
+    const ds = replicas.map((r) => Number(r.raw_values_json['d'] ?? 0)).filter((v) => v > 0);
+    if (Ps.length > 0 && Ls.length > 0 && bs.length > 0 && ds.length > 0) {
+      const P_mean = Ps.reduce((s, v) => s + v, 0) / Ps.length;
+      const L_mean = Ls.reduce((s, v) => s + v, 0) / Ls.length;
+      const b_mean = bs.reduce((s, v) => s + v, 0) / bs.length;
+      const d_mean = ds.reduce((s, v) => s + v, 0) / ds.length;
+      const MR_mean = (P_mean * L_mean) / (b_mean * d_mean * d_mean);
+      if (b_mean > 0 && d_mean > 0) {
+        sensitivityContext.P_mean = P_mean;
+        sensitivityContext.L_mean = L_mean;
+        sensitivityContext.b_mean = b_mean;
+        sensitivityContext.d_mean = d_mean;
+        sensitivityContext.MR_mean = MR_mean;
+      } else {
+        warnings.push('VIGAS: b o d promedio = 0; los coeficientes de sensibilidad se omiten (ci=1).');
+      }
+    } else {
+      warnings.push('VIGAS: faltan datos de P/L/b/d en las réplicas; los coeficientes de sensibilidad se omiten (ci=1).');
+    }
+  }
+
+  // ── INSTRUMENT ROLE HELPERS ───────────────────────────────────────────────
+  // For multi-input measurands (FC, FC_CUBO, VIGAS) different instruments cover
+  // different input symbols and thus have different sensitivity coefficients.
+  // instrumento_roles in equipo_pool_json maps instrumento_id → role key.
+  // MEASURAND_INSTRUMENT_ROLES maps (measurand, role) → symbols.
+  //
+  // Single-symbol roles (Prensa → 'P'):  magnitud_xi = primary symbol; engine computes ci.
+  // Multi-symbol roles (Vernier → L,b,d): combined ci = √(Σ ci²) via ci_override (GUM §5.1.3).
+  // No role assigned: fall back to magnitud_xi = measurand.nombre → ci = 1 (correct for
+  //   single-input measurands like REV/TEMP/AIRE; warned for multi-input measurands).
+  const poolData = parseEquipoPool(study.equipo_pool_json);
+  const instrRoles: Record<string, string> = poolData.instrumento_roles ?? {};
+  const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null;
+
+  /**
+   * Compute the combined GUM sensitivity coefficient for an instrument that covers
+   * multiple independent input symbols (e.g. Vernier measures L, b, d independently).
+   * Returns undefined when:
+   *   • single symbol (engine computes ci from magnitud_xi — no override needed)
+   *   • context is missing (engine falls back to ci=1)
+   *
+   * Combined ci = √(Σ cᵢ²) — quadratic combination for uncorrelated measurements with
+   * the same u (instrument used N times for N independent dimensions, GUM §5.1.3).
+   */
+  function computeRoleCiOverride(symbols: string[]): number | undefined {
+    if (symbols.length <= 1) return undefined;
+    const cis: number[] = [];
+    for (const sym of symbols) {
+      try {
+        const c = sensitivityCoefficient(measurand.codigo as MeasurandCodigo, sym, sensitivityContext);
+        cis.push(c);
+      } catch {
+        return undefined; // sensitivityContext not ready or symbol not handled
+      }
+    }
+    if (cis.every((c) => Math.abs(c - 1) < 1e-10)) return undefined; // all 1 → default OK
+    return Math.sqrt(cis.reduce((s, c) => s + c * c, 0));
+  }
+
+  /**
+   * Build a calibration TypeBInput with the correct sensitivity linkage.
+   * `roleSymbols` = the input symbols this instrument covers (from its role definition).
+   * When null/empty: falls back to measurand.nome (ci = 1).
+   */
+  function buildCalibrationRow(
+    instrNombre: string,
+    U_used: number,
+    k_factor: number,
+    cert_numero: string | null | undefined,
+    provenance: string,
+    roleSymbols: string[] | null,
+  ): TypeBInput {
+    const hasRole = roleSymbols && roleSymbols.length > 0;
+    let magnitud_xi: string;
+    let ci_override: number | undefined;
+
+    if (hasRole) {
+      if (roleSymbols.length === 1) {
+        // Single-symbol role → set magnitud_xi so engine picks up the right ci
+        magnitud_xi = roleSymbols[0];
+        ci_override = undefined;
+      } else {
+        // Multi-symbol role → combined ci; use joined symbol list for display
+        magnitud_xi = roleSymbols.join(', ');
+        ci_override = computeRoleCiOverride(roleSymbols);
+      }
+    } else {
+      // No role: c_i = 1 (correct for single-input measurands; warned separately for multi)
+      magnitud_xi = measurand.nombre;
+      ci_override = undefined;
+    }
+
+    return {
+      fuente: `Calibración — ${instrNombre}`,
+      magnitud_xi,
+      unidad: measurand.unidad,
+      valor_xi: 0, // correction assumed applied; U_cert is residual (GUM §4.3.4)
+      kind: 'calibration',
+      U_cert: U_used,
+      k_cert: k_factor,
+      cert_numero: cert_numero ?? undefined,
+      ci_override,
+      norma_ref_override: 'GUM §4.3.4',
+      descripcion: provenance,
+      categoria: 'calibration',
+    };
+  }
+
+  /**
+   * Resolve calibration for one instrument, apply unit conversion, and push a calibration
+   * Type B row into `typeBInputs` with the correct role-based sensitivity coefficient.
+   * Returns true when a calibration row was added.
+   */
+  async function processInstrumentCalibration(
+    instrId: string,
+    instrNombre: string,
+    roleSymbols: string[] | null,
+  ): Promise<boolean> {
+    const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
+    if (!calData || calData.u_expandida <= 0) {
+      // Only warn if this instrument actually should have a calibration (has a role or is
+      // the primary instrument of a single-input measurand).
+      if (roleSymbols !== null || !rolesDef) {
+        warnings.push(
+          `Instrumento ${instrNombre} no tiene certificado vigente ni verificación con U declarada. Se omite contribución Type B de calibración — el presupuesto no es trazable.`,
+        );
+      }
+      return false;
+    }
+
+    let U_used = calData.u_expandida;
+    let conversionNote = '';
+    const calUnit = calData.unidad ?? measurand.unidad;
+    if (calUnit && calUnit !== measurand.unidad) {
+      const conv = convertUnit(U_used, calUnit, measurand.unidad);
+      if (conv) {
+        U_used = conv.value;
+        if (conv.converted) conversionNote = ` (convertido ${calUnit}→${measurand.unidad})`;
+      } else {
+        warnings.push(
+          `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${measurand.unidad}". Se omite la contribución de calibración para evitar error de unidades.`,
+        );
+        return false;
+      }
+    }
+
+    const provenance = calData.source === 'internal_verification'
+      ? `Verificación interna · cert ${calData.numero_certificado ?? '—'}${conversionNote}`
+      : `Certificado externo${calData.numero_certificado ? ` ${calData.numero_certificado}` : ''}${conversionNote}`;
+
+    typeBInputs.push(buildCalibrationRow(
+      instrNombre, U_used, calData.k_factor, calData.numero_certificado, provenance, roleSymbols,
+    ));
+    return true;
+  }
+
+  // ── TYPE B INPUTS: INSTRUMENT CALIBRATIONS ────────────────────────────────
   // We resolve calibrations for all pool instruments so the "instrumensWithCal" set is
   // consistent with the RecommendedContributorsCard (which reads the pool).  Replicas
   // may reference a subset of pool instruments; using only replicas would leave the
@@ -727,7 +952,7 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 
   // Seed seenInstrumentos from the pool so we also check pool-only instruments
   // (instruments selected but not yet assigned to any individual replica).
-  const poolIds: string[] = (study.equipo_pool_json as { instrumento_ids?: string[] } | null)?.instrumento_ids ?? [];
+  const poolIds: string[] = poolData.instrumento_ids;
   for (const poolId of poolIds) {
     if (!seenInstrumentos.has(poolId)) {
       seenInstrumentos.add(poolId);
@@ -737,61 +962,56 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     }
   }
 
-  // Reset seenInstrumentos so the replica loop below can still push calibration Type B
-  // rows for each instrument that appears in replicas (as before).
+  // Reset seenInstrumentos so the loops below can push calibration rows for each instrument.
   seenInstrumentos.clear();
 
+  // Loop 1: instruments assigned to individual replicas (track per-replica instrument usage).
   for (const r of replicas) {
     if (!r.instrumento_id || seenInstrumentos.has(r.instrumento_id)) continue;
     seenInstrumentos.add(r.instrumento_id);
 
-    const calData = await resolveInstrumentCalibration(r.instrumento_id, study.fecha_estudio);
     const instrNombre = r.instrumento?.nombre ?? r.instrumento_id;
+    // Look up role for this instrument (pool role map may assign a specific role)
+    const roleKey = instrRoles[r.instrumento_id];
+    const role = roleKey && rolesDef ? rolesDef.find((ro) => ro.key === roleKey) : null;
+    const roleSymbols = role ? role.symbols : (rolesDef ? null : null);
 
-    if (calData && calData.u_expandida > 0) {
-      // Unit conversion: cal cert may be in a different unit than the study measurand.
-      // (e.g. flexómetro verified in mm, REV study in cm → divide by 10.)
-      let U_used = calData.u_expandida;
-      let conversionNote = '';
-      const calUnit = calData.unidad ?? measurand.unidad;
-      if (calUnit && calUnit !== measurand.unidad) {
-        const conv = convertUnit(U_used, calUnit, measurand.unidad);
-        if (conv) {
-          U_used = conv.value;
-          if (conv.converted) conversionNote = ` (convertido ${calUnit}→${measurand.unidad})`;
-        } else {
-          warnings.push(
-            `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${measurand.unidad}". Se omite la contribución de calibración para evitar error de unidades.`,
-          );
-          continue;
-        }
-      }
-
-      // Provenance descripcion: surfaced as a chip in the budget table
-      const provenance = calData.source === 'internal_verification'
-        ? `Verificación interna · cert ${calData.numero_certificado ?? '—'}${conversionNote}`
-        : `Certificado externo${calData.numero_certificado ? ` ${calData.numero_certificado}` : ''}${conversionNote}`;
-
-      typeBInputs.push({
-        fuente: `Calibración — ${instrNombre}`,
-        magnitud_xi: measurand.nombre,
-        unidad: measurand.unidad,
-        // valor_xi = 0: the calibration correction is assumed applied; U_cert is the
-        // residual uncertainty around zero correction (GUM §4.3.4).
-        valor_xi: 0,
-        kind: 'calibration',
-        U_cert: U_used,
-        k_cert: calData.k_factor,
-        cert_numero: calData.numero_certificado ?? undefined,
-        norma_ref_override: 'GUM §4.3.4',
-        descripcion: provenance,
-        categoria: 'calibration',
-      });
-      instrumensWithCal.add(r.instrumento_id);
-    } else {
+    // For multi-input measurands without role assignment, warn once
+    if (rolesDef && !role) {
       warnings.push(
-        `Instrumento ${instrNombre} no tiene certificado vigente ni verificación con U declarada. Se omite contribución Type B de calibración — el presupuesto no es trazable.`,
+        `Instrumento ${instrNombre} en las réplicas no tiene rol asignado. Asigne un rol en Configuración → Equipo del estudio para que su calibración use el coeficiente de sensibilidad correcto (actualmente ci=1).`,
       );
+    }
+
+    const added = await processInstrumentCalibration(r.instrumento_id, instrNombre, roleSymbols);
+    if (added) instrumensWithCal.add(r.instrumento_id);
+  }
+
+  // Loop 2: pool instruments with role assignments NOT already seen in replicas.
+  // This handles the secondary instrument (e.g., the Vernier that measures dimensions
+  // but is never assigned to individual replicas because the Prensa is the primary one).
+  const unassignedRoleIds = Object.keys(instrRoles).filter(
+    (id) => !seenInstrumentos.has(id) && rolesDef?.some((ro) => ro.key === instrRoles[id]),
+  );
+  if (unassignedRoleIds.length > 0) {
+    // Fetch instrument names for pool instruments not in any replica (no join available).
+    const supabase = await createClient();
+    const { data: poolInstrData } = await supabase
+      .from('instrumentos')
+      .select('id, codigo, nombre')
+      .in('id', unassignedRoleIds);
+    const poolInstrByid = new Map((poolInstrData ?? []).map((i) => [i.id, i]));
+
+    for (const instrId of unassignedRoleIds) {
+      const roleKey = instrRoles[instrId];
+      const role = rolesDef?.find((ro) => ro.key === roleKey);
+      if (!role) continue;
+
+      seenInstrumentos.add(instrId);
+      const instr = poolInstrByid.get(instrId);
+      const instrNombre = instr ? `${instr.codigo} — ${instr.nombre}` : instrId;
+      const added = await processInstrumentCalibration(instrId, instrNombre, role.symbols);
+      if (added) instrumensWithCal.add(instrId);
     }
   }
 
@@ -867,128 +1087,43 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     });
   }
 
-  // Sensitivity context (use means of replicas + raw_values_json averages for FC / FC_CUBO)
-  const sensitivityContext: StudyInput['sensitivityContext'] = {};
-  if (measurand.codigo === 'FC') {
-    const cargas = replicas
-      .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
-      .filter((v) => v > 0);
-    const dproms = replicas
-      .map((r) => Number(r.raw_values_json['dprom'] ?? r.raw_values_json['d1'] ?? r.raw_values_json['d'] ?? 0))
-      .filter((v) => v > 0);
-    if (cargas.length > 0 && dproms.length > 0) {
-      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
-      const d_mean = dproms.reduce((s, v) => s + v, 0) / dproms.length;
-      const area_mean = (Math.PI * d_mean ** 2) / 4;
-      if (area_mean > 0) {
-        sensitivityContext.carga_mean = carga_mean;
-        sensitivityContext.d_mean = d_mean;
-        sensitivityContext.area_mean = area_mean;
-      } else {
-        warnings.push('FC: diámetro promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
-      }
-    } else {
-      warnings.push('FC: sin datos de carga o diámetro en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
-    }
-  }
-
+  // FC_CUBO: L_meas_err — auto-resolve halfWidth from dimensional instrument calibration.
+  // The general calibration row (Vernier with role 'lado') already captures the U correctly.
+  // L_meas_err is only needed when no role-based calibration row is present (legacy path).
   if (measurand.codigo === 'FC_CUBO') {
-    const cargas = replicas
-      .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
-      .filter((v) => v > 0);
-    const L1s = replicas.map((r) => Number(r.raw_values_json['L1'] ?? 0)).filter((v) => v > 0);
-    const L2s = replicas.map((r) => Number(r.raw_values_json['L2'] ?? 0)).filter((v) => v > 0);
-
-    if (cargas.length > 0 && L1s.length > 0 && L2s.length > 0) {
-      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
-      const L1_mean = L1s.reduce((s, v) => s + v, 0) / L1s.length;
-      const L2_mean = L2s.reduce((s, v) => s + v, 0) / L2s.length;
-      const L_mean = (L1_mean + L2_mean) / 2;
-      const area_mean = L1_mean * L2_mean;
-      const fc_mean = carga_mean / area_mean;
-
-      if (area_mean > 0) {
-        sensitivityContext.carga_mean = carga_mean;
-        sensitivityContext.L_mean = L_mean;
-        sensitivityContext.fc_mean = fc_mean;
-        sensitivityContext.area_mean = area_mean;
-      } else {
-        warnings.push('FC_CUBO: lados promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
-      }
-    } else {
-      warnings.push('FC_CUBO: sin datos de carga o lados en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
-    }
-
-    // L_meas_err: override halfWidth with Uim of the instrument used to measure L
-    // The instrument's u_cal is already handled as a calibration Type B above.
-    // For L_meas_err specifically, we look for whether any seeded L_meas_err has halfWidth=null
-    // and if so, resolve from the instrument's Uim (stored in incertidumbre_expandida).
     const lMeasErrIdx = typeBInputs.findIndex((tb) => tb.magnitud_xi === 'L_meas_err');
     if (lMeasErrIdx !== -1) {
-      // The default_semiamplitud for L_meas_err is null (auto from instrument).
-      // Resolve from the first flex/vernier instrument used across replicas.
-      const instrId = replicas.find((r) => r.instrumento_id)?.instrumento_id ?? null;
-      if (instrId) {
-        const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
-        if (calData && calData.u_expandida > 0) {
-          // u = U_cert/k_cert (GUM §4.3.4); use it as halfWidth in rectangular sense = U_cert/k * √3
-          // but it's already a standard uncertainty. Pass as 'calibration' kind instead.
-          typeBInputs[lMeasErrIdx] = {
-            ...typeBInputs[lMeasErrIdx],
-            kind: 'calibration',
-            U_cert: calData.u_expandida,
-            k_cert: calData.k_factor,
-            cert_numero: calData.numero_certificado ?? undefined,
-            norma_ref_override: 'GUM §4.3.4; NMX-CH-002-IMNC-2008',
-          };
-        } else {
-          // No certificate found — remove the L_meas_err contributor to avoid NaN
-          typeBInputs.splice(lMeasErrIdx, 1);
-          warnings.push('FC_CUBO: sin certificado para el instrumento de medición del lado; se omite U_L del presupuesto.');
-        }
-      } else {
+      // Only auto-resolve if no Vernier/dimensional calibration row already added
+      const hasDimCalibration = typeBInputs.some(
+        (tb) => tb.categoria === 'calibration' && (tb.magnitud_xi === 'L1' || tb.magnitud_xi === 'L2' || tb.magnitud_xi === 'L1, L2'),
+      );
+      if (hasDimCalibration) {
+        // The dimensional instrument calibration is already in the budget — remove L_meas_err
+        // to avoid double-counting (the Vernier role row subsumes this).
         typeBInputs.splice(lMeasErrIdx, 1);
-        warnings.push('FC_CUBO: sin instrumento asignado para el lado; se omite U_L del presupuesto.');
-      }
-    }
-
-  }
-
-  // MU — V_recip sensitivity context (ci = MU/V, GUM §5.1.3, NMX-C-073)
-  if (measurand.codigo === 'MU') {
-    const mu_mean = replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
-    const muOvr = study.env_overrides ?? {};
-    sensitivityContext.mu_mean = mu_mean;
-    sensitivityContext.V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
-    sensitivityContext.factor_correccion = (muOvr['factor_correccion'] as number | undefined) ?? 1;
-  }
-
-  // VIGAS — flexural beam, modulus of rupture (third-point loading per NMX-C-191 / ASTM C78).
-  // MR = P·L / (b·d²). Sensitivities: ci_P = MR/P; ci_L = MR/L; ci_b = -MR/b; ci_d = -2·MR/d.
-  // The peralte (d) dominates the budget because it enters squared.
-  if (measurand.codigo === 'VIGAS') {
-    const Ps = replicas.map((r) => Number(r.raw_values_json['P'] ?? 0)).filter((v) => v > 0);
-    const Ls = replicas.map((r) => Number(r.raw_values_json['L'] ?? 0)).filter((v) => v > 0);
-    const bs = replicas.map((r) => Number(r.raw_values_json['b'] ?? 0)).filter((v) => v > 0);
-    const ds = replicas.map((r) => Number(r.raw_values_json['d'] ?? 0)).filter((v) => v > 0);
-
-    if (Ps.length > 0 && Ls.length > 0 && bs.length > 0 && ds.length > 0) {
-      const P_mean = Ps.reduce((s, v) => s + v, 0) / Ps.length;
-      const L_mean = Ls.reduce((s, v) => s + v, 0) / Ls.length;
-      const b_mean = bs.reduce((s, v) => s + v, 0) / bs.length;
-      const d_mean = ds.reduce((s, v) => s + v, 0) / ds.length;
-      const MR_mean = (P_mean * L_mean) / (b_mean * d_mean * d_mean);
-      if (b_mean > 0 && d_mean > 0) {
-        sensitivityContext.P_mean = P_mean;
-        sensitivityContext.L_mean = L_mean;
-        sensitivityContext.b_mean = b_mean;
-        sensitivityContext.d_mean = d_mean;
-        sensitivityContext.MR_mean = MR_mean;
       } else {
-        warnings.push('VIGAS: b o d promedio = 0; los coeficientes de sensibilidad se omiten (ci=1).');
+        // Legacy path: no role assigned — try to resolve from the first replica instrument.
+        const instrId = replicas.find((r) => r.instrumento_id)?.instrumento_id ?? null;
+        if (instrId) {
+          const calData = await resolveInstrumentCalibration(instrId, study.fecha_estudio);
+          if (calData && calData.u_expandida > 0) {
+            typeBInputs[lMeasErrIdx] = {
+              ...typeBInputs[lMeasErrIdx],
+              kind: 'calibration',
+              U_cert: calData.u_expandida,
+              k_cert: calData.k_factor,
+              cert_numero: calData.numero_certificado ?? undefined,
+              norma_ref_override: 'GUM §4.3.4; NMX-CH-002-IMNC-2008',
+            };
+          } else {
+            typeBInputs.splice(lMeasErrIdx, 1);
+            warnings.push('FC_CUBO: sin certificado para el instrumento de medición del lado; se omite U_L del presupuesto.');
+          }
+        } else {
+          typeBInputs.splice(lMeasErrIdx, 1);
+          warnings.push('FC_CUBO: sin instrumento asignado para el lado; se omite U_L del presupuesto.');
+        }
       }
-    } else {
-      warnings.push('VIGAS: faltan datos de P/L/b/d en las réplicas; los coeficientes de sensibilidad se omiten (ci=1).');
     }
   }
 

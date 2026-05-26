@@ -589,4 +589,71 @@ assert.equal(vigasBudget.components.length, 2,          'VIGAS budget should hav
 console.log(`  u_c=${vigasBudget.u_c.toExponential(4)} kg/cm²  U=${vigasBudget.U.toExponential(4)} kg/cm²  k=${vigasBudget.k.toFixed(3)}`);
 console.log('  ✓ VIGAS');
 
+// ===========================================================================
+// 9. Instrument role combined ci (Vernier covering L, b, d in VIGAS)
+//    Validates the quadratic combination used by buildStudyInput when one
+//    instrument covers multiple input symbols (GUM §5.1.3).
+//    ci_combined = √(c_L² + c_b² + c_d²)
+//    For ctx above: c_L=0.877, c_b=-2.632, c_d=-5.263
+//    ci_combined = √(0.769 + 6.927 + 27.699) = √35.395 ≈ 5.949
+// ===========================================================================
+console.log('9. Instrument role combined ci (Vernier L,b,d for VIGAS)');
+
+const c_L_v = sensitivityCoefficient('VIGAS', 'L', ctx);
+const c_b_v = sensitivityCoefficient('VIGAS', 'b', ctx);
+const c_d_v = sensitivityCoefficient('VIGAS', 'd', ctx);
+const ci_combined_expected = Math.sqrt(c_L_v ** 2 + c_b_v ** 2 + c_d_v ** 2);
+console.log(`  c_L=${c_L_v.toExponential(3)}  c_b=${c_b_v.toExponential(3)}  c_d=${c_d_v.toExponential(3)}`);
+console.log(`  ci_combined = √(${(c_L_v**2).toFixed(3)} + ${(c_b_v**2).toFixed(3)} + ${(c_d_v**2).toFixed(3)}) = ${ci_combined_expected.toFixed(4)}`);
+
+// Verify the combined ci is > |c_d| (three contributions, d dominates but others add)
+assert.ok(ci_combined_expected > Math.abs(c_d_v), 'ci_combined > |c_d| alone (b and L add)');
+// Verify it's approximately 5.95 for the worked example
+assert.ok(nearAbs(ci_combined_expected, 5.949, 0.01), `ci_combined ≈ 5.949, got ${ci_combined_expected.toFixed(4)}`);
+
+// Budget with Vernier calibration row using ci_override = ci_combined
+// (Vernier U_cert = 0.05 mm = 0.005 cm; this is a tight cert covering b, d, L all at 0.1 mm graduation)
+const vernier_U_cm = 0.05 / 10; // 0.05 mm → 0.005 cm (unit conversion mm→cm)
+const vigasBudgetWithVernier = buildBudget({
+  measurandCode: 'VIGAS',
+  measurandName: 'Módulo de rotura',
+  unit: 'kg/cm²',
+  replicaValues: vigasReplicas,
+  typeBInputs: [
+    {
+      fuente: 'Calibración de la prensa',
+      magnitud_xi: 'P',
+      unidad: 'kgf',
+      valor_xi: 0,
+      kind: 'calibration',
+      U_cert: 30,
+      k_cert: 2,
+      categoria: 'calibration',
+    },
+    {
+      // Vernier calibration row: covers L, b, d combined
+      fuente: 'Calibración — Vernier (L, b, d)',
+      magnitud_xi: 'L, b, d',
+      unidad: 'cm',
+      valor_xi: 0,
+      kind: 'calibration',
+      U_cert: vernier_U_cm,
+      k_cert: 2,
+      ci_override: ci_combined_expected,  // combined ci from role
+      categoria: 'calibration',
+    },
+  ],
+  sensitivityContext: ctx,
+});
+assert.equal(vigasBudgetWithVernier.components.length, 3, 'VIGAS with Vernier = 3 components');
+const vernierComp = vigasBudgetWithVernier.components.find((c) => c.fuente.includes('Vernier'));
+assert.ok(vernierComp !== undefined, 'Vernier component present');
+assert.ok(nearAbs(vernierComp!.ci, ci_combined_expected, 1e-6), `Vernier ci = ci_combined = ${ci_combined_expected.toFixed(4)}`);
+// The Vernier's contribution ui_y = ci_combined × (vernier_U_cm/2)
+const expectedUiVernier = ci_combined_expected * (vernier_U_cm / 2);
+assert.ok(nearAbs(vernierComp!.ui_y, expectedUiVernier, 1e-6),
+  `Vernier ui_y = ci_combined × u_vernier = ${expectedUiVernier.toExponential(4)}`);
+console.log(`  Vernier ci=${vernierComp!.ci.toFixed(4)}  u_vernier=${(vernier_U_cm/2).toExponential(3)} cm  ui_y=${vernierComp!.ui_y.toExponential(4)}`);
+console.log('  ✓ Instrument role combined ci');
+
 console.log('\n✅ All Excel-alignment parity tests passed.');

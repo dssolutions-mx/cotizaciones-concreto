@@ -2,12 +2,21 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Users, Wrench } from 'lucide-react'
+import { ChevronDown, Info, Users, Wrench } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { EmaUncertaintyInstrumentEstadoBadge } from '@/components/ema/uncertainty/EmaUncertaintyInstrumentEstadoBadge'
 import {
   MEASURAND_INSTRUMENT_CATEGORIES,
+  MEASURAND_INSTRUMENT_ROLES,
+  type MeasurandInstrumentRole,
 } from '@/lib/ema/uncertaintyMeasurand'
 import {
   operatorRoleLabel,
@@ -30,6 +39,60 @@ type InstrumentOption = {
   estado?: string
 }
 
+/**
+ * Chip shown under each instrument indicating which measurement role it has been assigned.
+ * For single-input measurands (TEMP, REV, AIRE) this chip is never shown.
+ */
+function RoleChip({
+  roleKey,
+  roles,
+  instrId,
+  isLocked,
+  onRoleChange,
+}: {
+  roleKey: string | undefined
+  roles: MeasurandInstrumentRole[]
+  instrId: string
+  isLocked: boolean
+  onRoleChange: (instrId: string, roleKey: string | null) => void
+}) {
+  const assigned = roleKey ? roles.find((r) => r.key === roleKey) : null
+  return (
+    <div className="mt-1">
+      {isLocked ? (
+        assigned ? (
+          <span className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700 ring-1 ring-inset ring-sky-200">
+            {assigned.label}
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+            Sin rol
+          </span>
+        )
+      ) : (
+        <Select
+          value={roleKey ?? ''}
+          onValueChange={(v) => onRoleChange(instrId, v || null)}
+        >
+          <SelectTrigger className="h-6 w-full max-w-[220px] rounded border border-stone-200 bg-white px-2 text-[10px] text-stone-700 shadow-none focus:ring-1 focus:ring-sky-400">
+            <SelectValue placeholder="Asignar rol de instrumento" />
+            <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-stone-400" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="" className="text-xs text-stone-400">Sin rol asignado</SelectItem>
+            {roles.map((ro) => (
+              <SelectItem key={ro.key} value={ro.key} className="text-xs">
+                <span className="font-medium text-stone-800">{ro.label}</span>
+                <span className="ml-1 text-stone-400">({ro.symbols.join(', ')})</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  )
+}
+
 export function EmaUncertaintyStudyEquipoPanel({
   study,
   measurand,
@@ -44,6 +107,8 @@ export function EmaUncertaintyStudyEquipoPanel({
   const initial = parseEquipoPool(study.equipo_pool_json)
   const [operatorIds, setOperatorIds] = useState<string[]>(initial.operator_ids)
   const [instrumentoIds, setInstrumentoIds] = useState<string[]>(initial.instrumento_ids)
+  // instrumento_roles: maps instrumento_id → role key
+  const [instrRoles, setInstrRoles] = useState<Record<string, string>>(initial.instrumento_roles ?? {})
   const [operators, setOperators] = useState<OperatorOption[]>([])
   const [instruments, setInstruments] = useState<InstrumentOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,11 +117,21 @@ export function EmaUncertaintyStudyEquipoPanel({
   const [proximoWarning, setProximoWarning] = useState<string | null>(null)
 
   const categories = MEASURAND_INSTRUMENT_CATEGORIES[measurand.codigo as MeasurandCodigo] ?? []
-  const dirty =
-    JSON.stringify(operatorIds.slice().sort()) !==
-      JSON.stringify(initial.operator_ids.slice().sort()) ||
-    JSON.stringify(instrumentoIds.slice().sort()) !==
-      JSON.stringify(initial.instrumento_ids.slice().sort())
+  // Multi-input measurands have role definitions; single-input measurands don't need role UI.
+  const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null
+
+  const dirty = useMemo(() => {
+    const sortedOps = [...operatorIds].sort()
+    const sortedInstr = [...instrumentoIds].sort()
+    const initialSortedOps = [...initial.operator_ids].sort()
+    const initialSortedInstr = [...initial.instrumento_ids].sort()
+    const rolesChanged = JSON.stringify(instrRoles) !== JSON.stringify(initial.instrumento_roles ?? {})
+    return (
+      JSON.stringify(sortedOps) !== JSON.stringify(initialSortedOps) ||
+      JSON.stringify(sortedInstr) !== JSON.stringify(initialSortedInstr) ||
+      rolesChanged
+    )
+  }, [operatorIds, instrumentoIds, instrRoles, initial])
 
   useEffect(() => {
     let cancelled = false
@@ -125,20 +200,55 @@ export function EmaUncertaintyStudyEquipoPanel({
   }
 
   function toggleInstrument(id: string) {
-    setInstrumentoIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    )
+    setInstrumentoIds((prev) => {
+      if (prev.includes(id)) {
+        // Also clear the role when deselecting
+        setInstrRoles((r) => {
+          const next = { ...r }
+          delete next[id]
+          return next
+        })
+        return prev.filter((x) => x !== id)
+      }
+      return [...prev, id]
+    })
+  }
+
+  function handleRoleChange(instrId: string, roleKey: string | null) {
+    setInstrRoles((prev) => {
+      const next = { ...prev }
+      if (roleKey) next[instrId] = roleKey
+      else delete next[instrId]
+      return next
+    })
   }
 
   async function savePool() {
     setError(null)
     setProximoWarning(null)
-    // Note: 1 operator is valid — the budget uses Type A repetibilidad (GUM §4.2.3).
-    // ANOVA for inter-operator reproducibility activates automatically when ≥2 operators
-    // each have ≥2 replicas; it is optional, not required.
     if (instrumentoIds.length === 0) {
       setError('Seleccione al menos un instrumento vigente para el estudio.')
       return
+    }
+
+    // Role validation for multi-input measurands
+    if (rolesDef) {
+      const selectedWithRoles = instrumentoIds.filter((id) => instrRoles[id])
+      const missingRoles = instrumentoIds.filter((id) => !instrRoles[id])
+      if (missingRoles.length === instrumentoIds.length) {
+        // None have roles — warn but don't block (backward compat for single-role measurands)
+        setError(
+          `Para ${measurand.codigo} seleccione el rol de cada instrumento (qué mide: ${rolesDef.map((r) => r.label).join(' / ')}). ` +
+          'Sin rol, la calibración usará ci=1 en lugar del coeficiente de sensibilidad correcto.',
+        )
+        return
+      }
+      if (missingRoles.length > 0 && selectedWithRoles.length > 0) {
+        // Partial — allow but warn
+        setProximoWarning(
+          `${missingRoles.length} instrumento(s) sin rol asignado. Asignar roles mejora la exactitud del presupuesto (ci correcto por símbolo).`,
+        )
+      }
     }
 
     const validation = await validateUncertaintyInstrumentSelection(instrumentoIds)
@@ -148,6 +258,7 @@ export function EmaUncertaintyStudyEquipoPanel({
     }
     if (validation.proximo_vencer.length > 0) {
       setProximoWarning(
+        (proximoWarning ? proximoWarning + ' · ' : '') +
         `Próximos a vencer: ${validation.proximo_vencer.map((x) => x.codigo).join(', ')}. Verifique calibración antes de publicar.`,
       )
     }
@@ -157,6 +268,7 @@ export function EmaUncertaintyStudyEquipoPanel({
       const pool: UncertaintyEquipoPool = {
         operator_ids: operatorIds,
         instrumento_ids: instrumentoIds,
+        ...(Object.keys(instrRoles).length > 0 ? { instrumento_roles: instrRoles } : {}),
       }
       const res = await fetch(`/api/ema/uncertainty/studies/${study.id}`, {
         method: 'PATCH',
@@ -196,12 +308,24 @@ export function EmaUncertaintyStudyEquipoPanel({
           lecturas. Las asignaciones en la pestaña Lecturas quedarán acotadas a este listado (ISO 5725-2 §7;
           GUM §4.2.4).
         </p>
+        {rolesDef && (
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+            {rolesDef.map((role) => (
+              <span key={role.key} className="flex items-center gap-1 text-[11px] text-stone-500">
+                <Info className="h-3 w-3 text-sky-500" />
+                <span className="font-medium text-stone-700">{role.label}</span>
+                <span className="text-stone-400">→ símbolos: {role.symbols.join(', ')} · categorías: {role.categories.join(', ')}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </header>
 
       {loading ? (
         <p className="px-4 py-6 text-sm text-stone-500">Cargando catálogo…</p>
       ) : (
         <div className="grid gap-6 p-4 lg:grid-cols-2">
+          {/* ── Operators ── */}
           <div>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
               <Users className="h-3.5 w-3.5" />
@@ -263,6 +387,7 @@ export function EmaUncertaintyStudyEquipoPanel({
             </ul>
           </div>
 
+          {/* ── Instruments ── */}
           <div>
             <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
               <Wrench className="h-3.5 w-3.5" />
@@ -270,6 +395,9 @@ export function EmaUncertaintyStudyEquipoPanel({
             </h4>
             <p className="mt-1 text-[11px] text-stone-500">
               Categorías: {categories.join(', ') || 'todas vigentes'} · u de calibración entra al Type B.
+              {rolesDef && (
+                <> Asigne el rol de cada instrumento para que el motor aplique el coeficiente de sensibilidad correcto (GUM §5.1.3).</>
+              )}
             </p>
             {!isLocked && instruments.length > 0 && (
               <div className="mt-2 flex gap-2">
@@ -293,7 +421,7 @@ export function EmaUncertaintyStudyEquipoPanel({
                 </Button>
               </div>
             )}
-            <ul className="mt-3 max-h-52 space-y-2 overflow-y-auto rounded-md border border-stone-100 bg-white p-2">
+            <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto rounded-md border border-stone-100 bg-white p-2">
               {instruments.length === 0 ? (
                 <li className="text-xs text-stone-400">
                   No hay instrumentos vigentes.
@@ -302,31 +430,73 @@ export function EmaUncertaintyStudyEquipoPanel({
                   </Link>
                 </li>
               ) : (
-                instruments.map((inst) => (
-                  <li key={inst.id}>
-                    <label
-                      className={cn(
-                        'flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-stone-50',
-                        isLocked && 'pointer-events-none opacity-60',
-                      )}
-                    >
-                      <Checkbox
-                        checked={instrumentoIds.includes(inst.id)}
-                        disabled={isLocked}
-                        onCheckedChange={() => toggleInstrument(inst.id)}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span className="font-mono text-xs text-stone-500">{inst.codigo}</span>
-                        <span className="ml-1 text-stone-800">{inst.nombre}</span>
-                        <span className="mt-1 block">
-                          <EmaUncertaintyInstrumentEstadoBadge estado={inst.estado} />
+                instruments.map((inst) => {
+                  const isSelected = instrumentoIds.includes(inst.id)
+                  return (
+                    <li key={inst.id} className={cn(
+                      'rounded-md border border-transparent',
+                      isSelected && rolesDef && 'border-stone-100 bg-stone-50/70 p-1',
+                    )}>
+                      <label
+                        className={cn(
+                          'flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-stone-50',
+                          isLocked && 'pointer-events-none opacity-60',
+                          isSelected && rolesDef && 'hover:bg-transparent',
+                        )}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={isLocked}
+                          onCheckedChange={() => toggleInstrument(inst.id)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="font-mono text-xs text-stone-500">{inst.codigo}</span>
+                          <span className="ml-1 text-stone-800">{inst.nombre}</span>
+                          <span className="mt-1 block">
+                            <EmaUncertaintyInstrumentEstadoBadge estado={inst.estado} />
+                          </span>
+                          {/* Role assignment dropdown — only for multi-input measurands when selected */}
+                          {isSelected && rolesDef && (
+                            <RoleChip
+                              roleKey={instrRoles[inst.id]}
+                              roles={rolesDef}
+                              instrId={inst.id}
+                              isLocked={isLocked}
+                              onRoleChange={handleRoleChange}
+                            />
+                          )}
                         </span>
-                      </span>
-                    </label>
-                  </li>
-                ))
+                      </label>
+                    </li>
+                  )
+                })
               )}
             </ul>
+
+            {/* Role coverage summary for multi-input measurands */}
+            {rolesDef && instrumentoIds.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {rolesDef.map((role) => {
+                  const covered = instrumentoIds.filter((id) => instrRoles[id] === role.key)
+                  return (
+                    <div key={role.key} className="flex items-center gap-1.5 text-[11px]">
+                      <span className={cn(
+                        'h-1.5 w-1.5 rounded-full',
+                        covered.length > 0 ? 'bg-emerald-500' : 'bg-amber-400',
+                      )} />
+                      <span className="font-medium text-stone-700">{role.label}</span>
+                      {covered.length > 0 ? (
+                        <span className="text-emerald-700">
+                          {covered.length === 1 ? '1 instrumento' : `${covered.length} instrumentos`}
+                        </span>
+                      ) : (
+                        <span className="text-amber-700">sin instrumento asignado</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

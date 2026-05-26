@@ -16,6 +16,7 @@ import { EmaUncertaintyAnovaReadinessBanner } from '@/components/ema/uncertainty
 import { EmaUncertaintyInstrumentEstadoBadge } from '@/components/ema/uncertainty/EmaUncertaintyInstrumentEstadoBadge'
 import {
   MEASURAND_INSTRUMENT_CATEGORIES,
+  MEASURAND_INSTRUMENT_ROLES,
   computeReplicaMeasurand,
 } from '@/lib/ema/uncertaintyMeasurand'
 import { operatorRoleLabel } from '@/lib/ema/uncertaintyStudyDesign'
@@ -96,6 +97,14 @@ export function EmaUncertaintyReplicaTable({
   const inputs = (measurand.inputs ?? [])
     .filter((i) => i.kind === 'measured')
     .sort((a, b) => a.orden - b.orden)
+
+  // Role context for multi-input measurands — helps label the instrument column
+  const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null
+  // Primary role = first role in the list (load-measuring instrument like Prensa)
+  // This is the instrument the technician assigns per replica.
+  const primaryRole = rolesDef?.[0] ?? null
+  // Secondary role = other roles (dimensional instrument, assigned once at pool level)
+  const secondaryRoles = rolesDef?.slice(1) ?? []
 
   const [operators, setOperators] = useState<OperatorOption[]>([])
   const [instruments, setInstruments] = useState<InstrumentOption[]>([])
@@ -228,9 +237,18 @@ export function EmaUncertaintyReplicaTable({
       <div className="rounded-lg border border-sky-100 bg-sky-50/60 px-4 py-3 text-sm text-sky-950">
         <p className="font-medium">Configurar lecturas</p>
         <p className="mt-1 text-xs leading-relaxed text-sky-900/90">
-          Por cada réplica elija <strong>operador</strong> e <strong>instrumento vigente</strong>,
+          Por cada réplica elija <strong>operador</strong> e{' '}
+          <strong>{primaryRole ? primaryRole.label : 'instrumento vigente'}</strong>,
           capture los valores medidos y guarde. Luego calcule el presupuesto de incertidumbre.
         </p>
+        {secondaryRoles.length > 0 && (
+          <p className="mt-1 text-xs text-sky-800/80">
+            <Info className="mr-1 inline h-3 w-3" />
+            {secondaryRoles.map((r) => r.label).join(' y ')} se asigna en{' '}
+            <strong>Configuración → Equipo del estudio</strong> (rol de instrumento) y su calibración
+            entra automáticamente al presupuesto sin necesidad de asignarlo por réplica.
+          </p>
+        )}
         {!poolActive && !isLocked && (
           <p className="mt-2 text-xs text-amber-900">
             Confirme el equipo del estudio en <strong>Configuración</strong> para acotar operadores e
@@ -379,7 +397,9 @@ export function EmaUncertaintyReplicaTable({
             <tr className="border-b border-stone-200 bg-stone-50 text-xs uppercase tracking-wide text-stone-500">
               <th className="px-3 py-2 text-left">#</th>
               <th className="px-3 py-2 text-left min-w-[140px]">Operador</th>
-              <th className="px-3 py-2 text-left min-w-[160px]">Instrumento</th>
+              <th className="px-3 py-2 text-left min-w-[160px]">
+                {primaryRole ? primaryRole.label : 'Instrumento'}
+              </th>
               {inputs.map((inp) => (
                 <th key={inp.simbolo} className="px-3 py-2 text-right">
                   {inp.nombre_display}

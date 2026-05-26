@@ -47,14 +47,20 @@ export async function PATCH(
     const fields: {
       notas?: string | null;
       plant_id?: string | null;
-      equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[] } | null;
+      equipo_pool_json?: { operator_ids: string[]; instrumento_ids: string[]; instrumento_roles?: Record<string, string> } | null;
       env_overrides?: Record<string, number> | null;
       excluded_input_simbolos?: string[];
     } = {};
     if ('notas' in body) fields.notas = body.notas ?? null;
     if ('plant_id' in body) fields.plant_id = body.plant_id ?? null;
     if ('equipo_pool_json' in body && body.equipo_pool_json != null) {
-      const pool = body.equipo_pool_json as { operator_ids?: unknown; instrumento_ids?: unknown };
+      const pool = body.equipo_pool_json as { operator_ids?: unknown; instrumento_ids?: unknown; instrumento_roles?: unknown };
+      const parsedRoles: Record<string, string> = {};
+      if (pool.instrumento_roles && typeof pool.instrumento_roles === 'object' && !Array.isArray(pool.instrumento_roles)) {
+        for (const [k, v] of Object.entries(pool.instrumento_roles as Record<string, unknown>)) {
+          if (typeof v === 'string') parsedRoles[k] = v;
+        }
+      }
       fields.equipo_pool_json = {
         operator_ids: Array.isArray(pool.operator_ids)
           ? pool.operator_ids.filter((id): id is string => typeof id === 'string')
@@ -62,6 +68,7 @@ export async function PATCH(
         instrumento_ids: Array.isArray(pool.instrumento_ids)
           ? pool.instrumento_ids.filter((id): id is string => typeof id === 'string')
           : [],
+        ...(Object.keys(parsedRoles).length > 0 ? { instrumento_roles: parsedRoles } : {}),
       };
     }
     if ('env_overrides' in body) {

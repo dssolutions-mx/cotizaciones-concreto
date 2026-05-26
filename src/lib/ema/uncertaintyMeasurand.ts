@@ -27,6 +27,93 @@ export const MEASURAND_INSTRUMENT_CATEGORIES: Record<MeasurandCodigo, string[]> 
   VIGAS: ['Prensa hidráulica', 'Vernier', 'Flexometro'],
 };
 
+/**
+ * Instrument role definition — maps a named role to the measurand input symbols it covers.
+ *
+ * Multi-input measurands (FC, FC_CUBO, VIGAS, MU) use TWO physical instrument types:
+ *   • A force/load instrument (Prensa hidráulica) → covers load symbol(s)
+ *   • A dimensional instrument (Vernier / Flexómetro) → covers length/dimension symbols
+ *
+ * Roles let the engine apply the correct GUM sensitivity coefficient to each instrument's
+ * calibration uncertainty:  u_i(y) = |c_i| × u(x_i)  where c_i = ∂f/∂x_i (GUM §5.1.3).
+ * Without role assignment, calibration rows default to c_i = 1, which is wrong for
+ * multi-input measurands.
+ *
+ * The `key` is stored in `UncertaintyEquipoPool.instrumento_roles: Record<instrId, roleKey>`.
+ */
+export interface MeasurandInstrumentRole {
+  /** Key stored in equipo_pool_json.instrumento_roles  */
+  key: string;
+  /** Display label shown in the equipo pool panel */
+  label: string;
+  /** Instrument categories eligible for this role (for filtering) */
+  categories: string[];
+  /** Measurand input symbols this instrument covers (for sensitivity coefficient look-up) */
+  symbols: string[];
+}
+
+/**
+ * Measurands that require more than one instrument type. Each entry is an ordered list of roles.
+ * Single-input measurands (TEMP, REV, AIRE) are absent — their pool instruments implicitly
+ * have c_i = 1 and no role distinction is needed.
+ */
+export const MEASURAND_INSTRUMENT_ROLES: Partial<Record<MeasurandCodigo, MeasurandInstrumentRole[]>> = {
+  FC: [
+    {
+      key: 'carga',
+      label: 'Prensa — Carga (Carga)',
+      categories: ['Prensa hidráulica'],
+      symbols: ['Carga', 'carga'],
+    },
+    {
+      key: 'diametro',
+      label: 'Vernier / Calibrador — Diámetro (d)',
+      categories: ['Vernier', 'Flexometro'],
+      symbols: ['d', 'dprom'],
+    },
+  ],
+  FC_CUBO: [
+    {
+      key: 'carga',
+      label: 'Prensa — Carga (Carga)',
+      categories: ['Prensa hidráulica'],
+      symbols: ['Carga', 'carga'],
+    },
+    {
+      key: 'lado',
+      label: 'Vernier / Calibrador — Lado (L1, L2)',
+      categories: ['Vernier', 'Flexometro'],
+      symbols: ['L1', 'L2'],
+    },
+  ],
+  VIGAS: [
+    {
+      key: 'carga',
+      label: 'Prensa — Carga máxima (P)',
+      categories: ['Prensa hidráulica'],
+      symbols: ['P'],
+    },
+    {
+      key: 'dimensiones',
+      label: 'Vernier / Flexómetro — Dimensiones (b, d, L)',
+      categories: ['Vernier', 'Flexometro'],
+      symbols: ['L', 'b', 'd'],
+    },
+  ],
+  MU: [
+    {
+      key: 'masa',
+      label: 'Balanza — Masa',
+      categories: ['Balanza'],
+      symbols: ['m_total', 'm_tara'],
+    },
+    // Recipiente PV covers V_recip, but V_recip is typically a fixed environmental/method
+    // contributor, not a per-replica measured input — handled via V_recip seeded input.
+    // If a lab explicitly calibrates the container and wants it as an instrument role, they
+    // can assign it here, but the sensitivity is already in the env contributor row.
+  ],
+};
+
 const SYMBOL_ALIASES: Record<string, string[]> = {
   Carga: ['carga', 'F'],
   dprom: ['d', 'diametro', 'diametro_promedio'],
