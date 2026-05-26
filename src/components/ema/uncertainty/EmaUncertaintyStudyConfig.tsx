@@ -413,7 +413,15 @@ export function EmaUncertaintyStudyConfig({
             Parámetros del equipo — Masa Unitaria
           </h3>
           <p className="mt-0.5 text-xs text-stone-500">
-            MU = (m<sub>total</sub> − m<sub>tara</sub>) × F / V · 1000 &nbsp;·&nbsp; c<sub>V</sub> = −MU/V (GUM §5.1.3, NMX-C-073)
+            MU = (m<sub>total</sub> − m<sub>tara</sub>) × 1000 / V &nbsp;[kg/m³]
+            &nbsp;·&nbsp; c<sub>V</sub> = −MU/V &nbsp;·&nbsp; c<sub>m</sub> = 1000/V
+            &nbsp;(GUM §5.1.3, NMX-C-073 §6)
+          </p>
+          <p className="mt-1 text-xs text-stone-500">
+            Ingrese el volumen nominal del recipiente según su certificado de verificación.
+            El factor de calibración F = 1 000 / V se deriva automáticamente.
+            Si el Recipiente PV tiene un certificado en el sistema (rol &ldquo;volumen&rdquo;),
+            su incertidumbre reemplazará la semi-amplitud por defecto de V (GUM §4.3.4).
           </p>
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
             <div>
@@ -439,26 +447,16 @@ export function EmaUncertaintyStudyConfig({
               <p className="mt-1 text-[10px] text-stone-400">Por defecto: 7.06 L (NMX-C-073)</p>
             </div>
             <div>
-              <Label htmlFor="mu-factor-correccion" className="text-xs">
-                Factor de corrección <span className="font-mono text-stone-400">(F)</span>
+              <Label className="text-xs">
+                Factor de calibración <span className="font-mono text-stone-400">(F = 1000/V)</span>
               </Label>
               <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  id="mu-factor-correccion"
-                  type="number"
-                  step="0.001"
-                  min="0.001"
-                  disabled={isLocked}
-                  value={envOverrides['factor_correccion'] ?? 1}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value)
-                    if (!isNaN(v) && v > 0) handleOverrideChange('factor_correccion', v)
-                  }}
-                  className="h-8 w-24 text-sm"
-                />
-                <span className="text-xs text-stone-500">adim.</span>
+                <span className="flex h-8 w-24 items-center rounded border border-stone-200 bg-stone-50 px-2 font-mono text-sm text-stone-600">
+                  {(1000 / ((envOverrides['V_recipiente'] as number | undefined) ?? 7.06)).toFixed(2)}
+                </span>
+                <span className="text-xs text-stone-500">m⁻³</span>
               </div>
-              <p className="mt-1 text-[10px] text-stone-400">1.000 si la corrección ya fue aplicada</p>
+              <p className="mt-1 text-[10px] text-stone-400">Derivado — c<sub>m</sub> = F × u(m)</p>
             </div>
           </div>
           {overrideSaving && <p className="mt-2 text-[10px] text-stone-400">Guardando…</p>}

@@ -143,9 +143,17 @@ export function StudyWorkspaceClient({
         ? ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45)
         : null
 
+      // For MU, inject V_recip from env_overrides so the formula (m_total−m_tara)*1000/V_recip
+      // can be evaluated.  V_recip is a study constant (container volume), not entered per-replica.
+      const V_recip_mu = measurand.codigo === 'MU'
+        ? ((study.env_overrides as Record<string, number> | null)?.V_recipiente ?? 7.06)
+        : null
+
       const payload = replicas.map((r) => {
-        const raw = L_span !== null ? { ...r.raw_values_json, L: L_span } : r.raw_values_json
-        const computed = L_span !== null
+        let raw = r.raw_values_json
+        if (L_span !== null) raw = { ...raw, L: L_span }
+        if (V_recip_mu !== null) raw = { ...raw, V_recip: V_recip_mu }
+        const computed = (L_span !== null || V_recip_mu !== null)
           ? computeReplicaMeasurand(measurand, raw)
           : r.computed_value
         return {
@@ -230,13 +238,22 @@ export function StudyWorkspaceClient({
           else raw[field] = Number(value)
           next = { ...r, raw_values_json: raw }
         }
-        // Inject L_span from study constants so live MR computation stays correct
-        const rawForCompute = measurand.codigo === 'VIGAS'
-          ? {
-              ...next.raw_values_json,
-              L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45),
-            }
-          : next.raw_values_json
+        // Inject study-level constants so live formula computation stays correct:
+        //   VIGAS → L_span (claro del bastidor)
+        //   MU    → V_recip (volumen del recipiente)
+        let rawForCompute = next.raw_values_json
+        if (measurand.codigo === 'VIGAS') {
+          rawForCompute = {
+            ...rawForCompute,
+            L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45),
+          }
+        }
+        if (measurand.codigo === 'MU') {
+          rawForCompute = {
+            ...rawForCompute,
+            V_recip: ((study.env_overrides as Record<string, number> | null)?.V_recipiente ?? 7.06),
+          }
+        }
         return {
           ...next,
           computed_value: computeReplicaMeasurand(measurand, rawForCompute),
@@ -442,9 +459,13 @@ export function StudyWorkspaceClient({
                           else raw[patch.rawValueField] = patch.rawValueData
                           next = { ...next, raw_values_json: raw }
                         }
-                        const rawForComputeBulk = measurand.codigo === 'VIGAS'
-                          ? { ...next.raw_values_json, L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45) }
-                          : next.raw_values_json
+                        let rawForComputeBulk = next.raw_values_json
+                        if (measurand.codigo === 'VIGAS') {
+                          rawForComputeBulk = { ...rawForComputeBulk, L: ((study.env_overrides as Record<string, number> | null)?.L_span ?? 45) }
+                        }
+                        if (measurand.codigo === 'MU') {
+                          rawForComputeBulk = { ...rawForComputeBulk, V_recip: ((study.env_overrides as Record<string, number> | null)?.V_recipiente ?? 7.06) }
+                        }
                         return {
                           ...next,
                           computed_value: computeReplicaMeasurand(measurand, rawForComputeBulk),

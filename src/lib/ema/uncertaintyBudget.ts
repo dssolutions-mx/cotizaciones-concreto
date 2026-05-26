@@ -213,13 +213,12 @@ export function welchSatterthwaite(
  *   c_carga = ∂f/∂Carga = 1/A
  *   c_d     = ∂f/∂d     = −2·Carga / (π·d³/4) = −2·f/d
  *
- * For Masa Unitaria (MU = (m_total − m_tara) × F / V, result in kg/m³):
- *   c_V    = ∂MU/∂V = −(m_total − m_tara)·F / V²
- *                   = −MU / V           ← expressed via mu_mean (GUM §5.1.3 Eq.13)
- *   c_mass = ∂MU/∂m = F / V ≈ 1        (when correction already applied, F=1)
- *   Negative c_V: a larger container volume produces a lower density for the same mass.
- *   V_recipiente (L) and factor_correccion come from study.env_overrides,
- *   falling back to 7.06 L (NMX-C-073 standard container) and 1, respectively.
+ * For Masa Unitaria (MU = (m_total − m_tara) × 1000 / V_recip, result in kg/m³):
+ *   V_recip in litres; factor 1000 converts L→m³.
+ *   c_V     = ∂MU/∂V = −MU / V          (negative — bigger container → lower density)
+ *   c_mass  = ∂MU/∂m = 1000 / V         (same coefficient for m_total and m_tara)
+ *   c_rho   = 1                          (rho_agua: additive correction for buoyancy/calibration)
+ *   V_recipiente (L) comes from study.env_overrides, falling back to 7.06 L (NMX-C-073 standard).
  *
  * Ref: GUM §5.1.3, Eq. (13): cᵢ = ∂f/∂xᵢ |_{x=best_estimate}
  */
@@ -258,15 +257,23 @@ export function sensitivityCoefficient(
       return 1;
 
     case 'MU': {
-      // V_recip: c = MU/V  (GUM §5.1.3, NMX-C-073)
+      // Formula: MU = (m_total − m_tara) × 1000 / V_recip  [kg/m³]
+      // (NMX-C-073 §6; 1 m³ = 1000 L, so dividing litres by 1000 gives m³)
+      //
+      // c_V     = ∂MU/∂V = −MU / V          (negative: bigger container → lower density)
+      // c_mass  = ∂MU/∂m = 1000 / V          (same coeff for m_total and m_tara)
+      // c_rho   = 1                           (rho_agua enters as additive Type B via
+      //                                        container-volume calibration; DB sensitivity_expr='1')
       if (inputSymbol === 'V_recip') {
         const mu = context.mu_mean;
         const V = context.V_recipiente;
         if (!mu || !V) throw new Error('sensitivityCoefficient MU V_recip: mu_mean and V_recipiente required');
-        return -(mu / V);  // negative: larger volume → lower MU
+        return -(mu / V);
       }
-      // MU = (m_total − m_tara) × F;  c w.r.t. mass inputs = F
-      return context.factor_correccion ?? 1;
+      if (inputSymbol === 'rho_agua') return 1;
+      // m_total, m_tara, or any other mass input
+      const V = context.V_recipiente ?? 7.06;
+      return 1000 / V;
     }
 
     case 'FC': {
@@ -281,10 +288,10 @@ export function sensitivityCoefficient(
         const carga = context.carga_mean;
         const d = context.d_mean;
         if (!carga || !d) throw new Error('sensitivityCoefficient FC d: carga_mean and d_mean required');
-        // A = π·d²/4 (d in mm, A in mm²); convert consistently
-        // f'c = Carga/A; c_d = -2·Carga/(π·d³/4) = -2·f/d
-        const A_mm2 = (Math.PI * d ** 2) / 4;
-        const fc = carga / A_mm2; // kg/mm²
+        // d is in cm (service converts mm→cm before storing in context.d_mean).
+        // A = π·d²/4  [cm²];  f'c = Carga/A  [kg/cm²];  c_d = −2·f/d  [kg/cm³]
+        const A_cm2 = (Math.PI * d ** 2) / 4;
+        const fc = carga / A_cm2; // kg/cm²
         return -2 * fc / d;
       }
       // Default: direct (e.g. area input is already combined)

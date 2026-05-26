@@ -863,11 +863,18 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
   }
 
   if (measurand.codigo === 'MU') {
-    const mu_mean = replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
+    // Formula: (m_total − m_tara) × 1000 / V_recip  →  MU in kg/m³.
+    // V_recipiente (L) is the study-level container volume from env_overrides.
+    // mu_mean is used for c_V = −MU/V; V_recipiente for c_mass = 1000/V.
+    const mu_mean = replicaValues.length > 0
+      ? replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length
+      : 0;
     const muOvr = study.env_overrides ?? {};
+    const V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
     sensitivityContext.mu_mean = mu_mean;
-    sensitivityContext.V_recipiente = (muOvr['V_recipiente'] as number | undefined) ?? 7.06;
-    sensitivityContext.factor_correccion = (muOvr['factor_correccion'] as number | undefined) ?? 1;
+    sensitivityContext.V_recipiente = V_recipiente;
+    // Note: factor_correccion is no longer used for sensitivity — mass c_i = 1000/V is derived
+    // directly from V_recipiente.  Legacy env_overrides.factor_correccion values are ignored.
   }
 
   if (measurand.codigo === 'VIGAS') {

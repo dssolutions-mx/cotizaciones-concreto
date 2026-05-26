@@ -297,7 +297,7 @@ const muBudget = buildBudget({
   unit: 'kg/m³',
   replicaValues: muReplicas,
   typeBInputs: [
-    // Resolución balanza: div.mín = 0.1 g = 0.0001 kg; ci = 1/V
+    // Resolución balanza: div.mín = 0.1 g = 0.0001 kg; ci = 1000/V ≈ 141.64 m⁻³
     {
       fuente: 'Resolución de la balanza',
       magnitud_xi: 'masa',
@@ -305,10 +305,10 @@ const muBudget = buildBudget({
       valor_xi: masa_media,
       kind: 'resolution',
       divMin: 0.0001,
-      ci_override: 1 / V_REC,
+      ci_override: 1000 / V_REC,
       categoria: 'resolution',
     },
-    // Calibración balanza: U_cert = 0.002 kg, k = 2; ci = 1/V
+    // Calibración balanza: U_cert = 0.002 kg, k = 2; ci = 1000/V ≈ 141.64 m⁻³
     {
       fuente: 'Calibración de la balanza',
       magnitud_xi: 'masa',
@@ -317,7 +317,7 @@ const muBudget = buildBudget({
       kind: 'calibration',
       U_cert: 0.002,
       k_cert: 2,
-      ci_override: 1 / V_REC,
+      ci_override: 1000 / V_REC,
       categoria: 'calibration',
     },
     // V_recip — environmental: ci = |MU/V| ≈ 325.8  (high-impact!)
@@ -815,5 +815,95 @@ assert.ok(nearAbs(vernierComp!.ui_y, expectedUiVernier, 1e-6),
   `Vernier ui_y = ci_combined × u_vernier = ${expectedUiVernier.toExponential(4)}`);
 console.log(`  Vernier ci=${vernierComp!.ci.toFixed(4)}  u_vernier=${(vernier_U_cm/2).toExponential(3)} cm  ui_y=${vernierComp!.ui_y.toExponential(4)}`);
 console.log('  ✓ Instrument role combined ci');
+
+// ===========================================================================
+// 10. MU mass sensitivity cross-check (new formula: MU = (m−m0)×1000/V)
+//     Verifies c_mass = 1000/V (≈141.64 m⁻³ for standard container, NOT 1 or 1/V)
+//     and c_rho_agua = 1.
+//     Uses a separate context to avoid collision with section-4 variables.
+// ===========================================================================
+console.log('10. MU — mass and rho sensitivity cross-check');
+
+const MU_V2       = 7.06;   // L (same standard container)
+const MU_MEAN2    = 1982.4; // kg/m³ hand-computed for a typical 14 kg net mass
+const muCtx2      = { mu_mean: MU_MEAN2, V_recipiente: MU_V2 };
+
+// c_mass = 1000/V  (NOT 1 or 1/V)
+const c_mass2 = sensitivityCoefficient('MU', 'm_total', muCtx2);
+assert.ok(nearAbs(c_mass2, 1000 / MU_V2, 1e-6),
+  `MU c_mass = 1000/V = ${(1000/MU_V2).toFixed(4)}, got ${c_mass2.toFixed(4)}`);
+assert.ok(c_mass2 > 100, `MU c_mass > 100 (≈141.64), got ${c_mass2.toFixed(2)}`);
+
+// c_m for m_tara equals c_m for m_total
+const c_mtara2 = sensitivityCoefficient('MU', 'm_tara', muCtx2);
+assert.ok(nearAbs(c_mtara2, c_mass2, 1e-8), 'MU: m_tara ci = m_total ci');
+
+// c_rho = 1  (additive correction for container-volume calibration water density)
+const c_rho2 = sensitivityCoefficient('MU', 'rho_agua', muCtx2);
+assert.ok(nearAbs(c_rho2, 1, 1e-9), `MU c_rho_agua = 1, got ${c_rho2}`);
+
+// End-to-end: balanza row WITHOUT ci_override — engine must compute c = 1000/V automatically
+const muEndToEndBudget = buildBudget({
+  measurandCode: 'MU',
+  measurandName: 'Masa Unitaria e2e',
+  unit: 'kg/m³',
+  replicaValues: [1978, 1985, 1982, 1980, 1984, 1983, 1979, 1986, 1981, 1982],
+  typeBInputs: [
+    {
+      // No ci_override — sensitivityCoefficient must return 1000/V
+      fuente: 'Calibración balanza e2e',
+      magnitud_xi: 'm_total',
+      unidad: 'kg',
+      valor_xi: 21.5,
+      kind: 'calibration',
+      U_cert: 0.01,
+      k_cert: 2,
+      categoria: 'calibration',
+    },
+    {
+      // No ci_override — sensitivityCoefficient must return -(MU/V)
+      fuente: 'Volumen del recipiente e2e',
+      magnitud_xi: 'V_recip',
+      unidad: 'L',
+      valor_xi: MU_V2,
+      kind: 'rectangular',
+      halfWidth: 0.02,
+      categoria: 'environmental',
+    },
+    {
+      // No ci_override — sensitivityCoefficient must return 1
+      fuente: 'Densidad del agua e2e',
+      magnitud_xi: 'rho_agua',
+      unidad: 'kg/m³',
+      valor_xi: 1000,
+      kind: 'rectangular',
+      halfWidth: 0.3,
+      categoria: 'environmental',
+    },
+  ],
+  sensitivityContext: muCtx2,
+});
+
+// U must be in realistic range
+assert.ok(muEndToEndBudget.U > 1,  `MU e2e: U > 1 kg/m³, got ${muEndToEndBudget.U.toFixed(2)}`);
+assert.ok(muEndToEndBudget.U < 50, `MU e2e: U < 50 kg/m³, got ${muEndToEndBudget.U.toFixed(2)}`);
+
+// Balanza component must carry ci = 1000/V (not 1, not 1/V)
+const balComp2 = muEndToEndBudget.components.find((c) => c.fuente.includes('balanza e2e'))!;
+assert.ok(balComp2 !== undefined, 'Balanza e2e component present');
+assert.ok(nearAbs(balComp2.ci, 1000 / MU_V2, 1e-4),
+  `Balanza e2e ci = 1000/V = ${(1000/MU_V2).toFixed(4)}, got ${balComp2.ci.toFixed(4)}`);
+assert.ok(nearAbs(balComp2.ui_y, (1000/MU_V2) * (0.01/2), 1e-3),
+  `Balanza ui_y ≈ ${((1000/MU_V2)*(0.01/2)).toFixed(3)}, got ${balComp2.ui_y.toFixed(3)}`);
+
+// rho_agua component must carry ci = 1
+const rhoComp2 = muEndToEndBudget.components.find((c) => c.magnitud_xi === 'rho_agua')!;
+assert.ok(nearAbs(rhoComp2.ci, 1, 1e-9), `rho_agua e2e ci = 1, got ${rhoComp2.ci}`);
+assert.ok(nearAbs(rhoComp2.ui_y, 0.3 / Math.sqrt(3), 1e-4),
+  `rho_agua ui_y = 0.3/√3 ≈ ${(0.3/Math.sqrt(3)).toFixed(4)}, got ${rhoComp2.ui_y.toFixed(4)}`);
+
+console.log(`  c_mass=${c_mass2.toFixed(4)} m⁻³  c_rho=${c_rho2}  U_e2e=${muEndToEndBudget.U.toFixed(2)} kg/m³`);
+console.log(`  balanza ui_y=${balComp2.ui_y.toFixed(3)} kg/m³  rho ui_y=${rhoComp2.ui_y.toFixed(4)} kg/m³`);
+console.log('  ✓ MU mass & rho sensitivity cross-check');
 
 console.log('\n✅ All Excel-alignment parity tests passed.');
