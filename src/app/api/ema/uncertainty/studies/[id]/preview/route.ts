@@ -19,7 +19,12 @@ export async function POST(
     // User-facing validation errors (e.g. too few replicas) → 422, not 500
     const isValidationError =
       err instanceof Error &&
-      (message.includes('réplicas') || message.includes('mensurando') || message.includes('Estudio'));
+      (message.includes('réplicas') ||
+        message.includes('mensurando') ||
+        message.includes('Estudio') ||
+        message.includes('presupuesto') ||
+        message.includes('f′c') ||
+        message.includes("f'c"));
     const status = isValidationError ? 422 : 500;
     if (!isValidationError) {
       console.error('[POST /api/ema/uncertainty/studies/[id]/preview]', err);

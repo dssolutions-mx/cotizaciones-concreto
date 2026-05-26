@@ -336,6 +336,25 @@ function hasRequiredMeasuredInputs(
  * `raw_values_json` may also contain string entries (UUIDs) keyed as `_instr_<roleKey>`
  * for secondary instrument tracking — these are silently ignored during formula evaluation.
  */
+/** Prefer stored computed_value; otherwise derive from raw readings (preview / stale DB). */
+export function resolveReplicaMeasurandValue(
+  measurand: Pick<UncertaintyMeasurand, 'codigo' | 'formula_expr' | 'inputs'>,
+  replica: {
+    computed_value: number | null;
+    raw_values_json: Record<string, unknown>;
+  },
+  options?: { vigasConfig?: VigasStudyConfig },
+): number | null {
+  if (
+    replica.computed_value !== null &&
+    Number.isFinite(replica.computed_value)
+  ) {
+    return replica.computed_value;
+  }
+  const raw = (replica.raw_values_json ?? {}) as Record<string, number | string>;
+  return computeReplicaMeasurand(measurand, raw, options);
+}
+
 export function computeReplicaMeasurand(
   measurand: Pick<UncertaintyMeasurand, 'codigo' | 'formula_expr' | 'inputs'>,
   raw_values_json: Record<string, number | string>,

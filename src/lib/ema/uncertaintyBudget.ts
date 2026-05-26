@@ -347,6 +347,33 @@ export function sensitivityCoefficient(
   }
 }
 
+/**
+ * Resolve cᵢ for a budget row; never throws.
+ * Tries each symbol when magnitud_xi is a comma list (e.g. "L1, L2").
+ * Falls back to 1 when geometry context is incomplete (GUM §5.1.3).
+ */
+export function resolveSensitivityCi(
+  measurandCode: Parameters<typeof sensitivityCoefficient>[0],
+  magnitud_xi: string,
+  context: Parameters<typeof sensitivityCoefficient>[2],
+  ci_override?: number,
+): number {
+  if (ci_override !== undefined) return ci_override;
+  const symbols = magnitud_xi
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const candidates = symbols.length > 0 ? symbols : [magnitud_xi.trim()];
+  for (const sym of candidates) {
+    try {
+      return sensitivityCoefficient(measurandCode, sym, context);
+    } catch {
+      // missing context for this symbol — try next or fall back
+    }
+  }
+  return 1;
+}
+
 // ---------------------------------------------------------------------------
 // Core budget builder
 // ---------------------------------------------------------------------------
@@ -604,10 +631,12 @@ export function buildBudget(input: StudyInput): BudgetResult {
       formula_display = `u = ${u_xi.toExponential(4)} (proporcionado)`;
     }
 
-    const ci =
-      tb.ci_override !== undefined
-        ? tb.ci_override
-        : sensitivityCoefficient(measurandCode, tb.magnitud_xi, sensitivityContext);
+    const ci = resolveSensitivityCi(
+      measurandCode,
+      tb.magnitud_xi,
+      sensitivityContext,
+      tb.ci_override,
+    );
     const ui_y = Math.abs(ci) * u_xi;
 
     // Derive categoria from kind if not explicitly provided

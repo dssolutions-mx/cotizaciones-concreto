@@ -17,6 +17,7 @@ import {
   computeReplicaMeasurand,
   lengthReadingToCm,
   MEASURAND_INSTRUMENT_ROLES,
+  resolveReplicaMeasurandValue,
 } from '@/lib/ema/uncertaintyMeasurand';
 import { assessAnovaReadiness, parseEquipoPool } from '@/lib/ema/uncertaintyStudyDesign';
 import { getInstrumentosCardsByIds, validateInstrumentos } from '@/services/emaInstrumentoService';
@@ -821,11 +822,35 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 }> {
   const warnings: string[] = [];
   const measurand = study.measurand!;
-  const replicas = (study.replicas ?? []).filter((r) => r.computed_value !== null);
+  const vigasCfgForReplicas =
+    measurand.codigo === 'VIGAS' ? parseVigasStudyConfig(study.env_overrides) : null;
+  const vigasOpts = vigasCfgForReplicas ? { vigasConfig: vigasCfgForReplicas } : undefined;
+
+  const allStudyReplicas = study.replicas ?? [];
+  const replicas = allStudyReplicas
+    .map((r) => {
+      const computed = resolveReplicaMeasurandValue(measurand, r, vigasOpts);
+      return computed !== null ? { ...r, computed_value: computed } : r;
+    })
+    .filter(
+      (r) =>
+        r.computed_value !== null && Number.isFinite(r.computed_value as number),
+    );
 
   if (replicas.length < 2) {
+    const withCompleteReadings = allStudyReplicas.filter(
+      (r) => resolveReplicaMeasurandValue(measurand, r, vigasOpts) !== null,
+    ).length;
+    const hint =
+      measurand.codigo === 'FC_CUBO'
+        ? ' Cada réplica necesita Carga (prensa) y L1, L2 en cm; pulse «Guardar lecturas».'
+        : measurand.codigo === 'FC'
+          ? ' Cada réplica necesita Carga y diámetros d1, d2; pulse «Guardar lecturas».'
+          : ' Guarde las lecturas en la pestaña Réplicas.';
     throw new Error(
-      `Se requieren al menos 2 réplicas con valor calculado. Se encontraron ${replicas.length}.`,
+      `Se requieren al menos 2 réplicas con f′c calculable. ` +
+      `Valores listos para el presupuesto: ${replicas.length}; ` +
+      `réplicas con lecturas completas: ${withCompleteReadings}.${hint}`,
     );
   }
 
@@ -954,6 +979,34 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
       }
     } else {
       warnings.push('FC_CUBO: sin datos de carga o lados en las réplicas, los coeficientes de sensibilidad se omiten (ci=1).');
+    }
+  }
+
+  // Fallback when f′c is stored but L1/L2 were not persisted (legacy rows).
+  if (
+    measurand.codigo === 'FC_CUBO' &&
+    !sensitivityContext.area_mean &&
+    replicaValues.length >= 2
+  ) {
+    const fc_mean =
+      replicaValues.reduce((s, v) => s + v, 0) / replicaValues.length;
+    const cargas = allStudyReplicas
+      .map((r) => {
+        const raw = r.raw_values_json as Record<string, number>;
+        return Number(raw.Carga ?? raw.carga ?? 0);
+      })
+      .filter((v) => v > 0);
+    if (cargas.length > 0 && fc_mean > 0) {
+      const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
+      const area_mean = carga_mean / fc_mean;
+      sensitivityContext.carga_mean = carga_mean;
+      sensitivityContext.fc_mean = fc_mean;
+      sensitivityContext.area_mean = area_mean;
+      sensitivityContext.L_mean = Math.sqrt(area_mean);
+      warnings.push(
+        'FC_CUBO: sensibilidades estimadas desde f′c y Carga promedio (faltan L1/L2 guardados). ' +
+        'Capture ambos lados en cm para trazabilidad completa.',
+      );
     }
   }
 
@@ -1648,10 +1701,20 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
 
 export async function previewBudget(studyId: string): Promise<PreviewBudgetResponse> {
   const study = await getStudy(studyId);
-  if (!study) throw new Error(`Study ${studyId} not found`);
+  if (!study) throw new Error(`Estudio no encontrado (${studyId}).`);
 
   const { input, warnings } = await buildStudyInput(study);
-  const budget = buildBudget(input);
+  let budget;
+  try {
+    budget = buildBudget(input);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    const code = study.measurand?.codigo ?? '';
+    throw new Error(
+      `No se pudo calcular el presupuesto${code ? ` (${code})` : ''}: ${detail}. ` +
+      `Revise réplicas y contribuyentes Tipo B del estudio.`,
+    );
+  }
 
   return { budget, warnings };
 }
