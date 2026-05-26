@@ -5,27 +5,8 @@ import { useParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { CompletedVerificacionFicha } from '@/components/ema/CompletedVerificacionFicha'
 import { EmaFichaPrintToolbar } from '@/components/ema/EmaFichaPrintToolbar'
+import { verificacionPrintMeta } from '@/lib/ema/verificacionPrintMeta'
 import type { CompletedVerificacionDetalle } from '@/types/ema'
-
-const RESULTADO_LABEL: Record<string, string> = {
-  conforme: 'Conforme',
-  no_conforme: 'No conforme',
-  condicional: 'Condicional',
-  pendiente: 'Pendiente',
-}
-
-function formatCondiciones(
-  c: CompletedVerificacionDetalle['condiciones_ambientales'],
-): string | null {
-  if (!c) return null
-  return [
-    c.temperatura && `Temp: ${c.temperatura}`,
-    c.humedad && `Hum: ${c.humedad}`,
-    c.lugar,
-  ]
-    .filter(Boolean)
-    .join(' · ') || null
-}
 
 export default function VerificacionImprimirPage() {
   const { id: instrumentoId, verifId } = useParams<{ id: string; verifId: string }>()
@@ -89,16 +70,7 @@ export default function VerificacionImprimirPage() {
             <CompletedVerificacionFicha
               snapshot={data.snapshot}
               measurements={data.measurements ?? []}
-              meta={{
-                instrumentoCodigo: data.instrumento?.codigo,
-                instrumentoNombre: data.instrumento?.nombre,
-                fechaVerificacion: data.fecha_verificacion,
-                fechaProxima: data.fecha_proxima_verificacion,
-                resultado: RESULTADO_LABEL[data.resultado] ?? data.resultado,
-                verificador: data.created_by_profile?.full_name ?? null,
-                condiciones: formatCondiciones(data.condiciones_ambientales),
-                observaciones: data.observaciones_generales,
-              }}
+              meta={verificacionPrintMeta(data)}
               className="print:border-stone-600"
             />
             <p className="print:hidden mt-4 text-[11px] text-stone-500 text-center">

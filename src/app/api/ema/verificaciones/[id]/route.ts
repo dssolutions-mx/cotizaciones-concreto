@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
-import {
-  fetchLatestVigenteCertUncertaintyByInstrumentIds,
-  replaceCompletedVerificacionMaestros,
-} from '@/services/emaInstrumentoService';
+import { replaceCompletedVerificacionMaestros } from '@/services/emaInstrumentoService';
 import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
-import type { InstrumentoCard } from '@/types/ema';
+import { EMA_VERIFICACION_READ_ROLES, EMA_VERIFICACION_WRITE_ROLES } from '@/lib/ema/emaVerificacionApiRoles';
+import { fetchCompletedVerificacionDetalle } from '@/lib/ema/fetchCompletedVerificacionDetalle';
 import { z } from 'zod';
 
-const WRITE_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE', 'ADMIN'];
-const READ_ROLES = [...WRITE_ROLES, 'ADMIN_OPERATIONS'];
+const WRITE_ROLES = EMA_VERIFICACION_WRITE_ROLES;
+const READ_ROLES = EMA_VERIFICACION_READ_ROLES;
 
 const PatchSchema = z.object({
   resultado: z.enum(['conforme', 'no_conforme', 'condicional', 'pendiente']).optional(),
@@ -37,121 +35,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     const admin = createServiceClient();
-    const { data: verif, error: vErr } = await admin
-      .from('completed_verificaciones')
-      .select('*')
-      .eq('id', id)
-      .single();
-    if (vErr || !verif) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+    const data = await fetchCompletedVerificacionDetalle(admin, id);
+    if (!data) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
 
-    const vRow = verif as Record<string, unknown> & {
-      template_version_id: string;
-      instrumento_id: string;
-      created_by: string | null;
-    };
-
-    // Load snapshot from template version
-    const { data: versionRaw } = await admin
-      .from('verificacion_template_versions')
-      .select('version_number, snapshot, published_at')
-      .eq('id', vRow.template_version_id)
-      .single();
-    const version = versionRaw as {
-      version_number: number | null;
-      snapshot: unknown;
-      published_at?: string | null;
-    } | null;
-
-    // Load measurements
-    const { data: measurements } = await admin
-      .from('completed_verificacion_measurements')
-      .select('*')
-      .eq('completed_id', id)
-      .order('section_repeticion');
-
-    // Load instrument info
-    const { data: instrumento } = await admin
-      .from('instrumentos')
-      .select('id, codigo, nombre, tipo, estado, conjunto_id')
-      .eq('id', vRow.instrumento_id)
-      .single();
-
-    // Load creator profile
-    let created_by_profile = null;
-    if (vRow.created_by) {
-      const { data: cp } = await admin
-        .from('user_profiles')
-        .select('id, full_name')
-        .eq('id', vRow.created_by)
-        .single();
-      created_by_profile = cp;
-    }
-
-    const { data: mlinks } = await admin
-      .from('completed_verificacion_maestros')
-      .select('maestro_id')
-      .eq('completed_id', id);
-    const instrumento_maestro_ids = (mlinks ?? []).map((r: { maestro_id: string }) => r.maestro_id);
-
-    let instrumentos_maestro: InstrumentoCard[] = [];
-    if (instrumento_maestro_ids.length > 0) {
-      const { data: mrows } = await admin
-        .from('instrumentos')
-        .select(`
-          id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
-          incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
-          conjuntos_herramientas!inner(
-            categoria,
-            codigo_conjunto,
-            nombre_conjunto
-          )
-        `)
-        .in('id', instrumento_maestro_ids);
-      const certOv = await fetchLatestVigenteCertUncertaintyByInstrumentIds(instrumento_maestro_ids, admin);
-      const ch = (row: { conjuntos_herramientas?: Record<string, string> | null }) =>
-        row.conjuntos_herramientas ?? {};
-      instrumentos_maestro = (mrows ?? []).map((row: Record<string, unknown>) => {
-        const c = ch(row as { conjuntos_herramientas?: Record<string, string> });
-        const cid = row.id as string;
-        const cert = certOv.get(cid);
-        return {
-          id: cid,
-          codigo: row.codigo as string,
-          nombre: row.nombre as string,
-          tipo: row.tipo as InstrumentoCard['tipo'],
-          categoria: (c.categoria as string) ?? '',
-          estado: row.estado as InstrumentoCard['estado'],
-          fecha_proximo_evento: row.fecha_proximo_evento as string | null,
-          plant_id: row.plant_id as string,
-          marca: row.marca as string | null,
-          modelo_comercial: row.modelo_comercial as string | null,
-          conjunto_id: row.conjunto_id as string,
-          conjunto_codigo: (c.codigo_conjunto as string) ?? '',
-          conjunto_nombre: (c.nombre_conjunto as string) ?? '',
-          incertidumbre_expandida:
-            (row.incertidumbre_expandida as number | null | undefined) ?? cert?.incertidumbre_expandida ?? null,
-          incertidumbre_k: (row.incertidumbre_k as number | null | undefined) ?? cert?.factor_cobertura ?? null,
-          incertidumbre_unidad:
-            (row.incertidumbre_unidad as string | null | undefined) ?? cert?.incertidumbre_unidad ?? null,
-        };
-      });
-    }
-
-    return NextResponse.json({
-      data: {
-        ...vRow,
-        instrumento_maestro_ids,
-        instrumentos_maestro,
-        snapshot: version?.snapshot ?? null,
-        template_version_number: version?.version_number ?? null,
-        measurements: measurements ?? [],
-        evidencias: [],
-        signatures: [],
-        issues: [],
-        instrumento,
-        created_by_profile,
-      },
-    });
+    return NextResponse.json({ data });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

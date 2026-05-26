@@ -479,4 +479,19 @@
   main > div.mb-4.flex.md\\:hidden {
     display: none !important;
   }
+
+  .ema-verificacion-print-page {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .ema-verificacion-print-page-last {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .ema-bulk-verificacion-cover {
+    break-after: page;
+    page-break-after: always;
+  }
 }
