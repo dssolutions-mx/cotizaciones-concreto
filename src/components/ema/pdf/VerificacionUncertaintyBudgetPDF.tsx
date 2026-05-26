@@ -35,26 +35,35 @@ function buildBudgetColumns(): PdfTableColumn[] {
   }))
 }
 
-function fmtSci(n: number, digits = 3): string {
+function fmtSci(n: number | null | undefined, digits = 3): string {
+  if (n == null || !Number.isFinite(n)) return '—'
   if (n === 0) return '0'
   if (Math.abs(n) >= 0.01 && Math.abs(n) < 10000) return n.toFixed(4)
   return n.toExponential(digits)
 }
 
+function fmtFixed(n: number | null | undefined, digits = 4): string {
+  if (n == null || !Number.isFinite(n)) return '—'
+  return n.toFixed(digits)
+}
+
 function componentRow(c: UncertaintyComponent, sumUi2: number): string[] {
-  const pct = sumUi2 > 0 ? ((100 * c.ui2_y) / sumUi2).toFixed(1) : '0'
+  const ui2 = Number(c.ui2_y)
+  const pct =
+    sumUi2 > 0 && Number.isFinite(ui2) ? ((100 * ui2) / sumUi2).toFixed(1) : '0'
+  const nu = c.nu
   return [
-    c.fuente,
-    c.magnitud_xi,
-    `${fmtSci(c.valor_xi)}`,
+    c.fuente ?? '—',
+    c.magnitud_xi ?? '—',
+    fmtSci(c.valor_xi),
     fmtSci(c.u_xi),
-    c.tipo,
-    c.distribucion,
-    String(c.ci),
+    c.tipo ?? '—',
+    c.distribucion ?? '—',
+    c.ci != null && Number.isFinite(c.ci) ? String(c.ci) : '—',
     fmtSci(c.ui_y),
     fmtSci(c.ui2_y),
     pct,
-    isFinite(c.nu) ? (c.nu >= 1e6 ? '∞' : fmtSci(c.nu, 1)) : '∞',
+    nu != null && Number.isFinite(nu) ? (nu >= 1e6 ? '∞' : fmtSci(nu, 1)) : '∞',
     c.ref_norma ?? '—',
   ]
 }
@@ -79,7 +88,10 @@ export function VerificacionUncertaintyBudgetPDF({
   instrumentoCodigo?: string
 }) {
   const components = budget?.components ?? []
-  const sumUi2 = components.reduce((acc, c) => acc + c.ui2_y, 0)
+  const sumUi2 = components.reduce((acc, c) => {
+    const v = Number(c.ui2_y)
+    return acc + (Number.isFinite(v) ? v : 0)
+  }, 0)
   const typeA = components.filter((c) => c.tipo === 'A')
   const typeB = components.filter((c) => c.tipo === 'B')
   const rows: string[][] = []
@@ -112,12 +124,12 @@ export function VerificacionUncertaintyBudgetPDF({
       {budget && (
         <>
           <View style={[s.summaryStrip, { marginTop: 8 }]}>
-            <Text style={s.summaryItem}>ē = {budget.mean_value.toFixed(4)} {unit}</Text>
+            <Text style={s.summaryItem}>ē = {fmtFixed(budget.mean_value)} {unit}</Text>
             <Text style={s.summaryItem}>u_c = {fmtSci(budget.u_c)} {unit}</Text>
             <Text style={s.summaryItem}>
-              νeff = {isFinite(budget.nu_eff) ? budget.nu_eff.toFixed(1) : '∞'}
+              νeff = {Number.isFinite(budget.nu_eff) ? fmtFixed(budget.nu_eff, 1) : '∞'}
             </Text>
-            <Text style={s.summaryItem}>k = {budget.k.toFixed(4)}</Text>
+            <Text style={s.summaryItem}>k = {fmtFixed(budget.k)}</Text>
             <Text style={[s.summaryItem, { fontWeight: 'bold' }]}>
               U = {fmtSci(budget.U)} {unit}
             </Text>

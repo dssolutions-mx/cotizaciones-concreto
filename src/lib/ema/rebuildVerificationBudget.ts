@@ -15,16 +15,30 @@ export function rebuildVerificationBudget(
   u_expandida: number | null,
   k_factor: number | null,
 ): BudgetResult {
-  const u_c = Math.sqrt(components.reduce((s, c) => s + c.ui2_y, 0))
+  const u_c = Math.sqrt(
+    components.reduce((s, c) => {
+      const v = Number(c.ui2_y)
+      return s + (Number.isFinite(v) ? v : 0)
+    }, 0),
+  )
   const denom = components.reduce((s, c) => {
-    if (!isFinite(c.nu) || c.nu === 0) return s
-    return s + c.ui2_y ** 2 / c.nu
+    const ui2 = Number(c.ui2_y)
+    const nu = Number(c.nu)
+    if (!Number.isFinite(ui2) || !Number.isFinite(nu) || nu === 0) return s
+    return s + ui2 ** 2 / nu
   }, 0)
-  const nu_eff = denom > 0 ? u_c ** 4 / denom : Infinity
+  const nu_eff = denom > 0 && Number.isFinite(u_c) ? u_c ** 4 / denom : Infinity
   const k = k_factor ?? tStudent95(nu_eff)
-  const U = u_expandida ?? u_c * k
+  const U =
+    u_expandida != null && Number.isFinite(u_expandida)
+      ? u_expandida
+      : Number.isFinite(u_c) && Number.isFinite(k)
+        ? u_c * k
+        : 0
   const typeAComp = components.find((c) => c.tipo === 'A')
-  const mean_value = typeAComp?.valor_xi ?? 0
+  const meanRaw = typeAComp?.valor_xi
+  const mean_value =
+    meanRaw != null && Number.isFinite(Number(meanRaw)) ? Number(meanRaw) : 0
   return {
     components,
     mean_value,
