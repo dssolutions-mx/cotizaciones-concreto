@@ -34,6 +34,9 @@ type InstrumentOption = {
   codigo: string
   nombre: string
   estado?: string
+  /** Categories this instrument belongs to (from the fetch query). Used for
+   *  category-based role filtering when no explicit pool role assignments exist. */
+  categorias?: string[]
 }
 
 function InstrumentSelectLabel({
@@ -104,10 +107,11 @@ export function EmaUncertaintyReplicaTable({
   // Role context for multi-input measurands
   const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? null
   const primaryRole = rolesDef?.[0] ?? null
-  // Whether to show per-role instrument columns: only when roles are defined AND
-  // the equipo pool has at least one instrument_role assignment configured.
+  // Show per-role instrument columns whenever the measurand defines ≥2 instrument roles
+  // (e.g. FC/FC_CUBO/VIGAS/MU). No pool role-assignment required — the columns appear
+  // immediately and use category-based filtering to pre-populate each dropdown correctly.
   const instrRolesFromPool = equipoPool.instrumento_roles ?? {}
-  const showRoleColumns = !!(rolesDef && Object.keys(instrRolesFromPool).length > 0)
+  const showRoleColumns = !!(rolesDef && rolesDef.length > 1)
 
   const [operators, setOperators] = useState<OperatorOption[]>([])
   const [instruments, setInstruments] = useState<InstrumentOption[]>([])
@@ -148,15 +152,25 @@ export function EmaUncertaintyReplicaTable({
         setOperators(Array.isArray(opJson.data) ? opJson.data : [])
 
         const merged = new Map<string, InstrumentOption>()
-        for (const res of instRes) {
-          const j = await res.json()
+        for (let ci = 0; ci < instRes.length; ci++) {
+          const fetchedCat = categories[ci] ?? null
+          const j = await instRes[ci].json()
           for (const row of j.data ?? []) {
-            merged.set(row.id, {
-              id: row.id,
-              codigo: row.codigo,
-              nombre: row.nombre,
-              estado: row.estado,
-            })
+            const existing = merged.get(row.id)
+            if (existing) {
+              // Accumulate all categories this instrument satisfies
+              if (fetchedCat && !existing.categorias?.includes(fetchedCat)) {
+                existing.categorias = [...(existing.categorias ?? []), fetchedCat]
+              }
+            } else {
+              merged.set(row.id, {
+                id: row.id,
+                codigo: row.codigo,
+                nombre: row.nombre,
+                estado: row.estado,
+                categorias: fetchedCat ? [fetchedCat] : [],
+              })
+            }
           }
         }
         setInstruments([...merged.values()].sort((a, b) => a.codigo.localeCompare(b.codigo)))
@@ -216,21 +230,35 @@ export function EmaUncertaintyReplicaTable({
     return list.sort((a, b) => a.codigo.localeCompare(b.codigo))
   }, [instruments, equipoPool.instrumento_ids, replicas])
 
-  // Per-role instrument lists: instruments from the pool assigned each role.
-  // Used when showRoleColumns is true to populate per-role instrument selects.
+  // Per-role instrument lists for multi-instrument measurands (FC, FC_CUBO, VIGAS, MU).
+  //
+  // Priority order:
+  //   1. Explicit pool role assignments (instrumento_roles map) — user has deliberately
+  //      classified each instrument; highest fidelity.
+  //   2. Category-based filtering — instruments whose `categorias` array overlaps the
+  //      role's `categories` definition. Works without any user configuration.
+  //   3. Full `filteredInstruments` list — last resort when neither assignment nor
+  //      category data is available.
   const instrumentsByRoleKey = useMemo(() => {
     if (!rolesDef) return {} as Record<string, InstrumentOption[]>
     const map: Record<string, InstrumentOption[]> = {}
     for (const role of rolesDef) {
+      // 1. Explicit pool assignments
       const assignedIds = new Set(
         Object.entries(instrRolesFromPool)
           .filter(([, rk]) => rk === role.key)
           .map(([id]) => id),
       )
-      // Instruments in the pool assigned this role
-      const roleInstrs = filteredInstruments.filter((i) => assignedIds.has(i.id))
-      // Fallback to all filtered instruments if no role assignments exist yet
-      map[role.key] = roleInstrs.length > 0 ? roleInstrs : filteredInstruments
+      const byAssignment = filteredInstruments.filter((i) => assignedIds.has(i.id))
+      if (byAssignment.length > 0) {
+        map[role.key] = byAssignment
+        continue
+      }
+      // 2. Category-based filtering (works without explicit assignments)
+      const byCategory = filteredInstruments.filter(
+        (i) => i.categorias?.some((c) => role.categories.includes(c)),
+      )
+      map[role.key] = byCategory.length > 0 ? byCategory : filteredInstruments
     }
     return map
   }, [rolesDef, instrRolesFromPool, filteredInstruments])
@@ -279,13 +307,13 @@ export function EmaUncertaintyReplicaTable({
             capture los valores medidos y guarde. Luego calcule el presupuesto de incertidumbre.
           </p>
         )}
-        {rolesDef && !showRoleColumns && !isLocked && (
-          <p className="mt-1 text-xs text-amber-900">
+        {showRoleColumns && rolesDef && Object.keys(instrRolesFromPool).length === 0 && !isLocked && (
+          <p className="mt-1 text-xs text-sky-900/70">
             <Info className="mr-1 inline h-3 w-3" />
-            Este mesurando usa <strong>múltiples instrumentos</strong> (p. ej. Prensa + Vernier).
-            Asigne un <strong>rol a cada instrumento</strong> en{' '}
-            <strong>Configuración → Equipo del estudio</strong> para activar las columnas
-            por función y que cada calibración use el coeficiente de sensibilidad correcto.
+            Para que la calibración de cada instrumento use el coeficiente de sensibilidad correcto,
+            asigna un <strong>rol</strong> a cada instrumento en{' '}
+            <strong>Configuración → Equipo del estudio</strong>.
+            Las columnas ya están activas — la asignación mejora el presupuesto GUM.
           </p>
         )}
         {!poolActive && !isLocked && (

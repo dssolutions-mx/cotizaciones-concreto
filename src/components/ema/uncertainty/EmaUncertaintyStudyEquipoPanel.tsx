@@ -71,15 +71,15 @@ function RoleChip({
         )
       ) : (
         <Select
-          value={roleKey ?? ''}
-          onValueChange={(v) => onRoleChange(instrId, v || null)}
+          value={roleKey ?? '__none__'}
+          onValueChange={(v) => onRoleChange(instrId, v === '__none__' ? null : v)}
         >
           <SelectTrigger className="h-6 w-full max-w-[220px] rounded border border-stone-200 bg-white px-2 text-[10px] text-stone-700 shadow-none focus:ring-1 focus:ring-sky-400">
             <SelectValue placeholder="Asignar rol de instrumento" />
             <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-stone-400" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="" className="text-xs text-stone-400">Sin rol asignado</SelectItem>
+            <SelectItem value="__none__" className="text-xs text-stone-400">Sin rol asignado</SelectItem>
             {roles.map((ro) => (
               <SelectItem key={ro.key} value={ro.key} className="text-xs">
                 <span className="font-medium text-stone-800">{ro.label}</span>
