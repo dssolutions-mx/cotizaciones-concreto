@@ -583,6 +583,77 @@ console.log(`  u_c=${fcCylBudget.u_c.toExponential(4)} kg/cm²  U=${fcCylBudget.
 console.log('  ✓ FC cilindro');
 
 // ===========================================================================
+// 5c. FC — mm-input path (actual user entry via replica grid)
+//     Users enter d1, d2 in mm (NMX-C-083 convention).
+//     The service converts d_mean_mm → cm before building sensitivityContext,
+//     so area_mean and sensitivity coefficients must be in cm².
+//     This test validates the mm→cm conversion and that the budget magnitude
+//     matches the cm-input path above (same cylinder, same load, same U range).
+// ===========================================================================
+console.log('5c. FC — mm-input path (d1=150 mm, d2=152 mm)');
+
+const D1_MM = 150;                                    // mm (user entry)
+const D2_MM = 152;                                    // mm (user entry)
+const DPROM_MM = (D1_MM + D2_MM) / 2;                // 151 mm
+const DPROM_CM = DPROM_MM / 10;                       // 15.1 cm  ← service conversion
+const A_CYL_MM = (Math.PI * DPROM_CM ** 2) / 4;      // cm² after conversion ≈ 179.08
+const CARGA_MM = FC_CYL_MEAN * A_CYL_MM;             // ≈ 44 770 kg
+
+// Context that the service produces after mm→cm conversion
+const ctxMM = { carga_mean: CARGA_MM, d_mean: DPROM_CM, area_mean: A_CYL_MM };
+
+const c_carga_mm = sensitivityCoefficient('FC', 'Carga', ctxMM);
+const c_d_mm     = sensitivityCoefficient('FC', 'd',     ctxMM);
+
+// c_Carga = 1/A_cm²  →  same unit structure as 5b
+assert.ok(nearAbs(c_carga_mm, 1 / A_CYL_MM, 1e-8),
+  `FC mm-path: c_Carga = 1/A = ${(1/A_CYL_MM).toExponential(4)}, got ${c_carga_mm.toExponential(4)}`);
+// c_d = -2·fc/d_cm  (negative)
+assert.ok(nearAbs(c_d_mm, -2 * FC_CYL_MEAN / DPROM_CM, 1e-5),
+  `FC mm-path: c_d = ${(-2*FC_CYL_MEAN/DPROM_CM).toFixed(3)}, got ${c_d_mm.toFixed(3)}`);
+assert.ok(c_d_mm < 0, 'FC mm-path: c_d must be negative');
+
+// Full budget with mm-derived context — U must still be in kg/cm² range
+const fcMmBudget = buildBudget({
+  measurandCode: 'FC',
+  measurandName: "Resistencia a la compresión f'c (mm-path)",
+  unit: 'kg/cm²',
+  replicaValues: [248, 252, 249, 251, 250, 253, 248, 251, 250, 252],
+  typeBInputs: [
+    {
+      fuente: 'Calibración de la prensa hidráulica',
+      magnitud_xi: 'Carga', unidad: 'kg', valor_xi: CARGA_MM,
+      kind: 'calibration', U_cert: 250, k_cert: 2,
+      ci_override: c_carga_mm, categoria: 'calibration',
+    },
+    {
+      fuente: 'Calibración del vernier — diámetro (mm→cm)',
+      magnitud_xi: 'd', unidad: 'cm', valor_xi: DPROM_CM,
+      kind: 'calibration',
+      U_cert: 0.05,   // 0.5 mm → 0.05 cm
+      k_cert: 2,
+      ci_override: Math.abs(c_d_mm), categoria: 'calibration',
+    },
+  ],
+  sensitivityContext: ctxMM,
+});
+
+// U must be in kg/cm² range — same sanity bounds as 5b
+assert.ok(fcMmBudget.U > 0.1, `FC mm-path: U > 0.1 kg/cm², got ${fcMmBudget.U.toFixed(3)}`);
+assert.ok(fcMmBudget.U < 5,   `FC mm-path: U < 5 kg/cm², got ${fcMmBudget.U.toFixed(3)}`);
+assert.ok(near(fcMmBudget.U, fcMmBudget.k * fcMmBudget.u_c), 'FC mm-path: U = k·u_c');
+
+// Prensa contribution: u_i = (250/2) × (1/A_cm²)
+const prensaMM = fcMmBudget.components.find((c) => c.fuente.includes('prensa'))!;
+assert.ok(nearAbs(prensaMM.ui_y, (250/2) * c_carga_mm, 1e-4),
+  `FC mm-path: ui_y(prensa) = ${((250/2)*c_carga_mm).toFixed(4)} kg/cm²`);
+
+console.log(`  dprom=${DPROM_MM} mm → ${DPROM_CM} cm  A=${A_CYL_MM.toFixed(2)} cm²`);
+console.log(`  c_Carga=${c_carga_mm.toExponential(4)}  c_d=${c_d_mm.toFixed(3)}`);
+console.log(`  U=${fcMmBudget.U.toExponential(4)} kg/cm²`);
+console.log('  ✓ FC mm-input path');
+
+// ===========================================================================
 // 6. Monotonic increase: adding contributors grows u_c
 // ===========================================================================
 console.log('6. Monotonic u_c growth with contributors');

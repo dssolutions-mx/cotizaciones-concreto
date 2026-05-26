@@ -808,17 +808,26 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     const cargas = replicas
       .map((r) => Number(r.raw_values_json['Carga'] ?? r.raw_values_json['carga'] ?? 0))
       .filter((v) => v > 0);
-    const dproms = replicas
-      .map((r) => Number(r.raw_values_json['dprom'] ?? r.raw_values_json['d1'] ?? r.raw_values_json['d'] ?? 0))
-      .filter((v) => v > 0);
-    if (cargas.length > 0 && dproms.length > 0) {
+    // d1 / d2 are seeded in mm (NMX-C-083 convention). Average the two readings,
+    // then convert mm → cm so that area_mean is in cm² and all sensitivity
+    // coefficients (c_Carga = 1/A, c_d = −2·fc/d) carry the correct [kg/cm²] unit.
+    const d1s = replicas.map((r) => Number(r.raw_values_json['d1'] ?? 0)).filter((v) => v > 0);
+    const d2s = replicas.map((r) => Number(r.raw_values_json['d2'] ?? 0)).filter((v) => v > 0);
+    // Fall back to dprom (stored in mm) or 'd' alias when d1/d2 are absent.
+    const dproms_mm = d1s.length > 0
+      ? d1s.map((v, i) => (d2s[i] != null ? (v + d2s[i]) / 2 : v))
+      : replicas
+          .map((r) => Number(r.raw_values_json['dprom'] ?? r.raw_values_json['d'] ?? 0))
+          .filter((v) => v > 0);
+    if (cargas.length > 0 && dproms_mm.length > 0) {
       const carga_mean = cargas.reduce((s, v) => s + v, 0) / cargas.length;
-      const d_mean = dproms.reduce((s, v) => s + v, 0) / dproms.length;
-      const area_mean = (Math.PI * d_mean ** 2) / 4;
+      const d_mean_mm  = dproms_mm.reduce((s, v) => s + v, 0) / dproms_mm.length;
+      const d_mean_cm  = d_mean_mm / 10;                         // mm → cm
+      const area_mean  = (Math.PI * d_mean_cm ** 2) / 4;         // cm²
       if (area_mean > 0) {
         sensitivityContext.carga_mean = carga_mean;
-        sensitivityContext.d_mean = d_mean;
-        sensitivityContext.area_mean = area_mean;
+        sensitivityContext.d_mean     = d_mean_cm;   // cm — consumed by sensitivityCoefficient
+        sensitivityContext.area_mean  = area_mean;   // cm²
       } else {
         warnings.push('FC: diámetro promedio = 0, los coeficientes de sensibilidad se omiten (ci=1).');
       }
