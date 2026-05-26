@@ -1,10 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchLatestVigenteCertUncertaintyByInstrumentIds } from '@/services/emaInstrumentoService'
+import { signedUrlsForVerificacionSignatures } from '@/lib/ema/verificacionSignatureUrls'
 import type {
   CompletedVerificacionDetalle,
   InstrumentoCalibracionResumen,
   InstrumentoCard,
   VerificacionMetrologiaRecord,
+  VerificacionSignature,
   VerificacionTemplateSnapshot,
 } from '@/types/ema'
 
@@ -235,7 +237,9 @@ export async function fetchCompletedVerificacionesDetalle(
         .order('fecha_emision', { ascending: false }),
       admin
         .from('verificacion_signatures')
-        .select('completed_id, rol, signer_name, signed_at')
+        .select(
+          'id, completed_id, rol, signer_user_id, signer_name, signature_storage_path, signed_at',
+        )
         .in('completed_id', uniqueIds),
     ])
 
@@ -262,11 +266,20 @@ export async function fetchCompletedVerificacionesDetalle(
   const calByInstrumento = latestCalibracionByInstrumento(
     (calRows ?? []) as Record<string, unknown>[],
   )
+  const signaturePaths = (signatureRows ?? [])
+    .map((s) => (s as VerificacionSignature).signature_storage_path)
+    .filter(Boolean)
+  const signatureUrlByPath = await signedUrlsForVerificacionSignatures(admin, signaturePaths)
+
   const signaturesByCompleted = new Map<string, CompletedVerificacionDetalle['signatures']>()
   for (const id of uniqueIds) signaturesByCompleted.set(id, [])
   for (const sig of signatureRows ?? []) {
-    const row = sig as { completed_id: string }
-    signaturesByCompleted.get(row.completed_id)!.push(sig as CompletedVerificacionDetalle['signatures'][0])
+    const row = sig as VerificacionSignature
+    const path = row.signature_storage_path
+    signaturesByCompleted.get(row.completed_id)!.push({
+      ...row,
+      signature_url: path ? (signatureUrlByPath.get(path) ?? null) : null,
+    })
   }
 
   const assembledById = new Map<string, CompletedVerificacionDetalle>()

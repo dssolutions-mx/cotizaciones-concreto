@@ -21,7 +21,7 @@ import {
   mean as engineMean,
   stdDevSample,
 } from '@/lib/ema/uncertaintyBudget';
-import { convertUnit } from '@/lib/ema/units';
+import { convertUnit, isForceUnit } from '@/lib/ema/units';
 import type {
   ExtraTypeAInput,
   UncertaintyMeasurand,
@@ -681,7 +681,7 @@ async function resolveInstrumentCalibration(
   // 2. Fallback: legacy external certificate
   const { data: legacyCert } = await supabase
     .from('certificados_calibracion')
-    .select('incertidumbre_expandida, factor_cobertura, numero_certificado')
+    .select('incertidumbre_expandida, factor_cobertura, numero_certificado, incertidumbre_unidad')
     .eq('instrumento_id', instrumento_id)
     .eq('is_vigente', true)
     .lte('fecha_emision', studyDate)
@@ -696,7 +696,11 @@ async function resolveInstrumentCalibration(
       u_expandida: legacyCert.incertidumbre_expandida,
       k_factor: legacyCert.factor_cobertura ?? 2,
       numero_certificado: legacyCert.numero_certificado ?? null,
-      unidad: null,
+      // incertidumbre_unidad carries the unit of U (e.g. 'kN', 'kg', 'mm').
+      // When present, the caller converts U to the role's target unit (e.g. kN→kg).
+      // When null (older certs entered before the unit field was used), conversion
+      // is skipped and a warning is surfaced so the user can update the cert record.
+      unidad: legacyCert.incertidumbre_unidad ?? null,
       source: 'external_cert',
     };
   }
@@ -1084,9 +1088,11 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
     let U_used = calData.u_expandida;
     let conversionNote = '';
     // For multi-input measurands, convert to the *symbol's* unit (e.g. cm for
-    // a Vernier measuring VIGAS/FC_CUBO dimensions), not the measurand output
-    // unit (kg/cm²).  The GUM sensitivity coefficient ci = ∂f/∂xi already
-    // carries the [output_unit / symbol_unit] conversion inside buildBudget.
+    // a Vernier measuring VIGAS/FC_CUBO dimensions, kN→kg for a Prensa), not the
+    // measurand output unit (kg/cm²).  The GUM sensitivity coefficient ci = ∂f/∂xi
+    // already carries the [output_unit / symbol_unit] conversion inside buildBudget.
+    //
+    // Common case: cert in kN, measurand input in kg/kgf → convertUnit('kN','kg') × 101.97.
     const calUnit = calData.unidad ?? '';
     const targetUnit = getTargetUnitForRole(roleSymbols);
     if (calUnit && targetUnit && calUnit !== targetUnit) {
@@ -1096,10 +1102,23 @@ async function buildStudyInput(study: UncertaintyStudy): Promise<{
         if (conv.converted) conversionNote = ` (convertido ${calUnit}→${targetUnit})`;
       } else {
         warnings.push(
-          `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${targetUnit}". Se omite la contribución de calibración para evitar error de unidades.`,
+          `Instrumento ${instrNombre}: unidad de calibración "${calUnit}" no convertible a "${targetUnit}". ` +
+          `Se omite la contribución de calibración para evitar error de unidades. ` +
+          `Corrija la unidad del certificado (esperada: ${targetUnit}).`,
         );
         return false;
       }
+    } else if (!calUnit && isForceUnit(targetUnit)) {
+      // Unit is missing from the cert record AND the role expects a force unit.
+      // Conversion cannot be performed — this is a real risk: a Prensa cert in kN
+      // used without conversion would underestimate U by a factor of ~102.
+      // Emit a warning but still include the row so the budget is not silently empty.
+      warnings.push(
+        `⚠ Instrumento ${instrNombre}: el certificado no tiene unidad registrada (campo "incertidumbre_unidad" vacío). ` +
+        `La unidad esperada para este rol es "${targetUnit}". Si el certificado está en kN y se usa sin convertir, ` +
+        `la incertidumbre del presupuesto será ~102× demasiado pequeña. ` +
+        `Edite el certificado y especifique la unidad (kN, kg o kgf) para que la conversión sea automática.`,
+      );
     }
 
     const provenance = calData.source === 'internal_verification'

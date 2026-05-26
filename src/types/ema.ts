@@ -523,6 +523,8 @@ export interface VerificacionSignature {
   signer_name: string;
   signature_storage_path: string;
   signed_at: string;
+  /** Populated server-side for PDF/export (signed URL, not persisted). */
+  signature_url?: string | null;
 }
 
 export interface VerificacionIssue {

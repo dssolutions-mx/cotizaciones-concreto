@@ -12,6 +12,11 @@ import {
 } from '@/lib/ema/verificacionFichaModel'
 import { metrologiaBudgetForPdf } from '@/lib/ema/rebuildVerificationBudget'
 import {
+  resolveVerificacionRealizoSlot,
+  resolveVerificacionSupervisoSlot,
+  type VerificacionPdfSignatureSlot,
+} from '@/lib/ema/verificacionPdfSignatures'
+import {
   formatVerificacionCondiciones,
   verificacionPrintMeta,
   VERIFICACION_RESULTADO_LABEL,
@@ -105,6 +110,30 @@ function Kv({ label, value, mono }: { label: string; value: string; mono?: boole
     <View style={s.kvRow}>
       <Text style={s.kvLabel}>{label}</Text>
       <Text style={mono ? s.kvValueMono : s.kvValue}>{value}</Text>
+    </View>
+  )
+}
+
+function PdfSignatureSlot({
+  title,
+  subtitle,
+  slot,
+}: {
+  title: string
+  subtitle: string
+  slot: VerificacionPdfSignatureSlot
+}) {
+  return (
+    <View style={s.signatureBox}>
+      <Text style={s.signatureRoleTitle}>{title}</Text>
+      <Text style={s.signatureRoleSubtitle}>{subtitle}</Text>
+      {slot.imageUrl ? (
+        <Image src={slot.imageUrl} style={s.signatureImage} />
+      ) : (
+        <View style={s.signaturePlaceholder} />
+      )}
+      <Text style={s.signatureName}>{slot.name}</Text>
+      {slot.signedAt ? <Text style={s.signatureDate}>Fecha y hora: {slot.signedAt}</Text> : null}
     </View>
   )
 }
@@ -227,8 +256,8 @@ function VerificacionRecordPages({
       m.fecha_proximo_evento ?? '—',
     ]) ?? []
 
-  const elaborado = data.signatures?.find((x) => x.rol === 'elaborado')
-  const revisado = data.signatures?.find((x) => x.rol === 'revisado')
+  const realizo = resolveVerificacionRealizoSlot(data)
+  const superviso = resolveVerificacionSupervisoSlot(data)
   const cond = data.condiciones_ambientales
   const issues = data.issues ?? []
   const evidencias = data.evidencias ?? []
@@ -267,13 +296,7 @@ function VerificacionRecordPages({
           {cond?.temperatura ? <Kv label="Temperatura" value={cond.temperatura} /> : null}
           {cond?.humedad ? <Kv label="Humedad relativa" value={cond.humedad} /> : null}
           {cond?.lugar ? <Kv label="Lugar" value={cond.lugar} /> : null}
-          <Kv label="Ejecutada por" value={meta.verificador ?? '—'} />
-          {elaborado ? (
-            <Kv label="Firma elaborado" value={`${elaborado.signer_name} · ${elaborado.signed_at}`} />
-          ) : null}
-          {revisado ? (
-            <Kv label="Firma revisado" value={`${revisado.signer_name} · ${revisado.signed_at}`} />
-          ) : null}
+          <Kv label="Registrada por" value={meta.verificador ?? realizo.name} />
         </PdfCard>
 
         {patronRows.length > 0 && (
@@ -359,24 +382,20 @@ function VerificacionRecordPages({
           ))}
         </PdfCard>
 
-        <View style={s.signatureRow}>
-          <View style={s.signatureBox}>
-            <Text style={s.signatureLabel}>Elaboró (operador de verificación)</Text>
-            {elaborado ? (
-              <Text style={s.signatureName}>{elaborado.signer_name}</Text>
-            ) : (
-              <Text style={s.signatureName}>{meta.verificador ?? '________________________'}</Text>
-            )}
+        <PdfCard title="§10 Autorizaciones — realizó y supervisó la verificación">
+          <View style={s.signatureRow}>
+            <PdfSignatureSlot
+              title="Realizó la verificación"
+              subtitle="Operador / quien ejecutó y registró el registro"
+              slot={realizo}
+            />
+            <PdfSignatureSlot
+              title="Supervisó la verificación"
+              subtitle="Responsable técnico / revisor del dictamen"
+              slot={superviso}
+            />
           </View>
-          <View style={s.signatureBox}>
-            <Text style={s.signatureLabel}>Revisó (responsable técnico)</Text>
-            {revisado ? (
-              <Text style={s.signatureName}>{revisado.signer_name}</Text>
-            ) : (
-              <Text style={s.signatureName}>________________________</Text>
-            )}
-          </View>
-        </View>
+        </PdfCard>
 
         <PdfFooter
           registroId={data.id}
