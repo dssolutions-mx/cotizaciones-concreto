@@ -16,6 +16,20 @@ import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierI
 import BulkCfdiInvoiceDialog from './BulkCfdiInvoiceDialog'
 import { cn } from '@/lib/utils'
 import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
+import { formatOrphanEntryRemisionLabel, orphanEntryRemisionTitle } from '@/lib/ap/orphanEntryRemisionNumbers'
+
+function OrphanEntryRemisionInline({ numbers }: { numbers?: string[] }) {
+  const label = formatOrphanEntryRemisionLabel(numbers)
+  if (!label) return null
+  return (
+    <span
+      className="text-stone-500 font-mono shrink-0"
+      title={orphanEntryRemisionTitle(numbers) ?? undefined}
+    >
+      Rem. {label}
+    </span>
+  )
+}
 
 function supplierGroupDisplayName(
   supplier: OrphanEntry['supplier'] | OrphanEntry['fleet_supplier'],
@@ -431,6 +445,7 @@ function FleetPendingSection({
                           onCheckedChange={() => toggleEntry(entry.id)}
                         />
                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
+                        <OrphanEntryRemisionInline numbers={entry.remision_numbers} />
                         <span className="text-stone-500">
                           {format(new Date(entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                         </span>
@@ -1012,6 +1027,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                                           onCheckedChange={() => toggleEntry(entry.id)}
                                         />
                                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
+                                        <OrphanEntryRemisionInline numbers={entry.remision_numbers} />
                                         <span className="text-stone-500">
                                           {format(new Date(entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                                         </span>
