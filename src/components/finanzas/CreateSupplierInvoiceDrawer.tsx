@@ -27,11 +27,11 @@ import InvoiceRetentionsEditor, {
   toRetentionPayload,
   type RetentionRowState,
 } from '@/components/finanzas/InvoiceRetentionsEditor'
-import { formatOrphanEntryRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
+import { orphanEntryLoggedRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import { computeInvoiceTotals, deriveInvoiceSource, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
 
-function orphanEntryRemisionSuffix(entry: OrphanEntry): string {
-  const rem = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+function orphanEntryRemisionSuffix(entry: OrphanEntry, mode: 'material' | 'fleet' = 'material'): string {
+  const rem = orphanEntryLoggedRemisionLabel(entry, mode)
   return rem ? ` · Rem. ${rem}` : ''
 }
 
@@ -69,8 +69,6 @@ export type OrphanEntry = {
     supplier_group?: { id: string; name: string; rfc?: string | null } | null
   } | null
   material?: { id: string; material_name: string } | null
-  /** Remisiones that consumed stock from this entry (FIFO allocations). */
-  remision_numbers?: string[]
 }
 
 /** A display line in the drawer. May aggregate multiple source entries. */
@@ -733,7 +731,7 @@ export default function CreateSupplierInvoiceDrawer({
             entry_id: e.id,
             line_source: 'entry',
             cost_category: 'fleet',
-            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e)}`,
+            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e, 'fleet')}`,
             qty: null,
             unit_price: e.fleet_cost ?? null,
             amount: amt,
@@ -1045,7 +1043,7 @@ export default function CreateSupplierInvoiceDrawer({
           {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
             <p className="text-[10px] text-stone-400 pl-1">
               {l.sourceEntries.map((e) => {
-                const rem = formatOrphanEntryRemisionLabel(e.remision_numbers)
+                const rem = orphanEntryLoggedRemisionLabel(e, 'material')
                 return rem ? `${e.entry_number} (Rem. ${rem})` : e.entry_number
               }).join(', ')}
             </p>
