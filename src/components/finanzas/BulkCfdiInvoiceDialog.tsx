@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { OrphanEntry } from './CreateSupplierInvoiceDrawer'
+import { formatOrphanEntryRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import type { ParsedCfdiBulkItem } from '@/app/api/ap/cfdi/parse-bulk/route'
 import {
   matchCfdiToEntries,
@@ -108,7 +109,11 @@ function buildInvoicePayload(entry: OrphanEntry, parsed: ParsedCfdiBulkItem) {
       entry_id: entry.id,
       line_source: 'entry' as const,
       cost_category: 'material' as const,
-      description: `${entry.material?.material_name ?? 'Material'} — ${entry.entry_number}`,
+      description: (() => {
+        const rem = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+        const base = `${entry.material?.material_name ?? 'Material'} — ${entry.entry_number}`
+        return rem ? `${base} · Rem. ${rem}` : base
+      })(),
       qty: entry.received_qty_entered,
       unit_price: entry.unit_price,
       amount: subtotal,
@@ -459,6 +464,7 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                   </thead>
                   <tbody>
                     {visibleRows.map(({ assignment, entry, warnings }) => {
+                      const remisionLabel = formatOrphanEntryRemisionLabel(entry.remision_numbers)
                       const eligible = getEligibleCfdisForEntry(entry, parsedForMatch)
                       const selectedParsed = parsedForMatch.find(p => p.id === assignment.cfdi_id)
                       const hasBlocker = warnings.some(w =>
@@ -476,7 +482,14 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                             assignment.confidence === 'high' && !hasBlocker && 'bg-emerald-50/30',
                           )}
                         >
-                          <td className="px-3 py-2 font-mono">{entry.entry_number}</td>
+                          <td className="px-3 py-2 font-mono">
+                            <div>{entry.entry_number}</div>
+                            {remisionLabel && (
+                              <div className="text-[10px] text-stone-500 font-normal">
+                                Rem. {remisionLabel}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-3 py-2 truncate max-w-[120px]">
                             {entry.material?.material_name ?? '—'}
                           </td>

@@ -27,7 +27,13 @@ import InvoiceRetentionsEditor, {
   toRetentionPayload,
   type RetentionRowState,
 } from '@/components/finanzas/InvoiceRetentionsEditor'
+import { formatOrphanEntryRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import { computeInvoiceTotals, deriveInvoiceSource, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
+
+function orphanEntryRemisionSuffix(entry: OrphanEntry): string {
+  const rem = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+  return rem ? ` · Rem. ${rem}` : ''
+}
 
 export type OrphanEntry = {
   id: string
@@ -63,6 +69,8 @@ export type OrphanEntry = {
     supplier_group?: { id: string; name: string; rfc?: string | null } | null
   } | null
   material?: { id: string; material_name: string } | null
+  /** Remisiones that consumed stock from this entry (FIFO allocations). */
+  remision_numbers?: string[]
 }
 
 /** A display line in the drawer. May aggregate multiple source entries. */
@@ -132,7 +140,7 @@ function buildMaterialLines(entries: OrphanEntry[]): LineItem[] {
     const totalQty = grp.reduce((s, e) => s + Number(e.received_qty_entered ?? 0), 0)
     const matName = grp[0].material?.material_name ?? ''
     const desc = grp.length === 1
-      ? `${matName} — ${grp[0].entry_number}`
+      ? `${matName} — ${grp[0].entry_number}${orphanEntryRemisionSuffix(grp[0])}`
       : `${matName} (${grp.length} recepciones)`
     lines.push({
       key: `mat:${mid}`,
@@ -698,7 +706,7 @@ export default function CreateSupplierInvoiceDrawer({
             entry_id: e.id,
             line_source: 'entry',
             cost_category: 'material',
-            description: `${e.material?.material_name ?? ''} — ${e.entry_number}`,
+            description: `${e.material?.material_name ?? ''} — ${e.entry_number}${orphanEntryRemisionSuffix(e)}`,
             qty: e.received_qty_entered ?? null,
             unit_price: e.unit_price ?? null,
             amount: amt,
@@ -724,7 +732,7 @@ export default function CreateSupplierInvoiceDrawer({
             entry_id: e.id,
             line_source: 'entry',
             cost_category: 'fleet',
-            description: `Flete — ${e.entry_number}`,
+            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e)}`,
             qty: null,
             unit_price: e.fleet_cost ?? null,
             amount: amt,
@@ -1030,7 +1038,10 @@ export default function CreateSupplierInvoiceDrawer({
           </div>
           {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
             <p className="text-[10px] text-stone-400 pl-1">
-              {l.sourceEntries.map(e => e.entry_number).join(', ')}
+              {l.sourceEntries.map((e) => {
+                const rem = formatOrphanEntryRemisionLabel(e.remision_numbers)
+                return rem ? `${e.entry_number} (Rem. ${rem})` : e.entry_number
+              }).join(', ')}
             </p>
           )}
         </div>
