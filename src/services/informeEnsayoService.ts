@@ -81,6 +81,18 @@ async function fetchMuestrasWithEnsayos(muestreoId: string): Promise<BuildInform
   return (muestras ?? []) as BuildInformeInput['muestras'];
 }
 
+async function fetchLaboratorioLoteForInforme(loteId: string) {
+  const supabase = await createServiceClient();
+  const { data } = await supabase
+    .from('laboratorio_lotes')
+    .select(
+      'lote_number, study_name, protocol_type, hypothesis_notes, volumen_m3, designacion_ehe, recipe_snapshot, concrete_specs'
+    )
+    .eq('id', loteId)
+    .maybeSingle();
+  return data;
+}
+
 async function fetchClientForMuestreo(muestreoListRow: Record<string, unknown>) {
   const clientId = muestreoListRow.client_id as string | undefined;
   if (!clientId) return null;
@@ -135,11 +147,16 @@ async function fetchEnsayoInstrumentos(muestreoId: string) {
 export async function loadInformeBuildInput(muestreoId: string): Promise<BuildInformeInput> {
   const listRow = await fetchMuestreoListRow(muestreoId);
   const plantId = listRow.plant_id as string | null;
-  const [muestras, client, labConfig, ensayoInstrumentos] = await Promise.all([
+  const loteId = listRow.laboratorio_lote_id as string | undefined;
+  const isLab =
+    listRow.sampling_type === 'LAB_EXPERIMENT' || loteId != null;
+
+  const [muestras, client, labConfig, ensayoInstrumentos, laboratorioLote] = await Promise.all([
     fetchMuestrasWithEnsayos(muestreoId),
-    fetchClientForMuestreo(listRow),
+    isLab ? Promise.resolve(null) : fetchClientForMuestreo(listRow),
     getLabConfig(plantId),
     fetchEnsayoInstrumentos(muestreoId),
+    loteId ? fetchLaboratorioLoteForInforme(loteId) : Promise.resolve(null),
   ]);
 
   return {
@@ -148,6 +165,7 @@ export async function loadInformeBuildInput(muestreoId: string): Promise<BuildIn
     muestras,
     ensayoInstrumentos,
     labConfig,
+    laboratorioLote: laboratorioLote as BuildInformeInput['laboratorioLote'],
   };
 }
 

@@ -30,6 +30,7 @@ import type { EmitFirmaInput } from '@/types/informe-ensayo';
 import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
+import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 
 type Props = {
   muestreo: MuestreoWithRelations;
@@ -105,11 +106,16 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
       );
       const uncertaintyMissing = required.filter((r) => !publishedCodes.has(r.codigo)).map((r) => r.codigo);
 
+      const isLabExperiment =
+        muestreo.sampling_type === 'LAB_EXPERIMENT' || !!muestreo.laboratorio_lote_id;
+
       const items = evaluateInformeChecklist({
+        isLabExperiment,
         muestreo: {
           id: muestreo.id,
           fecha_recepcion_lab: (muestreo as { fecha_recepcion_lab?: string }).fecha_recepcion_lab,
           muestreado_por: (muestreo as { muestreado_por?: string }).muestreado_por,
+          laboratorio_lote_id: muestreo.laboratorio_lote_id,
           muestras: muestreo.muestras,
         },
         order_elemento: (muestreo.remision as { order?: { elemento?: string } } | undefined)?.order?.elemento ?? null,
@@ -131,6 +137,9 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
 
   const hasGaps = checklistHasGaps(checklist);
   const emitted = informeRecord?.estado === 'emitido';
+  const isLabMuestreo =
+    muestreo.sampling_type === 'LAB_EXPERIMENT' || !!muestreo.laboratorio_lote_id;
+  const isLabInforme = snapshot ? isInformeLabExperiment(snapshot) : isLabMuestreo;
 
   const handleEmit = async (firmas: EmitFirmaInput[]) => {
     setEmitting(true);
@@ -169,7 +178,12 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    const base = snapshot.documento.numero ?? `muestreo-${muestreo.numero_muestreo ?? muestreo.id.slice(0, 8)}`;
+    const loteRef = snapshot.estudio_laboratorio?.lote_number;
+    const base =
+      snapshot.documento.numero ??
+      (loteRef
+        ? `${loteRef}-M${muestreo.numero_muestreo ?? 0}`
+        : `muestreo-${muestreo.numero_muestreo ?? muestreo.id.slice(0, 8)}`);
     a.download = emitted ? `${base}.pdf` : `${base}-borrador.pdf`;
     a.click();
     URL.revokeObjectURL(url);
@@ -204,7 +218,10 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                 <Award className="h-4 w-4 text-[#1B365D]" />
                 Informe de resultados (ISO 7.8)
               </CardTitle>
-              <CardDescription>DC-LC-7.8-01 · Incertidumbre desde módulo EMA</CardDescription>
+              <CardDescription>
+                DC-LC-7.8-01 · Incertidumbre desde módulo EMA
+                {isLabInforme ? ' · Formato experimento interno (I+D)' : ''}
+              </CardDescription>
             </div>
             {emitted ? (
               <Badge className="bg-emerald-600">{informeRecord?.numero}</Badge>

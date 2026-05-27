@@ -7,6 +7,7 @@ import {
   DollarSign,
   Calculator,
   BarChart2,
+  FlaskConical,
 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
@@ -107,6 +108,11 @@ export default function RecetasHub() {
   const secondaryActions: SecondaryLink[] = [
     { href: '/masters/grouping', label: 'Agrupación', IconComponent: Layers },
     { href: '/masters/pricing', label: 'Consolidación Precios', IconComponent: DollarSign },
+    {
+      href: '/quality/experimentos',
+      label: 'Experimentos de laboratorio',
+      IconComponent: FlaskConical,
+    },
   ]
 
   return (

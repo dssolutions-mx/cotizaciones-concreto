@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Beaker, FlaskConical, ClipboardCheck, Clipboard, Activity, Clock, Award } from 'lucide-react'
+import { Beaker, FlaskConical, ClipboardCheck, Clipboard, Activity, Clock, Award, TestTube2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import QualityHubLayout from '@/components/quality/QualityHubLayout'
@@ -106,6 +106,13 @@ export default function OperacionesHub() {
       href: '/quality/ensayos',
       IconComponent: FlaskConical,
       color: 'emerald',
+    },
+    {
+      title: 'Experimentos',
+      description: 'Registrar mezcla en laboratorio; desde el lote, planificar muestras y ensayos',
+      href: '/quality/experimentos',
+      IconComponent: TestTube2,
+      color: 'violet',
     },
     {
       title: 'Informes ISO 7.8',

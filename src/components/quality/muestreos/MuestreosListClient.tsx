@@ -162,6 +162,7 @@ export default function MuestreosListClient() {
   const [clasificacion, setClasificacion] = useState<string>('todas')
   const [estadoMuestreo, setEstadoMuestreo] = useState<string>('todos')
   const [sortOption, setSortOption] = useState<SortOption>('fecha_desc')
+  const [soloExperimentos, setSoloExperimentos] = useState(false)
 
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const rowClickTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -187,17 +188,23 @@ export default function MuestreosListClient() {
     }
   }, [])
 
+  const serverFilters = useCallback(
+    () => ({
+      fechaDesde: dateRange?.from,
+      fechaHasta: dateRange?.to,
+      ...plantScopeForFetch(planta, filterPlants, currentPlant),
+      ...(soloExperimentos ? { sampling_type: 'LAB_EXPERIMENT' as const } : {}),
+    }),
+    [dateRange, planta, filterPlants, currentPlant, soloExperimentos]
+  )
+
   const loadMuestreos = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       setCurrentPage(0)
       const result = await fetchMuestreos(
-        {
-          fechaDesde: dateRange?.from,
-          fechaHasta: dateRange?.to,
-          ...plantScopeForFetch(planta, filterPlants, currentPlant),
-        },
+        serverFilters(),
         PAGE_SIZE,
         0
       )
@@ -209,7 +216,7 @@ export default function MuestreosListClient() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange, planta, filterPlants, currentPlant])
+  }, [serverFilters])
 
   useEffect(() => {
     loadMuestreos()
@@ -221,11 +228,7 @@ export default function MuestreosListClient() {
       setError(null)
       setCurrentPage(0)
       const result = await fetchMuestreos(
-        {
-          fechaDesde: dateRange?.from,
-          fechaHasta: dateRange?.to,
-          ...plantScopeForFetch(planta, filterPlants, currentPlant),
-        },
+        serverFilters(),
         PAGE_SIZE,
         0
       )
@@ -246,11 +249,7 @@ export default function MuestreosListClient() {
       const nextPage = currentPage + 1
       const offset = nextPage * PAGE_SIZE
       const result = await fetchMuestreos(
-        {
-          fechaDesde: dateRange?.from,
-          fechaHasta: dateRange?.to,
-          ...plantScopeForFetch(planta, filterPlants, currentPlant),
-        },
+        serverFilters(),
         PAGE_SIZE,
         offset
       )
@@ -294,11 +293,7 @@ export default function MuestreosListClient() {
     try {
       setExportingExcel(true)
       toast.loading('Cargando muestreos para exportar…')
-      const all = await fetchAllMuestreosForExport({
-        fechaDesde: dateRange?.from,
-        fechaHasta: dateRange?.to,
-        ...plantScopeForFetch(planta, filterPlants, currentPlant),
-      })
+      const all = await fetchAllMuestreosForExport(serverFilters())
       const filtered = filterAndSortMuestreosList(all, {
         searchQuery,
         clasificacion,
@@ -339,6 +334,7 @@ export default function MuestreosListClient() {
     setClasificacion('todas')
     setEstadoMuestreo('todos')
     setDateRange(undefined)
+    setSoloExperimentos(false)
   }
 
   const hasActiveFilters =
@@ -346,7 +342,8 @@ export default function MuestreosListClient() {
     planta !== 'todas' ||
     clasificacion !== 'todas' ||
     estadoMuestreo !== 'todos' ||
-    !!dateRange
+    !!dateRange ||
+    soloExperimentos
 
   const handleRowNavigate = (id: string) => {
     if (rowClickTimerRef.current) {
@@ -420,6 +417,12 @@ export default function MuestreosListClient() {
             Muestreos de concreto
           </h1>
           <p className="text-sm text-stone-500 mt-0.5">Historial de muestreos realizados</p>
+          <Link
+            href="/quality/experimentos"
+            className="text-xs text-violet-700 hover:underline mt-1 inline-block"
+          >
+            Muestreo desde experimento de laboratorio →
+          </Link>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Button
@@ -567,6 +570,20 @@ export default function MuestreosListClient() {
           </SelectContent>
         </Select>
 
+        <Button
+          type="button"
+          variant={soloExperimentos ? 'default' : 'outline'}
+          className={cn(
+            'h-9 shrink-0 px-3 shadow-none',
+            soloExperimentos
+              ? 'bg-violet-700 text-white hover:bg-violet-800'
+              : 'border-stone-300 bg-white text-stone-800 hover:bg-stone-50'
+          )}
+          onClick={() => setSoloExperimentos((v) => !v)}
+        >
+          Solo experimentos
+        </Button>
+
         {hasActiveFilters && (
           <Button
             type="button"
@@ -702,8 +719,16 @@ export default function MuestreosListClient() {
                         <TableCell className="align-middle">
                           <div className="font-semibold text-stone-900 flex items-center gap-1.5 flex-wrap">
                             <span>
-                              {muestreo.remision?.remision_number ?? muestreo.manual_reference ?? '—'}
+                              {muestreo.remision?.remision_number ??
+                                muestreo.laboratorio_lote?.lote_number ??
+                                muestreo.manual_reference ??
+                                '—'}
                             </span>
+                            {muestreo.sampling_type === 'LAB_EXPERIMENT' && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 border-violet-300 text-violet-800">
+                                Experimento
+                              </Badge>
+                            )}
                             {muestreo.remision?.is_production_record && (
                               <span title="Producción cruzada">
                                 <Factory className="h-3.5 w-3.5 text-orange-500 shrink-0" />

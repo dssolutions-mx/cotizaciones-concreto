@@ -7,6 +7,7 @@ import {
   type PdfTableColumn,
 } from '@/components/ema/pdf/verificacionPdfTable';
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles';
+import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 import type { InformeFirmaRol, InformeSnapshot } from '@/types/informe-ensayo';
 
 type Props = { snapshot: InformeSnapshot };
@@ -19,11 +20,11 @@ const FRESH_COLS: PdfTableColumn[] = [
 ];
 
 const COMPRESSION_COLS: PdfTableColumn[] = [
-  { key: 'id', label: 'Espécimen', widthPt: 148 },
-  { key: 'edad', label: 'Edad', widthPt: 72, align: 'center' },
-  { key: 'kn', label: 'kN', widthPt: 88, align: 'right', mono: true },
-  { key: 'fc', label: 'kg/cm²', widthPt: 108, align: 'right', mono: true },
-  { key: 'conformidad', label: 'C/NC', widthPt: 115, align: 'center' },
+  { key: 'id', label: 'Espécimen', widthPt: 128 },
+  { key: 'edad', label: 'Edad', widthPt: 56, align: 'center' },
+  { key: 'kn', label: 'kN', widthPt: 72, align: 'right', mono: true },
+  { key: 'fc', label: 'kg/cm²', widthPt: 88, align: 'right', mono: true },
+  { key: 'conformidad', label: 'C/NC', widthPt: 96, align: 'center' },
 ];
 
 const FIRMA_LABELS: Record<InformeFirmaRol, { title: string; subtitle: string }> = {
@@ -104,7 +105,7 @@ function formatSignedAt(signedAt: string | null): string {
   }
 }
 
-function DocumentHeader({ snapshot }: { snapshot: InformeSnapshot }) {
+function DocumentHeader({ snapshot, isLab }: { snapshot: InformeSnapshot; isLab: boolean }) {
   const doc = snapshot.documento;
   const lab = snapshot.laboratorio;
   const docLine = `${doc.codigo} Rev. ${doc.revision} · ${doc.numero ?? 'BORRADOR'}`;
@@ -120,7 +121,8 @@ function DocumentHeader({ snapshot }: { snapshot: InformeSnapshot }) {
           <Text style={s.docSubtitle}>Acreditación EMA: {lab.acreditacion_ema}</Text>
         ) : null}
         <Text style={s.docSubtitle}>
-          NMX-EC-17025-IMNC-2018 §7.8 · Informe para el cliente
+          NMX-EC-17025-IMNC-2018 §7.8 ·{' '}
+          {isLab ? 'Estudio interno de laboratorio (I+D)' : 'Informe para el cliente'}
         </Text>
         <Text style={s.docCode}>{docLine}</Text>
       </View>
@@ -131,6 +133,8 @@ function DocumentHeader({ snapshot }: { snapshot: InformeSnapshot }) {
 export function InformeResultadosPDF({ snapshot }: Props) {
   const doc = snapshot.documento;
   const lab = snapshot.laboratorio;
+  const isLab = isInformeLabExperiment(snapshot);
+  const estudio = snapshot.estudio_laboratorio;
   const muestreadoLabel =
     snapshot.muestreo.muestreado_por === 'CLIENTE' ? 'Cliente' : 'Laboratorio acreditado';
 
@@ -150,14 +154,18 @@ export function InformeResultadosPDF({ snapshot }: Props) {
   ]);
 
   const firmaSlots: InformeFirmaRol[] = ['elaboro', 'reviso', 'autorizo'];
+  const metodoCompresion = snapshot.compresion_resumen.metodo ?? 'NMX-C-155-ONNCCE-2017';
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
-        <DocumentHeader snapshot={snapshot} />
+        <DocumentHeader snapshot={snapshot} isLab={isLab} />
 
         <View style={s.normaBand}>
-          <Text>NMX-EC-17025-IMNC-2018 · Informe de resultados de ensayo (§7.8)</Text>
+          <Text>
+            NMX-EC-17025-IMNC-2018 · Informe de resultados de ensayo (§7.8)
+            {isLab ? ' · Experimento interno' : ''}
+          </Text>
         </View>
 
         {!doc.issued_at ? (
@@ -182,47 +190,96 @@ export function InformeResultadosPDF({ snapshot }: Props) {
           {doc.replaces_numero ? ` · Reemplaza informe ${doc.replaces_numero}` : ''}
         </Text>
 
-        <PdfCard title="§1 Cliente y obra">
-          <Kv label="Cliente" value={snapshot.cliente.nombre} />
-          <Kv
-            label="Obra / pedido"
-            value={`${snapshot.obra.construction_site ?? '—'} · Pedido ${snapshot.obra.order_number ?? '—'}`}
-          />
-          <Kv label="Elemento" value={snapshot.obra.elemento ?? 'No especificado'} />
-          {snapshot.obra.designacion_ehe ? (
-            <Kv label="Designación" value={snapshot.obra.designacion_ehe} />
-          ) : null}
-          <Kv label="Contacto cliente" value={snapshot.cliente.contacto ?? '—'} />
-        </PdfCard>
+        {isLab && estudio ? (
+          <PdfCard title="§1 Estudio interno y referencia de mezcla">
+            <Kv label="Estudio" value={estudio.study_name ?? '—'} />
+            <Kv label="Lote de experimento" value={estudio.lote_number ?? '—'} mono />
+            <Kv label="Protocolo" value={estudio.protocol_label ?? estudio.protocol_type ?? '—'} />
+            <Kv label="Receta de referencia" value={estudio.recipe_code ?? '—'} mono />
+            {estudio.designacion_ehe ? (
+              <Kv label="Designación" value={estudio.designacion_ehe} />
+            ) : null}
+            {estudio.volumen_m3 != null ? (
+              <Kv label="Volumen elaborado" value={`${estudio.volumen_m3} m³`} mono />
+            ) : null}
+            {estudio.edad_especificada ? (
+              <Kv label="Edad de ensayo de referencia" value={estudio.edad_especificada} />
+            ) : null}
+            {estudio.hypothesis_notes ? (
+              <Kv label="Hipótesis / objetivo" value={estudio.hypothesis_notes} />
+            ) : null}
+            <Kv label="Solicitante" value={snapshot.cliente.nombre} />
+          </PdfCard>
+        ) : (
+          <PdfCard title="§1 Cliente y obra">
+            <Kv label="Cliente" value={snapshot.cliente.nombre} />
+            <Kv
+              label="Obra / pedido"
+              value={`${snapshot.obra.construction_site ?? '—'} · Pedido ${snapshot.obra.order_number ?? '—'}`}
+            />
+            <Kv label="Elemento" value={snapshot.obra.elemento ?? 'No especificado'} />
+            {snapshot.obra.designacion_ehe ? (
+              <Kv label="Designación" value={snapshot.obra.designacion_ehe} />
+            ) : null}
+            <Kv label="Contacto cliente" value={snapshot.cliente.contacto ?? '—'} />
+          </PdfCard>
+        )}
 
-        <PdfCard title="§2 Muestreo y recepción">
+        <PdfCard title={isLab ? '§2 Elaboración y recepción en laboratorio' : '§2 Muestreo y recepción'}>
           <Kv
             label="Fecha / hora"
             value={`${snapshot.muestreo.fecha_muestreo}${snapshot.muestreo.hora_muestreo ? ` ${snapshot.muestreo.hora_muestreo}` : ''}`}
           />
-          <Kv label="Lote / remisión" value={`${snapshot.muestreo.lote_id} · ${snapshot.muestreo.remision_number ?? '—'}`} mono />
+          <Kv
+            label={isLab ? 'Identificación del lote' : 'Lote / remisión'}
+            value={`${snapshot.muestreo.lote_id} · ${snapshot.muestreo.remision_number ?? '—'}`}
+            mono
+          />
           <Kv label="Recepción en laboratorio" value={snapshot.muestreo.fecha_recepcion_lab ?? '—'} />
           <Kv label="Muestreado por" value={muestreadoLabel} />
-          <Kv label="Ubicación" value={snapshot.muestreo.ubicacion ?? '—'} />
-          <Kv
-            label="Condiciones en obra"
-            value={[
-              snapshot.muestreo.temperatura_ambiente != null
-                ? `T amb. ${snapshot.muestreo.temperatura_ambiente} °C`
-                : null,
-              snapshot.muestreo.humedad_relativa_obra != null
-                ? `HR ${snapshot.muestreo.humedad_relativa_obra} %`
-                : null,
-              snapshot.muestreo.condiciones_climaticas,
-            ]
-              .filter(Boolean)
-              .join(' · ') || '—'}
-          />
-          <Kv label="Plan de muestreo" value={snapshot.muestreo.plan_muestreo} />
+          <Kv label={isLab ? 'Ubicación de elaboración' : 'Ubicación'} value={snapshot.muestreo.ubicacion ?? '—'} />
+          {!isLab ? (
+            <Kv
+              label="Condiciones en obra"
+              value={
+                [
+                  snapshot.muestreo.temperatura_ambiente != null
+                    ? `T amb. ${snapshot.muestreo.temperatura_ambiente} °C`
+                    : null,
+                  snapshot.muestreo.humedad_relativa_obra != null
+                    ? `HR ${snapshot.muestreo.humedad_relativa_obra} %`
+                    : null,
+                  snapshot.muestreo.condiciones_climaticas,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || '—'
+              }
+            />
+          ) : (
+            <Kv
+              label="Condiciones de elaboración"
+              value={
+                [
+                  snapshot.muestreo.temperatura_ambiente != null
+                    ? `T amb. ${snapshot.muestreo.temperatura_ambiente} °C`
+                    : null,
+                  snapshot.muestreo.humedad_relativa_obra != null
+                    ? `HR ${snapshot.muestreo.humedad_relativa_obra} %`
+                    : null,
+                  snapshot.muestreo.condiciones_climaticas,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'Instalaciones del laboratorio'
+              }
+            />
+          )}
+          <Kv label={isLab ? 'Plan / protocolo' : 'Plan de muestreo'} value={snapshot.muestreo.plan_muestreo} />
         </PdfCard>
 
         <PdfCard title="§3 Resultados — concreto fresco">
-          {freshRows.length > 0 ? (
+          {snapshot.declaraciones.fresco_no_aplica ? (
+            <Text style={s.sectionBlockDesc}>{snapshot.declaraciones.fresco_no_aplica}</Text>
+          ) : freshRows.length > 0 ? (
             <PdfTable columns={FRESH_COLS} rows={freshRows} tableWidth={PDF_PORTRAIT_TABLE_WIDTH} />
           ) : (
             <Text style={s.sectionBlockDesc}>Sin ensayos de campo registrados.</Text>
@@ -232,6 +289,9 @@ export function InformeResultadosPDF({ snapshot }: Props) {
         <PdfCard title="§3 Resistencia a compresión">
           {compressionRows.length > 0 ? (
             <>
+              <Text style={{ fontSize: 7.5, color: '#57534E', marginBottom: 4 }}>
+                Método de ensayo: {metodoCompresion}
+              </Text>
               <PdfTable
                 columns={COMPRESSION_COLS}
                 rows={compressionRows}
@@ -248,10 +308,12 @@ export function InformeResultadosPDF({ snapshot }: Props) {
                   mono
                 />
                 <Kv
-                  label="f′c especificada"
+                  label="f′c de referencia"
                   value={
                     snapshot.compresion_resumen.resistencia_especificada != null
-                      ? `${snapshot.compresion_resumen.resistencia_especificada} kg/cm²`
+                      ? `${snapshot.compresion_resumen.resistencia_especificada} kg/cm²${
+                          estudio?.edad_especificada ? ` @ ${estudio.edad_especificada}` : ''
+                        }`
                       : '—'
                   }
                   mono
@@ -267,6 +329,32 @@ export function InformeResultadosPDF({ snapshot }: Props) {
             <Text style={s.sectionBlockDesc}>Sin ensayos de compresión registrados.</Text>
           )}
         </PdfCard>
+
+        {(snapshot.condiciones_ensayo.temperatura_lab != null ||
+          snapshot.condiciones_ensayo.humedad_relativa_lab != null ||
+          snapshot.condiciones_ensayo.capping_type) && (
+          <PdfCard title="Condiciones ambientales y preparación de probetas">
+            {snapshot.condiciones_ensayo.temperatura_lab != null ? (
+              <Kv label="Temperatura en laboratorio" value={`${snapshot.condiciones_ensayo.temperatura_lab} °C`} />
+            ) : null}
+            {snapshot.condiciones_ensayo.humedad_relativa_lab != null ? (
+              <Kv
+                label="Humedad relativa en laboratorio"
+                value={`${snapshot.condiciones_ensayo.humedad_relativa_lab} %`}
+              />
+            ) : null}
+            {snapshot.condiciones_ensayo.capping_type ? (
+              <Kv
+                label="Capado"
+                value={`${snapshot.condiciones_ensayo.capping_type}${
+                  snapshot.condiciones_ensayo.capping_norma
+                    ? ` · ${snapshot.condiciones_ensayo.capping_norma}`
+                    : ''
+                }`}
+              />
+            ) : null}
+          </PdfCard>
+        )}
 
         {snapshot.condiciones_ensayo.equipos.length > 0 ? (
           <PdfCard title="Equipos utilizados">
@@ -302,7 +390,7 @@ export function InformeResultadosPDF({ snapshot }: Props) {
         </PdfCard>
 
         {snapshot.opinion_tecnica ? (
-          <PdfCard title="Opinión e interpretaciones">
+          <PdfCard title="Opinión e interpretaciones (§7.8.7)">
             <Text style={s.procedureDesc}>{snapshot.opinion_tecnica}</Text>
           </PdfCard>
         ) : null}

@@ -47,9 +47,27 @@ export type InformeCompressionRow = {
   fc_mpa: number | null;
   fc_kg_cm2: number | null;
   conformidad: 'C' | 'NC' | 'N/A';
+  metodo?: string;
+};
+
+export type InformeContexto = 'obra' | 'laboratorio_interno';
+
+export type InformeEstudioLaboratorio = {
+  lote_number: string | null;
+  study_name: string | null;
+  protocol_type: string | null;
+  protocol_label: string | null;
+  recipe_code: string | null;
+  volumen_m3: number | null;
+  designacion_ehe: string | null;
+  hypothesis_notes: string | null;
+  edad_especificada: string | null;
 };
 
 export type InformeSnapshot = {
+  /** Present on informes emitted after lab-experiment support; inferred from estudio_laboratorio if absent. */
+  contexto?: InformeContexto;
+  estudio_laboratorio?: InformeEstudioLaboratorio | null;
   documento: {
     codigo: 'DC-LC-7.8-01';
     revision: '00';
@@ -99,6 +117,7 @@ export type InformeSnapshot = {
     promedio_kg_cm2: number | null;
     resistencia_especificada: number | null;
     incertidumbre_u: InformeUncertaintyEntry | null;
+    metodo: string | null;
   };
   condiciones_ensayo: {
     temperatura_lab: number | null;
@@ -111,6 +130,7 @@ export type InformeSnapshot = {
     muestreado_por_cliente: boolean;
     regla_decision: string;
     texto_legal: string[];
+    fresco_no_aplica?: string | null;
   };
   opinion_tecnica: string | null;
   uncertainty: InformeUncertaintyEntry[];

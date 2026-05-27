@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 import type { InformeSnapshot } from '@/types/informe-ensayo';
 
 type Props = {
@@ -29,8 +30,19 @@ export function InformePreview({ snapshot, gaps }: Props) {
     ? format(new Date(snapshot.documento.issued_at), "d 'de' MMMM yyyy", { locale: es })
     : 'Borrador — sin emitir';
 
+  const isLab = isInformeLabExperiment(snapshot);
+  const estudio = snapshot.estudio_laboratorio;
+  const metodoCompresion = snapshot.compresion_resumen.metodo ?? 'NMX-C-155-ONNCCE-2017';
+
   return (
     <div className="space-y-4 text-stone-800">
+      {isLab && (
+        <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+          Informe de <strong>experimento interno</strong> (I+D) — NMX-EC-17025-IMNC-2018 §7.8. No sustituye
+          certificación de obra.
+        </div>
+      )}
+
       {gaps && gaps.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
           <p className="font-medium text-amber-900 mb-2">Información pendiente</p>
@@ -64,14 +76,26 @@ export function InformePreview({ snapshot, gaps }: Props) {
         <p>
           Informe <strong>{snapshot.documento.numero ?? '—'}</strong> · Emisión: {issued}
         </p>
-        <p>Cliente: {snapshot.cliente.nombre}</p>
-        <p>
-          Obra: {snapshot.obra.construction_site ?? '—'} · Pedido {snapshot.obra.order_number ?? '—'}
-        </p>
-        <p>Elemento: {snapshot.obra.elemento ?? 'No especificado'}</p>
+        {isLab && estudio ? (
+          <>
+            <p>Estudio: {estudio.study_name ?? '—'}</p>
+            <p>Lote: {estudio.lote_number ?? '—'}</p>
+            <p>Protocolo: {estudio.protocol_label ?? estudio.protocol_type ?? '—'}</p>
+            <p>Receta ref.: {estudio.recipe_code ?? '—'}</p>
+            <p>Solicitante: {snapshot.cliente.nombre}</p>
+          </>
+        ) : (
+          <>
+            <p>Cliente: {snapshot.cliente.nombre}</p>
+            <p>
+              Obra: {snapshot.obra.construction_site ?? '—'} · Pedido {snapshot.obra.order_number ?? '—'}
+            </p>
+            <p>Elemento: {snapshot.obra.elemento ?? 'No especificado'}</p>
+          </>
+        )}
       </Section>
 
-      <Section title="§2 Muestreo">
+      <Section title={isLab ? '§2 Elaboración en laboratorio' : '§2 Muestreo'}>
         <p>
           Fecha {snapshot.muestreo.fecha_muestreo}
           {snapshot.muestreo.hora_muestreo ? ` ${snapshot.muestreo.hora_muestreo}` : ''} · Lote{' '}
@@ -79,16 +103,21 @@ export function InformePreview({ snapshot, gaps }: Props) {
         </p>
         <p>Recepción lab: {snapshot.muestreo.fecha_recepcion_lab ?? '—'}</p>
         <p>Muestreado por: {snapshot.muestreo.muestreado_por}</p>
-        <p>
-          Ambiente: {snapshot.muestreo.temperatura_ambiente ?? '—'} °C
-          {snapshot.muestreo.humedad_relativa_obra != null
-            ? ` · HR ${snapshot.muestreo.humedad_relativa_obra} %`
-            : ''}
-        </p>
+        <p>Plan: {snapshot.muestreo.plan_muestreo}</p>
+        {!isLab && (
+          <p>
+            Ambiente: {snapshot.muestreo.temperatura_ambiente ?? '—'} °C
+            {snapshot.muestreo.humedad_relativa_obra != null
+              ? ` · HR ${snapshot.muestreo.humedad_relativa_obra} %`
+              : ''}
+          </p>
+        )}
       </Section>
 
       <Section title="§3 Resultados — concreto fresco">
-        {snapshot.resultados_fresco.length === 0 ? (
+        {snapshot.declaraciones.fresco_no_aplica ? (
+          <p className="text-stone-500 text-xs">{snapshot.declaraciones.fresco_no_aplica}</p>
+        ) : snapshot.resultados_fresco.length === 0 ? (
           <p className="text-stone-500">Sin ensayos de campo registrados.</p>
         ) : (
           <table className="w-full text-xs">
@@ -126,6 +155,7 @@ export function InformePreview({ snapshot, gaps }: Props) {
           <p className="text-stone-500">Sin ensayos de compresión.</p>
         ) : (
           <>
+            <p className="text-xs text-stone-500 mb-2">Método: {metodoCompresion}</p>
             <table className="w-full text-[10px]">
               <thead>
                 <tr className="border-b text-left text-stone-500">
@@ -149,8 +179,9 @@ export function InformePreview({ snapshot, gaps }: Props) {
               </tbody>
             </table>
             <p className="mt-2 text-xs">
-              Promedio: {snapshot.compresion_resumen.promedio_kg_cm2 ?? '—'} kg/cm² · f&apos;c especificada:{' '}
+              Promedio: {snapshot.compresion_resumen.promedio_kg_cm2 ?? '—'} kg/cm² · f&apos;c ref.:{' '}
               {snapshot.compresion_resumen.resistencia_especificada ?? '—'} kg/cm²
+              {estudio?.edad_especificada ? ` @ ${estudio.edad_especificada}` : ''}
             </p>
             {snapshot.compresion_resumen.incertidumbre_u && (
               <p className="text-xs font-medium">
@@ -182,7 +213,7 @@ export function InformePreview({ snapshot, gaps }: Props) {
       </Section>
 
       {snapshot.opinion_tecnica && (
-        <Section title="Opinión e interpretaciones">
+        <Section title="Opinión e interpretaciones (§7.8.7)">
           <p className="text-xs whitespace-pre-wrap">{snapshot.opinion_tecnica}</p>
         </Section>
       )}

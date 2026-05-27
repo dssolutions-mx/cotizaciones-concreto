@@ -104,9 +104,20 @@ export function mapMuestreosListViewRow(row: MuestreosListViewRow): MuestreoWith
       }
     : undefined;
 
+  const laboratorio_lote =
+    row.laboratorio_lote_id && row.laboratorio_lote_number
+      ? {
+          id: row.laboratorio_lote_id,
+          lote_number: row.laboratorio_lote_number,
+          study_name: row.laboratorio_study_name ?? '',
+          protocol_type: row.laboratorio_protocol_type ?? undefined,
+        }
+      : undefined;
+
   return {
     id: row.id,
     remision_id: row.remision_id ?? '',
+    laboratorio_lote_id: row.laboratorio_lote_id ?? null,
     fecha_muestreo: row.fecha_muestreo,
     hora_muestreo: row.hora_muestreo,
     numero_muestreo: row.numero_muestreo,
@@ -132,6 +143,7 @@ export function mapMuestreosListViewRow(row: MuestreosListViewRow): MuestreoWith
     recovery_notes: row.recovery_notes,
     muestras,
     remision,
+    laboratorio_lote,
     plant
   };
 }
@@ -206,6 +218,9 @@ export async function fetchMuestreos(
       if (filters.receta) {
         query = query.ilike('recipe_code', `%${filters.receta}%`);
       }
+      if (filters.sampling_type) {
+        query = query.eq('sampling_type', filters.sampling_type);
+      }
     }
 
     // CRITICAL: Add pagination to prevent loading all records
@@ -254,6 +269,12 @@ export async function fetchMuestreoById(id: string) {
             *,
             recipe_versions(*)
           )
+        ),
+        laboratorio_lote:laboratorio_lote_id (
+          id,
+          lote_number,
+          study_name,
+          protocol_type
         ),
         muestras(
           *,
@@ -330,7 +351,8 @@ export async function createMuestreo(muestreo: Partial<Muestreo>) {
 type NewMuestreoInput = Omit<Partial<Muestreo>, 'fecha_muestreo'> & {
   fecha_muestreo: Date | string;
   created_by?: string;
-  sampling_type?: 'REMISION_LINKED' | 'STANDALONE' | 'PROVISIONAL';
+  sampling_type?: 'REMISION_LINKED' | 'STANDALONE' | 'PROVISIONAL' | 'LAB_EXPERIMENT';
+  laboratorio_lote_id?: string | null;
 };
 
 export async function createMuestreoWithSamples(

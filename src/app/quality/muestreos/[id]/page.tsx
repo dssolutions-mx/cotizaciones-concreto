@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { AlertTriangle, ChevronLeft, Package } from 'lucide-react'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { Button } from '@/components/ui/button'
@@ -336,7 +337,12 @@ export default function MuestreoDetailPage() {
   const vigas = muestreo.muestras?.filter((m) => m.tipo_muestra === 'VIGA') || []
   const cubos = muestreo.muestras?.filter((m) => m.tipo_muestra === 'CUBO') || []
 
-  const remisionLabel = String(muestreo.remision?.remision_number || muestreo.manual_reference || 'Sin remisión')
+  const remisionLabel = String(
+    muestreo.remision?.remision_number ||
+      muestreo.laboratorio_lote?.lote_number ||
+      muestreo.manual_reference ||
+      'Sin remisión'
+  )
 
   const canEditMuestreoEquipment =
     !!profile?.role &&
@@ -358,6 +364,17 @@ export default function MuestreoDetailPage() {
         statusClassName={pageStatus.className}
         onDeleteMuestreo={() => setShowDeleteMuestreoDialog(true)}
       />
+
+      {muestreo.laboratorio_lote?.id && (
+        <p className="mb-4 text-sm">
+          <Link
+            href={`/quality/experimentos/${muestreo.laboratorio_lote.id}`}
+            className="text-violet-800 hover:underline font-medium"
+          >
+            Ver experimento {muestreo.laboratorio_lote.lote_number} — {muestreo.laboratorio_lote.study_name}
+          </Link>
+        </p>
+      )}
 
       <Tabs defaultValue="general" className="mb-8">
         <TabsList className="grid w-full grid-cols-2 h-auto p-1 bg-stone-100/80 rounded-lg border border-stone-200">

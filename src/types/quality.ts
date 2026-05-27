@@ -46,7 +46,8 @@ export interface RemisionMaterialesData {
 // Muestreo type
 export interface Muestreo {
   id: string;
-  remision_id: string;
+  remision_id?: string | null;
+  laboratorio_lote_id?: string | null;
   fecha_muestreo: string;
   hora_muestreo?: string; // HH:MM:SS format
   numero_muestreo: number;
@@ -184,6 +185,10 @@ export interface Alerta {
 /** Row from public.muestreos_list_view (muestreos.* + joins + muestras_json). */
 export type MuestreosListViewRow = Omit<Muestreo, 'remision_id'> & {
   remision_id: string | null;
+  laboratorio_lote_id?: string | null;
+  laboratorio_lote_number?: string | null;
+  laboratorio_study_name?: string | null;
+  laboratorio_protocol_type?: string | null;
   remision_number?: string | null;
   remision_fecha?: string | null;
   remision_volumen_fabricado?: number | null;
@@ -211,6 +216,12 @@ export type MuestreosListViewRow = Omit<Muestreo, 'remision_id'> & {
 
 export interface MuestreoWithRelations extends Muestreo {
   muestras?: MuestraWithRelations[];
+  laboratorio_lote?: {
+    id: string;
+    lote_number: string;
+    study_name: string;
+    protocol_type?: string;
+  };
   remision?: {
     id: string;
     remision_number: string;
@@ -342,4 +353,5 @@ export interface FiltrosCalidad {
   plant_id?: string;
   plant_ids?: string[];
   business_unit_id?: string;
+  sampling_type?: string;
 } 

@@ -190,10 +190,9 @@ export default function ValidacionesHub() {
         description="Proyectos de I+D, nuevas formulaciones y mejoras al proceso"
         actions={[
           {
-            title: 'Investigación',
-            description: 'Proyectos activos de investigación y desarrollo de mezclas',
-            href: '/quality/validaciones/investigacion',
-            comingSoon: true,
+            title: 'Experimentos de laboratorio',
+            description: 'Mezcla de laboratorio → muestras → ensayos. Protocolos internos antes de producción',
+            href: '/quality/experimentos',
           },
         ]}
       />

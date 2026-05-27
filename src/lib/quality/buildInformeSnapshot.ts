@@ -13,6 +13,13 @@ import {
   fcMeasurandForTipo,
   requiredMeasurandsForInformeUncertainty,
 } from '@/lib/quality/informeMeasurands';
+import {
+  formatEdadEspecificada,
+  INFORME_FRESH_NA_LAB,
+  INFORME_LEGAL_LAB,
+  INFORME_METODO_COMPRESION,
+  protocolTypeLabel,
+} from '@/lib/quality/informeLabContext';
 import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 import type {
   InformeFreshResultRow,
@@ -21,8 +28,20 @@ import type {
   MuestreadoPor,
 } from '@/types/informe-ensayo';
 
+export type LaboratorioLoteInformeRow = {
+  lote_number: string;
+  study_name: string;
+  protocol_type: string;
+  hypothesis_notes?: string | null;
+  volumen_m3?: number | null;
+  designacion_ehe?: string | null;
+  recipe_snapshot?: { strength_fc?: number | null; age_days?: number | null; age_hours?: number | null } | null;
+  concrete_specs?: { valor_edad?: number | null; unidad_edad?: string | null } | null;
+};
+
 export type BuildInformeInput = {
   muestreoListRow: Record<string, unknown>;
+  laboratorioLote?: LaboratorioLoteInformeRow | null;
   client?: {
     business_name?: string | null;
     contact_name?: string | null;
@@ -95,9 +114,19 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
   const row = input.muestreoListRow;
   const tolerancias = parseTolerancias(input.labConfig?.tolerancias_json);
   const fechaMuestreo = str(row.fecha_muestreo) ?? '';
-  const remisionNumber = str(row.remision_number);
+  const isLabExperiment =
+    row.sampling_type === 'LAB_EXPERIMENT' || row.laboratorio_lote_id != null;
+  const labLoteNumber = str(row.laboratorio_lote_number) ?? input.laboratorioLote?.lote_number ?? null;
+  const labStudyName = str(row.laboratorio_study_name) ?? input.laboratorioLote?.study_name ?? null;
+  const labProtocolType =
+    str(row.laboratorio_protocol_type) ?? input.laboratorioLote?.protocol_type ?? null;
+  const remisionNumber = isLabExperiment ? labLoteNumber : str(row.remision_number);
   const numeroMuestreo = num(row.numero_muestreo);
-  const strengthFc = num(row.strength_fc);
+  const snapshotFc = input.laboratorioLote?.recipe_snapshot?.strength_fc;
+  const strengthFc =
+    num(row.strength_fc) ??
+    (snapshotFc != null ? Number(snapshotFc) : null) ??
+    null;
   const slump = num(row.slump);
   const muestreadoPor = (str(row.muestreado_por) as MuestreadoPor) ?? 'LABORATORIO';
   const declararIncertidumbreCampo = row.declarar_incertidumbre_campo === true;
@@ -196,6 +225,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
         fc_mpa: kgCm2ToMpa(fcKg),
         fc_kg_cm2: fcKg > 0 ? fcKg : null,
         conformidad: conformidadFc(e.porcentaje_cumplimiento),
+        metodo: INFORME_METODO_COMPRESION,
       };
     })
   );
@@ -212,9 +242,51 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
 
   const firstEnsayo = input.muestras.flatMap((m) => m.ensayos ?? [])[0];
 
-  const obraNombre = str(row.obra_nombre) ?? str(row.order_construction_site);
+  const obraNombre = isLabExperiment
+    ? (labStudyName ?? 'Experimento interno de laboratorio')
+    : (str(row.obra_nombre) ?? str(row.order_construction_site));
+
+  const clienteNombre = isLabExperiment
+    ? 'Estudio interno — I+D (sin cliente externo)'
+    : (input.client?.business_name ?? str(row.client_business_name) ?? 'Cliente');
+
+  const edadEspecificada = isLabExperiment
+    ? formatEdadEspecificada(
+        input.laboratorioLote?.recipe_snapshot?.age_days ?? num(row.age_days),
+        input.laboratorioLote?.recipe_snapshot?.age_hours ?? num(row.age_hours)
+      ) ??
+      (input.laboratorioLote?.concrete_specs?.valor_edad != null
+        ? `${input.laboratorioLote.concrete_specs.valor_edad} ${
+            input.laboratorioLote.concrete_specs.unidad_edad === 'HORA' ? 'h' : 'd'
+          }`
+        : null)
+    : formatEdadEspecificada(num(row.age_days), num(row.age_hours));
+
+  const estudioLaboratorio = isLabExperiment
+    ? {
+        lote_number: labLoteNumber,
+        study_name: labStudyName,
+        protocol_type: labProtocolType,
+        protocol_label: protocolTypeLabel(labProtocolType),
+        recipe_code: str(row.recipe_code),
+        volumen_m3: input.laboratorioLote?.volumen_m3 ?? null,
+        designacion_ehe: input.laboratorioLote?.designacion_ehe ?? null,
+        hypothesis_notes: input.laboratorioLote?.hypothesis_notes ?? null,
+        edad_especificada: edadEspecificada,
+      }
+    : null;
+
+  const legalBase = [
+    'Los resultados se refieren únicamente a la muestra ensayada.',
+    fcU?.documento_codigo
+      ? `La evaluación de conformidad considera la incertidumbre de medición conforme a ${fcU.documento_codigo}.`
+      : 'La evaluación de conformidad considera la incertidumbre de medición conforme a POC-17.',
+  ];
+  const legalTexts = isLabExperiment ? [...legalBase, ...INFORME_LEGAL_LAB] : legalBase;
 
   return {
+    contexto: isLabExperiment ? 'laboratorio_interno' : 'obra',
+    estudio_laboratorio: estudioLaboratorio,
     documento: {
       codigo: 'DC-LC-7.8-01',
       revision: '00',
@@ -232,28 +304,32 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       pie_pagina: input.labConfig?.pie_pagina_texto ?? null,
     },
     cliente: {
-      nombre: input.client?.business_name ?? str(row.client_business_name) ?? 'Cliente',
+      nombre: clienteNombre,
       contacto: input.client?.contact_name ?? null,
       direccion: input.client?.address ?? null,
       telefono: input.client?.phone ?? null,
       email: input.client?.email ?? null,
     },
     obra: {
-      order_number: str(row.order_number),
+      order_number: isLabExperiment ? null : str(row.order_number),
       construction_site: obraNombre,
-      elemento: str(row.order_elemento),
-      designacion_ehe: str(row.remision_designacion_ehe),
+      elemento: isLabExperiment ? (labLoteNumber ? `Lote ${labLoteNumber}` : null) : str(row.order_elemento),
+      designacion_ehe: isLabExperiment ? null : str(row.remision_designacion_ehe),
     },
     muestreo: {
       fecha_muestreo: fechaMuestreo,
       hora_muestreo: str(row.hora_muestreo),
       ubicacion: str(row.ubicacion_detalle) ?? obraNombre,
       fecha_recepcion_lab: str(row.fecha_recepcion_lab),
-      remision_number: remisionNumber,
-      lote_id: buildLoteId(remisionNumber, numeroMuestreo),
-      volumen_lote: num(row.remision_volumen_fabricado),
-      muestreado_por: muestreadoPor,
-      plan_muestreo: 'NMX-C-161-ONNCCE-2013',
+      remision_number: isLabExperiment ? (labLoteNumber ?? 'LAB') : remisionNumber,
+      lote_id: buildLoteId(isLabExperiment ? labLoteNumber : remisionNumber, numeroMuestreo),
+      volumen_lote: isLabExperiment
+        ? (input.laboratorioLote?.volumen_m3 ?? null)
+        : num(row.remision_volumen_fabricado),
+      muestreado_por: isLabExperiment ? 'LABORATORIO' : muestreadoPor,
+      plan_muestreo: isLabExperiment
+        ? `Protocolo interno${labProtocolType ? ` · ${protocolTypeLabel(labProtocolType) ?? labProtocolType}` : ''}`
+        : 'NMX-C-161-ONNCCE-2013',
       temperatura_ambiente: num(row.temperatura_ambiente),
       humedad_relativa_obra: num(row.humedad_relativa_obra),
       condiciones_climaticas: str(row.condiciones_climaticas),
@@ -264,6 +340,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       promedio_kg_cm2: promedio,
       resistencia_especificada: strengthFc,
       incertidumbre_u: fcU,
+      metodo: compressionRows.length > 0 ? INFORME_METODO_COMPRESION : null,
     },
     condiciones_ensayo: {
       temperatura_lab: firstEnsayo?.temp_laboratorio_c ?? null,
@@ -277,14 +354,10 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       })),
     },
     declaraciones: {
-      muestreado_por_cliente: muestreadoPor === 'CLIENTE',
+      muestreado_por_cliente: !isLabExperiment && muestreadoPor === 'CLIENTE',
       regla_decision: input.labConfig?.regla_decision_default ?? 'POC-17 / ISO Guide 98-4',
-      texto_legal: [
-        'Los resultados se refieren únicamente a la muestra ensayada.',
-        fcU?.documento_codigo
-          ? `La evaluación de conformidad considera la incertidumbre de medición conforme a ${fcU.documento_codigo}.`
-          : 'La evaluación de conformidad considera la incertidumbre de medición conforme a POC-17.',
-      ],
+      texto_legal: legalTexts,
+      fresco_no_aplica: isLabExperiment ? INFORME_FRESH_NA_LAB : null,
     },
     opinion_tecnica: input.opinionTecnica ?? null,
     uncertainty,

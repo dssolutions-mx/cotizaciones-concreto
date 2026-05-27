@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import {
   RefreshCw, Search, CheckCircle2, AlertCircle, XCircle, AlertTriangle,
   Edit2, X, Loader2, ShieldAlert, ChevronDown, ChevronUp, ArrowLeft,
-  MinusCircle,
+  MinusCircle, FlaskConical,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -454,6 +455,15 @@ export default function RecipeVersionGovernance({ plantId, initialSearch, initia
                       {selectedMaster.variants.length} variante{selectedMaster.variants.length !== 1 ? 's' : ''}
                     </div>
                   </div>
+                  <Link
+                    href={`/quality/experimentos?master_recipe_id=${selectedMaster.masterId}`}
+                    className="ml-auto shrink-0"
+                  >
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-violet-800 border-violet-200">
+                      <FlaskConical className="w-3 h-3" />
+                      Experimentos
+                    </Button>
+                  </Link>
                 </div>
               </div>
 
@@ -542,6 +552,18 @@ export default function RecipeVersionGovernance({ plantId, initialSearch, initia
                               )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                              <Link
+                                href={`/quality/experimentos?recipe_id=${variant.variantId}`}
+                                title="Ver experimentos de esta variante"
+                              >
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs gap-1 text-violet-700"
+                                >
+                                  <FlaskConical className="w-3 h-3" />
+                                </Button>
+                              </Link>
                               <Button
                                 size="sm"
                                 variant="outline"

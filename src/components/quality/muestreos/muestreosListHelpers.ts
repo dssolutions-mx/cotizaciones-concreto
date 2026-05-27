@@ -190,7 +190,9 @@ export function filterAndSortMuestreosList(
         m.remision?.order?.clients?.business_name?.toLowerCase().includes(search) ||
         m.remision?.recipe?.recipe_code?.toLowerCase().includes(search) ||
         getConstructionSite(m).toLowerCase().includes(search) ||
-        m.manual_reference?.toLowerCase().includes(search)
+        m.manual_reference?.toLowerCase().includes(search) ||
+        m.laboratorio_lote?.lote_number?.toLowerCase().includes(search) ||
+        m.laboratorio_lote?.study_name?.toLowerCase().includes(search)
     )
   }
 

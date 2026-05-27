@@ -2,10 +2,12 @@ import type { InformeChecklistItem, InformeSnapshot, LaboratorioAcreditacionConf
 import { requiredMeasurandsForInformeUncertainty } from '@/lib/quality/informeMeasurands';
 
 export function evaluateInformeChecklist(input: {
+  isLabExperiment?: boolean;
   muestreo: {
     id: string;
     fecha_recepcion_lab?: string | null;
     muestreado_por?: string | null;
+    laboratorio_lote_id?: string | null;
     muestras?: Array<{
       id: string;
       is_edad_garantia?: boolean | null;
@@ -20,6 +22,7 @@ export function evaluateInformeChecklist(input: {
   uncertaintyMissing?: string[];
 }): InformeChecklistItem[] {
   const items: InformeChecklistItem[] = [];
+  const isLab = input.isLabExperiment === true;
 
   const garantia = (input.muestreo.muestras ?? []).filter((m) => m.is_edad_garantia);
   const pendingGarantia = garantia.filter(
@@ -53,12 +56,24 @@ export function evaluateInformeChecklist(input: {
     severity: 'warning',
   });
 
-  items.push({
-    id: 'elemento',
-    label: 'Elemento estructural en pedido',
-    ok: !!input.order_elemento?.trim(),
-    severity: 'warning',
-  });
+  if (isLab) {
+    items.push({
+      id: 'laboratorio_lote',
+      label: 'Vinculado a lote de experimento interno',
+      ok: !!input.muestreo.laboratorio_lote_id,
+      href: input.muestreo.laboratorio_lote_id
+        ? `/quality/experimentos`
+        : `/quality/muestreos/${input.muestreo.id}`,
+      severity: 'warning',
+    });
+  } else {
+    items.push({
+      id: 'elemento',
+      label: 'Elemento estructural en pedido',
+      ok: !!input.order_elemento?.trim(),
+      severity: 'warning',
+    });
+  }
 
   if (garantia.some((m) => m.estado === 'ENSAYADO' || (m.ensayos && m.ensayos.length > 0))) {
     items.push({

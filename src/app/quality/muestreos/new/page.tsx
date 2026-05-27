@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useDeferredValue, useTransition, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -68,6 +68,9 @@ import SamplePlan from '@/components/quality/muestreos/SamplePlan';
 import AgePlanSelector from '@/components/quality/muestreos/AgePlanSelector';
 // removed unused list components after modularization
 import RemisionInfoCard from '@/components/quality/muestreos/RemisionInfoCard';
+import LoteExperimentoInfoCard from '@/components/quality/muestreos/LoteExperimentoInfoCard';
+import ExperimentoWorkflowStepper from '@/components/quality/experimentos/ExperimentoWorkflowStepper';
+import type { LaboratorioLoteWithRelations } from '@/types/laboratorioLote';
 import LinkedMuestreoHeader from '@/components/quality/muestreos/LinkedMuestreoHeader';
 import OrdersStep from '@/components/quality/muestreos/OrdersStep';
 import { muestreoFormSchema, MuestreoFormValues } from '@/components/quality/muestreos/newMuestreoSchema';
@@ -88,12 +91,15 @@ import { useToast } from '@/components/ui/use-toast';
 
 export default function NuevoMuestreoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { profile } = useAuthBridge();
   const { currentPlant, isLoading: plantLoading } = usePlantContext();
   const [activeStep, setActiveStep] = useState(0);
   // Flow mode: 'linked' uses Orden → Remisión → Datos; 'manual' is single-step capture
-  const [mode, setMode] = useState<'linked' | 'manual'>('linked');
+  const [mode, setMode] = useState<'linked' | 'manual' | 'experimento'>('linked');
+  const [laboratorioLote, setLaboratorioLote] = useState<LaboratorioLoteWithRelations | null>(null);
+  const [loadingLote, setLoadingLote] = useState(false);
   const [orders, setOrders] = useState<any[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
   const [remisiones, setRemisiones] = useState<any[]>([]);
@@ -153,6 +159,33 @@ export default function NuevoMuestreoPage() {
       ubicacion_detalle: '',
     },
   });
+  useEffect(() => {
+    const modeParam = searchParams.get('mode');
+    const loteId = searchParams.get('laboratorio_lote_id');
+    if (modeParam !== 'experimento' || !loteId) return;
+
+    setMode('experimento');
+    setLoadingLote(true);
+    fetch(`/api/quality/laboratorio-lotes/${loteId}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.data) return;
+        const lote = json.data as LaboratorioLoteWithRelations;
+        setLaboratorioLote(lote);
+        if (lote.plant?.code) form.setValue('planta', lote.plant.code as MuestreoFormValues['planta']);
+        if (lote.fecha) {
+          const d = new Date(`${lote.fecha}T12:00:00`);
+          if (!isNaN(d.getTime())) form.setValue('fecha_muestreo', d);
+        }
+        const specs = lote.concrete_specs;
+        if (specs?.clasificacion) setClasificacion(specs.clasificacion);
+        if (specs?.valor_edad != null) setEdadGarantia(Number(specs.valor_edad));
+        if (specs?.unidad_edad === 'HORA' || specs?.unidad_edad === 'H') setAgePlanUnit('hours');
+        else setAgePlanUnit('days');
+      })
+      .finally(() => setLoadingLote(false));
+  }, [searchParams, form]);
+
   const lastBaseDateRef = useRef<Date | null>((() => {
     const val = form.getValues('fecha_muestreo');
     return (val instanceof Date && !isNaN(val.getTime())) ? val : new Date();
@@ -644,8 +677,16 @@ export default function NuevoMuestreoPage() {
           ...finalData,
           created_by: profile?.id,
           // Set sampling type based on mode and presence of manual_reference
-          sampling_type: mode === 'linked' ? 'REMISION_LINKED' :
-                        (finalData.manual_reference ? 'STANDALONE' : 'PROVISIONAL'),
+          sampling_type:
+            mode === 'experimento'
+              ? 'LAB_EXPERIMENT'
+              : mode === 'linked'
+                ? 'REMISION_LINKED'
+                : finalData.manual_reference
+                  ? 'STANDALONE'
+                  : 'PROVISIONAL',
+          laboratorio_lote_id: mode === 'experimento' ? laboratorioLote?.id ?? null : null,
+          remision_id: mode === 'experimento' ? null : finalData.remision_id,
           // Include concrete specifications with guarantee age only (standardized)
           concrete_specs: {
             clasificacion: clasificacion,
@@ -653,7 +694,7 @@ export default function NuevoMuestreoPage() {
             valor_edad: edadGarantia,
             // Removed fc/resistance to standardize field to only contain age and unit
           },
-        },
+        } as Parameters<typeof createMuestreoWithSamples>[0],
         plannedSamples
       );
 
@@ -685,12 +726,29 @@ export default function NuevoMuestreoPage() {
             description: msg,
             variant: 'destructive',
           });
-          router.push(`/quality/muestreos/${muestreoId}`);
+          if (mode === 'experimento' && laboratorioLote?.id) {
+            router.push(`/quality/experimentos/${laboratorioLote.id}`);
+          } else {
+            router.push(`/quality/muestreos/${muestreoId}`);
+          }
           return;
         }
       }
 
-      router.push(`/quality/muestreos/${muestreoId}`);
+      if (mode === 'experimento' && laboratorioLote?.id) {
+        await fetch(`/api/quality/laboratorio-lotes/${laboratorioLote.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'muestreado' }),
+        });
+      }
+
+      if (mode === 'experimento' && laboratorioLote?.id) {
+        toast({ title: 'Muestreo registrado', description: 'Vuelve al lote para ver muestras y ensayos.' });
+        router.push(`/quality/experimentos/${laboratorioLote.id}`);
+      } else {
+        router.push(`/quality/muestreos/${muestreoId}`);
+      }
     } catch (error) {
       console.error('Error creating muestreo:', error);
       setSubmitError('Ocurrió un error al crear el muestreo. Por favor, intenta nuevamente.');
@@ -723,46 +781,147 @@ export default function NuevoMuestreoPage() {
   return (
     <div className="w-full">
       <div className="mb-4">
-        <QualityBreadcrumb
-          hubName="Operaciones"
-          hubHref="/quality/operaciones"
-          items={[
-            { label: 'Muestreos', href: '/quality/muestreos' },
-            { label: 'Nuevo muestreo' },
-          ]}
-        />
+        {mode === 'experimento' && laboratorioLote ? (
+          <QualityBreadcrumb
+            hubName="Experimentos"
+            hubHref="/quality/experimentos"
+            items={[
+              { label: laboratorioLote.lote_number, href: `/quality/experimentos/${laboratorioLote.id}` },
+              { label: 'Planificar muestras' },
+            ]}
+          />
+        ) : (
+          <QualityBreadcrumb
+            hubName="Operaciones"
+            hubHref="/quality/operaciones"
+            items={[
+              { label: 'Muestreos', href: '/quality/muestreos' },
+              { label: 'Nuevo muestreo' },
+            ]}
+          />
+        )}
       </div>
       <div className="mb-6">
         <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-stone-900">
-          Nuevo Muestreo
+          {mode === 'experimento' ? 'Planificar muestras' : 'Nuevo Muestreo'}
         </h1>
         <p className="text-sm text-stone-500 mt-0.5">
-          Sigue los pasos para registrar un nuevo muestreo de concreto
+          {mode === 'experimento'
+            ? 'Registra el muestreo y programa cilindros o vigas para el lote de laboratorio'
+            : 'Sigue los pasos para registrar un nuevo muestreo de concreto'}
         </p>
+        {mode === 'experimento' && (
+          <div className="mt-3">
+            <ExperimentoWorkflowStepper currentStep="muestreo" compact />
+          </div>
+        )}
 
-        <Tabs
-          value={mode}
-          onValueChange={(v) => setMode(v as 'linked' | 'manual')}
-          className="mt-4 w-full max-w-md"
-        >
-          <TabsList className="grid w-full grid-cols-2 bg-stone-100/80 p-1 text-stone-600">
-            <TabsTrigger
-              value="linked"
-              className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
-            >
-              Remisión existente
-            </TabsTrigger>
-            <TabsTrigger
-              value="manual"
-              className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
-            >
-              Captura manual
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {mode !== 'experimento' && (
+          <Tabs
+            value={mode}
+            onValueChange={(v) => setMode(v as 'linked' | 'manual')}
+            className="mt-4 w-full max-w-md"
+          >
+            <TabsList className="grid w-full grid-cols-2 bg-stone-100/80 p-1 text-stone-600">
+              <TabsTrigger
+                value="linked"
+                className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
+              >
+                Remisión existente
+              </TabsTrigger>
+              <TabsTrigger
+                value="manual"
+                className="data-[state=active]:bg-sky-50 data-[state=active]:text-sky-900 data-[state=active]:shadow-sm"
+              >
+                Captura manual
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+        {mode === 'experimento' && laboratorioLote && (
+          <p className="mt-2 text-sm text-violet-800">
+            Muestreo desde experimento {laboratorioLote.lote_number}
+          </p>
+        )}
       </div>
-      
-      {mode === 'linked' ? (
+
+      {mode === 'experimento' ? (
+        loadingLote || !laboratorioLote ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-stone-400" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Experimento de laboratorio</CardTitle>
+                  <CardDescription>Lote interno vinculado</CardDescription>
+                </CardHeader>
+                <LoteExperimentoInfoCard lote={laboratorioLote} />
+              </Card>
+            </div>
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Datos del Muestreo</CardTitle>
+                  <CardDescription>Registro de muestreo para el lote de experimento</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Form {...form}>
+                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                      <LinkedMuestreoHeader
+                        form={form as any}
+                        onDateChange={(date?: Date) => {
+                          form.setValue('fecha_muestreo', date as any);
+                        }}
+                      />
+                      <AgePlanSelector
+                        agePlanUnit={agePlanUnit}
+                        onAgePlanUnitChange={setAgePlanUnit}
+                        edadGarantia={edadGarantia}
+                        onEdadGarantiaChange={setEdadGarantia}
+                      />
+                      <MeasurementsFields form={form} />
+                      <SamplePlan
+                        plannedSamples={plannedSamples as any}
+                        setPlannedSamples={setPlannedSamples as any}
+                        form={form as any}
+                        clasificacion={clasificacion}
+                        edadGarantia={edadGarantia}
+                        agePlanUnit={agePlanUnit}
+                        computeAgeDays={computeAgeDays}
+                        addDaysSafe={addDaysSafe}
+                        formatAgeSummary={formatAgeSummary as any}
+                        plantId={samplePlanPlantId}
+                      />
+                      <InformeAccreditedFields form={form} />
+                      <EquipoUtilizadoPicker
+                        ref={equipoPickerRef}
+                        plantId={samplePlanPlantId ?? currentPlant?.id}
+                        plannedSamples={plannedSamples}
+                        measurements={equipoMeasurementsHint}
+                      />
+                      {submitError && (
+                        <p className="text-sm text-red-600">{submitError}</p>
+                      )}
+                      <CardFooter className="flex justify-end gap-2 px-0">
+                        <Button type="button" variant="outline" onClick={() => router.push(`/quality/experimentos/${laboratorioLote.id}`)}>
+                          Cancelar
+                        </Button>
+                        <Button type="submit" disabled={isSubmitting} className="h-9 bg-sky-700 px-3 text-sm text-white shadow-none hover:bg-sky-800">
+                          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+                          Guardar muestreo
+                        </Button>
+                      </CardFooter>
+                    </form>
+                  </Form>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )
+      ) : mode === 'linked' ? (
       <Steps value={activeStep} onChange={handleStepChange}>
         <StepsItem title="Seleccionar Orden" description="Elige la orden de concreto">
           <StepsContent className="py-4">
