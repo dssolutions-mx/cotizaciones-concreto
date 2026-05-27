@@ -1,8 +1,8 @@
 import { StyleSheet } from '@react-pdf/renderer'
-import { DC_DOCUMENT_THEME, DC_DOCUMENT_TYPOGRAPHY } from '@/lib/reports/branding'
+import { DC_DOCUMENT_THEME, EMA_PDF_TYPOGRAPHY } from '@/lib/reports/branding'
 
 const T = DC_DOCUMENT_THEME
-const TY = DC_DOCUMENT_TYPOGRAPHY
+const TY = EMA_PDF_TYPOGRAPHY
 
 export const verificacionPdfStyles = StyleSheet.create({
   page: {

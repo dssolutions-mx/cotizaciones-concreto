@@ -1,6 +1,9 @@
 import React from 'react'
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer'
 import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding'
+import { registerEmaPdfFonts } from '@/lib/reports/registerEmaPdfFonts'
+
+registerEmaPdfFonts()
 import { effectiveLayout, effectiveSectionRepetitions } from '@/lib/ema/sectionLayout'
 import {
   buildMeasurementMap,

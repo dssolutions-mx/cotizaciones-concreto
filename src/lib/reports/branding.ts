@@ -98,3 +98,12 @@ export const DC_DOCUMENT_TYPOGRAPHY = {
   sizeFooter: 7,
   lineHeight: 1.35,
 } as const
+
+/** DejaVu Sans — used by EMA verificación / incertidumbre informes (GUM symbols). */
+export const EMA_PDF_FONT_FAMILY = 'DejaVuSans'
+
+export const EMA_PDF_TYPOGRAPHY = {
+  ...DC_DOCUMENT_TYPOGRAPHY,
+  fontFamilyBody: EMA_PDF_FONT_FAMILY,
+  fontFamilyMono: EMA_PDF_FONT_FAMILY,
+} as const

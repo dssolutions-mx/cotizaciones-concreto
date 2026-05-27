@@ -1,5 +1,8 @@
 import React from 'react'
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer'
+import { registerEmaPdfFonts } from '@/lib/reports/registerEmaPdfFonts'
+
+registerEmaPdfFonts()
 import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding'
 import { PdfTable } from '@/components/ema/pdf/verificacionPdfTable'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'

@@ -88,14 +88,14 @@ export function buildBudgetPdfColumns(): PdfTableColumn[] {
   const labels = [
     'Fuente',
     'Cat.',
-    pdfSanitizeMetrologyText('Xᵢ'),
-    pdfSanitizeMetrologyText('xᵢ'),
-    pdfSanitizeMetrologyText('u(xᵢ)'),
+    'Xᵢ',
+    'xᵢ',
+    'u(xᵢ)',
     'T',
     'Dist.',
-    pdfSanitizeMetrologyText('cᵢ'),
-    pdfSanitizeMetrologyText('uᵢ(y)'),
-    pdfSanitizeMetrologyText('uᵢ²(y)'),
+    'cᵢ',
+    'uᵢ(y)',
+    'uᵢ²(y)',
     '%',
     'Fórmula',
     'Norma',
@@ -150,14 +150,13 @@ export function buildBudgetPdfRows(
     }
   }
 
-  const unitPdf = pdfSanitizeMetrologyText(unit);
   rows.push({
     kind: 'footer_sum',
-    cells: ['', '', '', '', '', '', '', '', 'Sum u_i^2(y)', fmtPdfExp(sumUi2), '', '', `(${unitPdf})^2`],
+    cells: ['', '', '', '', '', '', '', '', 'Σ uᵢ²(y)', fmtPdfExp(sumUi2), '', '', `(${unit})²`],
   });
   rows.push({
     kind: 'footer_uc',
-    cells: ['', '', '', '', '', '', '', '', 'u_c', fmtPdfExp(u_c), '', '', unitPdf],
+    cells: ['', '', '', '', '', '', '', '', 'u_c', fmtPdfExp(u_c), '', '', unit],
   });
 
   return rows;

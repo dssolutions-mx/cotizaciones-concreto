@@ -1,5 +1,6 @@
 'use client'
 
+import { registerEmaPdfFonts } from '@/lib/reports/registerEmaPdfFonts'
 import type { UncertaintyStudyInformeDetalle } from '@/types/ema-uncertainty'
 import type {
   UncertaintyInformePDFProps,
@@ -25,6 +26,8 @@ export async function downloadUncertaintyInformePdf(
     filename?: string
   },
 ): Promise<void> {
+  registerEmaPdfFonts()
+
   const [{ pdf }, { UncertaintyInformePDF }] = await Promise.all([
     import('@react-pdf/renderer'),
     import('@/components/ema/pdf/UncertaintyInformePDF'),
@@ -53,6 +56,8 @@ export async function openUncertaintyInformePdfInNewTab(
   informe: UncertaintyStudyInformeDetalle,
   options?: { lab?: UncertaintyPdfLabContext },
 ): Promise<void> {
+  registerEmaPdfFonts()
+
   const [{ pdf }, { UncertaintyInformePDF }] = await Promise.all([
     import('@react-pdf/renderer'),
     import('@/components/ema/pdf/UncertaintyInformePDF'),

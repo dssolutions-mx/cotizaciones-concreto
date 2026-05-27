@@ -1,5 +1,6 @@
 'use client'
 
+import { registerEmaPdfFonts } from '@/lib/reports/registerEmaPdfFonts'
 import type { CompletedVerificacionDetalle } from '@/types/ema'
 import type {
   VerificacionInformePDFProps,
@@ -34,6 +35,8 @@ export async function downloadVerificacionInformePdf(
   if (!items.length) {
     throw new Error('No hay verificaciones para exportar.')
   }
+
+  registerEmaPdfFonts()
 
   const [{ pdf }, { VerificacionInformePDF }] = await Promise.all([
     import('@react-pdf/renderer'),
@@ -70,6 +73,8 @@ export async function openVerificacionInformePdfInNewTab(
   if (!items.length) {
     throw new Error('No hay verificaciones para exportar.')
   }
+
+  registerEmaPdfFonts()
 
   const [{ pdf }, { VerificacionInformePDF }] = await Promise.all([
     import('@react-pdf/renderer'),
