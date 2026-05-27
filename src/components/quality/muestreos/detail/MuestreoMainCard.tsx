@@ -25,7 +25,6 @@ import type { MuestreoWithRelations } from '@/types/quality'
 import { cn, formatDate } from '@/lib/utils'
 import { qualityHubLinkOutlineClass, qualityHubOutlineNeutralClass } from '../../qualityHubUi'
 import { getOrderInfo } from './muestreoDetailUtils'
-import MuestreoRevenimientoInline from './MuestreoRevenimientoInline'
 
 type OrderTotals = {
   totalOrderVolume: number
@@ -215,11 +214,15 @@ export default function MuestreoMainCard({
               </div>
             </div>
 
-            <MuestreoRevenimientoInline
-              muestreoId={muestreoId}
-              valueCm={muestreo.revenimiento_sitio}
-              onSaved={onRevenimientoSaved}
-            />
+            {typeof muestreo.revenimiento_sitio === 'number' && (
+              <div>
+                <p className="text-sm font-medium text-stone-500 mb-1">Revenimiento (promedio)</p>
+                <div className="text-2xl font-bold text-stone-900">
+                  {muestreo.revenimiento_sitio}
+                  <span className="text-sm font-normal text-stone-500 ml-1">cm</span>
+                </div>
+              </div>
+            )}
 
             {typeof muestreo.masa_unitaria === 'number' && (
               <div>

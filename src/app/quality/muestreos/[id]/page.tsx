@@ -23,6 +23,7 @@ import type { MoldeRow, MuestreoInstrumentoRow } from '@/components/quality/mues
 import MuestreoDetailHeader from '@/components/quality/muestreos/detail/MuestreoDetailHeader'
 import MuestreoMainCard from '@/components/quality/muestreos/detail/MuestreoMainCard'
 import MuestreoEnvironmentalCard from '@/components/quality/muestreos/detail/MuestreoEnvironmentalCard'
+import MuestreoFieldMeasurementsCard from '@/components/quality/muestreos/detail/MuestreoFieldMeasurementsCard'
 import MuestreoSampleSummaryCard from '@/components/quality/muestreos/detail/MuestreoSampleSummaryCard'
 import InformeEmissionPanel from '@/components/quality/informes/InformeEmissionPanel'
 import MuestreoInformeFieldsCard from '@/components/quality/muestreos/detail/MuestreoInformeFieldsCard'
@@ -410,6 +411,12 @@ export default function MuestreoDetailPage() {
             </div>
 
             <div className="space-y-6">
+              <MuestreoFieldMeasurementsCard
+                muestreoId={muestreo.id}
+                muestreo={muestreo}
+                canEdit={canEditMuestreoEquipment}
+                onSaved={() => void fetchMuestreoDetails()}
+              />
               <MuestreoEnvironmentalCard muestreo={muestreo} />
               <MuestreoSampleSummaryCard
                 muestreo={muestreo}

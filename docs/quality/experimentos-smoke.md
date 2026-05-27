@@ -20,11 +20,13 @@ Manual checklist after changes to the lab workspace.
 8. **Ensayo** — From lote, link Registrar ensayo on a pending muestra (optional); resultados panel shows aggregate conformidad
 9. **Close** — Cerrar protocolo → Registrar conclusión → `evaluado` with outcome text
 10. **Informe** — Emit informe on experiment muestreo; preview shows banner “experimento interno”; PDF §1 estudio/lote/protocolo; §3 fresco “No aplica”; compresión con NMX-C-155; sin pedido/remisión comercial
-11. **Recetas hub** — Secondary link “Experimentos de laboratorio” opens list
-12. **Gobernanza** — Master header “Experimentos” and per-variant flask link filter experimentos list
+11. **Mediciones múltiples** — En detalle de muestreo, card “Mediciones de campo”: agregar 2+ lecturas de revenimiento → promedio en cabecera del card; informe muestra **solo** una fila por lectura (sin fila de promedio). En obra, C/NC de revenimiento en la última fila según el promedio guardado en `muestreos`; experimento todo N/A. Crear muestreo con varias lecturas y verificar PUT `/mediciones-campo` tras guardar.
+12. **Recetas hub** — Secondary link “Experimentos de laboratorio” opens list
+13. **Gobernanza** — Master header “Experimentos” and per-variant flask link filter experimentos list
 
 ## API
 
 - `GET /api/quality/laboratorio-lotes?plant_id=…&status=borrador`
 - `GET /api/quality/laboratorio-lotes?plant_id=…&recipe_id=…` or `&master_recipe_id=…`
 - `PATCH /api/quality/laboratorio-lotes/{id}` with `{ status, outcome_notes }`
+- `GET|PUT /api/quality/muestreos/{id}/mediciones-campo` — list or replace field readings; scalars on `muestreos` updated from averages

@@ -1,6 +1,7 @@
 import { format } from 'date-fns';
 import { createServiceClient } from '@/lib/supabase/server';
 import { buildInformeSnapshot, type BuildInformeInput } from '@/lib/quality/buildInformeSnapshot';
+import { listMedicionesCampo } from '@/services/muestreoFieldMeasurementService';
 import {
   buildInformeUncertaintySnapshot,
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
@@ -151,13 +152,15 @@ export async function loadInformeBuildInput(muestreoId: string): Promise<BuildIn
   const isLab =
     listRow.sampling_type === 'LAB_EXPERIMENT' || loteId != null;
 
-  const [muestras, client, labConfig, ensayoInstrumentos, laboratorioLote] = await Promise.all([
-    fetchMuestrasWithEnsayos(muestreoId),
-    isLab ? Promise.resolve(null) : fetchClientForMuestreo(listRow),
-    getLabConfig(plantId),
-    fetchEnsayoInstrumentos(muestreoId),
-    loteId ? fetchLaboratorioLoteForInforme(loteId) : Promise.resolve(null),
-  ]);
+  const [muestras, client, labConfig, ensayoInstrumentos, laboratorioLote, medicionesCampo] =
+    await Promise.all([
+      fetchMuestrasWithEnsayos(muestreoId),
+      isLab ? Promise.resolve(null) : fetchClientForMuestreo(listRow),
+      getLabConfig(plantId),
+      fetchEnsayoInstrumentos(muestreoId),
+      loteId ? fetchLaboratorioLoteForInforme(loteId) : Promise.resolve(null),
+      listMedicionesCampo(muestreoId),
+    ]);
 
   return {
     muestreoListRow: listRow,
@@ -166,6 +169,7 @@ export async function loadInformeBuildInput(muestreoId: string): Promise<BuildIn
     ensayoInstrumentos,
     labConfig,
     laboratorioLote: laboratorioLote as BuildInformeInput['laboratorioLote'],
+    medicionesCampo,
   };
 }
 

@@ -79,7 +79,7 @@ import { adjustDateForTimezone, addDaysSafe, computeAgeDays, formatAgeSummary, P
 import { DateRange } from "react-day-picker";
 import RemisionesStep from '@/components/quality/muestreos/RemisionesStep';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import MeasurementsFields from '@/components/quality/muestreos/MeasurementsFields';
+import MeasurementsFields, { buildMedicionesPayloadFromForm } from '@/components/quality/muestreos/MeasurementsFields';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -697,6 +697,32 @@ function NuevoMuestreoPageInner() {
         } as Parameters<typeof createMuestreoWithSamples>[0],
         plannedSamples
       );
+
+      const medicionesPayload = buildMedicionesPayloadFromForm(
+        form.getValues() as Record<string, unknown>,
+      );
+      if (medicionesPayload.length > 0) {
+        const medRes = await fetch(`/api/quality/muestreos/${muestreoId}/mediciones-campo`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mediciones: medicionesPayload }),
+        });
+        if (!medRes.ok) {
+          const medJson = await medRes.json().catch(() => ({}));
+          const medMsg =
+            typeof medJson.error === 'string'
+              ? medJson.error
+              : 'No se pudieron guardar las mediciones de campo';
+          setSubmitError(
+            `El muestreo se registró, pero las lecturas de campo no se guardaron: ${medMsg}`,
+          );
+          toast({
+            title: 'Mediciones no guardadas',
+            description: medMsg,
+            variant: 'destructive',
+          });
+        }
+      }
 
       if (selectedInstrumentos.length > 0) {
         const payload = {

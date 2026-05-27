@@ -1,7 +1,6 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns';
 import {
   conformidadFc,
-  conformidadRevenimiento,
   kgCm2ToMpa,
   kgToKn,
   parseTolerancias,
@@ -20,7 +19,10 @@ import {
   INFORME_METODO_COMPRESION,
   protocolTypeLabel,
 } from '@/lib/quality/informeLabContext';
+import { buildInformeFreshRows } from '@/lib/quality/buildInformeFreshRows';
+import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
+import type { MuestreoMedicionCampo } from '@/types/muestreoFieldMeasurement';
 import type {
   InformeFreshResultRow,
   InformeSnapshot,
@@ -82,6 +84,7 @@ export type BuildInformeInput = {
   opinionTecnica?: string | null;
   firmas?: InformeSnapshot['firmas'];
   asOfDate?: string;
+  medicionesCampo?: MuestreoMedicionCampo[];
 };
 
 function str(v: unknown): string | null {
@@ -155,56 +158,6 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
   const freshUncertainty = (codigo: string) =>
     declararIncertidumbreCampo ? uMap.get(codigo) : undefined;
 
-  const freshRows: InformeFreshResultRow[] = [];
-
-  const rev = num(row.revenimiento_sitio);
-  if (rev != null) {
-    freshRows.push({
-      ensayo: 'Revenimiento',
-      metodo: 'NMX-C-161-ONNCCE-2013',
-      resultado: `${rev} mm`,
-      especificado: slump != null ? `${slump} mm` : 'N/A',
-      conformidad: conformidadRevenimiento(rev, slump, tolerancias),
-      uncertainty: freshUncertainty('REV'),
-    });
-  }
-
-  const temp = num(row.temperatura_concreto);
-  if (temp != null) {
-    freshRows.push({
-      ensayo: 'Temperatura del concreto',
-      metodo: 'NMX-C-161-ONNCCE-2013',
-      resultado: `${temp} °C`,
-      especificado: 'N/A',
-      conformidad: 'N/A',
-      uncertainty: freshUncertainty('TEMP'),
-    });
-  }
-
-  const mu = num(row.masa_unitaria);
-  if (mu != null) {
-    freshRows.push({
-      ensayo: 'Masa unitaria',
-      metodo: 'NMX-C-161-ONNCCE-2013',
-      resultado: `${mu} kg/m³`,
-      especificado: 'N/A',
-      conformidad: 'N/A',
-      uncertainty: freshUncertainty('MU'),
-    });
-  }
-
-  const aire = num(row.contenido_aire);
-  if (aire != null) {
-    freshRows.push({
-      ensayo: 'Contenido de aire',
-      metodo: 'NMX-C-161-ONNCCE-2013',
-      resultado: `${aire} %`,
-      especificado: 'N/A',
-      conformidad: 'N/A',
-      uncertainty: freshUncertainty('AIRE'),
-    });
-  }
-
   const compressionRows = input.muestras.flatMap((m) =>
     (m.ensayos ?? []).map((e) => {
       const fcKg = resolveEnsayoResistenciaReportada(e);
@@ -275,6 +228,28 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
         edad_especificada: edadEspecificada,
       }
     : null;
+
+  const labExperimentForInforme =
+    isLabExperiment ||
+    isInformeLabExperiment({
+      contexto: isLabExperiment ? 'laboratorio_interno' : 'obra',
+      estudio_laboratorio: estudioLaboratorio ?? undefined,
+    });
+
+  const freshRows = buildInformeFreshRows({
+    mediciones: input.medicionesCampo ?? [],
+    scalars: {
+      revenimiento_sitio: num(row.revenimiento_sitio),
+      temperatura_concreto: num(row.temperatura_concreto),
+      masa_unitaria: num(row.masa_unitaria),
+      contenido_aire: num(row.contenido_aire),
+      temperatura_ambiente: num(row.temperatura_ambiente),
+    },
+    slump,
+    tolerancias,
+    isLabExperiment: labExperimentForInforme,
+    freshUncertainty,
+  });
 
   const legalBase = [
     'Los resultados se refieren únicamente a la muestra ensayada.',

@@ -124,15 +124,21 @@ export function InformePreview({ snapshot, gaps }: Props) {
             <thead>
               <tr className="border-b text-left text-stone-500">
                 <th className="py-1">Ensayo</th>
+                {snapshot.resultados_fresco.some((row) => row.lectura) ? (
+                  <th>Lectura</th>
+                ) : null}
                 <th>Resultado</th>
                 <th>Especificado</th>
                 <th>C/NC</th>
               </tr>
             </thead>
             <tbody>
-              {snapshot.resultados_fresco.map((r) => (
-                <tr key={r.ensayo} className="border-b border-stone-100">
+              {snapshot.resultados_fresco.map((r, i) => (
+                <tr key={`${r.ensayo}-${r.lectura ?? ''}-${i}`} className="border-b border-stone-100">
                   <td className="py-1">{r.ensayo}</td>
+                  {snapshot.resultados_fresco.some((row) => row.lectura) ? (
+                    <td className="text-stone-600">{r.lectura ?? '—'}</td>
+                  ) : null}
                   <td>
                     {r.resultado}
                     {r.uncertainty && (

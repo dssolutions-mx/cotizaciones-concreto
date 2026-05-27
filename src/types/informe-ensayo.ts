@@ -33,6 +33,8 @@ export type InformeFreshResultRow = {
   resultado: string;
   especificado: string;
   conformidad: 'C' | 'NC' | 'N/A';
+  lectura?: string;
+  resultado_es_promedio?: boolean;
   uncertainty?: InformeUncertaintyEntry;
 };
 

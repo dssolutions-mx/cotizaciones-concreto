@@ -138,12 +138,34 @@ export function InformeResultadosPDF({ snapshot }: Props) {
   const muestreadoLabel =
     snapshot.muestreo.muestreado_por === 'CLIENTE' ? 'Cliente' : 'Laboratorio acreditado';
 
-  const freshRows = snapshot.resultados_fresco.map((r) => [
-    r.ensayo,
-    r.uncertainty ? `${r.resultado}\n${r.uncertainty.display}` : r.resultado,
-    r.especificado,
-    r.conformidad,
-  ]);
+  const showLecturaCol = snapshot.resultados_fresco.some((r) => r.lectura);
+
+  const freshCols: PdfTableColumn[] = showLecturaCol
+    ? [
+        { key: 'ensayo', label: 'Ensayo', widthPt: 100 },
+        { key: 'lectura', label: 'Lectura', widthPt: 72 },
+        { key: 'resultado', label: 'Resultado', widthPt: 100 },
+        { key: 'especificado', label: 'Especificado', widthPt: 88 },
+        { key: 'conformidad', label: 'C/NC', widthPt: 71, align: 'center' },
+      ]
+    : FRESH_COLS;
+
+  const freshRows = snapshot.resultados_fresco.map((r) =>
+    showLecturaCol
+      ? [
+          r.ensayo,
+          r.lectura ?? '—',
+          r.uncertainty ? `${r.resultado}\n${r.uncertainty.display}` : r.resultado,
+          r.especificado,
+          r.conformidad,
+        ]
+      : [
+          r.ensayo,
+          r.uncertainty ? `${r.resultado}\n${r.uncertainty.display}` : r.resultado,
+          r.especificado,
+          r.conformidad,
+        ],
+  );
 
   const compressionRows = snapshot.resultados_compresion.map((r) => [
     r.identificacion,
@@ -280,7 +302,7 @@ export function InformeResultadosPDF({ snapshot }: Props) {
           {snapshot.declaraciones.fresco_no_aplica ? (
             <Text style={s.sectionBlockDesc}>{snapshot.declaraciones.fresco_no_aplica}</Text>
           ) : freshRows.length > 0 ? (
-            <PdfTable columns={FRESH_COLS} rows={freshRows} tableWidth={PDF_PORTRAIT_TABLE_WIDTH} />
+            <PdfTable columns={freshCols} rows={freshRows} tableWidth={PDF_PORTRAIT_TABLE_WIDTH} />
           ) : (
             <Text style={s.sectionBlockDesc}>Sin ensayos de campo registrados.</Text>
           )}
