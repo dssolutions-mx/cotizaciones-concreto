@@ -56,4 +56,5 @@ describe('uncertaintyInformePdfModel', () => {
     expect(assertInformeExportAllowed('borrador')).toBe(false);
     expect(assertInformeExportAllowed('reemplazado')).toBe(false);
   });
+
 });

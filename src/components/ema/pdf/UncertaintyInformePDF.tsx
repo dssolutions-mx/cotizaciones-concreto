@@ -10,8 +10,6 @@ import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdf
 import {
   buildBudgetPdfColumns,
   buildBudgetPdfRows,
-  buildReplicaPdfColumns,
-  buildReplicaPdfRows,
   buildTraceabilityPdfColumns,
   buildTraceabilityPdfRows,
   fmtPdfExp,
@@ -22,6 +20,16 @@ import {
   studyShortId,
   uniqueNormRefsFromComponents,
 } from '@/lib/ema/uncertaintyInformePdfModel'
+import {
+  buildReplicaPdfColumns,
+  buildReplicaPdfRows,
+} from '@/lib/ema/uncertaintyInformeReplicaPdf'
+import {
+  PDF_NU_EFF,
+  PDF_X_MEDIA,
+  pdfFormatNuEffValue,
+  pdfSanitizeMetrologyText,
+} from '@/lib/ema/uncertaintyPdfMetrologyText'
 import type { UncertaintyStudyInformeDetalle } from '@/types/ema-uncertainty'
 
 export type UncertaintyPdfLabContext = {
@@ -37,7 +45,7 @@ export type UncertaintyInformePDFProps = {
 
 const LEGAL = [
   'Este registro documenta la evaluación de incertidumbre de medición del mensurando indicado, conforme al procedimiento del laboratorio y a la NMX-EC-17025-IMNC-2018 §7.6.',
-  'El presupuesto de incertidumbre se elaboró según la Guía JCGM 100:2008 (GUM). La incertidumbre expandida U se obtiene como U = k · u_c, con k de la distribución t de Student para el nivel de confianza aproximado del 95 % y los grados de libertad efectivos νeff (GUM §6.2, §6.3).',
+  'El presupuesto de incertidumbre se elaboró según la Guía JCGM 100:2008 (GUM). La incertidumbre expandida U se obtiene como U = k * u_c, con k de la distribución t de Student para el nivel de confianza aproximado del 95 % y los grados de libertad efectivos nu_eff (GUM §6.2, §6.3).',
   'Documento controlado generado por el sistema de gestión de calidad del laboratorio. Reproducciones no controladas pueden no reflejar el estado vigente del registro.',
 ]
 
@@ -206,8 +214,8 @@ export function UncertaintyInformePDF({
   const docCodigo = study.documento_codigo ?? `${measurand.documento_codigo ?? measurand.codigo}-${study.fecha_estudio}`
   const docLine = `${docCodigo} · ${studyShortId(study.id)} · Estado: ${formatStudyEstado(study.estado)} · Emitido ${issued}`
 
-  const replicaCols = buildReplicaPdfColumns(measurand)
-  const replicaRows = buildReplicaPdfRows(study.replicas ?? [], measurand)
+  const replicaCols = buildReplicaPdfColumns(measurand, study)
+  const replicaRows = buildReplicaPdfRows(study.replicas ?? [], measurand, study)
   const traceRows = buildTraceabilityPdfRows(informe.instrument_traceability)
   const normRefs = uniqueNormRefsFromComponents(budget.components)
   const pool = study.equipo_pool_json

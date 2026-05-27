@@ -224,6 +224,156 @@ export function computeFcCompressiveStrength(
   return carga / area_cm2;
 }
 
+/** Mean diameter in mm and circular area in cm² for one FC replica (informe / UI parity). */
+export function fcReplicaDiameterAndArea(
+  measurand: UncertaintyMeasurand,
+  raw: Record<string, number>,
+): { dprom_mm: number; A_cm2: number } | null {
+  const enriched = enrichFcReplicaRaw(raw);
+  if (!fcReplicaInputsComplete(enriched)) return null;
+
+  let d_cm: number | undefined;
+  const d1 = getRawQuantity(enriched, 'd1');
+  const d2 = getRawQuantity(enriched, 'd2');
+  if (d1 !== undefined && d2 !== undefined) {
+    const u =
+      inputUnitForSymbol(measurand, 'd1') ??
+      inputUnitForSymbol(measurand, 'd2') ??
+      'mm';
+    d_cm = (diameterReadingToCm(d1, u, 'mm') + diameterReadingToCm(d2, u, 'mm')) / 2;
+  } else {
+    const dprom = getRawQuantity(enriched, 'dprom') ?? getRawQuantity(enriched, 'd');
+    if (dprom === undefined) return null;
+    const u =
+      inputUnitForSymbol(measurand, 'dprom') ??
+      inputUnitForSymbol(measurand, 'd');
+    d_cm = diameterReadingToCm(dprom, u, 'mm');
+  }
+
+  if (!d_cm || d_cm <= 0) return null;
+  const A_cm2 = (Math.PI * d_cm ** 2) / 4;
+  if (A_cm2 <= 0) return null;
+  const dprom_mm = d_cm * 10;
+  return { dprom_mm, A_cm2 };
+}
+
+/** Cross-sectional area L1×L2 [cm²] for one FC_CUBO replica. */
+export function fcCuboReplicaAreaCm2(
+  measurand: UncertaintyMeasurand,
+  raw: Record<string, number>,
+): number | null {
+  if (!fcCuboReplicaInputsComplete(raw)) return null;
+  const L1 = getRawQuantity(raw, 'L1')!;
+  const L2 = getRawQuantity(raw, 'L2')!;
+  const L1_cm = lengthReadingToCm(measurand, 'L1', L1);
+  const L2_cm = lengthReadingToCm(measurand, 'L2', L2);
+  const area = L1_cm * L2_cm;
+  return area > 0 ? area : null;
+}
+
+export type ReplicaInformeColumn = {
+  simbolo: string;
+  label: string;
+  unidad: string;
+  kind: 'measured' | 'derived' | string;
+};
+
+/** Columns for §4 réplicas table — measured + derived, same exclusions as workspace grid. */
+export function replicaInformeColumns(
+  measurand: UncertaintyMeasurand,
+  excludedSimbolos?: string[] | null,
+): ReplicaInformeColumn[] {
+  const excluded = new Set(excludedSimbolos ?? []);
+  return (measurand.inputs ?? [])
+    .filter((i) => i.kind === 'measured' || i.kind === 'derived')
+    .filter((i) => !(measurand.codigo === 'VIGAS' && (i.simbolo === 'L' || i.simbolo === 'a')))
+    .filter((i) => !excluded.has(i.simbolo))
+    .filter((i) => !i.simbolo.startsWith('_'))
+    .sort((a, b) => a.orden - b.orden)
+    .map((i) => ({
+      simbolo: i.simbolo,
+      label: i.nombre_display || i.simbolo,
+      unidad: i.unidad,
+      kind: i.kind,
+    }));
+}
+
+function formatReplicaInformeNumber(n: number, digits = 4): string {
+  if (!Number.isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs >= 1000 || (abs > 0 && abs < 0.01)) return n.toExponential(digits);
+  return n.toFixed(digits);
+}
+
+/**
+ * Display value for one réplica cell — uses stored readings plus FC/VIGAS/FC_CUBO
+ * derived intermediates (dprom from d1+d2, A from geometry) like the live grid.
+ */
+export function resolveReplicaInformeCellValue(
+  measurand: UncertaintyMeasurand,
+  simbolo: string,
+  raw_values_json: Record<string, unknown>,
+  options?: { vigasConfig?: VigasStudyConfig; digits?: number },
+): string {
+  const digits = options?.digits ?? 4;
+  const numericRaw = Object.fromEntries(
+    Object.entries(raw_values_json ?? {}).filter(([, v]) => typeof v === 'number'),
+  ) as Record<string, number>;
+
+  const stored = numericRaw[simbolo];
+  if (typeof stored === 'number' && Number.isFinite(stored)) {
+    return formatReplicaInformeNumber(stored, digits);
+  }
+
+  if (measurand.codigo === 'VIGAS' && options?.vigasConfig) {
+    const withConst = injectVigasStudyConstants(options.vigasConfig, raw_values_json);
+    const v = withConst[simbolo];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return formatReplicaInformeNumber(v, digits);
+    }
+  }
+
+  if (measurand.codigo === 'FC') {
+    const enriched = enrichFcReplicaRaw(numericRaw);
+    const sym = simbolo.toLowerCase();
+    if (sym === 'dprom' || sym === 'd') {
+      const geom = fcReplicaDiameterAndArea(measurand, numericRaw);
+      if (geom) return formatReplicaInformeNumber(geom.dprom_mm, digits);
+      const v = getRawQuantity(enriched, simbolo);
+      if (v !== undefined) return formatReplicaInformeNumber(v, digits);
+    }
+    if (sym === 'a') {
+      const geom = fcReplicaDiameterAndArea(measurand, numericRaw);
+      if (geom) return formatReplicaInformeNumber(geom.A_cm2, digits);
+    }
+    const scope = buildFormulaScope(measurand, enriched);
+    if (scope[simbolo] !== undefined) {
+      return formatReplicaInformeNumber(scope[simbolo], digits);
+    }
+  }
+
+  if (measurand.codigo === 'FC_CUBO') {
+    if (simbolo === 'A' || simbolo === 'a') {
+      const area = fcCuboReplicaAreaCm2(measurand, numericRaw);
+      if (area !== null) return formatReplicaInformeNumber(area, digits);
+    }
+    const scope = buildFormulaScope(measurand, numericRaw);
+    if (scope[simbolo] !== undefined) {
+      return formatReplicaInformeNumber(scope[simbolo], digits);
+    }
+  }
+
+  const scope = buildFormulaScope(
+    measurand,
+    measurand.codigo === 'FC' ? enrichFcReplicaRaw(numericRaw) : numericRaw,
+  );
+  if (scope[simbolo] !== undefined) {
+    return formatReplicaInformeNumber(scope[simbolo], digits);
+  }
+
+  return '—';
+}
+
 function fcCuboReplicaInputsComplete(raw: Record<string, number>): boolean {
   if (!getRawQuantity(raw, 'Carga')) return false;
   return getRawQuantity(raw, 'L1') !== undefined && getRawQuantity(raw, 'L2') !== undefined;
@@ -250,7 +400,7 @@ export function computeFcCuboCompressiveStrength(
 }
 
 /** NMX-C-083: d1+d2 averaged to dprom for formula scope / legacy expr. */
-function enrichFcReplicaRaw(raw: Record<string, number>): Record<string, number> {
+export function enrichFcReplicaRaw(raw: Record<string, number>): Record<string, number> {
   const out = { ...raw };
   const d1 = out.d1;
   const d2 = out.d2;

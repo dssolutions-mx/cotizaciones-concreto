@@ -4,6 +4,7 @@
  */
 
 import type { UncertaintyComponent } from '@/lib/ema/uncertaintyBudget';
+import { pdfSanitizeMetrologyText } from '@/lib/ema/uncertaintyPdfMetrologyText';
 
 /** A4 portrait usable width (595.28 − 64 pt padding). */
 export const PDF_PORTRAIT_TABLE_WIDTH = 531;
@@ -32,7 +33,6 @@ export function widthsFromWeights(weights: number[], totalPt: number): number[] 
 import type {
   UncertaintyMeasurand,
   UncertaintyStudy,
-  UncertaintyStudyReplica,
   UncertaintyInstrumentTraceabilityRow,
 } from '@/types/ema-uncertainty';
 
@@ -144,7 +144,7 @@ export function buildBudgetPdfRows(
 
   rows.push({
     kind: 'footer_sum',
-    cells: ['', '', '', '', '', '', '', '', 'Σ uᵢ²(y)', fmtPdfExp(sumUi2), '', '', unit + '²'],
+    cells: ['', '', '', '', '', '', '', '', 'Sum u_i^2(y)', fmtPdfExp(sumUi2), '', '', `${unit}^2`],
   });
   rows.push({
     kind: 'footer_uc',
@@ -156,11 +156,11 @@ export function buildBudgetPdfRows(
 
 function componentToCells(c: UncertaintyComponent, sumUi2: number): string[] {
   const contribPct = (100 * c.ui2_y) / sumUi2;
-  const formula = (c.formula_display ?? '').slice(0, 42);
+  const formula = pdfSanitizeMetrologyText((c.formula_display ?? '').slice(0, 48));
   return [
-    c.fuente,
+    pdfSanitizeMetrologyText(c.fuente),
     categoriaLabel(c.categoria),
-    c.magnitud_xi,
+    pdfSanitizeMetrologyText(c.magnitud_xi),
     componentValorDisplay(c),
     fmtPdfExp(c.u_xi),
     c.tipo,
@@ -201,59 +201,6 @@ export function buildTraceabilityPdfRows(
     r.unidad,
     r.vigencia,
   ]);
-}
-
-export function replicaInputColumns(
-  measurand: UncertaintyMeasurand,
-): Array<{ key: string; label: string }> {
-  const inputs = (measurand.inputs ?? [])
-    .filter((inp) => inp.kind === 'measured' || inp.kind === 'derived')
-    .sort((a, b) => a.orden - b.orden);
-  return inputs.map((inp) => ({ key: inp.simbolo, label: `${inp.simbolo} (${inp.unidad})` }));
-}
-
-export function buildReplicaPdfColumns(
-  measurand: UncertaintyMeasurand,
-): PdfTableColumn[] {
-  const inputCols = replicaInputColumns(measurand);
-  const labels = ['#', 'Operador', 'Instrumento', ...inputCols.map((c) => c.label), 'y'];
-  const weights = [0.6, 2.5, 2.2, ...inputCols.map(() => 1.4), 1.6];
-  const widths = widthsFromWeights(weights, PDF_PORTRAIT_TABLE_WIDTH);
-  return labels.map((label, i) => ({
-    key: `r${i}`,
-    label: i === labels.length - 1 ? `y (${measurand.unidad})` : label,
-    widthPt: widths[i],
-    align: i === 0 ? 'center' : i >= 3 ? 'right' : 'left',
-    mono: i >= 3,
-  }));
-}
-
-function formatRawValue(v: number | string | undefined): string {
-  if (v === undefined || v === '') return '—';
-  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '—';
-  return v;
-}
-
-export function buildReplicaPdfRows(
-  replicas: UncertaintyStudyReplica[],
-  measurand: UncertaintyMeasurand,
-): string[][] {
-  const inputCols = replicaInputColumns(measurand);
-  const sorted = [...replicas].sort((a, b) => a.orden - b.orden);
-
-  return sorted.map((r) => {
-    const op = r.operator?.full_name ?? r.operator?.email ?? '—';
-    const inst = r.instrumento
-      ? `${r.instrumento.codigo}`
-      : '—';
-    const raw = r.raw_values_json ?? {};
-    const inputCells = inputCols.map((col) => formatRawValue(raw[col.key]));
-    const y =
-      r.computed_value != null && Number.isFinite(r.computed_value)
-        ? fmtPdfFixed(r.computed_value, 4)
-        : '—';
-    return [String(r.orden), op, inst, ...inputCells, y];
-  });
 }
 
 export function studyShortId(studyId: string): string {
