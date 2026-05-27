@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildMedicionesPayload,
   computeScalarPatchFromMediciones,
+  filterMeaningfulMedicionRows,
   normalizeMedicionInputs,
   roundMeasurandAverage,
   scalarsToMedicionInputs,
@@ -12,8 +14,35 @@ describe('muestreoFieldMeasurements', () => {
     expect(roundMeasurandAverage('REV', [76.15, 76.25])).toBe(76.2);
   });
 
-  it('averages MU to 0 decimals', () => {
-    expect(roundMeasurandAverage('MU', [2401.2, 2398.8])).toBe(2400);
+  it('averages MU to 2 decimals', () => {
+    expect(roundMeasurandAverage('MU', [2401.25, 2398.75])).toBe(2400);
+    expect(roundMeasurandAverage('MU', [2401.234, 2398.766])).toBe(2400);
+  });
+
+  it('buildMedicionesPayload includes all multi rows and single scalars', () => {
+    const payload = buildMedicionesPayload(
+      { revenimiento_sitio: 12.5, temperatura_concreto: 28 },
+      {
+        mediciones: [
+          { measurand_codigo: 'REV', secuencia: 1, motivo: 'A', valor: 10, unidad: 'cm' },
+          { measurand_codigo: 'REV', secuencia: 2, motivo: 'B', valor: 14, unidad: 'cm' },
+          { measurand_codigo: 'REV', secuencia: 3, motivo: null, valor: 0, unidad: 'cm' },
+        ],
+        expandedCodigos: ['REV'],
+        muExpanded: false,
+      },
+    );
+    expect(payload.filter((r) => r.measurand_codigo === 'REV')).toHaveLength(2);
+    expect(payload.find((r) => r.measurand_codigo === 'TEMP')?.valor).toBe(28);
+  });
+
+  it('filterMeaningfulMedicionRows drops empty placeholders', () => {
+    const kept = filterMeaningfulMedicionRows([
+      { measurand_codigo: 'REV', secuencia: 1, valor: 0, unidad: 'cm' },
+      { measurand_codigo: 'REV', secuencia: 2, motivo: 'Réplica', valor: 0, unidad: 'cm' },
+      { measurand_codigo: 'REV', secuencia: 3, valor: 12.5, unidad: 'cm' },
+    ]);
+    expect(kept).toHaveLength(2);
   });
 
   it('syncs scalars from mediciones', () => {

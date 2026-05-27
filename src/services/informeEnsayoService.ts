@@ -59,7 +59,16 @@ async function fetchMuestreoListRow(muestreoId: string) {
   const supabase = await createServiceClient();
   const { data, error } = await supabase.from('muestreos_list_view').select('*').eq('id', muestreoId).single();
   if (error) throw error;
-  return data as Record<string, unknown>;
+  const row = data as Record<string, unknown>;
+  if (row.declarar_incertidumbre_campo === undefined) {
+    const { data: flags } = await supabase
+      .from('muestreos')
+      .select('declarar_incertidumbre_campo')
+      .eq('id', muestreoId)
+      .maybeSingle();
+    if (flags) row.declarar_incertidumbre_campo = flags.declarar_incertidumbre_campo;
+  }
+  return row;
 }
 
 async function fetchMuestrasWithEnsayos(muestreoId: string): Promise<BuildInformeInput['muestras']> {

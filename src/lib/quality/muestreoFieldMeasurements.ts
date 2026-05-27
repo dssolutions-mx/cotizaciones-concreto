@@ -37,7 +37,7 @@ export const MEASURAND_META: Record<MuestreoFieldMeasurandCodigo, MeasurandMeta>
     label: 'Masa unitaria',
     unidad: 'kg/m³',
     muestreoColumn: 'masa_unitaria',
-    decimals: 0,
+    decimals: 2,
   },
   AIRE: {
     codigo: 'AIRE',
@@ -65,6 +65,13 @@ export const FIELD_MEASURAND_ORDER: MuestreoFieldMeasurandCodigo[] = [
 
 export function isValidMeasurandCodigo(c: string): c is MuestreoFieldMeasurandCodigo {
   return c in MEASURAND_META;
+}
+
+export function roundScalarForMeasurand(
+  codigo: MuestreoFieldMeasurandCodigo,
+  value: number
+): number {
+  return roundMeasurandAverage(codigo, [value]) ?? value;
 }
 
 export function roundMeasurandAverage(
@@ -108,6 +115,55 @@ export function computeScalarPatchFromMediciones(
   }
 
   return patch;
+}
+
+/** Drop empty placeholder rows (valor 0 with no motivo) from multi-read tables. */
+export function filterMeaningfulMedicionRows(
+  rows: MuestreoMedicionCampoInput[]
+): MuestreoMedicionCampoInput[] {
+  return rows.filter((r) => {
+    const v = Number(r.valor);
+    if (!Number.isFinite(v)) return false;
+    if (v !== 0) return true;
+    return Boolean(r.motivo?.trim());
+  });
+}
+
+export type BuildMedicionesPayloadContext = {
+  mediciones: MuestreoMedicionCampoInput[];
+  expandedCodigos: Iterable<MuestreoFieldMeasurandCodigo>;
+  muExpanded: boolean;
+};
+
+/** Build full appendix payload: every logged reading + single-value fields as secuencia 1. */
+export function buildMedicionesPayload(
+  values: Record<string, unknown>,
+  ctx: BuildMedicionesPayloadContext
+): MuestreoMedicionCampoInput[] {
+  const expanded = new Set(ctx.expandedCodigos);
+  if (ctx.muExpanded) expanded.add('MU');
+
+  const out: MuestreoMedicionCampoInput[] = [];
+
+  for (const codigo of FIELD_MEASURAND_ORDER) {
+    if (expanded.has(codigo)) {
+      out.push(...ctx.mediciones.filter((m) => m.measurand_codigo === codigo));
+    } else {
+      const meta = MEASURAND_META[codigo];
+      const v = values[meta.muestreoColumn];
+      if (v != null && Number.isFinite(Number(v))) {
+        out.push({
+          measurand_codigo: codigo,
+          secuencia: 1,
+          motivo: null,
+          valor: Number(v),
+          unidad: meta.unidad,
+        });
+      }
+    }
+  }
+
+  return normalizeMedicionInputs(filterMeaningfulMedicionRows(out));
 }
 
 export function normalizeMedicionInputs(

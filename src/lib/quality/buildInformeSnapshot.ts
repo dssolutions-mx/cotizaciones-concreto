@@ -332,7 +332,8 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       muestreado_por_cliente: !isLabExperiment && muestreadoPor === 'CLIENTE',
       regla_decision: input.labConfig?.regla_decision_default ?? 'POC-17 / ISO Guide 98-4',
       texto_legal: legalTexts,
-      fresco_no_aplica: isLabExperiment ? INFORME_FRESH_NA_LAB : null,
+      fresco_no_aplica:
+        isLabExperiment && freshRows.length === 0 ? INFORME_FRESH_NA_LAB : null,
     },
     opinion_tecnica: input.opinionTecnica ?? null,
     uncertainty,

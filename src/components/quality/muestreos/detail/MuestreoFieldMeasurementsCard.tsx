@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import FieldMeasurandInput from '@/components/quality/muestreos/FieldMeasurandInput';
 import {
+  buildMedicionesPayload,
   FIELD_MEASURAND_ORDER,
   MEASURAND_META,
   type MeasurandMeta,
@@ -17,7 +18,10 @@ import type {
   MuestreoMedicionCampoInput,
 } from '@/types/muestreoFieldMeasurement';
 import type { MuestreoWithRelations } from '@/types/quality';
-import { buildMedicionesPayloadFromForm } from '@/components/quality/muestreos/MeasurementsFields';
+import {
+  uncertaintyDisplayByFieldCodigo,
+  type PublishedUncertaintyRow,
+} from '@/lib/quality/fieldUncertaintyDisplay';
 
 type Props = {
   muestreoId: string;
@@ -60,7 +64,37 @@ export default function MuestreoFieldMeasurementsCard({
   const [saving, setSaving] = useState(false);
   const [mediciones, setMediciones] = useState<MuestreoMedicionCampoInput[]>([]);
   const [expandedCodigos, setExpandedCodigos] = useState<Set<MuestreoFieldMeasurandCodigo>>(new Set());
+  const [muExpanded, setMuExpanded] = useState(false);
   const [scalars, setScalars] = useState<Partial<Record<MeasurandMeta['muestreoColumn'], number | null>>>({});
+  const [uncertaintyByField, setUncertaintyByField] = useState<
+    Map<MuestreoFieldMeasurandCodigo, string>
+  >(new Map());
+
+  const declararU = muestreo.declarar_incertidumbre_campo === true;
+
+  useEffect(() => {
+    if (!declararU) {
+      setUncertaintyByField(new Map());
+      return;
+    }
+    let cancelled = false;
+    void fetch('/api/ema/uncertainty/published')
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        const rows = (json.data ?? json ?? []) as PublishedUncertaintyRow[];
+        setUncertaintyByField(uncertaintyDisplayByFieldCodigo(rows));
+      })
+      .catch(() => {
+        if (!cancelled) setUncertaintyByField(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [declararU, muestreo.id]);
+
+  const uFor = (codigo: MuestreoFieldMeasurandCodigo) =>
+    declararU ? uncertaintyByField.get(codigo) : undefined;
 
   const initScalarsFromMuestreo = useCallback(() => {
     const s: Partial<Record<MeasurandMeta['muestreoColumn'], number | null>> = {};
@@ -98,6 +132,7 @@ export default function MuestreoFieldMeasurementsCard({
   const startEdit = () => {
     const expanded = expandedFromGrouped(grouped);
     setExpandedCodigos(expanded);
+    setMuExpanded(expanded.has('MU'));
     const multiOnly = FIELD_MEASURAND_ORDER.flatMap((c) =>
       expanded.has(c) ? rowsForCodigo(grouped, c) : [],
     );
@@ -141,15 +176,16 @@ export default function MuestreoFieldMeasurementsCard({
   const save = async () => {
     setSaving(true);
     try {
-      const multi = mediciones.filter((m) => expandedCodigos.has(m.measurand_codigo));
-      const payload = buildMedicionesPayloadFromForm({
-        mediciones_campo: multi,
-        revenimiento_sitio: scalars.revenimiento_sitio,
-        temperatura_concreto: scalars.temperatura_concreto,
-        masa_unitaria: scalars.masa_unitaria,
-        contenido_aire: scalars.contenido_aire,
-        temperatura_ambiente: scalars.temperatura_ambiente,
-      });
+      const payload = buildMedicionesPayload(
+        {
+          revenimiento_sitio: scalars.revenimiento_sitio,
+          temperatura_concreto: scalars.temperatura_concreto,
+          masa_unitaria: scalars.masa_unitaria,
+          contenido_aire: scalars.contenido_aire,
+          temperatura_ambiente: scalars.temperatura_ambiente,
+        },
+        { mediciones, expandedCodigos, muExpanded },
+      );
 
       const res = await fetch(`/api/quality/muestreos/${muestreoId}/mediciones-campo`, {
         method: 'PUT',
@@ -158,7 +194,10 @@ export default function MuestreoFieldMeasurementsCard({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Error al guardar');
-      toast({ title: 'Mediciones guardadas', description: 'Promedios actualizados en el muestreo.' });
+      toast({
+        title: 'Mediciones guardadas',
+        description: `${payload.length} lectura(s) registradas; promedios actualizados en el muestreo.`,
+      });
       setEditing(false);
       await load();
       onSaved();
@@ -173,6 +212,7 @@ export default function MuestreoFieldMeasurementsCard({
   const cancelEdit = () => {
     setEditing(false);
     setExpandedCodigos(new Set());
+    setMuExpanded(false);
     setMediciones([]);
     initScalarsFromMuestreo();
     void load();
@@ -221,6 +261,7 @@ export default function MuestreoFieldMeasurementsCard({
             <CardTitle className="text-base">Mediciones de campo</CardTitle>
             <CardDescription>
               Un valor por prueba; usa «Agregar otra lectura» solo si necesitas réplicas.
+              {declararU ? ' Incertidumbre EMA se muestra cuando está publicada.' : ''}
             </CardDescription>
           </div>
           {canEdit && !editing ? (
@@ -271,8 +312,11 @@ export default function MuestreoFieldMeasurementsCard({
                 onScalarChange={(v) => setScalarForCodigo('MU', v)}
                 multiRows={getRows('MU')}
                 onMultiRowsChange={(rows) => setRowsForCodigo('MU', rows)}
-                expanded={expandedCodigos.has('MU')}
-                onExpandedChange={(on) => setExpanded('MU', on)}
+                expanded={expandedCodigos.has('MU') || muExpanded}
+                onExpandedChange={(on) => {
+                  setExpanded('MU', on);
+                  setMuExpanded(on);
+                }}
               />
             </div>
           </div>
@@ -283,11 +327,16 @@ export default function MuestreoFieldMeasurementsCard({
                 <div key={g.measurand_codigo}>
                   <div className="flex items-baseline justify-between mb-1">
                     <p className="text-sm font-medium text-stone-800">{g.label}</p>
-                    {g.promedio != null ? (
-                      <p className="text-xs font-semibold text-sky-800">
-                        Promedio: {g.promedio} {g.unidad}
-                      </p>
-                    ) : null}
+                    <div className="text-right">
+                      {g.promedio != null ? (
+                        <p className="text-xs font-semibold text-sky-800">
+                          Promedio: {g.promedio} {g.unidad}
+                        </p>
+                      ) : null}
+                      {uFor(g.measurand_codigo) ? (
+                        <p className="text-[10px] text-stone-500">U: {uFor(g.measurand_codigo)}</p>
+                      ) : null}
+                    </div>
                   </div>
                   <table className="w-full text-xs border border-stone-200 rounded-md overflow-hidden">
                     <thead>
@@ -295,6 +344,7 @@ export default function MuestreoFieldMeasurementsCard({
                         <th className="px-2 py-1">Motivo</th>
                         <th className="px-2 py-1">Valor</th>
                         <th className="px-2 py-1">Unidad</th>
+                        {declararU ? <th className="px-2 py-1">U</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -303,6 +353,11 @@ export default function MuestreoFieldMeasurementsCard({
                           <td className="px-2 py-1">{r.motivo ?? `Lectura ${r.secuencia}`}</td>
                           <td className="px-2 py-1 font-mono">{r.valor}</td>
                           <td className="px-2 py-1">{r.unidad}</td>
+                          {declararU ? (
+                            <td className="px-2 py-1 text-[10px] text-stone-500">
+                              {uFor(g.measurand_codigo) ?? '—'}
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>
@@ -312,6 +367,11 @@ export default function MuestreoFieldMeasurementsCard({
                 <p key={g.measurand_codigo} className="text-sm text-stone-800">
                   <span className="font-medium">{g.label}:</span>{' '}
                   <span className="font-mono">{g.rows[0]?.valor ?? g.promedio}</span> {g.unidad}
+                  {uFor(g.measurand_codigo) ? (
+                    <span className="block text-[10px] text-stone-500 mt-0.5">
+                      U: {uFor(g.measurand_codigo)}
+                    </span>
+                  ) : null}
                 </p>
               ),
             )}

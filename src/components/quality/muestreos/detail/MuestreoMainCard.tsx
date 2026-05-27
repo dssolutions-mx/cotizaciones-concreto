@@ -228,7 +228,7 @@ export default function MuestreoMainCard({
               <div>
                 <p className="text-sm font-medium text-stone-500 mb-1">Masa Unitaria</p>
                 <div className="text-2xl font-bold text-stone-900">
-                  {Math.round(muestreo.masa_unitaria)}
+                  {Number(muestreo.masa_unitaria.toFixed(2))}
                   <span className="text-sm font-normal text-stone-500 ml-1">kg/m³</span>
                 </div>
               </div>

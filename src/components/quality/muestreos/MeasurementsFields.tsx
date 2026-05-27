@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -8,11 +8,12 @@ import { Info } from "lucide-react";
 import FieldMeasurandInput from "@/components/quality/muestreos/FieldMeasurandInput";
 import FieldMeasurandBlock from "@/components/quality/muestreos/FieldMeasurandBlock";
 import {
-  FIELD_MEASURAND_ORDER,
+  buildMedicionesPayload,
   computeScalarPatchFromMediciones,
   MEASURAND_META,
   roundMeasurandAverage,
 } from "@/lib/quality/muestreoFieldMeasurements";
+import { formatDecimalDisplay as formatDecimal } from "@/lib/quality/decimalFieldInput";
 import type { MuestreoFieldMeasurandCodigo, MuestreoMedicionCampoInput } from "@/types/muestreoFieldMeasurement";
 
 type Props = {
@@ -24,9 +25,16 @@ type Props = {
   };
 };
 
+export type MeasurementsFieldsHandle = {
+  buildMedicionesPayload: () => MuestreoMedicionCampoInput[];
+};
+
 const SIMPLE_MEASURANDS: MuestreoFieldMeasurandCodigo[] = ["REV", "TEMP", "AIRE", "TEMP_AMB"];
 
-export default function MeasurementsFields({ form }: Props) {
+const MeasurementsFields = forwardRef<MeasurementsFieldsHandle, Props>(function MeasurementsFields(
+  { form },
+  ref,
+) {
   const [pesoVacioInput, setPesoVacioInput] = useState<string>("");
   const [pesoLlenoInput, setPesoLlenoInput] = useState<string>("");
   const [factorInput, setFactorInput] = useState<string>("");
@@ -54,6 +62,19 @@ export default function MeasurementsFields({ form }: Props) {
   const multiMediciones = useMemo(
     () => mediciones.filter((m) => expandedCodigos.has(m.measurand_codigo) || (m.measurand_codigo === "MU" && muExpanded)),
     [mediciones, expandedCodigos, muExpanded],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      buildMedicionesPayload: () =>
+        buildMedicionesPayload(form.getValues() as Record<string, unknown>, {
+          mediciones,
+          expandedCodigos,
+          muExpanded,
+        }),
+    }),
+    [form, mediciones, expandedCodigos, muExpanded],
   );
 
   useEffect(() => {
@@ -99,7 +120,7 @@ export default function MeasurementsFields({ form }: Props) {
         measurand_codigo: "MU",
         secuencia: 2,
         motivo: null,
-        valor: mu,
+        valor: NaN,
         unidad: MEASURAND_META.MU.unidad,
       },
     ]);
@@ -255,11 +276,14 @@ export default function MeasurementsFields({ form }: Props) {
                 <FormLabel className="text-xs">Resultado (kg/m³)</FormLabel>
                 <FormControl>
                   <Input
-                    type="number"
-                    step="0.1"
-                    value={Number.isFinite(field.value as number) ? String(field.value) : ""}
+                    type="text"
                     readOnly
-                    className="bg-stone-50 max-w-xs"
+                    className="bg-stone-50 max-w-xs font-mono"
+                    value={
+                      Number.isFinite(field.value as number)
+                        ? formatDecimal(field.value as number, MEASURAND_META.MU.decimals)
+                        : ""
+                    }
                   />
                 </FormControl>
                 <FormMessage />
@@ -306,29 +330,6 @@ export default function MeasurementsFields({ form }: Props) {
       </div>
     </div>
   );
-}
+});
 
-/** Merge multi-read appendix rows with single-value form scalars for PUT mediciones-campo. */
-export function buildMedicionesPayloadFromForm(
-  values: Record<string, unknown>,
-): MuestreoMedicionCampoInput[] {
-  const multi = (values.mediciones_campo as MuestreoMedicionCampoInput[] | undefined) ?? [];
-  const multiCodigos = new Set(multi.map((m) => m.measurand_codigo));
-  const out: MuestreoMedicionCampoInput[] = [...multi];
-
-  for (const codigo of FIELD_MEASURAND_ORDER) {
-    if (multiCodigos.has(codigo)) continue;
-    const meta = MEASURAND_META[codigo];
-    const v = values[meta.muestreoColumn];
-    if (v != null && Number.isFinite(Number(v))) {
-      out.push({
-        measurand_codigo: codigo,
-        secuencia: 1,
-        valor: Number(v),
-        unidad: meta.unidad,
-      });
-    }
-  }
-
-  return out;
-}
+export default MeasurementsFields;

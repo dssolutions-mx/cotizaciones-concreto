@@ -115,11 +115,7 @@ export function InformePreview({ snapshot, gaps }: Props) {
       </Section>
 
       <Section title="§3 Resultados — concreto fresco">
-        {snapshot.declaraciones.fresco_no_aplica ? (
-          <p className="text-stone-500 text-xs">{snapshot.declaraciones.fresco_no_aplica}</p>
-        ) : snapshot.resultados_fresco.length === 0 ? (
-          <p className="text-stone-500">Sin ensayos de campo registrados.</p>
-        ) : (
+        {snapshot.resultados_fresco.length > 0 ? (
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b text-left text-stone-500">
@@ -153,7 +149,17 @@ export function InformePreview({ snapshot, gaps }: Props) {
               ))}
             </tbody>
           </table>
+        ) : snapshot.declaraciones.fresco_no_aplica ? (
+          <p className="text-stone-500 text-xs">{snapshot.declaraciones.fresco_no_aplica}</p>
+        ) : (
+          <p className="text-stone-500">Sin ensayos de campo registrados.</p>
         )}
+        {snapshot.uncertainty.length > 0 ? (
+          <p className="text-[10px] text-stone-500 mt-2 border-t border-stone-100 pt-2">
+            Incertidumbre declarada (EMA):{' '}
+            {snapshot.uncertainty.map((u) => `${u.measurand_codigo} ${u.display}`).join(' · ')}
+          </p>
+        ) : null}
       </Section>
 
       <Section title="§3 Resistencia a compresión">

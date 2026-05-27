@@ -16,6 +16,7 @@ import {
 import { format, subMonths } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import { roundScalarForMeasurand } from '@/lib/quality/muestreoFieldMeasurements';
 
 // UI planning type for explicit sample creation (duplicate kept local to service)
 export type PlannedSample = {
@@ -324,8 +325,10 @@ export async function createMuestreo(muestreo: Partial<Muestreo>) {
     // Map planta to plant_id if planta is provided
     const muestreoToCreate = { 
       ...muestreo,
-      // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
-      masa_unitaria: muestreo.masa_unitaria ? Math.round(muestreo.masa_unitaria) : muestreo.masa_unitaria
+      masa_unitaria:
+        muestreo.masa_unitaria != null
+          ? roundScalarForMeasurand('MU', muestreo.masa_unitaria)
+          : muestreo.masa_unitaria,
     };
     if (muestreo.planta && !muestreo.plant_id) {
       const plantId = await mapPlantaToPlantId(muestreo.planta);
@@ -418,8 +421,26 @@ export async function createMuestreoWithSamples(
 
     const muestreoToCreate = {
       ...muestreoData,
-      // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
-      masa_unitaria: muestreoData.masa_unitaria ? Math.round(muestreoData.masa_unitaria) : muestreoData.masa_unitaria,
+      masa_unitaria:
+        muestreoData.masa_unitaria != null
+          ? roundScalarForMeasurand('MU', muestreoData.masa_unitaria)
+          : muestreoData.masa_unitaria,
+      revenimiento_sitio:
+        muestreoData.revenimiento_sitio != null
+          ? roundScalarForMeasurand('REV', muestreoData.revenimiento_sitio)
+          : muestreoData.revenimiento_sitio,
+      temperatura_concreto:
+        muestreoData.temperatura_concreto != null
+          ? roundScalarForMeasurand('TEMP', muestreoData.temperatura_concreto)
+          : muestreoData.temperatura_concreto,
+      contenido_aire:
+        muestreoData.contenido_aire != null
+          ? roundScalarForMeasurand('AIRE', muestreoData.contenido_aire)
+          : muestreoData.contenido_aire,
+      temperatura_ambiente:
+        muestreoData.temperatura_ambiente != null
+          ? roundScalarForMeasurand('TEMP_AMB', muestreoData.temperatura_ambiente)
+          : muestreoData.temperatura_ambiente,
       plant_id: plantId,
       fecha_muestreo: formatDate(baseSamplingTimestamp, 'yyyy-MM-dd'),
       hora_muestreo: formatDate(baseSamplingTimestamp, 'HH:mm:ss'),
@@ -536,9 +557,27 @@ export async function updateMuestreo(id: string, updates: Partial<Muestreo>) {
   try {
     const updateData: any = {
       ...updates,
-      // Round masa_unitaria to nearest integer if provided (no decimals): 23.3 -> 23, 23.5 -> 24
-      masa_unitaria: updates.masa_unitaria !== undefined ? Math.round(updates.masa_unitaria) : updates.masa_unitaria,
-      updated_at: new Date().toISOString()
+      masa_unitaria:
+        updates.masa_unitaria !== undefined && updates.masa_unitaria != null
+          ? roundScalarForMeasurand('MU', updates.masa_unitaria)
+          : updates.masa_unitaria,
+      revenimiento_sitio:
+        updates.revenimiento_sitio !== undefined && updates.revenimiento_sitio != null
+          ? roundScalarForMeasurand('REV', updates.revenimiento_sitio)
+          : updates.revenimiento_sitio,
+      temperatura_concreto:
+        updates.temperatura_concreto !== undefined && updates.temperatura_concreto != null
+          ? roundScalarForMeasurand('TEMP', updates.temperatura_concreto)
+          : updates.temperatura_concreto,
+      contenido_aire:
+        updates.contenido_aire !== undefined && updates.contenido_aire != null
+          ? roundScalarForMeasurand('AIRE', updates.contenido_aire)
+          : updates.contenido_aire,
+      temperatura_ambiente:
+        updates.temperatura_ambiente !== undefined && updates.temperatura_ambiente != null
+          ? roundScalarForMeasurand('TEMP_AMB', updates.temperatura_ambiente)
+          : updates.temperatura_ambiente,
+      updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase

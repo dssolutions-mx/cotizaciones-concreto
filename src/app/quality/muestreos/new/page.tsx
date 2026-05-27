@@ -79,7 +79,8 @@ import { adjustDateForTimezone, addDaysSafe, computeAgeDays, formatAgeSummary, P
 import { DateRange } from "react-day-picker";
 import RemisionesStep from '@/components/quality/muestreos/RemisionesStep';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import MeasurementsFields, { buildMedicionesPayloadFromForm } from '@/components/quality/muestreos/MeasurementsFields';
+import MeasurementsFields, { type MeasurementsFieldsHandle } from '@/components/quality/muestreos/MeasurementsFields';
+import { roundMeasurandAverage } from '@/lib/quality/muestreoFieldMeasurements';
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb';
 import { useToast } from '@/components/ui/use-toast';
 
@@ -111,6 +112,7 @@ function NuevoMuestreoPageInner() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const equipoPickerRef = useRef<EquipoUtilizadoPickerHandle>(null);
+  const measurementsRef = useRef<MeasurementsFieldsHandle>(null);
   const [isPending, startTransition] = useTransition();
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   
@@ -235,8 +237,7 @@ function NuevoMuestreoPageInner() {
       const mu = net * factorRecipiente; // kg/m3
       if (isFinite(mu) && mu > 0) {
         const current = form.getValues('masa_unitaria');
-        // Round to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
-        const nextVal = Math.round(mu);
+        const nextVal = roundMeasurandAverage('MU', [mu]) ?? mu;
         if (current !== nextVal) {
           form.setValue('masa_unitaria', nextVal, { shouldValidate: true, shouldDirty: true });
         }
@@ -698,9 +699,7 @@ function NuevoMuestreoPageInner() {
         plannedSamples
       );
 
-      const medicionesPayload = buildMedicionesPayloadFromForm(
-        form.getValues() as Record<string, unknown>,
-      );
+      const medicionesPayload = measurementsRef.current?.buildMedicionesPayload() ?? [];
       if (medicionesPayload.length > 0) {
         const medRes = await fetch(`/api/quality/muestreos/${muestreoId}/mediciones-campo`, {
           method: 'PUT',
@@ -720,6 +719,11 @@ function NuevoMuestreoPageInner() {
             title: 'Mediciones no guardadas',
             description: medMsg,
             variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Lecturas guardadas',
+            description: `${medicionesPayload.length} medición(es) de campo registradas.`,
           });
         }
       }
@@ -908,7 +912,7 @@ function NuevoMuestreoPageInner() {
                         edadGarantia={edadGarantia}
                         onEdadGarantiaChange={setEdadGarantia}
                       />
-                      <MeasurementsFields form={form} />
+                      <MeasurementsFields ref={measurementsRef} form={form} />
                       <SamplePlan
                         plannedSamples={plannedSamples as any}
                         setPlannedSamples={setPlannedSamples as any}
@@ -1119,7 +1123,7 @@ function NuevoMuestreoPageInner() {
                             </FormItem>
                           </div>
                         
-                        <MeasurementsFields form={form} />
+                        <MeasurementsFields ref={measurementsRef} form={form} />
                         
                          <SamplePlan
                           plannedSamples={plannedSamples as any}
@@ -1412,7 +1416,7 @@ function NuevoMuestreoPageInner() {
                           />
                         </div>
 
-                        <MeasurementsFields form={form} />
+                        <MeasurementsFields ref={measurementsRef} form={form} />
 
                         {/* Plan de Muestras (manual) */}
                         <SamplePlan

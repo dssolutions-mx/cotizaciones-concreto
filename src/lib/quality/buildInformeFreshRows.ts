@@ -90,7 +90,7 @@ export function buildInformeFreshRows(opts: BuildFreshOpts): InformeFreshResultR
           conformidad:
             codigo === 'REV' && isLast && !opts.isLabExperiment ? revConformidadUltima : 'N/A',
           lectura: lecturaLabel(m),
-          uncertainty: isLast && uKey ? opts.freshUncertainty(uKey) : undefined,
+          uncertainty: uKey ? opts.freshUncertainty(uKey) : undefined,
         });
       });
       continue;

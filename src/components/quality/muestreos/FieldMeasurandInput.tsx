@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
+import DecimalFieldInput from '@/components/quality/muestreos/DecimalFieldInput';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info, Plus } from 'lucide-react';
@@ -27,19 +27,6 @@ type Props = {
   onExpandedChange: (expanded: boolean) => void;
   className?: string;
 };
-
-function decimalInputProps(allowNegative = false) {
-  const re = allowNegative ? /^-?\d*\.?\d*$/ : /^-?\d*\.?\d*$/;
-  return {
-    test: (raw: string) =>
-      raw === '' || raw === '.' || (allowNegative && (raw === '-' || raw === '-.')) || re.test(raw),
-    parse: (raw: string) => {
-      if (raw === '' || raw === '.' || raw === '-' || raw === '-.') return undefined;
-      const n = parseFloat(raw);
-      return Number.isNaN(n) ? undefined : n;
-    },
-  };
-}
 
 function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
   const meta = MEASURAND_META[codigo];
@@ -93,41 +80,6 @@ function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
   }
 }
 
-function ScalarInput({
-  codigo,
-  value,
-  onChange,
-  allowNegative,
-}: {
-  codigo: MuestreoFieldMeasurandCodigo;
-  value: number | null | undefined;
-  onChange: (v: number | undefined) => void;
-  allowNegative?: boolean;
-}) {
-  const [raw, setRaw] = useState('');
-  const { test, parse } = decimalInputProps(allowNegative);
-  const display = raw !== '' ? raw : value != null ? String(value) : '';
-  const optional = codigo === 'AIRE';
-
-  return (
-    <Input
-      type="text"
-      inputMode="decimal"
-      placeholder={optional ? 'Opcional' : undefined}
-      value={display}
-      onChange={(e) => {
-        const v = e.target.value;
-        if (test(v)) setRaw(v);
-      }}
-      onBlur={() => {
-        const finalValue = parse(raw !== '' ? raw : display);
-        onChange(finalValue);
-        setRaw(finalValue != null ? String(finalValue) : '');
-      }}
-    />
-  );
-}
-
 export default function FieldMeasurandInput({
   codigo,
   form,
@@ -173,7 +125,7 @@ export default function FieldMeasurandInput({
         measurand_codigo: codigo,
         secuencia: 2,
         motivo: null,
-        valor: 0,
+        valor: NaN,
         unidad: meta.unidad,
       },
     ]);
@@ -226,11 +178,12 @@ export default function FieldMeasurandInput({
         <FormItem>
           <MeasurandLabel codigo={codigo} />
           <FormControl>
-            <ScalarInput
-              codigo={codigo}
+            <DecimalFieldInput
               value={field.value as number | undefined}
-              onChange={(v) => field.onChange(v)}
+              decimals={meta.decimals}
               allowNegative={allowNegative}
+              placeholder={codigo === 'AIRE' ? 'Opcional' : undefined}
+              onChange={(v) => field.onChange(v)}
             />
           </FormControl>
           {codigo === 'TEMP' || codigo === 'TEMP_AMB' ? (
@@ -250,11 +203,12 @@ export default function FieldMeasurandInput({
     <FormItem>
       <MeasurandLabel codigo={codigo} />
       <FormControl>
-        <ScalarInput
-          codigo={codigo}
+        <DecimalFieldInput
           value={scalarValue}
-          onChange={writeScalar}
+          decimals={meta.decimals}
           allowNegative={allowNegative}
+          placeholder={codigo === 'AIRE' ? 'Opcional' : undefined}
+          onChange={writeScalar}
         />
       </FormControl>
     </FormItem>

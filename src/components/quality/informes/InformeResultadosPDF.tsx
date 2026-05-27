@@ -299,10 +299,10 @@ export function InformeResultadosPDF({ snapshot }: Props) {
         </PdfCard>
 
         <PdfCard title="§3 Resultados — concreto fresco">
-          {snapshot.declaraciones.fresco_no_aplica ? (
-            <Text style={s.sectionBlockDesc}>{snapshot.declaraciones.fresco_no_aplica}</Text>
-          ) : freshRows.length > 0 ? (
+          {freshRows.length > 0 ? (
             <PdfTable columns={freshCols} rows={freshRows} tableWidth={PDF_PORTRAIT_TABLE_WIDTH} />
+          ) : snapshot.declaraciones.fresco_no_aplica ? (
+            <Text style={s.sectionBlockDesc}>{snapshot.declaraciones.fresco_no_aplica}</Text>
           ) : (
             <Text style={s.sectionBlockDesc}>Sin ensayos de campo registrados.</Text>
           )}

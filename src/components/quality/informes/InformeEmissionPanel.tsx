@@ -44,6 +44,8 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
   const [snapshot, setSnapshot] = useState<InformeSnapshot | null>(null);
   const [informeRecord, setInformeRecord] = useState<{ id: string; numero: string; estado: string; issued_at?: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [firmaOpen, setFirmaOpen] = useState(false);
   const [emitting, setEmitting] = useState(false);
@@ -66,27 +68,48 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
       });
   }, [user?.id]);
 
+  const refreshPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    try {
+      const previewRes = await fetch('/api/quality/informes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'preview', muestreo_id: muestreo.id }),
+      });
+      const previewJson = await previewRes.json();
+      if (!previewRes.ok) {
+        throw new Error(
+          typeof previewJson.error === 'string' ? previewJson.error : 'No se pudo generar la vista previa',
+        );
+      }
+      if (previewJson.data) setSnapshot(previewJson.data as InformeSnapshot);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error al generar vista previa';
+      setPreviewError(msg);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [muestreo.id]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [informeRes, configRes, previewRes] = await Promise.all([
+      const [informeRes, configRes] = await Promise.all([
         fetch(`/api/quality/informes?muestreo_id=${muestreo.id}`),
         fetch(`/api/quality/laboratorio-config?plant_id=${muestreo.plant_id ?? ''}`),
-        fetch('/api/quality/informes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'preview', muestreo_id: muestreo.id }),
-        }),
       ]);
 
       const informeJson = await informeRes.json();
       const configJson = await configRes.json();
-      const previewJson = await previewRes.json();
 
-      if (previewJson.data) setSnapshot(previewJson.data as InformeSnapshot);
       if (informeJson.data) {
         setInformeRecord(informeJson.data);
         if (informeJson.data.snapshot_json) setSnapshot(informeJson.data.snapshot_json);
+      }
+
+      if (!informeJson.data?.snapshot_json) {
+        await refreshPreview();
       }
 
       const required = requiredUFromMuestreoRow({
@@ -129,7 +152,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     } finally {
       setLoading(false);
     }
-  }, [muestreo, ensayoHasEquipment, toast]);
+  }, [muestreo, ensayoHasEquipment, toast, refreshPreview]);
 
   useEffect(() => {
     load();
@@ -221,6 +244,8 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
               <CardDescription>
                 DC-LC-7.8-01 · Incertidumbre desde módulo EMA
                 {isLabInforme ? ' · Formato experimento interno (I+D)' : ''}
+                {' · '}
+                Puede generar borrador PDF aunque falten ensayos de compresión.
               </CardDescription>
             </div>
             {emitted ? (
@@ -270,23 +295,52 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                 </p>
               )}
 
+              {previewError ? (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-100 rounded px-2 py-1.5">
+                  Vista previa: {previewError}
+                </p>
+              ) : null}
+
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setPreviewOpen(true)}
-                  disabled={!snapshot}
+                  disabled={previewLoading}
+                  onClick={() => {
+                    if (!snapshot) void refreshPreview().then(() => setPreviewOpen(true));
+                    else setPreviewOpen(true);
+                  }}
                 >
-                  <Eye className="h-4 w-4 mr-1" />
+                  {previewLoading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Eye className="h-4 w-4 mr-1" />
+                  )}
                   Vista previa
                 </Button>
-                {snapshot && (
-                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleDownloadPdf()}>
-                    <Download className="h-4 w-4 mr-1" />
-                    {emitted ? 'Descargar PDF' : 'Descargar PDF (borrador)'}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!snapshot || previewLoading}
+                  onClick={() => void handleDownloadPdf()}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  {emitted ? 'Descargar PDF' : 'Descargar PDF (borrador)'}
+                </Button>
+                {!snapshot ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-stone-600"
+                    disabled={previewLoading}
+                    onClick={() => void refreshPreview()}
+                  >
+                    Generar borrador
                   </Button>
-                )}
+                ) : null}
                 {!emitted && (
                   <Button
                     type="button"
@@ -312,11 +366,29 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
           <SheetHeader>
             <SheetTitle>Vista previa del informe</SheetTitle>
             <SheetDescription>
-              Revise el contenido. Puede descargar un borrador o emitir aunque falten datos opcionales.
+              Borrador con los datos actuales (campo y compresión). Los ensayos pendientes aparecen vacíos;
+              puede descargar el PDF sin emitir.
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-4">
-            {snapshot && <InformePreview snapshot={snapshot} gaps={gapLinks} />}
+            {previewLoading ? (
+              <div className="flex items-center gap-2 text-sm text-stone-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generando vista previa…
+              </div>
+            ) : null}
+            {snapshot ? <InformePreview snapshot={snapshot} gaps={gapLinks} /> : null}
+            {!snapshot && !previewLoading && previewError ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => void refreshPreview()}>
+                Reintentar vista previa
+              </Button>
+            ) : null}
+            {snapshot ? (
+              <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => void handleDownloadPdf()}>
+                <Download className="h-4 w-4 mr-1" />
+                Descargar PDF (borrador)
+              </Button>
+            ) : null}
             {!emitted && (
               <div className="space-y-2">
                 <Label htmlFor="opinion">Opinión e interpretaciones (opcional)</Label>

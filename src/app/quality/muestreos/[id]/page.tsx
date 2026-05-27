@@ -171,7 +171,7 @@ export default function MuestreoDetailPage() {
           if (!materialesError && materialesData) {
             const sumaMateriales = materialesData.reduce((sum, material) => sum + (material.cantidad_real || 0), 0)
             const volumenFabricado = data.remision.volumen_fabricado || 0
-            const masaUnitaria = Math.round(data.masa_unitaria)
+            const masaUnitaria = data.masa_unitaria
             const rendimientoValue = calcularRendimientoVolumetrico(volumenFabricado, sumaMateriales, masaUnitaria)
             setRendimientoVolumetrico({
               value: rendimientoValue,
