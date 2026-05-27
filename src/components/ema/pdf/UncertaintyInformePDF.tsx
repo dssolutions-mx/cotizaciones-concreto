@@ -145,20 +145,26 @@ function BudgetSectionPdf({
   return (
     <>
       <View style={s.summaryStrip}>
-        <Text style={s.summaryItem}>
-          x̄ = {fmtPdfFixed(budget.mean_value, 4)} {unit}
-        </Text>
-        <Text style={s.summaryItem}>
-          u_c = {fmtPdfExp(budget.u_c)} {unit}
-        </Text>
-        <Text style={s.summaryItem}>
-          νeff = {isFinite(budget.nu_eff) ? fmtPdfFixed(budget.nu_eff, 1) : '∞'}
-        </Text>
-        <Text style={s.summaryItem}>k = {fmtPdfFixed(budget.k, 4)}</Text>
-        <Text style={s.summaryItem}>
-          U = {fmtPdfExp(budget.U)} {unit}
-          {budget.U_rel_pct != null ? ` (${budget.U_rel_pct.toFixed(2)} % rel.)` : ''}
-        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 4 }}>
+          <Text style={[s.summaryItem, { marginRight: 0, minWidth: 120 }]}>
+            {PDF_X_MEDIA} = {fmtPdfFixed(budget.mean_value, 4)} {unit}
+          </Text>
+          <Text style={[s.summaryItem, { marginRight: 0, minWidth: 120 }]}>
+            u_c = {fmtPdfExp(budget.u_c)} {unit}
+          </Text>
+          <Text style={[s.summaryItem, { marginRight: 0, minWidth: 72 }]}>
+            {PDF_NU_EFF} = {pdfFormatNuEffValue(budget.nu_eff)}
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }}>
+          <Text style={[s.summaryItem, { marginRight: 0, minWidth: 72 }]}>
+            k = {fmtPdfFixed(budget.k, 4)}
+          </Text>
+          <Text style={[s.summaryItem, { marginRight: 0, minWidth: 140 }]}>
+            U = {fmtPdfExp(budget.U)} {unit}
+            {budget.U_rel_pct != null ? ` (${budget.U_rel_pct.toFixed(2)} % rel.)` : ''}
+          </Text>
+        </View>
       </View>
 
       {structured.map((row, idx) => {
@@ -383,7 +389,7 @@ export function UncertaintyInformePDF({
           </View>
           <Kv label="u_c combinada" value={`${fmtPdfExp(budget.u_c)} ${measurand.unidad}`} mono />
           <Kv
-            label="Media del mensurando x̄"
+            label={`Media del mensurando (${PDF_X_MEDIA})`}
             value={`${fmtPdfFixed(budget.mean_value, 4)} ${measurand.unidad}`}
             mono
           />
@@ -399,7 +405,7 @@ export function UncertaintyInformePDF({
         <PdfCard title="§8 Referencias normativas">
           {(measurand.gum_references_json ?? []).map((ref, i) => (
             <Text key={`gum-${i}`} style={s.legalText}>
-              · {ref.step}: {ref.ref} — {ref.formula}
+              · {ref.step}: {ref.ref} — {pdfSanitizeMetrologyText(ref.formula)}
             </Text>
           ))}
           {normRefs.length > 0 && (
@@ -409,7 +415,7 @@ export function UncertaintyInformePDF({
           )}
           {normRefs.map((ref, i) => (
             <Text key={`nr-${i}`} style={s.legalText}>
-              · {ref}
+              · {pdfSanitizeMetrologyText(ref)}
             </Text>
           ))}
         </PdfCard>

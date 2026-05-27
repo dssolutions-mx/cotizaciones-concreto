@@ -4,7 +4,7 @@
  */
 
 import type { UncertaintyComponent } from '@/lib/ema/uncertaintyBudget';
-import { pdfSanitizeMetrologyText } from '@/lib/ema/uncertaintyPdfMetrologyText';
+import { pdfSanitizeMetrologyText } from './uncertaintyPdfMetrologyText';
 
 /** A4 portrait usable width (595.28 − 64 pt padding). */
 export const PDF_PORTRAIT_TABLE_WIDTH = 531;
