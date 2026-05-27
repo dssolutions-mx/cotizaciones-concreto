@@ -10,7 +10,6 @@ import {
   sectionItemsForDisplay,
   verificacionCumpleLabel,
 } from '@/lib/ema/verificacionFichaModel'
-import { metrologiaBudgetForPdf } from '@/lib/ema/rebuildVerificationBudget'
 import {
   resolveVerificacionRealizoSlot,
   resolveVerificacionSupervisoSlot,
@@ -21,7 +20,6 @@ import {
   verificacionPrintMeta,
   VERIFICACION_RESULTADO_LABEL,
 } from '@/lib/ema/verificacionPrintMeta'
-import { VerificacionUncertaintyBudgetPDF } from '@/components/ema/pdf/VerificacionUncertaintyBudgetPDF'
 import {
   PdfTable,
   PDF_PORTRAIT_TABLE_WIDTH,
@@ -59,7 +57,6 @@ const ESTADO_DOC: Record<string, string> = {
 const LEGAL = [
   'Este registro documenta la verificación interna del estado de un instrumento de medición, conforme al procedimiento del laboratorio y a la NMX-EC-17025-IMNC-2018.',
   'La trazabilidad metrológica de las mediciones se establece mediante patrones de referencia calibrados y/o verificados, cuyos certificados o registros internos se citan en este documento.',
-  'El presupuesto de incertidumbre (cuando aplica) se elaboró según la Guía GUM (JCGM 100:2008) y constituye evidencia objetiva del cumplimiento del requisito 7.6.',
   'Documento controlado generado por el sistema de gestión de calidad del laboratorio. Reproducciones no controladas pueden no reflejar el estado vigente del registro.',
 ]
 
@@ -83,13 +80,13 @@ function PdfFooter({
   section?: string
 }) {
   return (
-    <View style={s.footer} fixed>
+    <View style={s.footer}>
       <Text>
         {DC_DOCUMENT_CONTACT.companyLine}
         {instrumentoCodigo ? ` · ${instrumentoCodigo}` : ''}
         {section ? ` · ${section}` : ''} · VER-{registroId.slice(0, 8).toUpperCase()}
       </Text>
-      <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
+      <Text render={({ pageNumber }) => `Página ${pageNumber}`} />
     </View>
   )
 }
@@ -150,7 +147,7 @@ function DocumentHeader({ lab, docLine }: { lab?: VerificacionPdfLabContext; doc
           <Text style={s.docSubtitle}>Acreditación EMA del laboratorio: {lab.acreditacionEma}</Text>
         ) : null}
         <Text style={s.docSubtitle}>
-          NMX-EC-17025-IMNC-2018 · JCGM 100:2008 (GUM) · Documento para entidad de acreditación
+          NMX-EC-17025-IMNC-2018 · Documento para entidad de acreditación
         </Text>
         <Text style={s.docCode}>{docLine}</Text>
       </View>
@@ -241,7 +238,6 @@ function VerificacionRecordPages({
   const mMap = buildMeasurementMap(data.measurements ?? [])
   const stats = countMeasurementStats(data.measurements ?? [])
   const cal = data.instrumento_calibracion
-  const budget = metrologiaBudgetForPdf(data.metrologia, cal)
   const unit = cal?.unidad ?? '—'
   const docLine = `VER-${data.id.slice(0, 8).toUpperCase()} · Registro ${recordIndex} de ${recordTotal} · Estado: ${ESTADO_DOC[data.estado] ?? data.estado}`
 
@@ -262,9 +258,11 @@ function VerificacionRecordPages({
   const issues = data.issues ?? []
   const evidencias = data.evidencias ?? []
 
+  const sections = snapshot.sections ?? []
+
   return (
     <>
-      <Page size="A4" style={s.page} wrap>
+      <Page size="A4" style={s.page}>
         <DocumentHeader lab={lab} docLine={docLine} />
 
         <Text style={s.procedureTitle}>{template.nombre}</Text>
@@ -331,39 +329,53 @@ function VerificacionRecordPages({
           {data.metrologia?.tur_min_observado != null && (
             <Kv label="TUR mínimo observado" value={String(data.metrologia.tur_min_observado)} mono />
           )}
-          <Kv
-            label="Estado presupuesto GUM"
-            value={data.metrologia?.gum_rollup_status ?? 'No calculado'}
-          />
-          {data.metrologia?.gum_rollup_skipped_reason && (
-            <Kv label="Detalle GUM" value={data.metrologia.gum_rollup_skipped_reason} />
-          )}
         </PdfCard>
 
+        <PdfFooter
+          registroId={data.id}
+          instrumentoCodigo={data.instrumento?.codigo}
+          section="Registro de verificación"
+        />
+      </Page>
+
+      <Page size="A4" style={s.page}>
         <PdfCard title="§6 Resultados de verificación (lecturas y criterios de aceptación)">
           <View style={s.summaryStrip}>
             <Text style={s.summaryItem}>Ítems con dictamen: {stats.total}</Text>
             <Text style={s.summaryItem}>Cumple: {stats.cumple}</Text>
             <Text style={s.summaryItem}>No cumple: {stats.noCumple}</Text>
           </View>
-          {(snapshot.sections ?? []).map((sec) => (
-            <MeasurementSectionPdf key={sec.id} section={sec} mMap={mMap} />
-          ))}
-          {evidencias.length > 0 && (
-            <Kv label="Evidencias adjuntas" value={`${evidencias.length} archivo(s) en el expediente digital`} />
-          )}
-          {issues.length > 0 && (
-            <View style={{ marginTop: 6 }}>
-              <Text style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 4 }}>No conformidades / observaciones</Text>
-              {issues.map((iss, i) => (
-                <Text key={iss.id ?? i} style={{ fontSize: 7.5, marginBottom: 2, color: '#44403C' }}>
-                  · {iss.descripcion || 'Incidencia registrada'}
-                </Text>
-              ))}
-            </View>
-          )}
+          {sections.length === 0 ? (
+            <Text style={{ fontSize: 8, color: '#78716C' }}>Sin lecturas registradas.</Text>
+          ) : null}
         </PdfCard>
 
+        {sections.map((sec) => (
+          <MeasurementSectionPdf key={sec.id} section={sec} mMap={mMap} />
+        ))}
+
+        {evidencias.length > 0 && (
+          <Kv label="Evidencias adjuntas" value={`${evidencias.length} archivo(s) en el expediente digital`} />
+        )}
+        {issues.length > 0 && (
+          <View style={{ marginTop: 6, marginBottom: 8 }}>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 4 }}>No conformidades / observaciones</Text>
+            {issues.map((iss, i) => (
+              <Text key={iss.id ?? i} style={{ fontSize: 7.5, marginBottom: 2, color: '#44403C' }}>
+                · {iss.descripcion || 'Incidencia registrada'}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        <PdfFooter
+          registroId={data.id}
+          instrumentoCodigo={data.instrumento?.codigo}
+          section="Lecturas de verificación"
+        />
+      </Page>
+
+      <Page size="A4" style={s.page}>
         <PdfCard title="§8 Dictamen de la verificación interna">
           <View style={s.dictamenBox}>
             <Text style={s.dictamenLabel}>Resultado global</Text>
@@ -400,20 +412,9 @@ function VerificacionRecordPages({
         <PdfFooter
           registroId={data.id}
           instrumentoCodigo={data.instrumento?.codigo}
-          section="Registro de verificación"
+          section="Dictamen y firmas"
         />
       </Page>
-
-      <VerificacionUncertaintyBudgetPDF
-        budget={budget}
-        unit={unit}
-        metrologiaStatus={data.metrologia?.gum_rollup_status ?? null}
-        skippedReason={data.metrologia?.gum_rollup_skipped_reason}
-        turMin={data.metrologia?.tur_min_observado}
-        certificado={cal?.numero_certificado}
-        registroId={data.id}
-        instrumentoCodigo={data.instrumento?.codigo}
-      />
     </>
   )
 }
@@ -451,8 +452,8 @@ function CoverPage({
       <Text style={s.coverTitle}>Índice de registros de verificación interna</Text>
       <Text style={s.coverMeta}>
         Cada registro incluye: identificación del equipo, patrones de referencia, resultados de
-        verificación (punto / esperado / observado / error / dictamen), presupuesto de incertidumbre GUM
-        (cuando aplique) y dictamen conforme a NMX-EC-17025-IMNC-2018.
+        verificación (punto / esperado / observado / error / dictamen) y dictamen conforme a
+        NMX-EC-17025-IMNC-2018.
       </Text>
       <PdfTable
         columns={coverCols}

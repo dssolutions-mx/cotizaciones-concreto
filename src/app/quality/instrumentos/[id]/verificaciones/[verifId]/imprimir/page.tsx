@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -50,12 +50,15 @@ export default function VerificacionImprimirPage() {
     }
   }, [verifId])
 
-  const lab = {
-    plantName: currentPlant?.name ?? null,
-    acreditacionEma: null as string | null,
-  }
+  const lab = useMemo(
+    () => ({
+      plantName: currentPlant?.name ?? null,
+      acreditacionEma: null as string | null,
+    }),
+    [currentPlant?.name],
+  )
 
-  const items = data ? [data] : []
+  const items = useMemo(() => (data ? [data] : []), [data])
 
   const runPdf = useCallback(
     async (mode: 'download' | 'open') => {
@@ -93,8 +96,8 @@ export default function VerificacionImprimirPage() {
 
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
-          Vista previa del PDF oficial (mismo documento que se descarga). Incluye presupuesto GUM,
-          trazabilidad de patrones, U/k, TUR y secciones numeradas para revisión por la entidad de
+          Vista previa del PDF oficial (mismo documento que se descarga). Incluye trazabilidad de
+          patrones, U/k, TUR y secciones numeradas para revisión por la entidad de
           acreditación.
         </p>
 

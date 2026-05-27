@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { VerificacionInformePDFProps } from '@/components/ema/pdf/VerificacionInformePDF'
 
@@ -13,7 +13,19 @@ export function VerificacionInformePdfViewer(props: VerificacionInformePDFProps)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const itemIds = props.items.map((i) => i.id).join(',')
+  const propsRef = useRef(props)
+  propsRef.current = props
+
+  const renderKey = useMemo(() => {
+    const lab = props.lab
+    return [
+      props.items.map((i) => i.id).join(','),
+      props.includeCover ? '1' : '0',
+      props.generatedAt ?? '',
+      lab?.plantName ?? '',
+      lab?.acreditacionEma ?? '',
+    ].join('|')
+  }, [props.items, props.includeCover, props.generatedAt, props.lab?.plantName, props.lab?.acreditacionEma])
 
   useEffect(() => {
     let cancelled = false
@@ -28,8 +40,9 @@ export function VerificacionInformePdfViewer(props: VerificacionInformePDFProps)
           import('@/components/ema/pdf/VerificacionInformePDF'),
         ])
 
+        const current = propsRef.current
         const generatedAt =
-          props.generatedAt ??
+          current.generatedAt ??
           new Date().toLocaleDateString('es-MX', {
             day: '2-digit',
             month: 'long',
@@ -37,7 +50,7 @@ export function VerificacionInformePdfViewer(props: VerificacionInformePDFProps)
           })
 
         const blob = await pdf(
-          <VerificacionInformePDF {...props} generatedAt={generatedAt} />,
+          <VerificacionInformePDF {...current} generatedAt={generatedAt} />,
         ).toBlob()
 
         if (cancelled) return
@@ -66,7 +79,7 @@ export function VerificacionInformePdfViewer(props: VerificacionInformePDFProps)
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [itemIds, props.includeCover, props.generatedAt, props.lab?.plantName, props.lab?.acreditacionEma])
+  }, [renderKey])
 
   return (
     <div className="rounded-lg border border-stone-300 bg-stone-100 overflow-hidden shadow-sm min-h-[70vh]">
