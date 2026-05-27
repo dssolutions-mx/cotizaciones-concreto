@@ -41,7 +41,7 @@ function lecturaLabel(m: MuestreoMedicionCampo): string {
 }
 
 function especificadoFor(codigo: MuestreoFieldMeasurandCodigo, slump: number | null): string {
-  if (codigo === 'REV' && slump != null) return `${slump} mm`;
+  if (codigo === 'REV' && slump != null) return `${slump} cm`;
   return 'N/A';
 }
 

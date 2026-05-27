@@ -110,11 +110,9 @@ export default function FieldMeasurandBlock({ codigo, rows, onChange, className 
             </tbody>
           </table>
         </div>
-      ) : (
-        <p className="text-xs text-stone-500 mb-2">Sin lecturas. Agrega una o más mediciones.</p>
-      )}
+      ) : null}
 
-      <Button type="button" variant="outline" size="sm" className="h-8" onClick={addRow}>
+      <Button type="button" variant="outline" size="sm" className="h-8 mt-2" onClick={addRow}>
         <Plus className="h-3.5 w-3.5 mr-1" />
         Agregar lectura
       </Button>

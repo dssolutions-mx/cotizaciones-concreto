@@ -10,7 +10,7 @@ function revRow(secuencia: number, valor: number, motivo?: string): MuestreoMedi
     secuencia,
     motivo: motivo ?? null,
     valor,
-    unidad: 'mm',
+    unidad: 'cm',
     notas: null,
     created_by: null,
     created_at: '',

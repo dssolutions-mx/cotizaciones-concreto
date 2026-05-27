@@ -21,7 +21,7 @@ export const MEASURAND_META: Record<MuestreoFieldMeasurandCodigo, MeasurandMeta>
   REV: {
     codigo: 'REV',
     label: 'Revenimiento',
-    unidad: 'mm',
+    unidad: 'cm',
     muestreoColumn: 'revenimiento_sitio',
     decimals: 1,
   },
