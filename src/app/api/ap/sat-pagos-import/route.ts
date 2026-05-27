@@ -4,7 +4,7 @@ import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
 import { parsedCfdiToSatRow } from '@/lib/sat/satCfdiRow'
 import { buildRepPaymentPreview } from '@/lib/sat/repPayments'
 import type { ParsedCfdi } from '@/types/finance'
-import JSZip from 'jszip'
+import { extractXmlFromFormData } from '@/lib/sat/extractXmlFromUpload'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
@@ -20,28 +20,11 @@ export async function POST(request: NextRequest) {
     }
 
     const form = await request.formData()
-    const zipFile = form.get('zip_file')
-    const xmlFile = form.get('xml_file')
-
-    if (!zipFile && !xmlFile) {
-      return NextResponse.json({ error: 'Se requiere zip_file o xml_file' }, { status: 400 })
+    const extracted = await extractXmlFromFormData(form)
+    if ('error' in extracted) {
+      return NextResponse.json({ error: extracted.error }, { status: 400 })
     }
-
-    const entries: Array<{ name: string; text: string }> = []
-    if (zipFile instanceof File) {
-      const buffer = await zipFile.arrayBuffer()
-      const zip = await JSZip.loadAsync(buffer)
-      for (const [name, entry] of Object.entries(zip.files)) {
-        if (!name.toLowerCase().endsWith('.xml') || entry.dir) continue
-        entries.push({ name, text: await entry.async('string') })
-      }
-    } else if (xmlFile instanceof File) {
-      entries.push({ name: xmlFile.name, text: await xmlFile.text() })
-    }
-
-    if (entries.length === 0) {
-      return NextResponse.json({ error: 'No se encontraron archivos XML en el ZIP' }, { status: 400 })
-    }
+    const { entries, source } = extracted
 
     let admin: ReturnType<typeof createServiceClient>
     try {
@@ -57,7 +40,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     const companyRfc = (setting?.value ?? '').trim().toUpperCase()
 
-    const source = zipFile instanceof File ? 'manual_zip' : 'manual_xml'
+    const importSource = source === 'zip' ? 'manual_zip' : 'manual_xml'
     const parsedRep: ParsedCfdi[] = []
     let imported = 0
     let skipped = 0
@@ -82,7 +65,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const row = parsedCfdiToSatRow(cfdi, user.id, source)
+        const row = parsedCfdiToSatRow(cfdi, user.id, importSource)
         const { error: upsertErr } = await admin
           .from('sat_cfdi_recibidos')
           .upsert(row, { onConflict: 'uuid', ignoreDuplicates: false })

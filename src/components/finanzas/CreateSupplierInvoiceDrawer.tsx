@@ -53,14 +53,14 @@ export type OrphanEntry = {
     name: string
     group_id: string | null
     default_vat_rate: number | null
-    supplier_group?: { id: string; name: string } | null
+    supplier_group?: { id: string; name: string; rfc?: string | null } | null
   } | null
   fleet_supplier?: {
     id: string
     name: string
     group_id: string | null
     default_vat_rate: number | null
-    supplier_group?: { id: string; name: string } | null
+    supplier_group?: { id: string; name: string; rfc?: string | null } | null
   } | null
   material?: { id: string; material_name: string } | null
 }

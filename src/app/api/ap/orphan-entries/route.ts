@@ -111,10 +111,10 @@ export async function GET(request: NextRequest) {
     ])
 
     const groupIds = [...new Set(suppliers.map((s) => s.group_id).filter(Boolean) as string[])]
-    const supplierGroups = await fetchByIds<{ id: string; name: string }>(
+    const supplierGroups = await fetchByIds<{ id: string; name: string; rfc: string | null }>(
       supabase,
       'supplier_groups',
-      'id, name',
+      'id, name, rfc',
       groupIds,
     )
     const supplierGroupById = new Map(supplierGroups.map((g) => [g.id, g]))

@@ -13,6 +13,7 @@ import { es } from 'date-fns/locale'
 import { ChevronDown, ChevronRight, AlertTriangle, FileText, Package, Truck, X, Calendar } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierInvoiceDrawer'
+import BulkCfdiInvoiceDialog from './BulkCfdiInvoiceDialog'
 import { cn } from '@/lib/utils'
 import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
 
@@ -504,7 +505,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set())
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerEntries, setDrawerEntries] = useState<OrphanEntry[]>([])
-  const [unoAUnoQueue, setUnoAUnoQueue] = useState<OrphanEntry[]>([])
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
+  const [bulkEntries, setBulkEntries] = useState<OrphanEntry[]>([])
   const [reloadKey, setReloadKey] = useState(0)
   const [receptionDateFrom, setReceptionDateFrom] = useState('')
   const [receptionDateTo, setReceptionDateTo] = useState('')
@@ -659,25 +661,23 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     setDrawerOpen(true)
   }
 
-  const startUnoAUno = (ids: string[]) => {
+  const openBulkDialog = (ids: string[]) => {
     const toInvoice = entries.filter(e => ids.includes(e.id))
     if (toInvoice.length === 0) return
-    const [first, ...rest] = toInvoice
-    setUnoAUnoQueue(rest)
-    setDrawerEntries([first])
-    setDrawerOpen(true)
+    setBulkEntries(toInvoice)
+    setBulkDialogOpen(true)
   }
 
   const handleDrawerSuccess = () => {
-    if (unoAUnoQueue.length > 0) {
-      const [next, ...rest] = unoAUnoQueue
-      setUnoAUnoQueue(rest)
-      setDrawerEntries([next])
-    } else {
-      setDrawerOpen(false)
-      setUnoAUnoQueue([])
-      setReloadKey(k => k + 1)
-    }
+    setDrawerOpen(false)
+    setReloadKey(k => k + 1)
+  }
+
+  const handleBulkSuccess = () => {
+    setBulkDialogOpen(false)
+    setBulkEntries([])
+    setSelected(new Set())
+    setReloadKey(k => k + 1)
   }
 
   const selectedEntries = entries.filter(e => selected.has(e.id))
@@ -825,10 +825,10 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                 variant="outline"
                 className="h-7 text-xs gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
                 disabled={!selectionValid}
-                onClick={() => startUnoAUno([...selected])}
+                onClick={() => openBulkDialog([...selected])}
               >
                 <FileText className="h-3.5 w-3.5" />
-                {selected.size} facturas una a una
+                Facturar en lote (ZIP/XML)
               </Button>
             )}
             <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
@@ -1046,13 +1046,16 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
 
       <CreateSupplierInvoiceDrawer
         open={drawerOpen}
-        onOpenChange={(open) => {
-          if (!open) { setUnoAUnoQueue([]); setDrawerOpen(false) }
-        }}
+        onOpenChange={setDrawerOpen}
         entries={drawerEntries}
         plantId={drawerEntries[0]?.plant_id}
-        queueInfo={unoAUnoQueue.length > 0 ? { remaining: unoAUnoQueue.length } : undefined}
         onSuccess={handleDrawerSuccess}
+      />
+      <BulkCfdiInvoiceDialog
+        open={bulkDialogOpen}
+        onOpenChange={setBulkDialogOpen}
+        entries={bulkEntries}
+        onSuccess={handleBulkSuccess}
       />
       </>
       )}
