@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -50,7 +50,7 @@ const STATUS_LABELS: Record<string, string> = {
   evaluado: 'Evaluado',
 };
 
-export default function ExperimentosListPage() {
+function ExperimentosListInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { currentPlant } = usePlantContext();
@@ -361,5 +361,19 @@ export default function ExperimentosListPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ExperimentosListPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-stone-400" />
+        </div>
+      }
+    >
+      <ExperimentosListInner />
+    </Suspense>
   );
 }

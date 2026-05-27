@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useDeferredValue, useTransition, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useDeferredValue, useTransition, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -89,7 +89,7 @@ import { useToast } from '@/components/ui/use-toast';
 
 // createMuestreoWithSamples moved to service layer
 
-export default function NuevoMuestreoPage() {
+function NuevoMuestreoPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -1541,4 +1541,18 @@ export default function NuevoMuestreoPage() {
       )}
     </div>
   );
-} 
+}
+
+export default function NuevoMuestreoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-stone-400" />
+        </div>
+      }
+    >
+      <NuevoMuestreoPageInner />
+    </Suspense>
+  );
+}
