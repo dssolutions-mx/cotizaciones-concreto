@@ -11,8 +11,8 @@ export default function TransferBetweenPlantsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-stone-900">Transferencia entre plantas</h1>
         <p className="text-stone-600 mt-1 text-sm">
-          Libro pareado: descuento en origen (tipo transferencia) y recepción en destino (corrección positiva). Se
-          envía notificación a operaciones.
+          Libro pareado: descuento en origen (tipo transferencia) y recepción en destino (corrección positiva), cada
+          uno con el material de su planta (sugerido por clave contable). Se envía notificación a operaciones.
         </p>
       </div>
       <InterPlantTransferForm />

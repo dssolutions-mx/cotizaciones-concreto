@@ -4558,6 +4558,7 @@ export type Database = {
           created_at: string
           created_by: string
           dest_adjustment_id: string
+          dest_material_id: string
           from_plant_id: string
           id: string
           material_id: string
@@ -4571,6 +4572,7 @@ export type Database = {
           created_at?: string
           created_by: string
           dest_adjustment_id: string
+          dest_material_id: string
           from_plant_id: string
           id?: string
           material_id: string
@@ -4584,6 +4586,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           dest_adjustment_id?: string
+          dest_material_id?: string
           from_plant_id?: string
           id?: string
           material_id?: string
@@ -4642,6 +4645,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vw_plant_financial_analysis_fifo"
             referencedColumns: ["plant_id"]
+          },
+          {
+            foreignKeyName: "inter_plant_material_transfers_dest_material_id_fkey"
+            columns: ["dest_material_id"]
+            isOneToOne: false
+            referencedRelation: "materials"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "inter_plant_material_transfers_material_id_fkey"
@@ -14791,6 +14801,7 @@ export type Database = {
       }
       create_inter_plant_material_transfer: {
         Args: {
+          p_dest_material_id: string
           p_from_plant_id: string
           p_material_id: string
           p_notes: string

@@ -3,11 +3,13 @@ import { z } from 'zod'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { sendInterPlantTransferEmail } from '@/lib/inventory/notifyInterPlantTransferEmail'
 import { hasInventoryStandardAccess } from '@/lib/auth/inventoryRoles'
+import { validateDestMaterialChoice } from '@/lib/inventory/interPlantMaterialMatch'
 
 const BodySchema = z.object({
   from_plant_id: z.string().uuid(),
   to_plant_id: z.string().uuid(),
   material_id: z.string().uuid(),
+  dest_material_id: z.string().uuid(),
   quantity_kg: z.number().positive(),
   transfer_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notes: z.string().max(2000).optional().nullable(),
@@ -43,11 +45,40 @@ export async function POST(request: NextRequest) {
     if (data.from_plant_id === data.to_plant_id) {
       return NextResponse.json({ error: 'Planta origen y destino deben ser distintas' }, { status: 400 })
     }
+    if (data.material_id === data.dest_material_id) {
+      return NextResponse.json(
+        { error: 'El material de origen y destino deben ser registros distintos' },
+        { status: 400 }
+      )
+    }
+
+    const { data: materials, error: matErr } = await supabase
+      .from('materials')
+      .select('id, plant_id, material_code, material_name, accounting_code')
+      .in('id', [data.material_id, data.dest_material_id])
+    if (matErr || !materials || materials.length !== 2) {
+      return NextResponse.json({ error: 'Materiales de origen o destino no encontrados' }, { status: 400 })
+    }
+
+    const source = materials.find((m) => m.id === data.material_id)
+    const dest = materials.find((m) => m.id === data.dest_material_id)
+    if (!source || source.plant_id !== data.from_plant_id) {
+      return NextResponse.json({ error: 'El material de origen no pertenece a la planta origen' }, { status: 400 })
+    }
+    if (!dest || dest.plant_id !== data.to_plant_id) {
+      return NextResponse.json({ error: 'El material de destino no pertenece a la planta destino' }, { status: 400 })
+    }
+
+    const choiceCheck = validateDestMaterialChoice(source, dest)
+    if (!choiceCheck.ok) {
+      return NextResponse.json({ error: choiceCheck.message }, { status: 400 })
+    }
 
     const { data: result, error: rpcError } = await supabase.rpc('create_inter_plant_material_transfer', {
       p_from_plant_id: data.from_plant_id,
       p_to_plant_id: data.to_plant_id,
       p_material_id: data.material_id,
+      p_dest_material_id: data.dest_material_id,
       p_quantity_kg: data.quantity_kg,
       p_transfer_date: data.transfer_date,
       p_notes: data.notes ?? null,
@@ -66,34 +97,36 @@ export async function POST(request: NextRequest) {
     if (transferId) {
       const { data: row } = await supabase
         .from('inter_plant_material_transfers')
-        .select('from_plant_id, to_plant_id, material_id, quantity_kg, transfer_date, notes')
+        .select('from_plant_id, to_plant_id, material_id, dest_material_id, quantity_kg, transfer_date, notes')
         .eq('id', transferId)
         .single()
 
       if (row) {
-        const [fromP, toP, mat] = await Promise.all([
+        const [fromP, toP, srcMat, destMat] = await Promise.all([
           supabase.from('plants').select('name').eq('id', row.from_plant_id).single(),
           supabase.from('plants').select('name').eq('id', row.to_plant_id).single(),
-          supabase.from('materials').select('material_name').eq('id', row.material_id).single(),
+          supabase.from('materials').select('material_name, material_code').eq('id', row.material_id).single(),
+          supabase.from('materials').select('material_name, material_code').eq('id', row.dest_material_id).single(),
         ])
 
         const fromName = fromP.data?.name ?? 'Origen'
         const toName = toP.data?.name ?? 'Destino'
-        const matName = mat.data?.material_name ?? 'Material'
 
         try {
           await sendInterPlantTransferEmail({
             transferId: String(transferId),
             fromPlantName: fromName,
             toPlantName: toName,
-            materialName: matName,
+            sourceMaterialName: srcMat.data?.material_name ?? 'Material origen',
+            sourceMaterialCode: srcMat.data?.material_code ?? '',
+            destMaterialName: destMat.data?.material_name ?? 'Material destino',
+            destMaterialCode: destMat.data?.material_code ?? '',
             quantityKg: Number(row.quantity_kg),
             transferDate: row.transfer_date,
             notes: row.notes ?? data.notes,
           })
         } catch (e) {
           console.error('[inter-plant-transfer] email failed', e)
-          // Non-fatal: transfer already committed
         }
       }
     }

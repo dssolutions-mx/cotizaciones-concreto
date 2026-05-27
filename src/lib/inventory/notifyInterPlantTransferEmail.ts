@@ -9,7 +9,10 @@ type Payload = {
   transferId: string
   fromPlantName: string
   toPlantName: string
-  materialName: string
+  sourceMaterialName: string
+  sourceMaterialCode: string
+  destMaterialName: string
+  destMaterialCode: string
   quantityKg: number
   transferDate: string
   notes?: string | null
@@ -24,6 +27,17 @@ export async function sendInterPlantTransferEmail(payload: Payload): Promise<voi
     return
   }
 
+  const sameLabel =
+    payload.sourceMaterialCode === payload.destMaterialCode &&
+    payload.sourceMaterialName === payload.destMaterialName
+
+  const materialLines = sameLabel
+    ? [`Material: ${payload.sourceMaterialName} (${payload.sourceMaterialCode})`]
+    : [
+        `Material origen: ${payload.sourceMaterialName} (${payload.sourceMaterialCode})`,
+        `Material destino: ${payload.destMaterialName} (${payload.destMaterialCode})`,
+      ]
+
   const subject = `Transferencia inter-planta: ${payload.fromPlantName} → ${payload.toPlantName}`
   const text = [
     `Nueva transferencia de material entre plantas.`,
@@ -32,7 +46,7 @@ export async function sendInterPlantTransferEmail(payload: Payload): Promise<voi
     `Fecha: ${payload.transferDate}`,
     `Origen: ${payload.fromPlantName}`,
     `Destino: ${payload.toPlantName}`,
-    `Material: ${payload.materialName}`,
+    ...materialLines,
     `Cantidad: ${payload.quantityKg} kg`,
     payload.notes ? `Notas: ${payload.notes}` : null,
   ]
