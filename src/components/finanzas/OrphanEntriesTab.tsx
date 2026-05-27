@@ -16,18 +16,47 @@ import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierI
 import BulkCfdiInvoiceDialog from './BulkCfdiInvoiceDialog'
 import { cn } from '@/lib/utils'
 import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
-import { formatOrphanEntryRemisionLabel, orphanEntryRemisionTitle } from '@/lib/ap/orphanEntryRemisionNumbers'
+import {
+  orphanEntryLoggedRemisionLabel,
+  orphanEntryLoggedRemisionPrefix,
+  orphanEntryLoggedRemisionTitle,
+  type OrphanEntryLoggedRemisionFields,
+} from '@/lib/ap/orphanEntryRemisionNumbers'
 
-function OrphanEntryRemisionInline({ numbers }: { numbers?: string[] }) {
-  const label = formatOrphanEntryRemisionLabel(numbers)
+function OrphanEntryRemisionInline({
+  entry,
+  mode = 'material',
+}: {
+  entry: OrphanEntryLoggedRemisionFields
+  mode?: 'material' | 'fleet'
+}) {
+  const label = orphanEntryLoggedRemisionLabel(entry, mode)
   if (!label) return null
   return (
     <span
       className="text-stone-500 font-mono shrink-0"
-      title={orphanEntryRemisionTitle(numbers) ?? undefined}
+      title={orphanEntryLoggedRemisionTitle(entry, mode) ?? undefined}
     >
-      Rem. {label}
+      {orphanEntryLoggedRemisionPrefix(mode)} {label}
     </span>
+  )
+}
+
+/** Material remisión + transport guía when both were captured on the entry. */
+function OrphanEntryFleetFolios({ entry }: { entry: OrphanEntryLoggedRemisionFields }) {
+  const material = entry.supplier_invoice?.trim() || null
+  const fleet = entry.fleet_invoice?.trim() || null
+  if (!material && !fleet) return null
+  return (
+    <>
+      {material && <OrphanEntryRemisionInline entry={entry} mode="material" />}
+      {fleet && fleet !== material && (
+        <span className="text-stone-500 font-mono shrink-0" title={fleet}>
+          Guía {fleet}
+        </span>
+      )}
+      {!material && fleet && <OrphanEntryRemisionInline entry={entry} mode="fleet" />}
+    </>
   )
 }
 
@@ -445,7 +474,7 @@ function FleetPendingSection({
                           onCheckedChange={() => toggleEntry(entry.id)}
                         />
                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
-                        <OrphanEntryRemisionInline numbers={entry.remision_numbers} />
+                        <OrphanEntryFleetFolios entry={entry} />
                         <span className="text-stone-500">
                           {format(new Date(entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                         </span>
@@ -456,9 +485,6 @@ function FleetPendingSection({
                             ? `${Number(entry.received_qty_entered).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${entry.received_uom ?? 'kg'}`
                             : '—'}
                         </span>
-                        {entry.fleet_invoice && (
-                          <span className="text-stone-400 italic">ref: {entry.fleet_invoice}</span>
-                        )}
                         {entry.ap_due_date_fleet && (
                           <span className="text-amber-700 font-medium">
                             vence {format(new Date(entry.ap_due_date_fleet + 'T00:00:00'), 'dd MMM', { locale: es })}
@@ -1027,7 +1053,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                                           onCheckedChange={() => toggleEntry(entry.id)}
                                         />
                                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
-                                        <OrphanEntryRemisionInline numbers={entry.remision_numbers} />
+                                        <OrphanEntryRemisionInline entry={entry} mode="material" />
                                         <span className="text-stone-500">
                                           {format(new Date(entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                                         </span>

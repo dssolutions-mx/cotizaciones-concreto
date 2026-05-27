@@ -5,6 +5,15 @@ import {
   normalizeInvoiceItems,
 } from '@/lib/ap/normalizeInvoicePayload'
 import { roundMoney } from '@/lib/ap/invoiceTotals'
+import { mapSupplierInvoiceDbError } from '@/lib/ap/mapSupplierInvoiceDbError'
+
+function dbError(
+  message: string,
+  code?: string | null,
+  status = 500,
+): CreateSupplierInvoiceResult {
+  return { ok: false, error: mapSupplierInvoiceDbError(message, code), status }
+}
 
 export type CreateSupplierInvoiceInput = {
   supplier_group_id: string
@@ -152,13 +161,72 @@ export async function createSupplierInvoice(
     ...new Set(normalizedItems.filter(it => it.entry_id).map(it => it.entry_id as string)),
   ]
   const warnings: string[] = []
+
+  const entryLineKeys = new Set<string>()
+  for (const it of normalizedItems) {
+    if (!it.entry_id) continue
+    const key = `${it.entry_id}:${it.cost_category}`
+    if (entryLineKeys.has(key)) {
+      return {
+        ok: false,
+        error:
+          'La factura repite la misma recepción en la misma categoría (material o flete). Revise las líneas.',
+        status: 400,
+      }
+    }
+    entryLineKeys.add(key)
+  }
+
+  if (entryIds.length > 0) {
+    const { data: alreadyInvoiced, error: linkedErr } = await supabase
+      .from('supplier_invoice_items')
+      .select(
+        'entry_id, cost_category, invoice:supplier_invoices(invoice_number), entry:material_entries(entry_number)',
+      )
+      .in('entry_id', entryIds)
+      .eq('line_source', 'entry')
+
+    if (linkedErr) {
+      return dbError(linkedErr.message, linkedErr.code)
+    }
+
+    const conflicts = (alreadyInvoiced ?? []).filter((row) =>
+      normalizedItems.some(
+        (it) =>
+          it.entry_id === row.entry_id
+          && it.cost_category === (row.cost_category === 'fleet' ? 'fleet' : 'material'),
+      ),
+    )
+    if (conflicts.length > 0) {
+      const labels = [
+        ...new Set(
+          conflicts.map((row) => {
+            const entry = row.entry as { entry_number?: string } | null
+            const inv = row.invoice as { invoice_number?: string } | null
+            const en = entry?.entry_number ?? row.entry_id?.slice(0, 8) ?? '?'
+            const cat = row.cost_category === 'fleet' ? 'flete' : 'material'
+            const invNo = inv?.invoice_number
+            return invNo ? `${en} (${cat}, factura ${invNo})` : `${en} (${cat})`
+          }),
+        ),
+      ].slice(0, 5)
+      const extra =
+        labels.length < conflicts.length ? ` y ${conflicts.length - labels.length} más` : ''
+      return {
+        ok: false,
+        error: `Recepción ya facturada: ${labels.join(', ')}${extra}. Actualice la lista de entradas sin factura.`,
+        status: 409,
+      }
+    }
+  }
+
   if (entryIds.length > 0) {
     const { data: entryRows, error: entErr } = await supabase
       .from('material_entries')
       .select('id, plant_id, total_cost, fleet_cost')
       .in('id', entryIds)
     if (entErr) {
-      return { ok: false, error: entErr.message, status: 500 }
+      return dbError(entErr.message, entErr.code)
     }
     const byId = new Map((entryRows ?? []).map(e => [e.id, e]))
     for (const it of normalizedItems) {
@@ -221,6 +289,21 @@ export async function createSupplierInvoice(
       .gte('created_at', `${year}-01-01`)
     const seq = String((count ?? 0) + 1).padStart(5, '0')
     invoice_number = `INT-${year}-${seq}`
+  } else {
+    const { data: dupFolio } = await supabase
+      .from('supplier_invoices')
+      .select('id, invoice_number')
+      .eq('supplier_group_id', supplier_group_id)
+      .eq('plant_id', plant_id)
+      .eq('invoice_number', invoice_number)
+      .maybeSingle()
+    if (dupFolio) {
+      return {
+        ok: false,
+        error: `Ya existe la factura ${dupFolio.invoice_number} para este proveedor en esta planta.`,
+        status: 409,
+      }
+    }
   }
 
   const { data: invoice, error: invErr } = await supabase
@@ -264,7 +347,7 @@ export async function createSupplierInvoice(
     .single()
 
   if (invErr || !invoice) {
-    return { ok: false, error: invErr?.message ?? 'Error al crear factura', status: 500 }
+    return dbError(invErr?.message ?? 'Error al crear factura', invErr?.code)
   }
 
   if (normalizedItems.length > 0) {
@@ -282,7 +365,7 @@ export async function createSupplierInvoice(
     const { error: itemErr } = await supabase.from('supplier_invoice_items').insert(itemRows)
     if (itemErr) {
       await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
-      return { ok: false, error: itemErr.message, status: 500 }
+      return dbError(itemErr.message, itemErr.code)
     }
   }
 
@@ -301,7 +384,7 @@ export async function createSupplierInvoice(
       .insert(retentionInserts)
     if (retErr) {
       await supabase.from('supplier_invoices').delete().eq('id', invoice.id)
-      return { ok: false, error: retErr.message, status: 500 }
+      return dbError(retErr.message, retErr.code)
     }
   }
 
@@ -337,29 +420,35 @@ export async function createSupplierInvoice(
   }
 
   if (supplierIdForPayable) {
-    const { data: payable, error: payErr } = await supabase
+    const { data: payableRows, error: payErr } = await supabase
       .from('payables')
-      .insert({
-        supplier_id: supplierIdForPayable,
-        plant_id,
-        invoice_id: invoice.id,
-        invoice_number,
-        invoice_date,
-        due_date,
-        vat_rate: Number(vat_rate),
-        subtotal: declaredSubtotal,
-        tax,
-        total,
-        status: 'open',
-        created_by: userId,
-      })
+      .upsert(
+        {
+          supplier_id: supplierIdForPayable,
+          plant_id,
+          invoice_id: invoice.id,
+          invoice_number,
+          invoice_date,
+          due_date,
+          vat_rate: Number(vat_rate),
+          subtotal: declaredSubtotal,
+          tax,
+          total,
+          status: 'open',
+          created_by: userId,
+        },
+        { onConflict: 'supplier_id,plant_id,invoice_number' },
+      )
       .select('id')
-      .single()
 
-    if (payErr) {
-      console.error('createSupplierInvoice payable error:', payErr.message)
-      warnings.push(`Factura creada pero no se pudo crear el registro de cuentas por pagar: ${payErr.message}`)
-    } else if (payable && normalizedItems.length > 0) {
+    const payable = Array.isArray(payableRows) ? payableRows[0] : payableRows
+
+    if (payErr || !payable) {
+      console.error('createSupplierInvoice payable error:', payErr?.message)
+      warnings.push(
+        `Factura creada pero no se pudo vincular cuentas por pagar: ${mapSupplierInvoiceDbError(payErr?.message ?? 'error desconocido', payErr?.code)}`,
+      )
+    } else if (normalizedItems.length > 0) {
       const payableItemRows = normalizedItems
         .filter(it => it.entry_id)
         .map(it => ({
@@ -370,10 +459,14 @@ export async function createSupplierInvoice(
           cost_category: it.cost_category,
         }))
       if (payableItemRows.length > 0) {
-        const { error: piErr } = await supabase.from('payable_items').insert(payableItemRows)
+        const { error: piErr } = await supabase
+          .from('payable_items')
+          .upsert(payableItemRows, { onConflict: 'entry_id,cost_category' })
         if (piErr) {
           console.error('createSupplierInvoice payable_items error:', piErr.message)
-          warnings.push(`Cuentas por pagar creado pero no se vincularon las líneas: ${piErr.message}`)
+          warnings.push(
+            `Factura creada; CXP parcial: ${mapSupplierInvoiceDbError(piErr.message, piErr.code)}`,
+          )
         }
       }
     }

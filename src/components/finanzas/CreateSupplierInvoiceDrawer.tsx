@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -27,11 +27,11 @@ import InvoiceRetentionsEditor, {
   toRetentionPayload,
   type RetentionRowState,
 } from '@/components/finanzas/InvoiceRetentionsEditor'
-import { formatOrphanEntryRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
+import { orphanEntryLoggedRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import { computeInvoiceTotals, deriveInvoiceSource, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
 
-function orphanEntryRemisionSuffix(entry: OrphanEntry): string {
-  const rem = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+function orphanEntryRemisionSuffix(entry: OrphanEntry, mode: 'material' | 'fleet' = 'material'): string {
+  const rem = orphanEntryLoggedRemisionLabel(entry, mode)
   return rem ? ` · Rem. ${rem}` : ''
 }
 
@@ -69,8 +69,6 @@ export type OrphanEntry = {
     supplier_group?: { id: string; name: string; rfc?: string | null } | null
   } | null
   material?: { id: string; material_name: string } | null
-  /** Remisiones that consumed stock from this entry (FIFO allocations). */
-  remision_numbers?: string[]
 }
 
 /** A display line in the drawer. May aggregate multiple source entries. */
@@ -256,6 +254,7 @@ export default function CreateSupplierInvoiceDrawer({
 
   // ── submit ─────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
+  const submitInFlightRef = useRef(false)
 
   const effectivePlantId = plantId ?? entries?.[0]?.plant_id ?? ''
 
@@ -732,7 +731,7 @@ export default function CreateSupplierInvoiceDrawer({
             entry_id: e.id,
             line_source: 'entry',
             cost_category: 'fleet',
-            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e)}`,
+            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e, 'fleet')}`,
             qty: null,
             unit_price: e.fleet_cost ?? null,
             amount: amt,
@@ -753,6 +752,7 @@ export default function CreateSupplierInvoiceDrawer({
     }))
 
   const handleSubmit = async () => {
+    if (submitInFlightRef.current || loading) return
     if (!groupId) { toast.error('Selecciona o crea un grupo de proveedor'); return }
     if (!effectivePlantId) { toast.error('Planta requerida'); return }
     if (!invoiceDate || !dueDate) { toast.error('Fecha de factura y vencimiento requeridos'); return }
@@ -766,6 +766,7 @@ export default function CreateSupplierInvoiceDrawer({
       const fleetItems = buildFleetApiItems()
       if (fleetItems.length === 0) { toast.error('No hay líneas válidas'); return }
       const fleetSubtotalAmt = fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
+      submitInFlightRef.current = true
       setLoading(true)
       try {
         const res = await fetch('/api/ap/invoices', {
@@ -805,6 +806,7 @@ export default function CreateSupplierInvoiceDrawer({
         onOpenChange(false)
         onSuccess()
       } finally {
+        submitInFlightRef.current = false
         setLoading(false)
       }
       return
@@ -827,6 +829,7 @@ export default function CreateSupplierInvoiceDrawer({
       }
     }
 
+    submitInFlightRef.current = true
     setLoading(true)
     try {
       // ── Build items: merge fleet into material when same supplier group ────
@@ -926,6 +929,7 @@ export default function CreateSupplierInvoiceDrawer({
       onOpenChange(false)
       onSuccess()
     } finally {
+      submitInFlightRef.current = false
       setLoading(false)
     }
   }
@@ -1039,7 +1043,7 @@ export default function CreateSupplierInvoiceDrawer({
           {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
             <p className="text-[10px] text-stone-400 pl-1">
               {l.sourceEntries.map((e) => {
-                const rem = formatOrphanEntryRemisionLabel(e.remision_numbers)
+                const rem = orphanEntryLoggedRemisionLabel(e, 'material')
                 return rem ? `${e.entry_number} (Rem. ${rem})` : e.entry_number
               }).join(', ')}
             </p>

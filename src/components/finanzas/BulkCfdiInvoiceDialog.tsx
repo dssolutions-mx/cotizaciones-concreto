@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { OrphanEntry } from './CreateSupplierInvoiceDrawer'
-import { formatOrphanEntryRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
+import { orphanEntryLoggedRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import type { ParsedCfdiBulkItem } from '@/app/api/ap/cfdi/parse-bulk/route'
 import {
   matchCfdiToEntries,
@@ -110,7 +110,7 @@ function buildInvoicePayload(entry: OrphanEntry, parsed: ParsedCfdiBulkItem) {
       line_source: 'entry' as const,
       cost_category: 'material' as const,
       description: (() => {
-        const rem = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+        const rem = orphanEntryLoggedRemisionLabel(entry, 'material')
         const base = `${entry.material?.material_name ?? 'Material'} — ${entry.entry_number}`
         return rem ? `${base} · Rem. ${rem}` : base
       })(),
@@ -464,7 +464,7 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                   </thead>
                   <tbody>
                     {visibleRows.map(({ assignment, entry, warnings }) => {
-                      const remisionLabel = formatOrphanEntryRemisionLabel(entry.remision_numbers)
+                      const remisionLabel = orphanEntryLoggedRemisionLabel(entry, 'material')
                       const eligible = getEligibleCfdisForEntry(entry, parsedForMatch)
                       const selectedParsed = parsedForMatch.find(p => p.id === assignment.cfdi_id)
                       const hasBlocker = warnings.some(w =>

@@ -35,47 +35,6 @@ async function fetchByIds<T extends { id: string }>(
   return rows
 }
 
-type AllocationRemisionRow = {
-  entry_id: string
-  remision_id: string | null
-  remisiones: { remision_number: string } | { remision_number: string }[] | null
-}
-
-async function fetchRemisionNumbersByEntryIds(
-  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
-  entryIds: string[],
-): Promise<Map<string, string[]>> {
-  const byEntry = new Map<string, Set<string>>()
-  if (entryIds.length === 0) return new Map()
-
-  for (const batch of chunk(entryIds, 200)) {
-    const { data, error } = await supabase
-      .from('material_consumption_allocations')
-      .select('entry_id, remision_id, remisiones ( remision_number )')
-      .in('entry_id', batch)
-      .not('remision_id', 'is', null)
-
-    if (error) throw error
-
-    for (const row of (data ?? []) as AllocationRemisionRow[]) {
-      const rem = row.remisiones
-      const remisionNumber = Array.isArray(rem) ? rem[0]?.remision_number : rem?.remision_number
-      if (!remisionNumber) continue
-      if (!byEntry.has(row.entry_id)) byEntry.set(row.entry_id, new Set())
-      byEntry.get(row.entry_id)!.add(remisionNumber)
-    }
-  }
-
-  const out = new Map<string, string[]>()
-  for (const [entryId, nums] of byEntry) {
-    out.set(
-      entryId,
-      [...nums].sort((a, b) => a.localeCompare(b, 'es', { numeric: true })),
-    )
-  }
-  return out
-}
-
 function isIsoDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
 }
@@ -169,9 +128,6 @@ export async function GET(request: NextRequest) {
     const supplierById = new Map(suppliers.map((s) => [s.id, s]))
     const materialById = new Map(materials.map((m) => [m.id, m]))
 
-    const entryIds = entries.map((e) => e.id)
-    const remisionNumbersByEntryId = await fetchRemisionNumbersByEntryIds(supabase, entryIds)
-
     const enriched = entries.map((entry) => ({
       ...entry,
       supplier: attachSupplier(entry.supplier_id ? supplierById.get(entry.supplier_id) : undefined),
@@ -179,7 +135,6 @@ export async function GET(request: NextRequest) {
         entry.fleet_supplier_id ? supplierById.get(entry.fleet_supplier_id) : undefined,
       ),
       material: entry.material_id ? materialById.get(entry.material_id) ?? null : null,
-      remision_numbers: remisionNumbersByEntryId.get(entry.id) ?? [],
     }))
 
     const total = count ?? 0
