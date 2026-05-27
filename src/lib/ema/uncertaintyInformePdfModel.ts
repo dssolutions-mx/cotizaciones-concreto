@@ -4,7 +4,7 @@
  */
 
 import type { UncertaintyComponent } from '@/lib/ema/uncertaintyBudget';
-import { pdfSanitizeMetrologyText } from './uncertaintyPdfMetrologyText';
+import { pdfFormulaDisplay, pdfSanitizeMetrologyText } from './uncertaintyPdfMetrologyText';
 
 /** A4 portrait usable width (595.28 − 64 pt padding). */
 export const PDF_PORTRAIT_TABLE_WIDTH = 531;
@@ -88,14 +88,14 @@ export function buildBudgetPdfColumns(): PdfTableColumn[] {
   const labels = [
     'Fuente',
     'Cat.',
-    'Xᵢ',
-    'xᵢ',
-    'u(xᵢ)',
+    pdfSanitizeMetrologyText('Xᵢ'),
+    pdfSanitizeMetrologyText('xᵢ'),
+    pdfSanitizeMetrologyText('u(xᵢ)'),
     'T',
     'Dist.',
-    'cᵢ',
-    'uᵢ(y)',
-    'uᵢ²(y)',
+    pdfSanitizeMetrologyText('cᵢ'),
+    pdfSanitizeMetrologyText('uᵢ(y)'),
+    pdfSanitizeMetrologyText('uᵢ²(y)'),
     '%',
     'Fórmula',
     'Norma',
@@ -150,13 +150,14 @@ export function buildBudgetPdfRows(
     }
   }
 
+  const unitPdf = pdfSanitizeMetrologyText(unit);
   rows.push({
     kind: 'footer_sum',
-    cells: ['', '', '', '', '', '', '', '', 'Sum u_i^2(y)', fmtPdfExp(sumUi2), '', '', `${unit}^2`],
+    cells: ['', '', '', '', '', '', '', '', 'Sum u_i^2(y)', fmtPdfExp(sumUi2), '', '', `(${unitPdf})^2`],
   });
   rows.push({
     kind: 'footer_uc',
-    cells: ['', '', '', '', '', '', '', '', 'u_c', fmtPdfExp(u_c), '', '', unit],
+    cells: ['', '', '', '', '', '', '', '', 'u_c', fmtPdfExp(u_c), '', '', unitPdf],
   });
 
   return rows;
@@ -164,7 +165,7 @@ export function buildBudgetPdfRows(
 
 function componentToCells(c: UncertaintyComponent, sumUi2: number): string[] {
   const contribPct = (100 * c.ui2_y) / sumUi2;
-  const formula = pdfSanitizeMetrologyText((c.formula_display ?? '').slice(0, 48));
+  const formula = pdfFormulaDisplay(c.formula_display ?? '');
   return [
     pdfSanitizeMetrologyText(c.fuente),
     categoriaLabel(c.categoria),

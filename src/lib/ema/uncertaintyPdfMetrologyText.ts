@@ -26,6 +26,11 @@ export function pdfFormatNuEffValue(nu_eff: number): string {
 /** Normalize GUM notation for PDF body text, formulas, and table cells. */
 export function pdfSanitizeMetrologyText(text: string): string {
   let out = text;
+  // Helvetica in react-pdf often omits √, which makes "s/√n" read as "s/n".
+  out = out.replace(/√\(/g, 'sqrt(');
+  out = out.replace(/√(\d+)/g, 'sqrt($1)');
+  out = out.replace(/√([a-zA-Z_]+)/g, 'sqrt($1)');
+  out = out.replace(/√/g, 'sqrt');
   out = out.replace(/νeff/gi, 'nu_eff');
   out = out.replace(/ν/g, 'nu');
   out = out.replace(/∞/g, 'inf');
@@ -40,4 +45,11 @@ export function pdfSanitizeMetrologyText(text: string): string {
   out = out.replace(/≈/g, '~');
   out = out.replace(/[\u2080-\u2089]/g, (ch) => SUBSCRIPT_DIGITS[ch] ?? ch);
   return out;
+}
+
+/** Presupuesto formula column — sanitize then cap length after sqrt() expansion. */
+export function pdfFormulaDisplay(text: string, maxLen = 72): string {
+  const sanitized = pdfSanitizeMetrologyText(text);
+  if (sanitized.length <= maxLen) return sanitized;
+  return `${sanitized.slice(0, maxLen - 1)}…`;
 }
