@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -256,6 +256,7 @@ export default function CreateSupplierInvoiceDrawer({
 
   // ── submit ─────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
+  const submitInFlightRef = useRef(false)
 
   const effectivePlantId = plantId ?? entries?.[0]?.plant_id ?? ''
 
@@ -753,6 +754,7 @@ export default function CreateSupplierInvoiceDrawer({
     }))
 
   const handleSubmit = async () => {
+    if (submitInFlightRef.current || loading) return
     if (!groupId) { toast.error('Selecciona o crea un grupo de proveedor'); return }
     if (!effectivePlantId) { toast.error('Planta requerida'); return }
     if (!invoiceDate || !dueDate) { toast.error('Fecha de factura y vencimiento requeridos'); return }
@@ -766,6 +768,7 @@ export default function CreateSupplierInvoiceDrawer({
       const fleetItems = buildFleetApiItems()
       if (fleetItems.length === 0) { toast.error('No hay líneas válidas'); return }
       const fleetSubtotalAmt = fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
+      submitInFlightRef.current = true
       setLoading(true)
       try {
         const res = await fetch('/api/ap/invoices', {
@@ -805,6 +808,7 @@ export default function CreateSupplierInvoiceDrawer({
         onOpenChange(false)
         onSuccess()
       } finally {
+        submitInFlightRef.current = false
         setLoading(false)
       }
       return
@@ -827,6 +831,7 @@ export default function CreateSupplierInvoiceDrawer({
       }
     }
 
+    submitInFlightRef.current = true
     setLoading(true)
     try {
       // ── Build items: merge fleet into material when same supplier group ────
@@ -926,6 +931,7 @@ export default function CreateSupplierInvoiceDrawer({
       onOpenChange(false)
       onSuccess()
     } finally {
+      submitInFlightRef.current = false
       setLoading(false)
     }
   }
