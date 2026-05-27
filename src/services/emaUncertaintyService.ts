@@ -19,6 +19,10 @@ import {
   MEASURAND_INSTRUMENT_ROLES,
   resolveReplicaMeasurandValue,
 } from '@/lib/ema/uncertaintyMeasurand';
+import type {
+  InformeEquipoInstrument,
+  InformeEquipoOperator,
+} from '@/types/ema-uncertainty';
 import { assessAnovaReadiness, parseEquipoPool } from '@/lib/ema/uncertaintyStudyDesign';
 import { getInstrumentosCardsByIds, validateInstrumentos } from '@/services/emaInstrumentoService';
 import type { InstrumentoSeleccionado } from '@/types/ema';
@@ -225,9 +229,17 @@ async function enrichReplicasWithJoins(
 ): Promise<UncertaintyStudyReplica[]> {
   const instrIds = [
     ...new Set(
-      rawReplicas
-        .map((r) => r.instrumento_id)
-        .filter(Boolean) as string[],
+      rawReplicas.flatMap((r) => {
+        const ids: string[] = [];
+        if (r.instrumento_id) ids.push(r.instrumento_id);
+        const raw = (r as { raw_values_json?: Record<string, unknown> }).raw_values_json;
+        if (raw && typeof raw === 'object') {
+          for (const [k, v] of Object.entries(raw)) {
+            if (k.startsWith('_instr_') && typeof v === 'string' && v.length > 0) ids.push(v);
+          }
+        }
+        return ids;
+      }),
     ),
   ];
   let instrMap = new Map<string, unknown>();
@@ -2080,6 +2092,71 @@ async function buildInstrumentTraceabilityRows(
   return rows;
 }
 
+async function buildInformeInstrumentLookup(
+  instrumentIds: string[],
+): Promise<Record<string, { codigo: string; nombre: string }>> {
+  if (instrumentIds.length === 0) return {};
+  const supabase = await createClient();
+  const { data: instrs } = await supabase
+    .from('instrumentos')
+    .select('id, codigo, nombre')
+    .in('id', instrumentIds);
+  const lookup: Record<string, { codigo: string; nombre: string }> = {};
+  for (const row of instrs ?? []) {
+    const r = row as { id: string; codigo: string; nombre: string };
+    lookup[r.id] = { codigo: r.codigo, nombre: r.nombre };
+  }
+  return lookup;
+}
+
+async function buildInformeEquipoSummary(
+  study: UncertaintyStudy,
+  measurand: UncertaintyMeasurand,
+  instrumentLookup: Record<string, { codigo: string; nombre: string }>,
+): Promise<{ operators: InformeEquipoOperator[]; instruments: InformeEquipoInstrument[] }> {
+  const supabase = await createClient();
+  const pool = parseEquipoPool(study.equipo_pool_json);
+  const rolesDef = MEASURAND_INSTRUMENT_ROLES[measurand.codigo as MeasurandCodigo] ?? [];
+
+  let operators: InformeEquipoOperator[] = [];
+  if (pool.operator_ids.length > 0) {
+    const { data: ops } = await supabase
+      .from('user_profiles')
+      .select('id, email, first_name, last_name')
+      .in('id', pool.operator_ids);
+    operators = (ops ?? []).map((o) => {
+      const row = o as {
+        id: string;
+        email: string;
+        first_name: string | null;
+        last_name: string | null;
+      };
+      const full_name =
+        [row.first_name, row.last_name].filter(Boolean).join(' ').trim() || row.email;
+      return { id: row.id, email: row.email, full_name };
+    });
+    operators.sort((a, b) => a.full_name.localeCompare(b.full_name, 'es'));
+  }
+
+  const roleLabels = new Map(rolesDef.map((r) => [r.key, r.label]));
+  const instruments: InformeEquipoInstrument[] = [];
+  for (const instrId of pool.instrumento_ids) {
+    const ref = instrumentLookup[instrId];
+    if (!ref) continue;
+    const roleKey = pool.instrumento_roles?.[instrId] ?? null;
+    instruments.push({
+      instrumento_id: instrId,
+      codigo: ref.codigo,
+      nombre: ref.nombre,
+      role_key: roleKey,
+      role_label: roleKey ? (roleLabels.get(roleKey) ?? roleKey) : 'Instrumento del estudio',
+    });
+  }
+  instruments.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es'));
+
+  return { operators, instruments };
+}
+
 async function resolvePreviousUForMeasurand(
   measurandId: string,
   currentStudyId: string,
@@ -2168,17 +2245,26 @@ export async function getStudyInformeDetalle(
   }
 
   const custom_inputs = await listCustomInputs(studyId);
-  const instrument_traceability = await buildInstrumentTraceabilityRows(
-    study,
-    collectStudyInstrumentIds(study),
-  );
-  const previous_u_expandida = await resolvePreviousUForMeasurand(
-    study.measurand_id,
-    study.id,
+  const allInstrumentIds = collectStudyInstrumentIds(study);
+  const instrument_lookup = await buildInformeInstrumentLookup(allInstrumentIds);
+  const [instrument_traceability, previous_u_expandida, equipo] = await Promise.all([
+    buildInstrumentTraceabilityRows(study, allInstrumentIds),
+    resolvePreviousUForMeasurand(study.measurand_id, study.id),
+    buildInformeEquipoSummary(study, measurand, instrument_lookup),
+  ]);
+
+  const { data: rawReplicas } = await supabase
+    .from('ema_uncertainty_study_replicas')
+    .select('*')
+    .eq('study_id', studyId)
+    .order('orden');
+  const replicasEnriched = await enrichReplicasWithJoins(
+    supabase,
+    (rawReplicas ?? []) as ReplicaRow[],
   );
 
   return {
-    study,
+    study: { ...study, replicas: replicasEnriched },
     measurand,
     budget: budgetResultFromSnapshot(study.budget),
     budget_computed_at: study.budget.computed_at,
@@ -2186,6 +2272,9 @@ export async function getStudyInformeDetalle(
     publisher,
     custom_inputs,
     instrument_traceability,
+    instrument_lookup,
+    equipo_operators: equipo.operators,
+    equipo_instruments: equipo.instruments,
     previous_u_expandida,
   };
 }

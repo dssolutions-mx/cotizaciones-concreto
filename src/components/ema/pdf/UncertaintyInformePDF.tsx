@@ -23,6 +23,8 @@ import {
 import {
   buildReplicaPdfColumns,
   buildReplicaPdfRows,
+  replicaSectionUsesLandscape,
+  type ReplicaPdfInformeContext,
 } from '@/lib/ema/uncertaintyInformeReplicaPdf'
 import {
   PDF_NU_EFF,
@@ -220,11 +222,17 @@ export function UncertaintyInformePDF({
   const docCodigo = study.documento_codigo ?? `${measurand.documento_codigo ?? measurand.codigo}-${study.fecha_estudio}`
   const docLine = `${docCodigo} · ${studyShortId(study.id)} · Estado: ${formatStudyEstado(study.estado)} · Emitido ${issued}`
 
-  const replicaCols = buildReplicaPdfColumns(measurand, study)
-  const replicaRows = buildReplicaPdfRows(study.replicas ?? [], measurand, study)
+  const replicaCtx: ReplicaPdfInformeContext = {
+    study,
+    measurand,
+    instrument_lookup: informe.instrument_lookup,
+  }
+  const replicaLandscape = replicaSectionUsesLandscape(replicaCtx)
+  const replicaCols = buildReplicaPdfColumns(replicaCtx)
+  const replicaRows = buildReplicaPdfRows(replicaCtx)
+  const replicaTableWidth = replicaLandscape ? PDF_LANDSCAPE_TABLE_WIDTH : PDF_PORTRAIT_TABLE_WIDTH
   const traceRows = buildTraceabilityPdfRows(informe.instrument_traceability)
   const normRefs = uniqueNormRefsFromComponents(budget.components)
-  const pool = study.equipo_pool_json
 
   const publishedAtLabel = study.published_at
     ? new Date(study.published_at).toLocaleString('es-MX', {
@@ -288,21 +296,30 @@ export function UncertaintyInformePDF({
         <PdfCard title="§3 Diseño del estudio">
           <Kv label="Número de réplicas" value={String(study.n_replicas)} mono />
           <Kv
-            label="Operadores en el diseño"
+            label="Operadores participantes"
             value={
-              pool?.operator_ids?.length
-                ? `${pool.operator_ids.length} operador(es) en el pool`
-                : 'No definido'
+              informe.equipo_operators.length > 0
+                ? informe.equipo_operators.map((o) => o.full_name).join('; ')
+                : 'No definido en el pool'
             }
           />
-          <Kv
-            label="Instrumentos en el diseño"
-            value={
-              pool?.instrumento_ids?.length
-                ? `${pool.instrumento_ids.length} instrumento(s)`
-                : 'No definido'
-            }
-          />
+          {informe.equipo_instruments.length > 0 ? (
+            <View style={{ marginTop: 6 }}>
+              <Text style={{ fontSize: 8, fontWeight: 'bold', marginBottom: 4 }}>
+                Instrumentos del estudio (rol metrológico)
+              </Text>
+              {informe.equipo_instruments.map((inst) => (
+                <Kv
+                  key={inst.instrumento_id}
+                  label={inst.role_label}
+                  value={`${inst.codigo} — ${inst.nombre}`}
+                  mono
+                />
+              ))}
+            </View>
+          ) : (
+            <Kv label="Instrumentos del estudio" value="No definido en el pool" />
+          )}
           <Kv
             label="Variables excluidas del presupuesto"
             value={formatExcludedInputs(measurand, study.excluded_input_simbolos)}
@@ -317,14 +334,24 @@ export function UncertaintyInformePDF({
         <PdfFooter studyId={study.id} measurandCode={measurand.codigo} section="Identificación" />
       </Page>
 
-      <Page size="A4" style={s.page}>
+      <Page
+        size="A4"
+        orientation={replicaLandscape ? 'landscape' : 'portrait'}
+        style={replicaLandscape ? s.pageLandscape : s.page}
+      >
         <PdfCard title="§4 Datos experimentales (réplicas)">
+          {informe.equipo_instruments.length > 1 ? (
+            <Text style={{ fontSize: 7.5, color: '#57534E', marginBottom: 6 }}>
+              Cada réplica registra el instrumento asignado por rol (prensa / vernier, etc.), igual
+              que en el espacio de trabajo del estudio.
+            </Text>
+          ) : null}
           {replicaRows.length > 0 ? (
             <PdfTable
               columns={replicaCols}
               rows={replicaRows}
-              fontSize={6.5}
-              tableWidth={PDF_PORTRAIT_TABLE_WIDTH}
+              fontSize={replicaLandscape ? 6 : 6.5}
+              tableWidth={replicaTableWidth}
             />
           ) : (
             <Text style={{ fontSize: 8, color: '#78716C' }}>Sin réplicas registradas.</Text>

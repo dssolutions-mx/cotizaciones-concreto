@@ -298,10 +298,11 @@ export function replicaInformeColumns(
     }));
 }
 
+/** Réplica informe/PDF: fixed decimals like the study grid (not scientific for large Carga, etc.). */
 function formatReplicaInformeNumber(n: number, digits = 4): string {
   if (!Number.isFinite(n)) return '—';
   const abs = Math.abs(n);
-  if (abs >= 1000 || (abs > 0 && abs < 0.01)) return n.toExponential(digits);
+  if (abs > 0 && abs < 0.01) return n.toExponential(digits);
   return n.toFixed(digits);
 }
 

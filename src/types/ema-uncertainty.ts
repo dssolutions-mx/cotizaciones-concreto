@@ -363,6 +363,20 @@ export interface UncertaintyInstrumentTraceabilityRow {
   vigencia: string;
 }
 
+export interface InformeEquipoOperator {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+export interface InformeEquipoInstrument {
+  instrumento_id: string;
+  codigo: string;
+  nombre: string;
+  role_key: string | null;
+  role_label: string;
+}
+
 export interface UncertaintyStudyInformeDetalle {
   study: UncertaintyStudy;
   measurand: UncertaintyMeasurand;
@@ -372,6 +386,10 @@ export interface UncertaintyStudyInformeDetalle {
   publisher: UncertaintyInformePublisher | null;
   custom_inputs: StudyCustomInput[];
   instrument_traceability: UncertaintyInstrumentTraceabilityRow[];
+  /** All instruments referenced by replicas (_instr_* included), for PDF role columns */
+  instrument_lookup: Record<string, { codigo: string; nombre: string }>;
+  equipo_operators: InformeEquipoOperator[];
+  equipo_instruments: InformeEquipoInstrument[];
   /** U from the study this one replaced, if any */
   previous_u_expandida: number | null;
 }
