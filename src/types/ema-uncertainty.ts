@@ -333,3 +333,55 @@ export interface PublishPreflight {
     detail?: string;
   }>;
 }
+
+// ---------------------------------------------------------------------------
+// PDF informe (published studies only — frozen budget snapshot)
+// ---------------------------------------------------------------------------
+
+export interface UncertaintyInformeLabContext {
+  plantName?: string | null;
+  acreditacionEma?: string | null;
+}
+
+export interface UncertaintyInformePublisher {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+export interface UncertaintyInstrumentTraceabilityRow {
+  instrumento_id: string;
+  codigo: string;
+  nombre: string;
+  /** Role key from equipo_pool_json.instrumento_roles, if assigned */
+  rol: string | null;
+  fuente: string;
+  numero_certificado: string | null;
+  u_expandida: string;
+  k_factor: string;
+  unidad: string;
+  vigencia: string;
+}
+
+export interface UncertaintyStudyInformeDetalle {
+  study: UncertaintyStudy;
+  measurand: UncertaintyMeasurand;
+  budget: BudgetResult;
+  budget_computed_at: string;
+  lab: UncertaintyInformeLabContext;
+  publisher: UncertaintyInformePublisher | null;
+  custom_inputs: StudyCustomInput[];
+  instrument_traceability: UncertaintyInstrumentTraceabilityRow[];
+  /** U from the study this one replaced, if any */
+  previous_u_expandida: number | null;
+}
+
+export class UncertaintyInformeError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'UncertaintyInformeError';
+    this.status = status;
+  }
+}

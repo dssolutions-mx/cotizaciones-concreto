@@ -1,7 +1,10 @@
 'use client'
 
 import React, { useCallback, useEffect, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { FileText } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/components/ui/use-toast'
 import { EmaUncertaintyReplicaTable } from '@/components/ema/uncertainty/EmaUncertaintyReplicaTable'
@@ -366,8 +369,18 @@ export function StudyWorkspaceClient({
           activeStep={activeTab}
           lockedSteps={lockedTabs}
         />
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <EmaUncertaintyStudyEstadoBadge estado={study.estado} />
+          {study.estado === 'publicado' && (
+            <Button asChild variant="outline" size="sm" className="gap-1.5 border-stone-300">
+              <Link
+                href={`/quality/ema/incertidumbre/${measurandCode}/estudios/${study.id}/imprimir`}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Informe PDF
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 

@@ -36,6 +36,7 @@ import {
   type VigasStudyConfig,
 } from '@/lib/ema/vigasFlexureModel';
 import type {
+  BudgetResult,
   ExtraTypeAInput,
   UncertaintyMeasurand,
   UncertaintyStudy,
@@ -49,7 +50,12 @@ import type {
   PublishStudyResponse,
   PublishPreflight,
   MeasurandCodigo,
+  UncertaintyStudyInformeDetalle,
+  UncertaintyInstrumentTraceabilityRow,
+  UncertaintyInformePublisher,
+  UncertaintyInformeLabContext,
 } from '@/types/ema-uncertainty';
+import { UncertaintyInformeError } from '@/types/ema-uncertainty';
 
 // ---------------------------------------------------------------------------
 // Measurands
@@ -1963,6 +1969,223 @@ export async function publishStudy(
   return {
     study: updatedStudy as UncertaintyStudy,
     published: publishedRow as UncertaintyPublished,
+    previous_u_expandida,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PDF informe (published + frozen budget only)
+// ---------------------------------------------------------------------------
+
+export function budgetResultFromSnapshot(budget: UncertaintyStudyBudget): BudgetResult {
+  return {
+    components: budget.presupuesto_json,
+    mean_value: budget.mean_value ?? 0,
+    u_c: budget.u_combinado ?? 0,
+    nu_eff: budget.nu_eff ?? Infinity,
+    k: budget.k_factor ?? 2,
+    U: budget.u_expandida ?? 0,
+    U_rel_pct: budget.u_relativa_pct ?? null,
+  };
+}
+
+function collectStudyInstrumentIds(study: UncertaintyStudy): string[] {
+  const ids = new Set<string>();
+  const pool = parseEquipoPool(study.equipo_pool_json);
+  for (const id of pool.instrumento_ids) ids.add(id);
+  for (const r of study.replicas ?? []) {
+    if (r.instrumento_id) ids.add(r.instrumento_id);
+    for (const [k, v] of Object.entries(r.raw_values_json ?? {})) {
+      if (k.startsWith('_instr_') && typeof v === 'string' && v.length > 0) ids.add(v);
+    }
+  }
+  return [...ids];
+}
+
+async function buildInstrumentTraceabilityRows(
+  study: UncertaintyStudy,
+  instrumentIds: string[],
+): Promise<UncertaintyInstrumentTraceabilityRow[]> {
+  if (instrumentIds.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data: instrs } = await supabase
+    .from('instrumentos')
+    .select('id, codigo, nombre, fecha_proximo_evento')
+    .in('id', instrumentIds);
+
+  const roles = parseEquipoPool(study.equipo_pool_json).instrumento_roles ?? {};
+  const roleByInstr = new Map<string, string>();
+  for (const [instrId, roleKey] of Object.entries(roles)) {
+    roleByInstr.set(instrId, roleKey);
+  }
+
+  const rows: UncertaintyInstrumentTraceabilityRow[] = [];
+
+  for (const inst of instrs ?? []) {
+    const id = (inst as { id: string }).id;
+    const codigo = (inst as { codigo: string }).codigo;
+    const nombre = (inst as { nombre: string }).nombre;
+    const fechaProx = (inst as { fecha_proximo_evento: string | null }).fecha_proximo_evento;
+
+    const cal = await resolveInstrumentCalibration(id, study.fecha_estudio);
+
+    let fuente = 'Sin trazabilidad registrada';
+    let numero_certificado: string | null = null;
+    let u_expandida = '—';
+    let k_factor = '—';
+    let unidad = '—';
+    let vigencia = fechaProx ?? '—';
+
+    if (cal?.type === 'ok') {
+      fuente =
+        cal.source === 'internal_verification'
+          ? 'Verificación interna'
+          : 'Calibración externa';
+      numero_certificado = cal.numero_certificado;
+      u_expandida = String(cal.u_expandida);
+      k_factor = String(cal.k_factor);
+      unidad = cal.unidad ?? '—';
+
+      const { data: emaCal } = await supabase
+        .from('ema_instrumento_calibraciones')
+        .select('vigente_hasta, fecha_emision')
+        .eq('instrumento_id', id)
+        .not('u_expandida', 'is', null)
+        .lte('fecha_emision', study.fecha_estudio)
+        .order('fecha_emision', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (emaCal?.vigente_hasta) vigencia = emaCal.vigente_hasta;
+    } else if (cal?.type === 'verification_needs_rollup') {
+      fuente = 'Verificación interna (GUM pendiente)';
+      vigencia = cal.verificacion_fecha;
+    }
+
+    rows.push({
+      instrumento_id: id,
+      codigo,
+      nombre,
+      rol: roleByInstr.get(id) ?? null,
+      fuente,
+      numero_certificado,
+      u_expandida,
+      k_factor,
+      unidad,
+      vigencia,
+    });
+  }
+
+  rows.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es'));
+  return rows;
+}
+
+async function resolvePreviousUForMeasurand(
+  measurandId: string,
+  currentStudyId: string,
+): Promise<number | null> {
+  const supabase = await createClient();
+  const { data: prior } = await supabase
+    .from('ema_uncertainty_studies')
+    .select('id')
+    .eq('measurand_id', measurandId)
+    .eq('estado', 'reemplazado')
+    .neq('id', currentStudyId)
+    .order('published_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!prior?.id) return null;
+
+  const { data: priorBudget } = await supabase
+    .from('ema_uncertainty_study_budget')
+    .select('u_expandida')
+    .eq('study_id', prior.id)
+    .maybeSingle();
+
+  return priorBudget?.u_expandida ?? null;
+}
+
+/**
+ * Full payload for the ISO-grade uncertainty study PDF.
+ * Uses frozen presupuesto_json only — never recomputes GUM at export time.
+ */
+export async function getStudyInformeDetalle(
+  studyId: string,
+): Promise<UncertaintyStudyInformeDetalle> {
+  const study = await getStudy(studyId);
+  if (!study) {
+    throw new UncertaintyInformeError('Estudio no encontrado.', 404);
+  }
+  if (study.estado !== 'publicado') {
+    throw new UncertaintyInformeError(
+      'El informe PDF solo está disponible para estudios publicados.',
+      403,
+    );
+  }
+  if (!study.budget?.presupuesto_json?.length) {
+    throw new UncertaintyInformeError(
+      'El estudio publicado no tiene presupuesto congelado. Contacte al administrador del sistema.',
+      422,
+    );
+  }
+
+  const measurand = study.measurand;
+  if (!measurand) {
+    throw new UncertaintyInformeError('Mensurando no encontrado para el estudio.', 422);
+  }
+
+  const supabase = await createClient();
+  const lab: UncertaintyInformeLabContext = { plantName: null, acreditacionEma: null };
+
+  if (study.plant_id) {
+    const { data: plant } = await supabase
+      .from('plants')
+      .select('name')
+      .eq('id', study.plant_id)
+      .maybeSingle();
+    lab.plantName = plant?.name ?? null;
+  }
+
+  let publisher: UncertaintyInformePublisher | null = null;
+  if (study.published_by) {
+    const { data: prof } = await supabase
+      .from('user_profiles')
+      .select('id, email, first_name, last_name')
+      .eq('id', study.published_by)
+      .maybeSingle();
+    if (prof) {
+      const row = prof as {
+        id: string;
+        email: string;
+        first_name: string | null;
+        last_name: string | null;
+      };
+      const full_name =
+        [row.first_name, row.last_name].filter(Boolean).join(' ').trim() || row.email;
+      publisher = { id: row.id, email: row.email, full_name };
+    }
+  }
+
+  const custom_inputs = await listCustomInputs(studyId);
+  const instrument_traceability = await buildInstrumentTraceabilityRows(
+    study,
+    collectStudyInstrumentIds(study),
+  );
+  const previous_u_expandida = await resolvePreviousUForMeasurand(
+    study.measurand_id,
+    study.id,
+  );
+
+  return {
+    study,
+    measurand,
+    budget: budgetResultFromSnapshot(study.budget),
+    budget_computed_at: study.budget.computed_at,
+    lab,
+    publisher,
+    custom_inputs,
+    instrument_traceability,
     previous_u_expandida,
   };
 }

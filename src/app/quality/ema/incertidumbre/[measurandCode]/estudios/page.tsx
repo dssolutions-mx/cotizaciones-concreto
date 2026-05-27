@@ -82,13 +82,21 @@ export default async function EstudiosListPage({
                   <td className="px-4 py-3 font-mono text-xs text-stone-500">
                     {s.documento_codigo ?? '—'}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right space-x-3">
                     <Link
                       href={`/quality/ema/incertidumbre/${measurandCode}/estudios/${s.id}`}
                       className="text-sky-800 hover:underline text-xs font-medium"
                     >
                       Abrir
                     </Link>
+                    {s.estado === 'publicado' && (
+                      <Link
+                        href={`/quality/ema/incertidumbre/${measurandCode}/estudios/${s.id}/imprimir`}
+                        className="text-stone-600 hover:underline text-xs font-medium"
+                      >
+                        PDF
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))
