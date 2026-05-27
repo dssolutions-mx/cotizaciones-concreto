@@ -11,7 +11,7 @@ import {
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
 import {
   fcMeasurandForTipo,
-  requiredMeasurandsForMuestreo,
+  requiredMeasurandsForInformeUncertainty,
 } from '@/lib/quality/informeMeasurands';
 import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
 import type {
@@ -100,6 +100,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
   const strengthFc = num(row.strength_fc);
   const slump = num(row.slump);
   const muestreadoPor = (str(row.muestreado_por) as MuestreadoPor) ?? 'LABORATORIO';
+  const declararIncertidumbreCampo = row.declarar_incertidumbre_campo === true;
 
   const asOfDate =
     input.asOfDate ??
@@ -110,16 +111,20 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       .pop() ??
     format(new Date(), 'yyyy-MM-dd');
 
-  const required = requiredMeasurandsForMuestreo({
+  const required = requiredMeasurandsForInformeUncertainty({
     revenimiento_sitio: num(row.revenimiento_sitio),
     temperatura_concreto: num(row.temperatura_concreto),
     contenido_aire: num(row.contenido_aire),
     masa_unitaria: num(row.masa_unitaria),
     specimenTypes: input.muestras.map((m) => m.tipo_muestra),
+    declarar_incertidumbre_campo: declararIncertidumbreCampo,
   });
 
   const { entries: uncertainty } = await buildInformeUncertaintySnapshot(required, asOfDate);
   const uMap = new Map(uncertainty.map((u) => [u.measurand_codigo, u]));
+
+  const freshUncertainty = (codigo: string) =>
+    declararIncertidumbreCampo ? uMap.get(codigo) : undefined;
 
   const freshRows: InformeFreshResultRow[] = [];
 
@@ -131,7 +136,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       resultado: `${rev} mm`,
       especificado: slump != null ? `${slump} mm` : 'N/A',
       conformidad: conformidadRevenimiento(rev, slump, tolerancias),
-      uncertainty: uMap.get('REV'),
+      uncertainty: freshUncertainty('REV'),
     });
   }
 
@@ -143,7 +148,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       resultado: `${temp} °C`,
       especificado: 'N/A',
       conformidad: 'N/A',
-      uncertainty: uMap.get('TEMP'),
+      uncertainty: freshUncertainty('TEMP'),
     });
   }
 
@@ -155,7 +160,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       resultado: `${mu} kg/m³`,
       especificado: 'N/A',
       conformidad: 'N/A',
-      uncertainty: uMap.get('MU'),
+      uncertainty: freshUncertainty('MU'),
     });
   }
 
@@ -167,7 +172,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
       resultado: `${aire} %`,
       especificado: 'N/A',
       conformidad: 'N/A',
-      uncertainty: uMap.get('AIRE'),
+      uncertainty: freshUncertainty('AIRE'),
     });
   }
 

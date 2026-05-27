@@ -80,6 +80,14 @@ export interface Muestreo {
   sync_status?: string | null;
   sampling_notes?: string | null;
   recovery_notes?: string | null;
+  /** ISO 7.8 §2 — who performed field sampling */
+  muestreado_por?: 'LABORATORIO' | 'CLIENTE' | null;
+  /** When true, declare field-test uncertainty (REV/TEMP/AIRE/MU) on informes */
+  declarar_incertidumbre_campo?: boolean;
+  fecha_recepcion_lab?: string | null;
+  humedad_relativa_obra?: number | null;
+  condiciones_climaticas?: string | null;
+  ubicacion_detalle?: string | null;
 }
 
 // Muestra type

@@ -8,16 +8,14 @@ import { updateMuestreo } from '@/services/qualityMuestreoService'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { qualityHubOutlineNeutralClass, qualityHubPrimaryButtonClass } from '../../qualityHubUi'
-import type { PublishedUEntry } from './MuestreoEnvironmentalCard'
 
 type Props = {
   muestreoId: string
   valueCm: number | null | undefined
   onSaved: () => void
-  publishedU?: PublishedUEntry
 }
 
-export default function MuestreoRevenimientoInline({ muestreoId, valueCm, onSaved, publishedU }: Props) {
+export default function MuestreoRevenimientoInline({ muestreoId, valueCm, onSaved }: Props) {
   const { toast } = useToast()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -89,14 +87,6 @@ export default function MuestreoRevenimientoInline({ muestreoId, valueCm, onSave
           {display !== '—' ? (
             <span className="text-sm font-normal text-stone-500 ml-1">cm</span>
           ) : null}
-          {display !== '—' && publishedU && (
-            <span
-              className="ml-2 text-xs text-stone-400 font-normal tabular-nums"
-              title={`Incertidumbre expandida declarada §7.6 GUM — k=${publishedU.k_factor.toFixed(2)}`}
-            >
-              ± {publishedU.u_expandida} {publishedU.unidad}
-            </span>
-          )}
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">

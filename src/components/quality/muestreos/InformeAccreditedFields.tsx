@@ -5,6 +5,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -49,6 +50,31 @@ export default function InformeAccreditedFields({ form }: Props) {
                 </RadioGroup>
               </FormControl>
               <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control as never}
+          name="declarar_incertidumbre_campo"
+          render={({ field }) => (
+            <FormItem className="flex items-start justify-between gap-3 rounded-lg border border-stone-200 bg-white px-3 py-2.5">
+              <div className="space-y-1">
+                <FormLabel htmlFor="declarar-u-campo-new" className="font-medium">
+                  Declarar incertidumbre en ensayos de campo
+                </FormLabel>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Active solo si las mediciones de sitio fueron realizadas por personal del laboratorio
+                  cubierto por los estudios EMA publicados.
+                </p>
+              </div>
+              <FormControl>
+                <Switch
+                  id="declarar-u-campo-new"
+                  checked={field.value ?? false}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
             </FormItem>
           )}
         />

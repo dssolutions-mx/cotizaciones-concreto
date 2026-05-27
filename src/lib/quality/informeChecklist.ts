@@ -1,5 +1,5 @@
 import type { InformeChecklistItem, InformeSnapshot, LaboratorioAcreditacionConfig } from '@/types/informe-ensayo';
-import { requiredMeasurandsForMuestreo } from '@/lib/quality/informeMeasurands';
+import { requiredMeasurandsForInformeUncertainty } from '@/lib/quality/informeMeasurands';
 
 export function evaluateInformeChecklist(input: {
   muestreo: {
@@ -90,14 +90,16 @@ export function requiredUFromMuestreoRow(row: {
   contenido_aire?: number | null;
   masa_unitaria?: number | null;
   muestras_json?: Array<{ tipo_muestra?: string }> | null;
+  declarar_incertidumbre_campo?: boolean;
 }) {
   const types = (row.muestras_json ?? []).map((m) => m.tipo_muestra ?? '').filter(Boolean);
-  return requiredMeasurandsForMuestreo({
+  return requiredMeasurandsForInformeUncertainty({
     revenimiento_sitio: row.revenimiento_sitio,
     temperatura_concreto: row.temperatura_concreto,
     contenido_aire: row.contenido_aire,
     masa_unitaria: row.masa_unitaria,
     specimenTypes: types,
+    declarar_incertidumbre_campo: row.declarar_incertidumbre_campo,
   });
 }
 

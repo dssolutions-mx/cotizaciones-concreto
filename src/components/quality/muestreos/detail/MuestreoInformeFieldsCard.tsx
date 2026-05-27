@@ -1,24 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { Loader2, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useToast } from '@/components/ui/use-toast';
 import type { MuestreoWithRelations } from '@/types/quality';
-
-type InformeMuestreoFields = {
-  muestreado_por?: string | null;
-  fecha_recepcion_lab?: string | null;
-  humedad_relativa_obra?: number | null;
-  condiciones_climaticas?: string | null;
-  ubicacion_detalle?: string | null;
-};
 
 type Props = {
   muestreo: MuestreoWithRelations;
@@ -27,15 +20,28 @@ type Props = {
 
 export default function MuestreoInformeFieldsCard({ muestreo, onSaved }: Props) {
   const { toast } = useToast();
-  const ext = muestreo as MuestreoWithRelations & InformeMuestreoFields;
   const [saving, setSaving] = useState(false);
-  const [muestreadoPor, setMuestreadoPor] = useState(ext.muestreado_por ?? 'LABORATORIO');
-  const [fechaRecepcion, setFechaRecepcion] = useState(
-    ext.fecha_recepcion_lab ?? format(new Date(muestreo.created_at ?? Date.now()), 'yyyy-MM-dd')
+  const [muestreadoPor, setMuestreadoPor] = useState(muestreo.muestreado_por ?? 'LABORATORIO');
+  const [declararIncertidumbreCampo, setDeclararIncertidumbreCampo] = useState(
+    muestreo.declarar_incertidumbre_campo ?? false
   );
-  const [hrObra, setHrObra] = useState(ext.humedad_relativa_obra?.toString() ?? '');
-  const [clima, setClima] = useState(ext.condiciones_climaticas ?? '');
-  const [ubicacion, setUbicacion] = useState(ext.ubicacion_detalle ?? '');
+  const [fechaRecepcion, setFechaRecepcion] = useState(
+    muestreo.fecha_recepcion_lab ?? format(new Date(muestreo.created_at ?? Date.now()), 'yyyy-MM-dd')
+  );
+  const [hrObra, setHrObra] = useState(muestreo.humedad_relativa_obra?.toString() ?? '');
+  const [clima, setClima] = useState(muestreo.condiciones_climaticas ?? '');
+  const [ubicacion, setUbicacion] = useState(muestreo.ubicacion_detalle ?? '');
+
+  useEffect(() => {
+    setMuestreadoPor(muestreo.muestreado_por ?? 'LABORATORIO');
+    setDeclararIncertidumbreCampo(muestreo.declarar_incertidumbre_campo ?? false);
+    setFechaRecepcion(
+      muestreo.fecha_recepcion_lab ?? format(new Date(muestreo.created_at ?? Date.now()), 'yyyy-MM-dd')
+    );
+    setHrObra(muestreo.humedad_relativa_obra?.toString() ?? '');
+    setClima(muestreo.condiciones_climaticas ?? '');
+    setUbicacion(muestreo.ubicacion_detalle ?? '');
+  }, [muestreo]);
 
   const save = async () => {
     setSaving(true);
@@ -44,6 +50,7 @@ export default function MuestreoInformeFieldsCard({ muestreo, onSaved }: Props) 
         .from('muestreos')
         .update({
           muestreado_por: muestreadoPor,
+          declarar_incertidumbre_campo: declararIncertidumbreCampo,
           fecha_recepcion_lab: fechaRecepcion || null,
           humedad_relativa_obra: hrObra === '' ? null : Number(hrObra),
           condiciones_climaticas: clima || null,
@@ -84,6 +91,24 @@ export default function MuestreoInformeFieldsCard({ muestreo, onSaved }: Props) 
             </div>
           </RadioGroup>
         </div>
+
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50/60 px-3 py-2.5">
+          <div className="space-y-1">
+            <Label htmlFor="declarar-u-campo" className="font-medium">
+              Declarar incertidumbre en ensayos de campo
+            </Label>
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Active solo si revenimiento, temperatura, contenido de aire y masa unitaria fueron
+              tomados por personal del laboratorio cubierto por los estudios EMA publicados.
+            </p>
+          </div>
+          <Switch
+            id="declarar-u-campo"
+            checked={declararIncertidumbreCampo}
+            onCheckedChange={setDeclararIncertidumbreCampo}
+          />
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="fecha-rec">Fecha recepción lab</Label>

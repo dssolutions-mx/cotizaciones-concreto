@@ -146,6 +146,7 @@ export default function NuevoMuestreoPage() {
       manual_reference: '',
       contenido_aire: undefined,
       muestreado_por: 'LABORATORIO',
+      declarar_incertidumbre_campo: false,
       fecha_recepcion_lab: new Date().toISOString().slice(0, 10),
       humedad_relativa_obra: undefined,
       condiciones_climaticas: '',

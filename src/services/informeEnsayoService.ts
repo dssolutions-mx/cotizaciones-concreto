@@ -4,7 +4,7 @@ import { buildInformeSnapshot, type BuildInformeInput } from '@/lib/quality/buil
 import {
   buildInformeUncertaintySnapshot,
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
-import { requiredMeasurandsForMuestreo } from '@/lib/quality/informeMeasurands';
+import { requiredMeasurandsForInformeUncertainty } from '@/lib/quality/informeMeasurands';
 import type { InformeFirmaRol, InformeSnapshot, LaboratorioAcreditacionConfig, EmitFirmaInput } from '@/types/informe-ensayo';
 
 export type { EmitFirmaInput };
@@ -224,12 +224,13 @@ export async function emitInforme(params: {
       .sort()
       .pop() ?? format(new Date(), 'yyyy-MM-dd');
 
-  const required = requiredMeasurandsForMuestreo({
+  const required = requiredMeasurandsForInformeUncertainty({
     revenimiento_sitio: listRow.revenimiento_sitio as number | null,
     temperatura_concreto: listRow.temperatura_concreto as number | null,
     contenido_aire: listRow.contenido_aire as number | null,
     masa_unitaria: listRow.masa_unitaria as number | null,
     specimenTypes: input.muestras.map((m) => m.tipo_muestra),
+    declarar_incertidumbre_campo: listRow.declarar_incertidumbre_campo === true,
   });
 
   const { missing } = await buildInformeUncertaintySnapshot(required, asOfDate);

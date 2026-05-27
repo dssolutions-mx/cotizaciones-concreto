@@ -7425,6 +7425,7 @@ export type Database = {
           sampling_type?: string | null
           sync_status?: string | null
           muestreado_por?: string | null
+          declarar_incertidumbre_campo?: boolean
           humedad_relativa_obra?: number | null
           condiciones_climaticas?: string | null
           fecha_recepcion_lab?: string | null

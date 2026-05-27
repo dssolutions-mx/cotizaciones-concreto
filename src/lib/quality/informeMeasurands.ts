@@ -34,3 +34,17 @@ export function fcMeasurandForTipo(tipo: string): MeasurandCodigo {
   if (tipo === 'VIGA') return 'VIGAS';
   return 'FC';
 }
+
+export const FIELD_UNCERTAINTY_MEASURANDS = ['REV', 'TEMP', 'AIRE', 'MU'] as const;
+
+export type FieldUncertaintyMeasurand = (typeof FIELD_UNCERTAINTY_MEASURANDS)[number];
+
+export function requiredMeasurandsForInformeUncertainty(
+  input: Parameters<typeof requiredMeasurandsForMuestreo>[0] & { declarar_incertidumbre_campo?: boolean }
+): RequiredMeasurand[] {
+  const all = requiredMeasurandsForMuestreo(input);
+  if (input.declarar_incertidumbre_campo) return all;
+  return all.filter(
+    (m) => !FIELD_UNCERTAINTY_MEASURANDS.includes(m.codigo as FieldUncertaintyMeasurand)
+  );
+}

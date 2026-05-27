@@ -90,6 +90,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
         contenido_aire: muestreo.contenido_aire,
         masa_unitaria: muestreo.masa_unitaria,
         muestras_json: muestreo.muestras?.map((m) => ({ tipo_muestra: m.tipo_muestra })),
+        declarar_incertidumbre_campo: muestreo.declarar_incertidumbre_campo,
       });
 
       const publishedRes = await fetch('/api/ema/uncertainty/published');

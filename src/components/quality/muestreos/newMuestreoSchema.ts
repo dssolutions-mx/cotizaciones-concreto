@@ -36,6 +36,7 @@ export const muestreoFormSchema = z.object({
     .max(100, "El contenido de aire no puede exceder 100%")
     .optional(),
   muestreado_por: z.enum(["LABORATORIO", "CLIENTE"]).optional(),
+  declarar_incertidumbre_campo: z.boolean().optional(),
   fecha_recepcion_lab: z.string().optional(),
   humedad_relativa_obra: z.number().optional(),
   condiciones_climaticas: z.string().optional(),
