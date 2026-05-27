@@ -60,7 +60,7 @@ const tempBudget = buildBudget({
       k_cert: 2,
       categoria: 'calibration',
     },
-    // T_grad — environmental: gradiente de temperatura en la masa (halfWidth 0.5 °C, NMX-C-025 §7)
+    // T_grad — environmental: gradiente de temperatura en la masa (halfWidth 0.5 °C, NMX-C-413-ONNCCE-2010)
     {
       fuente: 'Gradiente de temperatura en la masa',
       magnitud_xi: 'T_grad',
@@ -68,7 +68,7 @@ const tempBudget = buildBudget({
       valor_xi: 0.5,
       kind: 'rectangular',
       halfWidth: 0.5,
-      norma_ref_override: 'NMX-C-025 §7',
+      norma_ref_override: 'NMX-C-413-ONNCCE-2010',
       categoria: 'environmental',
     },
     // T_drift — systematic: deriva del termómetro entre calibraciones (halfWidth 0.1 °C)
