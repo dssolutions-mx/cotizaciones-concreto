@@ -97,7 +97,7 @@ export default function VerificacionImprimirPage() {
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
           Vista previa del PDF oficial (mismo documento que se descarga). Incluye trazabilidad de
-          patrones, U/k, TUR y secciones numeradas para revisión por la entidad de
+          patrones, lecturas de verificación y secciones numeradas para revisión por la entidad de
           acreditación.
         </p>
 

@@ -240,8 +240,6 @@ function VerificacionRecordPages({
   const meta = verificacionPrintMeta(data)
   const mMap = buildMeasurementMap(data.measurements ?? [])
   const stats = countMeasurementStats(data.measurements ?? [])
-  const cal = data.instrumento_calibracion
-  const unit = cal?.unidad ?? '—'
   const docLine = `VER-${data.id.slice(0, 8).toUpperCase()} · Registro ${recordIndex} de ${recordTotal} · Estado: ${ESTADO_DOC[data.estado] ?? data.estado}`
 
   const patronRows =
@@ -311,29 +309,6 @@ function VerificacionRecordPages({
           </PdfCard>
         )}
 
-        <PdfCard title="§5 Resultado metrológico emitido (verificación interna)">
-          <Kv
-            label="Certificado / registro interno"
-            value={cal?.numero_certificado ?? 'Pendiente de emisión'}
-            mono
-          />
-          <Kv label="Fecha emisión U" value={cal?.fecha_emision ?? '—'} mono />
-          <Kv label="Proveedor calibración" value={cal?.proveedor ?? 'Laboratorio interno'} />
-          <Kv label="Vigencia" value={cal?.vigente_hasta ?? '—'} mono />
-          <Kv
-            label="Incertidumbre expandida U"
-            value={
-              cal?.u_expandida != null
-                ? `${cal.u_expandida} ${cal.unidad ?? unit} (k = ${cal.k_factor ?? 2})`
-                : '—'
-            }
-            mono
-          />
-          {data.metrologia?.tur_min_observado != null && (
-            <Kv label="TUR mínimo observado" value={String(data.metrologia.tur_min_observado)} mono />
-          )}
-        </PdfCard>
-
         <PdfFooter
           registroId={data.id}
           instrumentoCodigo={data.instrumento?.codigo}
@@ -342,7 +317,7 @@ function VerificacionRecordPages({
       </Page>
 
       <Page size="A4" style={s.page}>
-        <PdfCard title="§6 Resultados de verificación (lecturas y criterios de aceptación)">
+        <PdfCard title="§5 Resultados de verificación (lecturas y criterios de aceptación)">
           <View style={s.summaryStrip}>
             <Text style={s.summaryItem}>Ítems con dictamen: {stats.total}</Text>
             <Text style={s.summaryItem}>Cumple: {stats.cumple}</Text>
@@ -379,7 +354,7 @@ function VerificacionRecordPages({
       </Page>
 
       <Page size="A4" style={s.page}>
-        <PdfCard title="§8 Dictamen de la verificación interna">
+        <PdfCard title="§6 Dictamen de la verificación interna">
           <View style={s.dictamenBox}>
             <Text style={s.dictamenLabel}>Resultado global</Text>
             <Text style={s.dictamenValue}>
@@ -389,7 +364,7 @@ function VerificacionRecordPages({
           {meta.observaciones ? <Kv label="Observaciones generales" value={meta.observaciones} /> : null}
         </PdfCard>
 
-        <PdfCard title="§9 Declaraciones y validez">
+        <PdfCard title="§7 Declaraciones y validez">
           {LEGAL.map((t, i) => (
             <Text key={i} style={s.legalText}>
               {i + 1}. {t}
@@ -397,7 +372,7 @@ function VerificacionRecordPages({
           ))}
         </PdfCard>
 
-        <PdfCard title="§10 Autorizaciones — realizó y supervisó la verificación">
+        <PdfCard title="§8 Autorizaciones — realizó y supervisó la verificación">
           <View style={s.signatureRow}>
             <PdfSignatureSlot
               title="Realizó la verificación"
@@ -432,19 +407,14 @@ function CoverPage({
   generatedAt: string
 }) {
   const coverCols = buildCoverColumns()
-  const rows = items.map((v, i) => {
-    const cal = v.instrumento_calibracion
-    return [
-      String(i + 1),
-      v.id.slice(0, 8).toUpperCase(),
-      `${v.instrumento?.codigo ?? '—'} — ${v.instrumento?.nombre ?? '—'}`,
-      v.fecha_verificacion,
-      VERIFICACION_RESULTADO_LABEL[v.resultado] ?? v.resultado,
-      `${v.snapshot?.template?.codigo ?? '—'} v${v.template_version_number ?? '—'}`,
-      cal?.u_expandida != null ? `${cal.u_expandida} ${cal.unidad ?? ''}` : '—',
-      v.metrologia?.tur_min_observado != null ? v.metrologia.tur_min_observado.toFixed(1) : '—',
-    ]
-  })
+  const rows = items.map((v, i) => [
+    String(i + 1),
+    v.id.slice(0, 8).toUpperCase(),
+    `${v.instrumento?.codigo ?? '—'} — ${v.instrumento?.nombre ?? '—'}`,
+    v.fecha_verificacion,
+    VERIFICACION_RESULTADO_LABEL[v.resultado] ?? v.resultado,
+    `${v.snapshot?.template?.codigo ?? '—'} v${v.template_version_number ?? '—'}`,
+  ])
 
   return (
     <Page size="A4" style={s.page}>

@@ -110,8 +110,8 @@ export function widthsFromWeights(weights: number[], totalPt: number): number[] 
 }
 
 export function buildCoverColumns(): PdfTableColumn[] {
-  const labels = ['#', 'Registro', 'Instrumento', 'Fecha', 'Dictamen', 'Formato', 'U', 'TUR']
-  const weights = [1, 2, 6, 2, 2, 2.5, 2, 1.5]
+  const labels = ['#', 'Registro', 'Instrumento', 'Fecha', 'Dictamen', 'Formato']
+  const weights = [1, 2, 7, 2, 2.5, 2.5]
   const widths = widthsFromWeights(weights, PDF_PORTRAIT_TABLE_WIDTH)
   const aligns: Array<'left' | 'center' | 'right'> = [
     'center',
@@ -120,15 +120,13 @@ export function buildCoverColumns(): PdfTableColumn[] {
     'left',
     'left',
     'left',
-    'right',
-    'right',
   ]
   return labels.map((label, i) => ({
     key: `c${i}`,
     label,
     widthPt: widths[i],
     align: aligns[i],
-    mono: i === 1 || i === 3 || i === 5 || i === 6,
+    mono: i === 1 || i === 3 || i === 5,
   }))
 }
 

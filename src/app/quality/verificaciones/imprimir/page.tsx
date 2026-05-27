@@ -125,7 +125,7 @@ export default function BulkVerificacionesImprimirPage() {
       <div className="mx-auto max-w-5xl px-4 py-6 space-y-4">
         <p className="text-xs text-stone-600 bg-white border border-stone-200 rounded-lg px-3 py-2">
           Vista previa del PDF oficial. Incluye por cada registro: trazabilidad de patrones, lecturas
-          (punto / esperado / observado / error / dictamen), trazabilidad de patrones, U/k y dictamen
+          (punto / esperado / observado / error / dictamen), trazabilidad de patrones y dictamen
           conforme NMX-EC-17025. Use <strong>Descargar PDF</strong> para el expediente ante la
           entidad de acreditación.
         </p>
