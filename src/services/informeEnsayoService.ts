@@ -18,7 +18,11 @@ export async function getLabConfig(plantId?: string | null): Promise<Laboratorio
     const { data: byPlant } = await query.eq('plant_id', plantId).maybeSingle();
     if (byPlant) return byPlant as LaboratorioAcreditacionConfig;
   }
-  const { data: global } = await supabase.from('laboratorio_acreditacion_config').is('plant_id', null).maybeSingle();
+  const { data: global } = await supabase
+    .from('laboratorio_acreditacion_config')
+    .select('*')
+    .is('plant_id', null)
+    .maybeSingle();
   return (global as LaboratorioAcreditacionConfig) ?? null;
 }
 
