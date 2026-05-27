@@ -2,7 +2,6 @@ import React from 'react'
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer'
 import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding'
 import { PdfTable } from '@/components/ema/pdf/verificacionPdfTable'
-import { PDF_LANDSCAPE_TABLE_WIDTH, pdfTableWidthInsideCard } from '@/lib/ema/uncertaintyInformePdfModel'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'
 import {
   buildBudgetPdfColumns,
@@ -14,6 +13,8 @@ import {
   formatEnvOverridesSummary,
   formatExcludedInputs,
   formatStudyEstado,
+  PDF_LANDSCAPE_TABLE_WIDTH,
+  pdfTableWidthInsideCard,
   studyShortId,
   uniqueNormRefsFromComponents,
 } from '@/lib/ema/uncertaintyInformePdfModel'
@@ -380,7 +381,7 @@ export function UncertaintyInformePDF({
               columns={TRACEABILITY_COLS}
               rows={traceRows}
               fontSize={7}
-              tableWidth={PDF_PORTRAIT_TABLE_WIDTH}
+              tableWidth={pdfTableWidthInsideCard(false)}
             />
           ) : (
             <Text style={{ fontSize: 8, color: '#78716C' }}>
