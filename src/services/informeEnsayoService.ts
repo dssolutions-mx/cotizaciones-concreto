@@ -4,7 +4,6 @@ import { buildInformeSnapshot, type BuildInformeInput } from '@/lib/quality/buil
 import {
   buildInformeUncertaintySnapshot,
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
-import { requiredMeasurandsForInformeUncertainty } from '@/lib/quality/informeMeasurands';
 import type { InformeFirmaRol, InformeSnapshot, LaboratorioAcreditacionConfig, EmitFirmaInput } from '@/types/informe-ensayo';
 
 export type { EmitFirmaInput };
@@ -223,24 +222,6 @@ export async function emitInforme(params: {
       .map((e) => e.fecha_ensayo)
       .sort()
       .pop() ?? format(new Date(), 'yyyy-MM-dd');
-
-  const required = requiredMeasurandsForInformeUncertainty({
-    revenimiento_sitio: listRow.revenimiento_sitio as number | null,
-    temperatura_concreto: listRow.temperatura_concreto as number | null,
-    contenido_aire: listRow.contenido_aire as number | null,
-    masa_unitaria: listRow.masa_unitaria as number | null,
-    specimenTypes: input.muestras.map((m) => m.tipo_muestra),
-    declarar_incertidumbre_campo: listRow.declarar_incertidumbre_campo === true,
-  });
-
-  const { missing } = await buildInformeUncertaintySnapshot(required, asOfDate);
-  if (missing.length > 0) {
-    throw new Error(`Incertidumbre no publicada para: ${missing.map((m) => m.codigo).join(', ')}`);
-  }
-
-  if (!input.labConfig?.acreditacion_ema_numero) {
-    throw new Error('Configure la acreditación EMA del laboratorio antes de emitir.');
-  }
 
   const numero = await allocateInformeNumero();
   const issuedAt = new Date().toISOString();
