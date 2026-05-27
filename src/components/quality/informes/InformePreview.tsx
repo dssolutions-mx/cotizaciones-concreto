@@ -33,7 +33,10 @@ export function InformePreview({ snapshot, gaps }: Props) {
     <div className="space-y-4 text-stone-800">
       {gaps && gaps.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p className="font-medium text-amber-900 mb-2">Pendientes antes de emitir</p>
+          <p className="font-medium text-amber-900 mb-2">Información pendiente</p>
+          <p className="text-amber-800 text-xs mb-2">
+            El informe se generará con los datos disponibles. Complete los puntos siguientes cuando sea posible.
+          </p>
           <ul className="space-y-1">
             {gaps.map((g) => (
               <li key={g.label}>

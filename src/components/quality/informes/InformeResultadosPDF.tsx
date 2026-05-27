@@ -160,6 +160,23 @@ export function InformeResultadosPDF({ snapshot }: Props) {
           <Text>NMX-EC-17025-IMNC-2018 · Informe de resultados de ensayo (§7.8)</Text>
         </View>
 
+        {!doc.issued_at ? (
+          <View
+            style={{
+              marginBottom: 8,
+              paddingVertical: 6,
+              paddingHorizontal: 10,
+              backgroundColor: '#FEF3C7',
+              borderWidth: 1,
+              borderColor: '#F59E0B',
+            }}
+          >
+            <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#92400E', textAlign: 'center' }}>
+              BORRADOR — Documento sin emitir. No sustituye el informe oficial con folio y firmas.
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={s.procedureTitle}>
           Emisión: {formatIssuedAt(doc.issued_at)}
           {doc.replaces_numero ? ` · Reemplaza informe ${doc.replaces_numero}` : ''}

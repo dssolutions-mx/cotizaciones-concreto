@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Award, CheckCircle2, Download, Eye, FileText, Loader2, Lock } from 'lucide-react';
+import { Award, CheckCircle2, Download, Eye, FileText, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +20,11 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { InformePreview } from '@/components/quality/informes/InformePreview';
 import { InformeFirmaDialog } from '@/components/quality/informes/InformeFirmaDialog';
-import { evaluateInformeChecklist, checklistReady, requiredUFromMuestreoRow } from '@/lib/quality/informeChecklist';
+import {
+  evaluateInformeChecklist,
+  checklistHasGaps,
+  requiredUFromMuestreoRow,
+} from '@/lib/quality/informeChecklist';
 import type { InformeChecklistItem, InformeSnapshot } from '@/types/informe-ensayo';
 import type { EmitFirmaInput } from '@/types/informe-ensayo';
 import type { MuestreoWithRelations } from '@/types/quality';
@@ -125,7 +129,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     load();
   }, [load]);
 
-  const ready = checklistReady(checklist);
+  const hasGaps = checklistHasGaps(checklist);
   const emitted = informeRecord?.estado === 'emitido';
 
   const handleEmit = async (firmas: EmitFirmaInput[]) => {
@@ -165,9 +169,21 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${snapshot.documento.numero ?? 'informe'}.pdf`;
+    const base = snapshot.documento.numero ?? `muestreo-${muestreo.numero_muestreo ?? muestreo.id.slice(0, 8)}`;
+    a.download = emitted ? `${base}.pdf` : `${base}-borrador.pdf`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const confirmProceedWithGaps = (actionLabel: string): boolean => {
+    if (!checklistHasGaps(checklist)) return true;
+    const lines = checklist
+      .filter((i) => !i.ok)
+      .map((i) => `• ${i.label}`)
+      .join('\n');
+    return window.confirm(
+      `El informe tiene información pendiente:\n\n${lines}\n\n¿Desea ${actionLabel} de todos modos con los datos disponibles?`
+    );
   };
 
   const gapLinks = checklist.filter((i) => !i.ok).map((i) => ({ label: i.label, href: i.href }));
@@ -192,14 +208,13 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
             </div>
             {emitted ? (
               <Badge className="bg-emerald-600">{informeRecord?.numero}</Badge>
-            ) : ready ? (
+            ) : hasGaps ? (
               <Badge variant="outline" className="border-amber-300 text-amber-800">
-                Listo para emitir
+                Con pendientes
               </Badge>
             ) : (
-              <Badge variant="secondary">
-                <Lock className="h-3 w-3 mr-1" />
-                Incompleto
+              <Badge variant="outline" className="border-emerald-300 text-emerald-800">
+                Listo para emitir
               </Badge>
             )}
           </div>
@@ -249,21 +264,24 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                   <Eye className="h-4 w-4 mr-1" />
                   Vista previa
                 </Button>
+                {snapshot && (
+                  <Button type="button" size="sm" variant="secondary" onClick={() => void handleDownloadPdf()}>
+                    <Download className="h-4 w-4 mr-1" />
+                    {emitted ? 'Descargar PDF' : 'Descargar PDF (borrador)'}
+                  </Button>
+                )}
                 {!emitted && (
                   <Button
                     type="button"
                     size="sm"
-                    disabled={!ready || emitting}
-                    onClick={() => setPreviewOpen(true)}
+                    disabled={!snapshot || emitting}
+                    onClick={() => {
+                      if (!confirmProceedWithGaps('emitir el informe')) return;
+                      setPreviewOpen(true);
+                    }}
                   >
                     <FileText className="h-4 w-4 mr-1" />
                     Emitir informe
-                  </Button>
-                )}
-                {emitted && snapshot && (
-                  <Button type="button" size="sm" variant="secondary" onClick={handleDownloadPdf}>
-                    <Download className="h-4 w-4 mr-1" />
-                    Descargar PDF
                   </Button>
                 )}
               </div>
@@ -276,7 +294,9 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Vista previa del informe</SheetTitle>
-            <SheetDescription>Revise §1–§6 antes de emitir el folio definitivo.</SheetDescription>
+            <SheetDescription>
+              Revise el contenido. Puede descargar un borrador o emitir aunque falten datos opcionales.
+            </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-4">
             {snapshot && <InformePreview snapshot={snapshot} gaps={gapLinks} />}
@@ -291,8 +311,11 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                   placeholder="Solo si aplica §5.9 / interpretación técnica"
                 />
                 <Button
-                  onClick={() => setFirmaOpen(true)}
-                  disabled={!ready || emitting}
+                  onClick={() => {
+                    if (!confirmProceedWithGaps('continuar a la emisión')) return;
+                    setFirmaOpen(true);
+                  }}
+                  disabled={!snapshot || emitting}
                   className="w-full"
                 >
                   Continuar a firmas…

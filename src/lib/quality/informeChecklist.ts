@@ -28,10 +28,13 @@ export function evaluateInformeChecklist(input: {
 
   items.push({
     id: 'ensayos_garantia',
-    label: 'Ensayos de edad garantía completados',
-    ok: pendingGarantia.length === 0 && garantia.length > 0,
+    label:
+      garantia.length === 0
+        ? 'Especímenes de edad garantía registrados'
+        : 'Ensayos de edad garantía completados',
+    ok: garantia.length === 0 ? true : pendingGarantia.length === 0,
     href: pendingGarantia[0] ? `/quality/muestreos/${input.muestreo.id}` : undefined,
-    severity: 'blocker',
+    severity: 'warning',
   });
 
   items.push({
@@ -39,7 +42,7 @@ export function evaluateInformeChecklist(input: {
     label: 'Configuración del laboratorio acreditado',
     ok: !!input.labConfig?.acreditacion_ema_numero,
     href: '/quality/configuracion-informe',
-    severity: 'blocker',
+    severity: 'warning',
   });
 
   items.push({
@@ -73,7 +76,7 @@ export function evaluateInformeChecklist(input: {
       label: `Incertidumbre publicada (${codigo})`,
       ok: false,
       href: `/quality/ema/incertidumbre/${codigo.toLowerCase()}`,
-      severity: 'blocker',
+      severity: 'warning',
     });
   }
 
@@ -82,6 +85,11 @@ export function evaluateInformeChecklist(input: {
 
 export function checklistReady(items: InformeChecklistItem[]): boolean {
   return items.filter((i) => i.severity === 'blocker').every((i) => i.ok);
+}
+
+/** True when any checklist row is still open (informational only — does not block PDF). */
+export function checklistHasGaps(items: InformeChecklistItem[]): boolean {
+  return items.some((i) => !i.ok);
 }
 
 export function requiredUFromMuestreoRow(row: {
