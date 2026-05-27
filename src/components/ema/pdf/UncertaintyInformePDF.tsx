@@ -2,10 +2,7 @@ import React from 'react'
 import { Document, Page, Text, View, Image } from '@react-pdf/renderer'
 import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding'
 import { PdfTable } from '@/components/ema/pdf/verificacionPdfTable'
-import {
-  PDF_LANDSCAPE_TABLE_WIDTH,
-  PDF_PORTRAIT_TABLE_WIDTH,
-} from '@/lib/ema/uncertaintyInformePdfModel'
+import { PDF_LANDSCAPE_TABLE_WIDTH, pdfTableWidthInsideCard } from '@/lib/ema/uncertaintyInformePdfModel'
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles'
 import {
   buildBudgetPdfColumns,
@@ -23,6 +20,7 @@ import {
 import {
   buildReplicaPdfColumns,
   buildReplicaPdfRows,
+  replicaPdfTableWidth,
   replicaSectionUsesLandscape,
   type ReplicaPdfInformeContext,
 } from '@/lib/ema/uncertaintyInformeReplicaPdf'
@@ -230,7 +228,7 @@ export function UncertaintyInformePDF({
   const replicaLandscape = replicaSectionUsesLandscape(replicaCtx)
   const replicaCols = buildReplicaPdfColumns(replicaCtx)
   const replicaRows = buildReplicaPdfRows(replicaCtx)
-  const replicaTableWidth = replicaLandscape ? PDF_LANDSCAPE_TABLE_WIDTH : PDF_PORTRAIT_TABLE_WIDTH
+  const replicaTableWidth = replicaPdfTableWidth(replicaCtx)
   const traceRows = buildTraceabilityPdfRows(informe.instrument_traceability)
   const normRefs = uniqueNormRefsFromComponents(budget.components)
 
@@ -351,7 +349,9 @@ export function UncertaintyInformePDF({
               columns={replicaCols}
               rows={replicaRows}
               fontSize={replicaLandscape ? 6 : 6.5}
+              headerFontSize={replicaLandscape ? 5.5 : 6}
               tableWidth={replicaTableWidth}
+              compact={replicaLandscape}
             />
           ) : (
             <Text style={{ fontSize: 8, color: '#78716C' }}>Sin réplicas registradas.</Text>

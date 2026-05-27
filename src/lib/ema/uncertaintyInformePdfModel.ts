@@ -10,6 +10,14 @@ import { pdfSanitizeMetrologyText } from './uncertaintyPdfMetrologyText';
 export const PDF_PORTRAIT_TABLE_WIDTH = 531;
 /** A4 landscape usable width (841.89 − 48 pt padding). */
 export const PDF_LANDSCAPE_TABLE_WIDTH = 794;
+/** PdfCard body horizontal padding (8pt × 2) — tables inside cards must subtract this. */
+export const PDF_CARD_BODY_H_PADDING = 16;
+
+/** Max width for a table rendered inside a PdfCard (page padding + card body already accounted). */
+export function pdfTableWidthInsideCard(landscape: boolean): number {
+  const base = landscape ? PDF_LANDSCAPE_TABLE_WIDTH : PDF_PORTRAIT_TABLE_WIDTH;
+  return base - PDF_CARD_BODY_H_PADDING;
+}
 
 export type PdfTableColumn = {
   key: string;

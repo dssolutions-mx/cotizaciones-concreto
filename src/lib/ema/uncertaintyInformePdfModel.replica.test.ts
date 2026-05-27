@@ -51,8 +51,11 @@ const ctx = {
 };
 
 const cols = buildReplicaPdfColumns(ctx);
-assert.ok(cols.some((c) => c.label.includes('Prensa')));
-assert.ok(cols.some((c) => c.label.includes('Vernier')));
+const colSum = cols.reduce((s, c) => s + c.widthPt, 0);
+assert.ok(cols.some((c) => c.label.startsWith('Prensa')));
+assert.ok(cols.some((c) => c.label.startsWith('Vernier')));
+assert.ok(cols.some((c) => c.label.includes("f'c")));
+assert.ok(colSum <= 778 + 2, 'columns fit inside landscape card');
 assert.equal(replicaSectionUsesLandscape(ctx), true);
 
 const rows = buildReplicaPdfRows(ctx);

@@ -17,13 +17,13 @@ export type PdfTableColumn = {
   mono?: boolean
 }
 
-function cellStyle(col: PdfTableColumn, isHeader: boolean) {
+function cellStyle(col: PdfTableColumn, isHeader: boolean, compact?: boolean) {
   return {
     width: col.widthPt,
     flexGrow: 0,
     flexShrink: 0,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
+    paddingVertical: compact ? 3 : 4,
+    paddingHorizontal: compact ? 2 : 4,
     justifyContent: 'center' as const,
     borderRightWidth: 1,
     borderRightColor: isHeader ? '#ffffff50' : '#E7E5E4',
@@ -34,24 +34,31 @@ export function PdfTable({
   columns,
   rows,
   fontSize = 7.5,
+  headerFontSize,
   tableWidth,
+  compact,
 }: {
   columns: PdfTableColumn[]
   rows: string[][]
   fontSize?: number
+  /** Defaults to fontSize; use slightly smaller for dense multi-column tables. */
+  headerFontSize?: number
   tableWidth?: number
+  /** Tighter cell padding for wide réplica / presupuesto tables. */
+  compact?: boolean
 }) {
   const computedWidth = tableWidth ?? columns.reduce((sum, c) => sum + c.widthPt, 0)
+  const headerSize = headerFontSize ?? fontSize
 
   return (
     <View style={[s.tableFrame, { width: computedWidth }]}>
       <View style={[s.tableHeaderRow, { width: computedWidth }]}>
         {columns.map((col) => (
-          <View key={col.key} style={cellStyle(col, true)}>
+          <View key={col.key} style={cellStyle(col, true, compact)}>
             <Text
               style={[
                 s.tableHeaderText,
-                { fontSize, textAlign: col.align ?? 'left' },
+                { fontSize: headerSize, textAlign: col.align ?? 'left' },
               ]}
             >
               {col.label}
@@ -71,7 +78,7 @@ export function PdfTable({
             const col = columns[colIdx]
             if (!col) return null
             return (
-              <View key={col.key} style={cellStyle(col, false)}>
+              <View key={col.key} style={cellStyle(col, false, compact)}>
                 <Text
                   style={[
                     col.mono ? s.tableCellMono : s.tableCellText,
