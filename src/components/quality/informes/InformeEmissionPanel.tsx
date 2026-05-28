@@ -31,6 +31,7 @@ import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
+import { downloadInformePdf } from '@/lib/quality/downloadInformePdf';
 
 type Props = {
   muestreo: MuestreoWithRelations;
@@ -49,6 +50,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
   const [previewOpen, setPreviewOpen] = useState(false);
   const [firmaOpen, setFirmaOpen] = useState(false);
   const [emitting, setEmitting] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
   const [opinion, setOpinion] = useState('');
   const [profileMeta, setProfileMeta] = useState<{
     first_name?: string | null;
@@ -68,7 +70,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
       });
   }, [user?.id]);
 
-  const refreshPreview = useCallback(async () => {
+  const refreshPreview = useCallback(async (): Promise<InformeSnapshot | null> => {
     setPreviewLoading(true);
     setPreviewError(null);
     try {
@@ -83,10 +85,13 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
           typeof previewJson.error === 'string' ? previewJson.error : 'No se pudo generar la vista previa',
         );
       }
-      if (previewJson.data) setSnapshot(previewJson.data as InformeSnapshot);
+      const next = (previewJson.data ?? null) as InformeSnapshot | null;
+      if (next) setSnapshot(next);
+      return next;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Error al generar vista previa';
       setPreviewError(msg);
+      return null;
     } finally {
       setPreviewLoading(false);
     }
@@ -105,10 +110,12 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
 
       if (informeJson.data) {
         setInformeRecord(informeJson.data);
-        if (informeJson.data.snapshot_json) setSnapshot(informeJson.data.snapshot_json);
       }
 
-      if (!informeJson.data?.snapshot_json) {
+      // Borrador snapshots are rebuilt from live DB so new ensayos appear; emitted informes stay frozen.
+      if (informeJson.data?.estado === 'emitido' && informeJson.data.snapshot_json) {
+        setSnapshot(informeJson.data.snapshot_json as InformeSnapshot);
+      } else {
         await refreshPreview();
       }
 
@@ -194,22 +201,31 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
   };
 
   const handleDownloadPdf = async () => {
-    if (!snapshot) return;
-    const { pdf } = await import('@react-pdf/renderer');
-    const { InformeResultadosPDF } = await import('@/components/quality/informes/InformeResultadosPDF');
-    const blob = await pdf(<InformeResultadosPDF snapshot={snapshot} />).toBlob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const loteRef = snapshot.estudio_laboratorio?.lote_number;
-    const base =
-      snapshot.documento.numero ??
-      (loteRef
-        ? `${loteRef}-M${muestreo.numero_muestreo ?? 0}`
-        : `muestreo-${muestreo.numero_muestreo ?? muestreo.id.slice(0, 8)}`);
-    a.download = emitted ? `${base}.pdf` : `${base}-borrador.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
+    setPdfDownloading(true);
+    try {
+      const snap = emitted ? snapshot : (await refreshPreview()) ?? snapshot;
+      if (!snap) {
+        toast({
+          title: 'No hay datos para el PDF',
+          description: previewError ?? 'Genere la vista previa e intente de nuevo.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      await downloadInformePdf(snap, {
+        borrador: !emitted,
+        numeroMuestreo: muestreo.numero_muestreo,
+        muestreoId: muestreo.id,
+      });
+    } catch (e) {
+      toast({
+        title: 'Error al generar el PDF',
+        description: e instanceof Error ? e.message : 'Revise la consola para más detalle.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPdfDownloading(false);
+    }
   };
 
   const confirmProceedWithGaps = (actionLabel: string): boolean => {
@@ -245,7 +261,10 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                 DC-LC-7.8-01 · Incertidumbre desde módulo EMA
                 {isLabInforme ? ' · Formato experimento interno (I+D)' : ''}
                 {' · '}
-                Puede generar borrador PDF aunque falten ensayos de compresión.
+                {snapshot && !emitted
+                  ? `Vista previa con ${snapshot.resultados_compresion.length} ensayo(s) de compresión registrados. `
+                  : ''}
+                El borrador se actualiza con los ensayos ya capturados en el sistema.
               </CardDescription>
             </div>
             {emitted ? (
@@ -308,8 +327,11 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                   size="sm"
                   disabled={previewLoading}
                   onClick={() => {
-                    if (!snapshot) void refreshPreview().then(() => setPreviewOpen(true));
-                    else setPreviewOpen(true);
+                    if (emitted) {
+                      setPreviewOpen(true);
+                      return;
+                    }
+                    void refreshPreview().then(() => setPreviewOpen(true));
                   }}
                 >
                   {previewLoading ? (
@@ -323,10 +345,14 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                   type="button"
                   size="sm"
                   variant="secondary"
-                  disabled={!snapshot || previewLoading}
+                  disabled={pdfDownloading || previewLoading || (!emitted && !snapshot)}
                   onClick={() => void handleDownloadPdf()}
                 >
-                  <Download className="h-4 w-4 mr-1" />
+                  {pdfDownloading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-1" />
+                  )}
                   {emitted ? 'Descargar PDF' : 'Descargar PDF (borrador)'}
                 </Button>
                 {!snapshot ? (
@@ -384,8 +410,19 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
               </Button>
             ) : null}
             {snapshot ? (
-              <Button type="button" size="sm" variant="secondary" className="w-full" onClick={() => void handleDownloadPdf()}>
-                <Download className="h-4 w-4 mr-1" />
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                disabled={pdfDownloading}
+                onClick={() => void handleDownloadPdf()}
+              >
+                {pdfDownloading ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
                 Descargar PDF (borrador)
               </Button>
             ) : null}
