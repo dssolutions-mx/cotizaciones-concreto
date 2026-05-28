@@ -89,7 +89,7 @@ Un registro por cada instrumento físico en planta.
 | `nombre` | VARCHAR NOT NULL | Nombre descriptivo |
 | `modelo_id` | UUID NOT NULL → `modelos_instrumento` | Template del instrumento |
 | `tipo` | CHAR(1) CHECK ('A','B','C','D') | Tipo de instrumento |
-| `plant_id` | UUID NOT NULL → `plants` | Planta propietaria |
+| `plant_id` | UUID NOT NULL → `plants` | Planta de custodia / registro (no impide usar el patrón Tipo A en otra planta de la **misma unidad de negocio**) |
 | `numero_serie` | VARCHAR | Número de serie fabricante |
 | `marca` | VARCHAR | Marca comercial |
 | `modelo_comercial` | VARCHAR | Modelo comercial |
@@ -452,6 +452,8 @@ Instrumento Tipo C (trabajo)
 Muestreo / Ensayo
 ```
 
+**Patrones entre plantas (misma unidad de negocio):** un Tipo C en la planta P2 puede vincularse a patrones Tipo A registrados en P1 si ambas plantas comparten `business_unit_id`. La API expone `GET /api/ema/instrumentos?tipo=A&patron_for_plant_id={plant_id_del_C}`. RLS: política `instrumentos_patron_bu_select` y trigger `ema_assert_maestro_vinculo_row` (migración `20260528120000_ema_patron_bu_cross_plant.sql`).
+
 El **Tipo D** queda fuera del diagrama anterior: no recibe certificación en el flujo de `certificados_calibracion` y no declara patrones en `instrumento_maestro_vinculos`.
 
 ---
@@ -630,7 +632,7 @@ Todas las rutas están bajo `/api/ema/`. Autenticación requerida en todas.
 
 | Ruta | Método | Roles lectura | Roles escritura | Descripción |
 |------|--------|---------------|-----------------|-------------|
-| `/api/ema/instrumentos` | GET | Todos los quality roles | — | Lista con filtros: `plant_id`, `tipo`, `estado`, `categoria` |
+| `/api/ema/instrumentos` | GET | Todos los quality roles | — | Lista con filtros: `plant_id`, `patron_for_plant_id` (Tipo A en el BU de esa planta), `tipo`, `estado`, `categoria` |
 | `/api/ema/instrumentos` | POST | — | PLANT_MANAGER, EXECUTIVE, ADMIN | Crear instrumento |
 | `/api/ema/instrumentos/[id]` | GET | Todos | — | Detalle completo |
 | `/api/ema/instrumentos/[id]` | PUT | — | Managers | Actualizar / inactivar |

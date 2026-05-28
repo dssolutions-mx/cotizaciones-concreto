@@ -205,7 +205,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
       const fechaVerif =
         parsed.data.fecha_verificacion ?? new Date().toISOString().split('T')[0];
-      const patronGate = await assertPatronesCumplenParaVerificacionInterna(admin, maestroIds, fechaVerif);
+      const patronGate = await assertPatronesCumplenParaVerificacionInterna(
+        admin,
+        maestroIds,
+        fechaVerif,
+        instrumento_id,
+      );
       if (!patronGate.ok) {
         return NextResponse.json(
           {

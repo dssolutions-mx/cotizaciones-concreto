@@ -9,6 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { refreshEmaComplianceAndPrograma } from '@/services/emaProgramaService';
+import { assertMaestrosEnMismoBu, listPatronCandidates } from '@/lib/ema/patronScope';
 import { mapCreatorNames } from '@/lib/ema/verificacionCreatorNames';
 import { EMA_INSTRUMENTO_MAESTRO_IDS_MAX } from '@/types/ema';
 import type {
@@ -196,7 +197,7 @@ async function assertMaestroInstrumentsAreTipoA(
   const rows = (data ?? []) as { id: string; tipo: string | null }[];
   if (rows.length !== maestroIds.length) {
     throw new Error(
-      'Uno o más patrones no existen o no tiene permiso para verlos. Use instrumentos Tipo A de su planta.',
+      'Uno o más patrones no existen o no tiene permiso para verlos. Use instrumentos Tipo A de su unidad de negocio.',
     );
   }
   for (const r of rows) {
@@ -210,6 +211,7 @@ async function assertMaestroInstrumentsAreTipoA(
 export async function replaceInstrumentoMaestroVinculos(
   instrumentoId: string,
   maestroIds: string[],
+  workPlantId?: string,
 ): Promise<void> {
   const supabase = await createServerSupabaseClient();
   const unique = Array.from(new Set(maestroIds));
@@ -217,6 +219,17 @@ export async function replaceInstrumentoMaestroVinculos(
     throw new Error(`Máximo ${EMA_INSTRUMENTO_MAESTRO_IDS_MAX} instrumentos patrón.`);
   }
   await assertMaestroInstrumentsAreTipoA(supabase, unique);
+  let plantId = workPlantId;
+  if (!plantId) {
+    const { data: row, error: pErr } = await supabase
+      .from('instrumentos')
+      .select('plant_id')
+      .eq('id', instrumentoId)
+      .single();
+    if (pErr) throw pErr;
+    plantId = (row as { plant_id: string }).plant_id;
+  }
+  await assertMaestrosEnMismoBu(supabase, plantId, unique);
   const { error: delErr } = await supabase
     .from('instrumento_maestro_vinculos')
     .delete()
@@ -276,7 +289,17 @@ export async function getInstrumentos(
   params: InstrumentosListParams = {},
 ): Promise<InstrumentoCard[]> {
   const supabase = await createServerSupabaseClient();
-  const { plant_id, tipo, estado, categoria, conjunto_id, search, page = 1, limit = 50 } = params;
+  const {
+    plant_id,
+    patron_for_plant_id,
+    tipo,
+    estado,
+    categoria,
+    conjunto_id,
+    search,
+    page = 1,
+    limit = 50,
+  } = params;
 
   const tipoNorm =
     tipo != null && String(tipo).trim() !== ''
@@ -284,6 +307,16 @@ export async function getInstrumentos(
       : undefined;
   const tipoFilter =
     tipoNorm === 'A' || tipoNorm === 'B' || tipoNorm === 'C' || tipoNorm === 'D' ? tipoNorm : undefined;
+
+  if (patron_for_plant_id && tipoFilter === 'A') {
+    return listPatronCandidates(supabase, {
+      workPlantId: patron_for_plant_id,
+      estado,
+      search,
+      page,
+      limit,
+    });
+  }
 
   const conjuntoEmbed = categoria
     ? `conjuntos_herramientas!inner(
@@ -383,7 +416,9 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
     const { data: maestros, error: mErr } = await supabase
       .from('instrumentos')
       .select(
-        'id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id, incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad',
+        `id, codigo, nombre, tipo, estado, fecha_proximo_evento, plant_id, marca, modelo_comercial, conjunto_id,
+        incertidumbre_expandida, incertidumbre_k, incertidumbre_unidad,
+        plant:plants(id, name, code)`,
       )
       .in('id', instrumento_maestro_ids);
     if (mErr) throw mErr;
@@ -393,9 +428,13 @@ export async function getInstrumentoById(id: string): Promise<InstrumentoDetalle
     );
     const certMap = await fetchLatestVigenteCertUncertaintyByInstrumentIds(sorted.map((m) => m.id));
     instrumentos_maestro = sorted.map((m) => {
+      const row = m as Instrumento & {
+        plant?: { id: string; name: string; code: string } | null;
+      };
       const c = certMap.get(m.id);
       return {
-        ...m,
+        ...row,
+        plant: row.plant ?? undefined,
         incertidumbre_expandida: m.incertidumbre_expandida ?? c?.incertidumbre_expandida ?? null,
         incertidumbre_k: m.incertidumbre_k ?? c?.factor_cobertura ?? null,
         incertidumbre_unidad: m.incertidumbre_unidad ?? c?.incertidumbre_unidad ?? null,
@@ -471,7 +510,7 @@ export async function createInstrumento(
   if (error) throw error;
 
   if (maestroIds.length > 0) {
-    await replaceInstrumentoMaestroVinculos(data.id, maestroIds);
+    await replaceInstrumentoMaestroVinculos(data.id, maestroIds, rowIn.plant_id);
   }
   await refreshEmaComplianceAndPrograma(data.id);
   return data;

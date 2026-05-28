@@ -539,6 +539,9 @@ function TraceabilityCard({
                 subtitle={m.nombre}
                 detail={[
                   m.codigo,
+                  m.plant?.name
+                    ? `Planta: ${m.plant.name}${m.plant.code ? ` (${m.plant.code})` : ''}`
+                    : null,
                   m.incertidumbre_expandida != null
                     ? `U = ±${m.incertidumbre_expandida}${m.incertidumbre_unidad ? ` ${m.incertidumbre_unidad}` : ''}${m.incertidumbre_k != null ? ` (k=${m.incertidumbre_k})` : ''}`
                     : null,

@@ -28,6 +28,7 @@ Reference for `/quality/instrumentos/gestion` and `/quality/conjuntos/gestion`. 
 
 - [`supabase/migrations/20260424103000_ema_conjuntos_update_catalog_rls.sql`](../supabase/migrations/20260424103000_ema_conjuntos_update_catalog_rls.sql) — `ema_conjuntos_update_catalog_roles` en `conjuntos_herramientas`.
 - [`supabase/migrations/20260424103100_ema_instrumentos_update_catalog_rls.sql`](../supabase/migrations/20260424103100_ema_instrumentos_update_catalog_rls.sql) — `ema_instrumentos_update_catalog_roles` en `instrumentos` (paridad con PUT de calidad/laboratorio).
+- [`supabase/migrations/20260528120000_ema_patron_bu_cross_plant.sql`](../supabase/migrations/20260528120000_ema_patron_bu_cross_plant.sql) — lectura de patrones Tipo A en el BU, trigger de vínculos maestro↔hijo por BU, certificados de patrón en el BU.
 
 Revise en Supabase si ya existen políticas equivalentes para evitar solapamientos no deseados.
 

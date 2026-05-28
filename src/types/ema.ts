@@ -110,6 +110,7 @@ export interface Instrumento {
   conjunto_id: string;
   tipo: TipoInstrumento;
   plant_id: string;
+  plant?: { id: string; name: string; code: string };
   numero_serie: string | null;
   marca: string | null;
   modelo_comercial: string | null;
@@ -162,6 +163,9 @@ export interface InstrumentoCard {
   estado: EstadoInstrumento;
   fecha_proximo_evento: string | null;
   plant_id: string;
+  /** Present when listing patrones across BU (patron_for_plant_id). */
+  plant_name?: string | null;
+  plant_code?: string | null;
   marca: string | null;
   modelo_comercial: string | null;
   /** From conjunto join — lists / workspace */
@@ -747,6 +751,8 @@ export type UpdateEmaConfigInput = Partial<Pick<EmaConfiguracion,
 
 export interface InstrumentosListParams {
   plant_id?: string;
+  /** Tipo A patron candidates for a Tipo C at this plant (all plants in same BU). */
+  patron_for_plant_id?: string;
   business_unit_id?: string;
   tipo?: TipoInstrumento;
   estado?: EstadoInstrumento;

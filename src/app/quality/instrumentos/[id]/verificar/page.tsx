@@ -60,6 +60,8 @@ type MaestroRow = {
   codigo: string
   nombre: string
   estado: string
+  plant_name?: string | null
+  plant_code?: string | null
   incertidumbre_expandida?: number | null
   incertidumbre_k?: number | null
   incertidumbre_unidad?: string | null
@@ -397,13 +399,17 @@ export default function VerificarPage() {
       const configured = inst.instrumento_maestro_ids ?? []
       setSelectedMaestroIds([...configured])
 
-      // Tipo C: patrones ya vinculados → lista acotada; sin vínculos → candidatos vigentes (misma planta), no toda la planta como si fueran válidos sin persistir
-      if (inst.tipo === 'C') {
+      // Tipo C: patrones vinculados o candidatos vigentes en la misma unidad de negocio
+      if (inst.tipo === 'C' && inst.plant_id) {
         const allow = new Set(configured)
+        const patronQs = new URLSearchParams({
+          tipo: 'A',
+          limit: '200',
+          patron_for_plant_id: inst.plant_id,
+        })
+        if (allow.size === 0) patronQs.set('estado', 'vigente')
         if (allow.size) {
-          const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
-          if (inst.plant_id) qs.set('plant_id', inst.plant_id)
-          fetch(`/api/ema/instrumentos?${qs}`)
+          fetch(`/api/ema/instrumentos?${patronQs}`)
             .then((r) => r.json())
             .then((j) => {
               const all = Array.isArray(j.data) ? j.data : []
@@ -415,9 +421,7 @@ export default function VerificarPage() {
               setPatronCandidatos([])
             })
         } else {
-          const qs = new URLSearchParams({ tipo: 'A', estado: 'vigente', limit: '200' })
-          if (inst.plant_id) qs.set('plant_id', inst.plant_id)
-          fetch(`/api/ema/instrumentos?${qs}`)
+          fetch(`/api/ema/instrumentos?${patronQs}`)
             .then((r) => r.json())
             .then((j) => {
               const all = Array.isArray(j.data) ? j.data : []
@@ -1020,7 +1024,7 @@ export default function VerificarPage() {
                 </Label>
                 {(instrumento.instrumento_maestro_ids?.length ?? 0) === 0 && (
                   <p className="text-xs text-stone-600 leading-relaxed">
-                    Elija al menos un instrumento tipo A vigente de esta planta. La selección se guardará en la ficha de
+                    Elija al menos un instrumento tipo A vigente de su unidad de negocio. La selección se guardará en la ficha de
                     este instrumento al continuar, antes de crear la verificación.
                   </p>
                 )}
@@ -1029,7 +1033,7 @@ export default function VerificarPage() {
                     (instrumento.instrumento_maestro_ids?.length ?? 0) === 0 ? (
                       <div className="space-y-2 text-xs text-amber-800">
                         <p>
-                          No hay instrumentos tipo A en estado vigente en esta planta para enlazar. Registre un patrón
+                          No hay instrumentos tipo A vigentes en su unidad de negocio para enlazar. Registre un patrón
                           o complete la ficha del instrumento.
                         </p>
                         <div className="flex flex-wrap gap-2">
@@ -1074,6 +1078,9 @@ export default function VerificarPage() {
                         <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
                         <span>
                           · {m.nombre} ({m.estado})
+                          {m.plant_name || m.plant_code
+                            ? ` · ${[m.plant_name, m.plant_code].filter(Boolean).join(' ')}`
+                            : ''}
                         </span>
                       </label>
                     ))
@@ -1093,7 +1100,7 @@ export default function VerificarPage() {
                 <p className="text-xs text-stone-500 leading-relaxed">
                   {(instrumento.instrumento_maestro_ids?.length ?? 0) > 0
                     ? 'Patrones definidos en la ficha de este instrumento (trazabilidad NMX-EC-17025-IMNC). Puede usar uno o varios en esta corrida. La incertidumbre U del patrón proviene de la ficha (sincronizada con el certificado vigente) o del certificado si la ficha aún no la tiene.'
-                    : 'Solo se listan instrumentos tipo A vigentes de la misma planta. Para ampliar o cambiar la lista permanente de patrones, use Editar ficha.'}
+                    : 'Se listan instrumentos tipo A vigentes de la misma unidad de negocio. Para ampliar o cambiar la lista permanente de patrones, use Editar ficha.'}
                 </p>
                 {snapshot && (() => {
                   const band = firstToleranceBandFromSnapshot(snapshot)

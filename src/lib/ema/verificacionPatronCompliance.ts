@@ -5,20 +5,36 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getBusinessUnitIdForPlant } from '@/lib/ema/patronScope';
 import { computeInstrumentoEstadoFromSchedule } from '@/services/emaInstrumentoService';
 
 export type PatronComplianceIssue = { codigo: string; nombre: string; detalle: string };
 
 /**
  * @param fechaVerificacion ISO date YYYY-MM-DD of the verification run
+ * @param workInstrumentoId Tipo C instrument being verified (BU scope check vs patrones)
  */
 export async function assertPatronesCumplenParaVerificacionInterna(
   admin: SupabaseClient,
   maestroIds: readonly string[],
   fechaVerificacion: string,
+  workInstrumentoId?: string,
 ): Promise<{ ok: true } | { ok: false; issues: PatronComplianceIssue[] }> {
   const unique = [...new Set(maestroIds)];
   if (unique.length === 0) return { ok: true };
+
+  let workBuId: string | null = null;
+  if (workInstrumentoId) {
+    const { data: workRow, error: wErr } = await admin
+      .from('instrumentos')
+      .select('plant_id')
+      .eq('id', workInstrumentoId)
+      .maybeSingle();
+    if (wErr) throw wErr;
+    if (workRow?.plant_id) {
+      workBuId = await getBusinessUnitIdForPlant(admin, workRow.plant_id);
+    }
+  }
 
   const { data: cfg } = await admin
     .from('ema_configuracion')
@@ -36,7 +52,9 @@ export async function assertPatronesCumplenParaVerificacionInterna(
       tipo,
       estado,
       fecha_proximo_evento,
-      conjuntos_herramientas ( tipo_servicio )
+      plant_id,
+      conjuntos_herramientas ( tipo_servicio ),
+      plants ( business_unit_id )
     `,
     )
     .in('id', unique);
@@ -53,6 +71,8 @@ export async function assertPatronesCumplenParaVerificacionInterna(
           tipo: string;
           estado: string;
           fecha_proximo_evento: string | null;
+          plant_id: string;
+          plants: { business_unit_id: string | null } | { business_unit_id: string | null }[] | null;
           conjuntos_herramientas:
             | { tipo_servicio?: string }
             | { tipo_servicio?: string }[]
@@ -74,6 +94,20 @@ export async function assertPatronesCumplenParaVerificacionInterna(
           'Solo instrumentos tipo A (patrón con calibración externa EMA) pueden usarse como referencia en esta verificación.',
       });
       continue;
+    }
+
+    if (workBuId) {
+      const pl = Array.isArray(row.plants) ? row.plants[0] : row.plants;
+      const patronBu = pl?.business_unit_id ?? null;
+      if (patronBu !== workBuId) {
+        issues.push({
+          codigo,
+          nombre,
+          detalle:
+            'El patrón pertenece a otra unidad de negocio y no puede usarse en esta verificación.',
+        });
+        continue;
+      }
     }
 
     const ch = row.conjuntos_herramientas;

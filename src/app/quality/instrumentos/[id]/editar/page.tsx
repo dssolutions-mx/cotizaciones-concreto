@@ -49,7 +49,9 @@ export default function EditarInstrumentoPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   // Maestros list for Tipo C instruments
-  const [maestros, setMaestros] = useState<{ id: string; codigo: string; nombre: string }[]>([])
+  const [maestros, setMaestros] = useState<
+    { id: string; codigo: string; nombre: string; plantLabel: string | null }[]
+  >([])
 
   // Form state — only editable fields
   const [form, setForm] = useState({
@@ -117,16 +119,35 @@ export default function EditarInstrumentoPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load Tipo A instruments as maestro candidates when tipo = C (same plant as this instrument)
+  // Load Tipo A patrones in the same BU as this instrument (tipo C)
   useEffect(() => {
-    if (form.tipo !== 'C') return
-    const qs = new URLSearchParams({ tipo: 'A', estado: 'vigente', limit: '200' })
-    if (form.plant_id) qs.set('plant_id', form.plant_id)
+    if (form.tipo !== 'C' || !form.plant_id) return
+    const qs = new URLSearchParams({
+      tipo: 'A',
+      estado: 'vigente',
+      limit: '200',
+      patron_for_plant_id: form.plant_id,
+    })
     fetch(`/api/ema/instrumentos?${qs}`)
       .then((r) => r.json())
       .then((j) => {
         const list = Array.isArray(j.data) ? j.data : []
-        setMaestros(list.map((m: { id: string; codigo: string; nombre: string }) => ({ id: m.id, codigo: m.codigo, nombre: m.nombre })))
+        setMaestros(
+          list.map(
+            (m: {
+              id: string
+              codigo: string
+              nombre: string
+              plant_name?: string | null
+              plant_code?: string | null
+            }) => ({
+              id: m.id,
+              codigo: m.codigo,
+              nombre: m.nombre,
+              plantLabel: [m.plant_name, m.plant_code].filter(Boolean).join(' · ') || null,
+            }),
+          ),
+        )
       })
       .catch(() => setMaestros([]))
   }, [form.tipo, form.plant_id])
@@ -326,25 +347,37 @@ export default function EditarInstrumentoPage() {
           {/* Patrones — only for Tipo C */}
           {form.tipo === 'C' && (
             <Field label="Instrumentos patrón (Tipo A)">
+              <p className="text-xs text-stone-500 mb-2">
+                Patrones Tipo A vigentes en la misma unidad de negocio (pueden estar registrados en otra planta).
+              </p>
               <div className="border border-stone-200 rounded-md p-3 max-h-[220px] overflow-y-auto space-y-2">
-                {maestros.map((m) => (
-                  <label key={m.id} className="flex items-center gap-2 cursor-pointer text-sm">
-                    <Checkbox
-                      checked={form.instrumento_maestro_ids.includes(m.id)}
-                      onCheckedChange={(c) => {
-                        const on = c === true
-                        setForm((prev) => {
-                          const s = new Set(prev.instrumento_maestro_ids)
-                          if (on) s.add(m.id)
-                          else s.delete(m.id)
-                          return { ...prev, instrumento_maestro_ids: Array.from(s) }
-                        })
-                      }}
-                    />
-                    <span className="font-mono text-xs">{m.codigo}</span>
-                    <span className="text-stone-700">{m.nombre}</span>
-                  </label>
-                ))}
+                {maestros.length === 0 ? (
+                  <p className="text-xs text-stone-500">No hay patrones tipo A vigentes en su unidad de negocio.</p>
+                ) : (
+                  maestros.map((m) => (
+                    <label key={m.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                      <Checkbox
+                        checked={form.instrumento_maestro_ids.includes(m.id)}
+                        onCheckedChange={(c) => {
+                          const on = c === true
+                          setForm((prev) => {
+                            const s = new Set(prev.instrumento_maestro_ids)
+                            if (on) s.add(m.id)
+                            else s.delete(m.id)
+                            return { ...prev, instrumento_maestro_ids: Array.from(s) }
+                          })
+                        }}
+                      />
+                      <span className="font-mono text-xs">{m.codigo}</span>
+                      <span className="text-stone-700">
+                        {m.nombre}
+                        {m.plantLabel ? (
+                          <span className="text-stone-400"> · {m.plantLabel}</span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))
+                )}
               </div>
             </Field>
           )}

@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const instrumentos = await getInstrumentos({
       plant_id: searchParams.get('plant_id') ?? undefined,
+      patron_for_plant_id: searchParams.get('patron_for_plant_id') ?? undefined,
       tipo: searchParams.get('tipo') as any ?? undefined,
       estado: searchParams.get('estado') as any ?? undefined,
       categoria: searchParams.get('categoria') ?? undefined,

@@ -168,10 +168,14 @@ export function EmaInstrumentosWorkspaceClient() {
 
   const loadMaestros = useCallback(async () => {
     try {
+      if (!plantId) {
+        setMaestros([])
+        return
+      }
       const params = new URLSearchParams()
       params.set('tipo', 'A')
       params.set('limit', '200')
-      if (plantId) params.set('plant_id', plantId)
+      params.set('patron_for_plant_id', plantId)
       const res = await fetch(`/api/ema/instrumentos?${params}`)
       if (!res.ok) return
       const j = await res.json()
@@ -699,7 +703,7 @@ export function EmaInstrumentosWorkspaceClient() {
                 <Label>Instrumentos patrón (Tipo A)</Label>
                 <div className="mt-1 border border-stone-200 rounded-md p-2 max-h-[220px] overflow-y-auto space-y-2">
                   {maestros.length === 0 ? (
-                    <p className="text-xs text-stone-500">No hay instrumentos tipo A en esta planta.</p>
+                    <p className="text-xs text-stone-500">No hay instrumentos tipo A en su unidad de negocio.</p>
                   ) : (
                     maestros.map((m) => {
                       const selected =
@@ -718,6 +722,12 @@ export function EmaInstrumentosWorkspaceClient() {
                           />
                           <span>
                             {m.codigo} — {m.nombre}
+                            {(m.plant_name || m.plant_code) && (
+                              <span className="text-stone-400">
+                                {' '}
+                                · {[m.plant_name, m.plant_code].filter(Boolean).join(' ')}
+                              </span>
+                            )}
                           </span>
                         </label>
                       )

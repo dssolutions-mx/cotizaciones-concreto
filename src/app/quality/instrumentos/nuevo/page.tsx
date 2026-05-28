@@ -138,8 +138,15 @@ export default function NuevoInstrumentoPage() {
       return
     }
     const pid = form.plant_id || currentPlant?.id
-    const qs = new URLSearchParams({ tipo: 'A', limit: '200' })
-    if (pid) qs.set('plant_id', pid)
+    if (!pid) {
+      setInstrumentosTypeA([])
+      return
+    }
+    const qs = new URLSearchParams({
+      tipo: 'A',
+      limit: '200',
+      patron_for_plant_id: pid,
+    })
     fetch(`/api/ema/instrumentos?${qs}`)
       .then((r) => r.json())
       .then((j) => setInstrumentosTypeA(Array.isArray(j.data) ? j.data : []))
@@ -588,8 +595,8 @@ export default function NuevoInstrumentoPage() {
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-800">Instrumentos patrón</h2>
               </div>
               <p className="text-xs text-amber-700 -mt-2">
-                Seleccione uno o más instrumentos Tipo A que servirán de referencia para la verificación interna de este
-                instrumento de trabajo.
+                Seleccione uno o más instrumentos Tipo A de su unidad de negocio (pueden pertenecer a otra planta) como
+                referencia para la verificación interna de este instrumento de trabajo.
               </p>
               <div className="space-y-2 max-h-[240px] overflow-y-auto border border-amber-200 rounded-md bg-white p-3">
                 <Label className="text-xs text-amber-800">
@@ -603,6 +610,12 @@ export default function NuevoInstrumentoPage() {
                     />
                     <span className="font-mono text-xs text-stone-500">{m.codigo}</span>
                     <span>— {m.nombre}</span>
+                    {(m.plant_name || m.plant_code) && (
+                      <span className="text-stone-400">
+                        {' '}
+                        · {[m.plant_name, m.plant_code].filter(Boolean).join(' ')}
+                      </span>
+                    )}
                     {m.marca && <span className="text-stone-400"> · {m.marca}</span>}
                   </label>
                 ))}
