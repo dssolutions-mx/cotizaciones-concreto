@@ -27,6 +27,7 @@ import {
   getScheduledDateTime,
   getTestWindow,
   sortMuestrasByScheduledTime,
+  specimenShortLabel,
   specimenTypeLabel,
   urgencyBadgeClass,
 } from './ensayosHelpers'
@@ -136,7 +137,7 @@ export default function EnsayosDaySheet({ selectedDate, muestrasForDay }: Ensayo
                     </TableCell>
                     <TableCell className="align-top">
                       <div className="font-medium text-stone-900">
-                        {muestra.identificacion?.trim() || muestra.id.substring(0, 8)}
+                        {specimenShortLabel(muestra)}
                       </div>
                       <Badge
                         variant="outline"

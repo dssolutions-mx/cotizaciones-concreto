@@ -23,6 +23,7 @@ import {
   computeAge,
   computeUrgency,
   formatTestWindowClockRange,
+  specimenShortLabel,
   formatToleranceLabel,
   getPrimaryScheduledClock,
   getScheduledDateTime,
@@ -130,7 +131,7 @@ export default function EnsayosListView({ muestras }: EnsayosListViewProps) {
         </TableCell>
         <TableCell className="align-top">
           <div className="font-medium text-stone-900">
-            {muestra.identificacion?.trim() || muestra.id.substring(0, 8)}
+            {specimenShortLabel(muestra)}
           </div>
           <Badge variant="outline" className="mt-1 border-stone-200 text-[10px] text-stone-700">
             {specimenTypeLabel(muestra.tipo_muestra)}

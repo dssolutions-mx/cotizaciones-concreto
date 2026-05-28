@@ -287,6 +287,7 @@ export async function getLaboratorioLoteById(id: string): Promise<LaboratorioLot
           estado,
           identificacion,
           fecha_programada_ensayo,
+          molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(codigo, nombre),
           ensayos(id, resistencia_calculada, porcentaje_cumplimiento, fecha_ensayo)
         )
       )

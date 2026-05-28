@@ -246,6 +246,9 @@ export function sortMuestrasByScheduledTime(muestras: MuestraWithRelations[], no
 }
 
 export function specimenShortLabel(muestra: MuestraWithRelations): string {
+  const molde = muestra.molde_instrumento
+  const codigo = molde?.codigo?.trim()
+  if (codigo) return codigo.slice(0, 16)
   const id = muestra.identificacion?.trim() || muestra.id.substring(0, 8)
   return id.slice(0, 12)
 }

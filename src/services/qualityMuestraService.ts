@@ -36,7 +36,8 @@ export async function fetchMuestraById(id: string) {
           )
         ),
         ensayos(*),
-        alertas_ensayos(*)
+        alertas_ensayos(*),
+        molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(id, codigo, nombre)
       `)
       .eq('id', id)
       .single();
@@ -69,7 +70,8 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
             )
           )
         ),
-        alertas_ensayos(*)
+        alertas_ensayos(*),
+        molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(id, codigo, nombre)
       `)
       .eq('estado', 'PENDIENTE')
       .order('fecha_programada_ensayo', { ascending: true });

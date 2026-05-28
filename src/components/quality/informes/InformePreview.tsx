@@ -171,7 +171,7 @@ export function InformePreview({ snapshot, gaps }: Props) {
             <table className="w-full text-[10px]">
               <thead>
                 <tr className="border-b text-left text-stone-500">
-                  <th>Espécimen</th>
+                  <th>Molde</th>
                   <th>Edad</th>
                   <th>kN</th>
                   <th>kg/cm²</th>

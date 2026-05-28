@@ -17,6 +17,11 @@ import { format, subMonths } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import { roundScalarForMeasurand } from '@/lib/quality/muestreoFieldMeasurements';
+import {
+  applyMoldeDimensionsToPlannedSample,
+  resolvePersistedCubeSideCm,
+  resolvePersistedDiameterCm,
+} from '@/lib/quality/moldeInstrumentoSpec';
 
 // UI planning type for explicit sample creation (duplicate kept local to service)
 export type PlannedSample = {
@@ -456,8 +461,44 @@ export async function createMuestreoWithSamples(
     if (error) throw error;
 
     if (plannedSamples && plannedSamples.length > 0) {
+      const moldeIds = [
+        ...new Set(
+          plannedSamples
+            .map((s) => s.molde_instrumento_id)
+            .filter((id): id is string => typeof id === 'string' && id.length > 0),
+        ),
+      ];
+      const moldeNombreById = new Map<string, string>();
+      if (moldeIds.length > 0) {
+        const { data: moldes, error: moldesErr } = await supabase
+          .from('instrumentos')
+          .select('id, nombre')
+          .in('id', moldeIds);
+        if (moldesErr) throw moldesErr;
+        for (const row of moldes ?? []) {
+          moldeNombreById.set(row.id, row.nombre);
+        }
+      }
+
+      const normalizedPlannedSamples = plannedSamples.map((raw) => {
+        let s = { ...raw };
+        const moldeNombre = s.molde_instrumento_id
+          ? moldeNombreById.get(s.molde_instrumento_id)
+          : undefined;
+        if (moldeNombre) {
+          s = applyMoldeDimensionsToPlannedSample(s, moldeNombre);
+        }
+        if (s.tipo_muestra === 'CUBO') {
+          s.cube_side_cm = resolvePersistedCubeSideCm(s.cube_side_cm);
+        }
+        if (s.tipo_muestra === 'CILINDRO') {
+          s.diameter_cm = resolvePersistedDiameterCm(s.diameter_cm);
+        }
+        return s;
+      });
+
       let counter = 1;
-      const samplesToInsert = plannedSamples.map((s) => {
+      const samplesToInsert = normalizedPlannedSamples.map((s) => {
         const baseDateStr = formatDate(baseSamplingTimestamp, 'yyyy-MM-dd');
 
         // Use the precise sampling timestamp as the base for age calculations
@@ -465,8 +506,10 @@ export async function createMuestreoWithSamples(
         const baseTs = new Date(baseSamplingTimestamp);
 
         const idClas = s.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
-        const diameterSuffix = s.tipo_muestra === 'CILINDRO' && s.diameter_cm ? `-D${s.diameter_cm}` : '';
-        const cubeSuffix = s.tipo_muestra === 'CUBO' && s.cube_side_cm ? `-S${s.cube_side_cm}` : '';
+        const diameterSuffix =
+          s.tipo_muestra === 'CILINDRO' ? `-D${resolvePersistedDiameterCm(s.diameter_cm)}` : '';
+        const cubeSuffix =
+          s.tipo_muestra === 'CUBO' ? `-S${resolvePersistedCubeSideCm(s.cube_side_cm)}` : '';
         const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter++).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
 
         // Calculate programmed test date preserving the sampling time of day
@@ -507,8 +550,10 @@ export async function createMuestreoWithSamples(
           event_timezone: userTimezone,
           estado: 'PENDIENTE',
           created_at: new Date().toISOString(),
-          diameter_cm: s.tipo_muestra === 'CILINDRO' ? (s.diameter_cm ?? null) : null,
-          cube_side_cm: s.tipo_muestra === 'CUBO' ? (s.cube_side_cm ?? null) : null,
+          diameter_cm:
+            s.tipo_muestra === 'CILINDRO' ? resolvePersistedDiameterCm(s.diameter_cm) : null,
+          cube_side_cm:
+            s.tipo_muestra === 'CUBO' ? resolvePersistedCubeSideCm(s.cube_side_cm) : null,
           molde_instrumento_id: s.molde_instrumento_id ?? null,
         } as any;
       });

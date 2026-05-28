@@ -21,7 +21,11 @@ import {
 } from '@/lib/quality/informeLabContext';
 import { buildInformeFreshRows } from '@/lib/quality/buildInformeFreshRows';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
-import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers';
+import { formatMoldeInstrumentoDisplay } from '@/lib/quality/moldeInstrumentoDisplay';
+import {
+  recomputeEnsayoCompliance,
+  resolveEnsayoResistenciaSinFactor,
+} from '@/lib/qualityHelpers';
 import type { MuestreoMedicionCampo } from '@/types/muestreoFieldMeasurement';
 import type {
   InformeFreshResultRow,
@@ -58,6 +62,7 @@ export type BuildInformeInput = {
     diameter_cm?: number | null;
     cube_side_cm?: number | null;
     is_edad_garantia?: boolean | null;
+    molde_instrumento?: { codigo: string | null; nombre: string | null } | null;
     ensayos?: Array<{
       id: string;
       fecha_ensayo: string;
@@ -160,7 +165,11 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
 
   const compressionRows = input.muestras.flatMap((m) =>
     (m.ensayos ?? []).map((e) => {
-      const fcKg = resolveEnsayoResistenciaReportada(e);
+      const fcKg = resolveEnsayoResistenciaSinFactor(e);
+      const pctCumplimiento =
+        strengthFc != null && strengthFc > 0 && fcKg > 0
+          ? recomputeEnsayoCompliance(fcKg, strengthFc)
+          : null;
       const diam =
         m.tipo_muestra === 'CUBO' && m.cube_side_cm
           ? `${m.cube_side_cm} cm (cubo)`
@@ -168,7 +177,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
             ? `${m.diameter_cm} cm`
             : 'N/A';
       return {
-        identificacion: m.identificacion,
+        identificacion: formatMoldeInstrumentoDisplay(m.molde_instrumento, m.identificacion),
         tipo: m.tipo_muestra,
         fecha_elaboracion: fechaMuestreo,
         fecha_ensayo: e.fecha_ensayo,
@@ -177,7 +186,7 @@ export async function buildInformeSnapshot(input: BuildInformeInput): Promise<In
         carga_kn: kgToKn(e.carga_kg),
         fc_mpa: kgCm2ToMpa(fcKg),
         fc_kg_cm2: fcKg > 0 ? fcKg : null,
-        conformidad: conformidadFc(e.porcentaje_cumplimiento),
+        conformidad: conformidadFc(pctCumplimiento),
         metodo: INFORME_METODO_COMPRESION,
       };
     })

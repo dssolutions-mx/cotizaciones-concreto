@@ -11,7 +11,7 @@ export const FRESH_HEADERS_WITH_LECTURA = [
 ] as const;
 
 export const COMPRESSION_HEADERS = [
-  'Espécimen',
+  'Molde',
   'Edad',
   'kN',
   'kg/cm²',

@@ -82,6 +82,7 @@ async function fetchMuestrasWithEnsayos(muestreoId: string): Promise<BuildInform
     .select(
       `
       id, tipo_muestra, identificacion, diameter_cm, cube_side_cm, is_edad_garantia,
+      molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(codigo, nombre),
       ensayos (
         id, fecha_ensayo, carga_kg, resistencia_calculada, resistencia_corregida,
         factor_correccion, porcentaje_cumplimiento,

@@ -27,6 +27,11 @@ import { cn } from '@/lib/utils';
 import { addSampleToMuestreo } from '@/services/qualityMuestraService';
 import { useToast } from '@/components/ui/use-toast';
 import { createSafeDate } from '@/lib/utils';
+import {
+  defaultSpecimenDimensionsForTipo,
+  resolvePersistedCubeSideCm,
+  resolvePersistedDiameterCm,
+} from '@/lib/quality/moldeInstrumentoSpec';
 
 type PlannedSample = {
   id: string;
@@ -92,8 +97,14 @@ export default function AddSampleModal({
       await addSampleToMuestreo(muestreoId, {
         tipo_muestra: sample.tipo_muestra,
         fecha_programada_ensayo: sample.fecha_programada_ensayo,
-        diameter_cm: sample.diameter_cm,
-        cube_side_cm: sample.cube_side_cm,
+        diameter_cm:
+          sample.tipo_muestra === 'CILINDRO'
+            ? resolvePersistedDiameterCm(sample.diameter_cm)
+            : undefined,
+        cube_side_cm:
+          sample.tipo_muestra === 'CUBO'
+            ? resolvePersistedCubeSideCm(sample.cube_side_cm)
+            : undefined,
         age_days: sample.age_days,
         age_hours: sample.age_hours,
       });
@@ -154,7 +165,7 @@ export default function AddSampleModal({
             <Label className="text-sm font-medium">Tipo de Muestra</Label>
             <Select value={sample.tipo_muestra} onValueChange={(val) => {
               const v = val as 'CILINDRO' | 'VIGA' | 'CUBO';
-              setSample(prev => ({ ...prev, tipo_muestra: v }));
+              setSample((prev) => ({ ...prev, tipo_muestra: v, ...defaultSpecimenDimensionsForTipo(v) }));
             }}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Selecciona el tipo de muestra" />

@@ -20,6 +20,7 @@ import {
   getScheduledDateTime,
   getTestWindow,
   sortMuestrasByScheduledTime,
+  specimenShortLabel,
   specimenTypeLabel,
   urgencyBadgeClass,
   urgencyTimelineCardBorderClass,
@@ -273,7 +274,7 @@ export default function EnsayosDayView({
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <div className="font-medium text-stone-900">
-                            {muestra.identificacion?.trim() || muestra.id.substring(0, 8)}
+                            {specimenShortLabel(muestra)}
                           </div>
                           <Badge
                             variant="outline"

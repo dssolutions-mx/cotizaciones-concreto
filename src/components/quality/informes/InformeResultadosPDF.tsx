@@ -25,7 +25,7 @@ const FRESH_COLS: PdfTableColumn[] = [
 ];
 
 const COMPRESSION_COLS: PdfTableColumn[] = [
-  { key: 'id', label: 'Espécimen', widthPt: 128 },
+  { key: 'id', label: 'Molde', widthPt: 128 },
   { key: 'edad', label: 'Edad', widthPt: 56, align: 'center' },
   { key: 'kn', label: 'kN', widthPt: 72, align: 'right', mono: true },
   { key: 'fc', label: 'kg/cm²', widthPt: 88, align: 'right', mono: true },

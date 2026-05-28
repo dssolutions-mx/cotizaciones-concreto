@@ -18,6 +18,16 @@ export type EnsayoResistenciaFields = {
 };
 
 /**
+ * Strength from the test only (`resistencia_calculada`), without correction factor.
+ * Used on ISO 7.8 informes where reported fc must not include the shape factor.
+ */
+export function resolveEnsayoResistenciaSinFactor(e: EnsayoResistenciaFields): number {
+  const base = Number(e.resistencia_calculada ?? e.resistenciaCalculada);
+  if (!Number.isFinite(base) || base <= 0) return 0;
+  return Math.round(base * 100) / 100;
+}
+
+/**
  * Reported strength for an ensayo: prefer persisted `resistencia_corregida`, else raw × factor.
  */
 export function resolveEnsayoResistenciaReportada(e: EnsayoResistenciaFields): number {

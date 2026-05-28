@@ -13,6 +13,10 @@ import { FormLabel } from '@/components/ui/form';
 import { Trash2, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PlannedSample } from './dateUtils';
+import {
+  applyMoldeDimensionsToPlannedSample,
+  defaultSpecimenDimensionsForTipo,
+} from '@/lib/quality/moldeInstrumentoSpec';
 
 export type { PlannedSample } from './dateUtils';
 
@@ -241,7 +245,18 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   <FormLabel className="text-xs">Tipo</FormLabel>
                   <Select value={s.tipo_muestra} onValueChange={(val) => {
                     const v = val as 'CILINDRO' | 'VIGA' | 'CUBO';
-                    setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { ...p, tipo_muestra: v, molde_instrumento_id: undefined } : p)));
+                    setPlannedSamples((prev) =>
+                      prev.map((p) =>
+                        p.id === s.id
+                          ? {
+                              ...p,
+                              tipo_muestra: v,
+                              molde_instrumento_id: undefined,
+                              ...defaultSpecimenDimensionsForTipo(v),
+                            }
+                          : p,
+                      ),
+                    );
                   }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Tipo de muestra" />
@@ -444,9 +459,20 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       }}
                       onValueChange={(val) => {
                         setPlannedSamples((prev) =>
-                          prev.map((p) =>
-                            p.id === s.id ? { ...p, molde_instrumento_id: val === 'none' ? undefined : val } : p,
-                          ),
+                          prev.map((p) => {
+                            if (p.id !== s.id) return p;
+                            if (val === 'none') {
+                              return { ...p, molde_instrumento_id: undefined };
+                            }
+                            const cat = moldeCategoriaForTipo(p.tipo_muestra);
+                            const inst = cat
+                              ? (moldeOptionsByCat[cat] ?? []).find((i) => i.id === val)
+                              : undefined;
+                            const next: PlannedSample = { ...p, molde_instrumento_id: val };
+                            return inst
+                              ? applyMoldeDimensionsToPlannedSample(next, inst.nombre)
+                              : next;
+                          }),
                         );
                       }}
                     >

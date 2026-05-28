@@ -5,6 +5,7 @@ import {
   resolveTargetFc,
   summarizeLoteConformidad,
 } from '@/lib/quality/laboratorioConformidad';
+import { formatMoldeInstrumentoDisplay } from '@/lib/quality/moldeInstrumentoDisplay';
 import { formatDate } from '@/lib/utils';
 import type { LaboratorioLote, LaboratorioLoteMuestreo } from '@/types/laboratorioLote';
 
@@ -30,7 +31,11 @@ export default function ExperimentoResultadosPanel({ lote, referenceStrengthFc, 
       for (const e of mu.ensayos ?? []) {
         if (e.resistencia_calculada != null) {
           rows.push({
-            identificacion: mu.identificacion ?? mu.tipo_muestra ?? '—',
+            identificacion: formatMoldeInstrumentoDisplay(
+              (mu as { molde_instrumento?: { codigo?: string | null; nombre?: string | null } })
+                .molde_instrumento,
+              mu.identificacion ?? mu.tipo_muestra,
+            ),
             fc: Number(e.resistencia_calculada),
             pct: e.porcentaje_cumplimiento != null ? Number(e.porcentaje_cumplimiento) : null,
             fecha: e.fecha_ensayo,
