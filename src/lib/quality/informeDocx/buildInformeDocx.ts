@@ -1,20 +1,9 @@
-import {
-  BorderStyle,
-  Document,
-  ImageRun,
-  Paragraph,
-  ShadingType,
-  Table,
-  TableCell,
-  TableRow,
-  TextRun,
-  WidthType,
-} from 'docx';
-import { DC_DOCUMENT_CONTACT } from '@/lib/reports/branding';
+import { Document, Paragraph, ShadingType, Table } from 'docx';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 import {
   buildCompressionExportTable,
   buildFreshExportTable,
+  informeFreshShowsLecturaCol,
 } from '@/lib/quality/informeDocx/informeExportTables';
 import {
   buildMuestreoCondicionesText,
@@ -24,148 +13,71 @@ import {
   INFORME_FIRMA_LABELS,
 } from '@/lib/quality/informeDocx/informeExportFormatters';
 import {
-  DOCX_AMBER_BG,
-  DOCX_AMBER_TEXT,
-  DOCX_BORDER,
-  DOCX_FONT,
-  DOCX_HEADER_BG,
-  DOCX_NAVY,
-  DOCX_PAGE_MARGIN_DXA,
-  DOCX_SPACING_BODY,
-  DOCX_SPACING_SECTION,
-  DOCX_SPACING_TIGHT,
-  DOCX_TABLE_BORDERS,
-  docxCenteredParagraph,
-  docxHeaderRowProps,
-  docxTableWidthPct,
-} from '@/lib/quality/informeDocx/informeDocxStyles';
+  bodyP,
+  dataTable,
+  emptyLine,
+  hr,
+  kvFieldTable,
+  makeInformeFooter,
+  makeInformeHeader,
+  secHdr,
+  signaturesTable,
+  subtitleCenter,
+  titleCenter,
+  tr,
+} from '@/lib/quality/informeDocx/informeDocxBuilders';
+import {
+  AMBER_TEXT,
+  CONTENT_WIDTH_DXA,
+  GREEN,
+  NAVY,
+  PAGE,
+  sp,
+  YELLOW,
+} from '@/lib/quality/informeDocx/informeDocxTheme';
 import type { InformeFirmaRol, InformeSnapshot } from '@/types/informe-ensayo';
 
 const FIRMA_SLOTS: InformeFirmaRol[] = ['elaboro', 'reviso', 'autorizo'];
 
-async function fetchLogoImageRun(): Promise<ImageRun | null> {
+async function fetchLogoArrayBuffer(): Promise<ArrayBuffer | null> {
   if (typeof window === 'undefined') return null;
   try {
     const origin = window.location?.origin ?? '';
     const res = await fetch(`${origin}/images/dc-concretos-logo.png`);
     if (!res.ok) return null;
-    const data = await res.arrayBuffer();
-    return new ImageRun({
-      type: 'png',
-      data,
-      transformation: { width: 72, height: 36 },
-    });
+    return await res.arrayBuffer();
   } catch {
     return null;
   }
 }
 
-function textRun(
-  text: string,
-  opts?: { bold?: boolean; size?: number; color?: string; italics?: boolean },
-): TextRun {
-  return new TextRun({
-    text,
-    font: DOCX_FONT,
-    size: opts?.size ?? 18,
-    bold: opts?.bold,
-    color: opts?.color,
-    italics: opts?.italics,
-  });
-}
-
-function paragraph(children: TextRun | TextRun[], extra?: { spacing?: typeof DOCX_SPACING_BODY }): Paragraph {
+function borradorBanner(): Paragraph {
   return new Paragraph({
-    spacing: extra?.spacing ?? DOCX_SPACING_BODY,
-    children: Array.isArray(children) ? children : [children],
-  });
-}
-
-function sectionHeading(title: string): Paragraph {
-  return paragraph(textRun(title, { bold: true, size: 22, color: DOCX_NAVY }), {
-    spacing: DOCX_SPACING_SECTION,
-  });
-}
-
-function kvParagraph(label: string, value: string): Paragraph {
-  return paragraph([textRun(`${label}: `, { bold: true }), textRun(value)], { spacing: DOCX_SPACING_TIGHT });
-}
-
-function cellParagraph(text: string, bold = false): Paragraph {
-  const lines = text.split('\n');
-  const children: TextRun[] = [];
-  lines.forEach((line, i) => {
-    if (i > 0) children.push(new TextRun({ break: 1 }));
-    children.push(textRun(line, { bold }));
-  });
-  return new Paragraph({ spacing: DOCX_SPACING_TIGHT, children });
-}
-
-function buildDataTable(headers: readonly string[], rows: string[][]): Table {
-  const colPct = 100 / headers.length;
-
-  const headerRow = new TableRow({
-    ...docxHeaderRowProps(),
-    children: headers.map(
-      (h) =>
-        new TableCell({
-          width: docxTableWidthPct(colPct),
-          shading: { fill: DOCX_HEADER_BG, type: ShadingType.CLEAR },
-          children: [cellParagraph(h, true)],
-        }),
-    ),
-  });
-
-  const bodyRows = rows.map(
-    (cells) =>
-      new TableRow({
-        children: cells.map(
-          (cell) =>
-            new TableCell({
-              width: docxTableWidthPct(colPct),
-              children: [cellParagraph(cell)],
-            }),
-        ),
-      }),
-  );
-
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: DOCX_TABLE_BORDERS,
-    rows: [headerRow, ...bodyRows],
-  });
-}
-
-function buildSignaturesTable(snapshot: InformeSnapshot): Table {
-  const colPct = 100 / 3;
-
-  return new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: DOCX_TABLE_BORDERS,
-    rows: [
-      new TableRow({
-        children: FIRMA_SLOTS.map((rol) => {
-          const meta = INFORME_FIRMA_LABELS[rol];
-          const firma = snapshot.firmas.find((f) => f.rol === rol);
-          return new TableCell({
-            width: docxTableWidthPct(colPct),
-            children: [
-              paragraph(textRun(meta.title, { bold: true, size: 20, color: DOCX_NAVY })),
-              paragraph(textRun(meta.subtitle, { size: 16, color: DOCX_NAVY, italics: true })),
-              paragraph(textRun('\n\n_________________________', { size: 18 })),
-              paragraph(textRun(firma?.nombre ?? '—', { bold: true })),
-              ...(firma?.cedula
-                ? [paragraph(textRun(`Cédula: ${firma.cedula}`, { size: 16 }))]
-                : []),
-              ...(firma?.signed_at
-                ? [paragraph(textRun(`Fecha: ${formatInformeSignedAt(firma.signed_at)}`, { size: 16 }))]
-                : []),
-            ],
-          });
-        }),
+    spacing: sp(120, 120),
+    shading: { type: ShadingType.CLEAR, fill: YELLOW },
+    children: [
+      tr('BORRADOR ', { bold: true, color: AMBER_TEXT, size: 22 }),
+      tr('— Documento sin emitir. No sustituye el informe oficial con folio y firmas.', {
+        color: AMBER_TEXT,
+        size: 20,
       }),
     ],
   });
+}
+
+/** Column widths for the §3 fresco table, in DXA (total must equal CONTENT_WIDTH_DXA = 9360). */
+function freshColWidths(hasLectura: boolean): number[] {
+  if (hasLectura) {
+    return [2000, 1500, 2000, 2360, 1500];
+  }
+  return [2500, 2500, 2500, 1860];
+}
+
+/** Column widths for the §3 compresión table (5 columns, sums to 9360). */
+const COMPRESSION_COL_WIDTHS = [2400, 1200, 1600, 2400, 1760];
+
+function clienteValue(snapshot: InformeSnapshot): string {
+  return snapshot.cliente.nombre;
 }
 
 export async function buildInformeDocxDocument(snapshot: InformeSnapshot): Promise<Document> {
@@ -177,255 +89,280 @@ export async function buildInformeDocxDocument(snapshot: InformeSnapshot): Promi
     snapshot.muestreo.muestreado_por === 'CLIENTE' ? 'Cliente' : 'Laboratorio acreditado';
   const metodoCompresion = snapshot.compresion_resumen.metodo ?? 'NMX-C-155-ONNCCE-2017';
   const docLine = `${doc.codigo} Rev. ${doc.revision} · ${doc.numero ?? 'BORRADOR'}`;
+  const contextLabel = isLab
+    ? 'Estudio interno de laboratorio (I+D)'
+    : 'Informe para el cliente';
 
-  const freshTable = buildFreshExportTable(snapshot);
-  const compressionTable = buildCompressionExportTable(snapshot);
+  const showLecturaCol = informeFreshShowsLecturaCol(snapshot);
+  const fresh = buildFreshExportTable(snapshot);
+  const compression = buildCompressionExportTable(snapshot);
 
-  const logo = await fetchLogoImageRun();
+  const logo = await fetchLogoArrayBuffer();
   const children: (Paragraph | Table)[] = [];
 
-  if (logo) {
-    children.push(new Paragraph({ spacing: DOCX_SPACING_BODY, children: [logo] }));
-  }
-
   children.push(
-    paragraph(textRun('INFORME DE RESULTADOS DE ENSAYO', { bold: true, size: 28, color: DOCX_NAVY })),
-    paragraph(textRun(lab.razon_social)),
-    paragraph(textRun(lab.nombre)),
-  );
-  if (lab.acreditacion_ema) {
-    children.push(paragraph(textRun(`Acreditación EMA: ${lab.acreditacion_ema}`)));
-  }
-  children.push(
-    paragraph(
-      textRun(
-        `NMX-EC-17025-IMNC-2018 §7.8 · ${isLab ? 'Estudio interno de laboratorio (I+D)' : 'Informe para el cliente'}`,
-      ),
-    ),
-    paragraph(textRun(docLine, { bold: true, color: DOCX_NAVY })),
-    paragraph(
-      textRun(
-        `NMX-EC-17025-IMNC-2018 · Informe de resultados de ensayo (§7.8)${isLab ? ' · Experimento interno' : ''}`,
-        { size: 16, color: DOCX_NAVY },
-      ),
-    ),
+    titleCenter('INFORME DE RESULTADOS DE ENSAYO'),
+    subtitleCenter(`NMX-EC-17025-IMNC-2018 §7.8 · ${contextLabel}`),
+    hr(),
   );
 
   if (!doc.issued_at) {
+    children.push(borradorBanner(), emptyLine());
+  }
+
+  children.push(
+    bodyP(
+      `Emisión: ${formatInformeIssuedAt(doc.issued_at)}${
+        doc.replaces_numero ? ` · Reemplaza informe ${doc.replaces_numero}` : ''
+      }`,
+      { bold: true, color: NAVY },
+    ),
+    emptyLine(),
+  );
+
+  // §1
+  if (isLab && estudio) {
+    children.push(secHdr('§1 Estudio interno y referencia de mezcla'));
+    const fields: { label: string; value: string }[] = [
+      { label: 'Estudio', value: estudio.study_name ?? '—' },
+      { label: 'Lote de experimento', value: estudio.lote_number ?? '—' },
+      { label: 'Protocolo', value: estudio.protocol_label ?? estudio.protocol_type ?? '—' },
+      { label: 'Receta de referencia', value: estudio.recipe_code ?? '—' },
+    ];
+    if (estudio.designacion_ehe) fields.push({ label: 'Designación', value: estudio.designacion_ehe });
+    if (estudio.volumen_m3 != null) {
+      fields.push({ label: 'Volumen elaborado', value: `${estudio.volumen_m3} m³` });
+    }
+    if (estudio.edad_especificada) {
+      fields.push({ label: 'Edad de ensayo de referencia', value: estudio.edad_especificada });
+    }
+    if (estudio.hypothesis_notes) {
+      fields.push({ label: 'Hipótesis / objetivo', value: estudio.hypothesis_notes });
+    }
+    fields.push({ label: 'Solicitante', value: clienteValue(snapshot) });
+    children.push(kvFieldTable(fields));
+  } else {
+    children.push(secHdr('§1 Cliente y obra'));
+    const fields: { label: string; value: string }[] = [
+      { label: 'Cliente', value: clienteValue(snapshot) },
+      {
+        label: 'Obra / pedido',
+        value: `${snapshot.obra.construction_site ?? '—'} · Pedido ${snapshot.obra.order_number ?? '—'}`,
+      },
+      { label: 'Elemento', value: snapshot.obra.elemento ?? 'No especificado' },
+    ];
+    if (snapshot.obra.designacion_ehe) {
+      fields.push({ label: 'Designación', value: snapshot.obra.designacion_ehe });
+    }
+    fields.push({ label: 'Contacto cliente', value: snapshot.cliente.contacto ?? '—' });
+    children.push(kvFieldTable(fields));
+  }
+  children.push(emptyLine());
+
+  // §2
+  children.push(
+    secHdr(isLab ? '§2 Elaboración y recepción en laboratorio' : '§2 Muestreo y recepción'),
+  );
+  children.push(
+    kvFieldTable([
+      {
+        label: 'Fecha / hora',
+        value: `${snapshot.muestreo.fecha_muestreo}${
+          snapshot.muestreo.hora_muestreo ? ` ${snapshot.muestreo.hora_muestreo}` : ''
+        }`,
+      },
+      {
+        label: isLab ? 'Identificación del lote' : 'Lote / remisión',
+        value: `${snapshot.muestreo.lote_id} · ${snapshot.muestreo.remision_number ?? '—'}`,
+      },
+      { label: 'Recepción en laboratorio', value: snapshot.muestreo.fecha_recepcion_lab ?? '—' },
+      { label: 'Muestreado por', value: muestreadoLabel },
+      {
+        label: isLab ? 'Ubicación de elaboración' : 'Ubicación',
+        value: snapshot.muestreo.ubicacion ?? '—',
+      },
+      {
+        label: isLab ? 'Condiciones de elaboración' : 'Condiciones en obra',
+        value: buildMuestreoCondicionesText({ muestreo: snapshot.muestreo, isLab }),
+      },
+      {
+        label: isLab ? 'Plan / protocolo' : 'Plan de muestreo',
+        value: snapshot.muestreo.plan_muestreo,
+      },
+    ]),
+  );
+  children.push(emptyLine());
+
+  // §3 fresco
+  children.push(secHdr('§3 Resultados — concreto fresco'));
+  if (fresh.rows.length > 0) {
+    children.push(dataTable(fresh.headers, fresh.rows, freshColWidths(showLecturaCol)));
+  } else if (snapshot.declaraciones.fresco_no_aplica) {
+    children.push(bodyP(snapshot.declaraciones.fresco_no_aplica));
+  } else {
+    children.push(bodyP('Sin ensayos de campo registrados.'));
+  }
+  children.push(emptyLine());
+
+  // §3 compresión
+  children.push(secHdr('§3 Resistencia a compresión'));
+  if (compression.rows.length > 0) {
+    children.push(bodyP(`Método de ensayo: ${metodoCompresion}`, { color: NAVY }));
+    children.push(dataTable(compression.headers, compression.rows, COMPRESSION_COL_WIDTHS));
+    children.push(emptyLine());
+    const resumenFields = [
+      {
+        label: 'Promedio',
+        value:
+          snapshot.compresion_resumen.promedio_kg_cm2 != null
+            ? `${snapshot.compresion_resumen.promedio_kg_cm2} kg/cm²`
+            : '—',
+      },
+      {
+        label: "f′c de referencia",
+        value:
+          snapshot.compresion_resumen.resistencia_especificada != null
+            ? `${snapshot.compresion_resumen.resistencia_especificada} kg/cm²${
+                estudio?.edad_especificada ? ` @ ${estudio.edad_especificada}` : ''
+              }`
+            : '—',
+      },
+    ];
+    if (snapshot.compresion_resumen.incertidumbre_u) {
+      resumenFields.push({
+        label: 'Incertidumbre U',
+        value: snapshot.compresion_resumen.incertidumbre_u.display,
+      });
+    }
+    children.push(kvFieldTable(resumenFields));
+  } else {
+    children.push(bodyP('Sin ensayos de compresión registrados.'));
+  }
+  children.push(emptyLine());
+
+  // Condiciones ambientales
+  const cond = snapshot.condiciones_ensayo;
+  if (cond.temperatura_lab != null || cond.humedad_relativa_lab != null || cond.capping_type) {
+    children.push(secHdr('Condiciones ambientales y preparación de probetas'));
+    const condFields: { label: string; value: string }[] = [];
+    if (cond.temperatura_lab != null) {
+      condFields.push({ label: 'Temperatura en laboratorio', value: `${cond.temperatura_lab} °C` });
+    }
+    if (cond.humedad_relativa_lab != null) {
+      condFields.push({ label: 'Humedad relativa en laboratorio', value: `${cond.humedad_relativa_lab} %` });
+    }
+    if (cond.capping_type) {
+      condFields.push({
+        label: 'Capado',
+        value: `${cond.capping_type}${cond.capping_norma ? ` · ${cond.capping_norma}` : ''}`,
+      });
+    }
+    children.push(kvFieldTable(condFields));
+    children.push(emptyLine());
+  }
+
+  // Equipos
+  if (cond.equipos.length > 0) {
+    children.push(secHdr('Equipos utilizados'));
     children.push(
-      new Paragraph({
-        spacing: DOCX_SPACING_BODY,
-        alignment: docxCenteredParagraph().alignment,
-        shading: { fill: DOCX_AMBER_BG, type: ShadingType.CLEAR },
-        border: {
-          top: { style: BorderStyle.SINGLE, size: 4, color: DOCX_BORDER },
-          bottom: { style: BorderStyle.SINGLE, size: 4, color: DOCX_BORDER },
-          left: { style: BorderStyle.SINGLE, size: 4, color: DOCX_BORDER },
-          right: { style: BorderStyle.SINGLE, size: 4, color: DOCX_BORDER },
-        },
-        children: [
-          textRun(
-            'BORRADOR — Documento sin emitir. No sustituye el informe oficial con folio y firmas.',
-            { bold: true, color: DOCX_AMBER_TEXT },
-          ),
-        ],
+      kvFieldTable(
+        cond.equipos.map((eq) => ({
+          label: eq.codigo,
+          value: `${eq.nombre}${eq.vencimiento ? ` · vig. ${eq.vencimiento}` : ''}`,
+        })),
+      ),
+    );
+    children.push(emptyLine());
+  }
+
+  // §4 Declaraciones
+  children.push(secHdr('§4 Declaraciones'));
+  for (const t of snapshot.declaraciones.texto_legal) {
+    children.push(bodyP(t, { size: 18 }));
+  }
+  for (const t of INFORME_DOCX_LEGAL) {
+    children.push(bodyP(t, { size: 18 }));
+  }
+  children.push(emptyLine());
+  children.push(
+    kvFieldTable([{ label: 'Regla de decisión', value: snapshot.declaraciones.regla_decision }]),
+  );
+  if (snapshot.declaraciones.muestreado_por_cliente) {
+    children.push(
+      bodyP('El muestreo fue realizado por el cliente (NMX-EC-17025-IMNC-2018 §7.8.6).', {
+        color: AMBER_TEXT,
       }),
     );
   }
+  children.push(emptyLine());
 
-  children.push(
-    paragraph(
-      textRun(
-        `Emisión: ${formatInformeIssuedAt(doc.issued_at)}${doc.replaces_numero ? ` · Reemplaza informe ${doc.replaces_numero}` : ''}`,
-        { bold: true },
-      ),
-    ),
-  );
-
-  if (isLab && estudio) {
-    children.push(sectionHeading('§1 Estudio interno y referencia de mezcla'));
-    children.push(
-      kvParagraph('Estudio', estudio.study_name ?? '—'),
-      kvParagraph('Lote de experimento', estudio.lote_number ?? '—'),
-      kvParagraph('Protocolo', estudio.protocol_label ?? estudio.protocol_type ?? '—'),
-      kvParagraph('Receta de referencia', estudio.recipe_code ?? '—'),
-    );
-    if (estudio.designacion_ehe) children.push(kvParagraph('Designación', estudio.designacion_ehe));
-    if (estudio.volumen_m3 != null) {
-      children.push(kvParagraph('Volumen elaborado', `${estudio.volumen_m3} m³`));
-    }
-    if (estudio.edad_especificada) {
-      children.push(kvParagraph('Edad de ensayo de referencia', estudio.edad_especificada));
-    }
-    if (estudio.hypothesis_notes) {
-      children.push(kvParagraph('Hipótesis / objetivo', estudio.hypothesis_notes));
-    }
-    children.push(kvParagraph('Solicitante', snapshot.cliente.nombre));
-  } else {
-    children.push(sectionHeading('§1 Cliente y obra'));
-    children.push(
-      kvParagraph('Cliente', snapshot.cliente.nombre),
-      kvParagraph(
-        'Obra / pedido',
-        `${snapshot.obra.construction_site ?? '—'} · Pedido ${snapshot.obra.order_number ?? '—'}`,
-      ),
-      kvParagraph('Elemento', snapshot.obra.elemento ?? 'No especificado'),
-    );
-    if (snapshot.obra.designacion_ehe) {
-      children.push(kvParagraph('Designación', snapshot.obra.designacion_ehe));
-    }
-    children.push(kvParagraph('Contacto cliente', snapshot.cliente.contacto ?? '—'));
-  }
-
-  children.push(sectionHeading(isLab ? '§2 Elaboración y recepción en laboratorio' : '§2 Muestreo y recepción'));
-  children.push(
-    kvParagraph(
-      'Fecha / hora',
-      `${snapshot.muestreo.fecha_muestreo}${snapshot.muestreo.hora_muestreo ? ` ${snapshot.muestreo.hora_muestreo}` : ''}`,
-    ),
-    kvParagraph(
-      isLab ? 'Identificación del lote' : 'Lote / remisión',
-      `${snapshot.muestreo.lote_id} · ${snapshot.muestreo.remision_number ?? '—'}`,
-    ),
-    kvParagraph('Recepción en laboratorio', snapshot.muestreo.fecha_recepcion_lab ?? '—'),
-    kvParagraph('Muestreado por', muestreadoLabel),
-    kvParagraph(
-      isLab ? 'Ubicación de elaboración' : 'Ubicación',
-      snapshot.muestreo.ubicacion ?? '—',
-    ),
-    kvParagraph(
-      isLab ? 'Condiciones de elaboración' : 'Condiciones en obra',
-      buildMuestreoCondicionesText({ muestreo: snapshot.muestreo, isLab }),
-    ),
-    kvParagraph(isLab ? 'Plan / protocolo' : 'Plan de muestreo', snapshot.muestreo.plan_muestreo),
-  );
-
-  children.push(sectionHeading('§3 Resultados — concreto fresco'));
-  if (freshTable.rows.length > 0) {
-    children.push(buildDataTable(freshTable.headers, freshTable.rows));
-  } else if (snapshot.declaraciones.fresco_no_aplica) {
-    children.push(paragraph(textRun(snapshot.declaraciones.fresco_no_aplica)));
-  } else {
-    children.push(paragraph(textRun('Sin ensayos de campo registrados.')));
-  }
-
-  children.push(sectionHeading('§3 Resistencia a compresión'));
-  if (compressionTable.rows.length > 0) {
-    children.push(paragraph(textRun(`Método de ensayo: ${metodoCompresion}`, { size: 16, color: DOCX_NAVY })));
-    children.push(buildDataTable(compressionTable.headers, compressionTable.rows));
-    children.push(
-      kvParagraph(
-        'Promedio',
-        snapshot.compresion_resumen.promedio_kg_cm2 != null
-          ? `${snapshot.compresion_resumen.promedio_kg_cm2} kg/cm²`
-          : '—',
-      ),
-      kvParagraph(
-        "f′c de referencia",
-        snapshot.compresion_resumen.resistencia_especificada != null
-          ? `${snapshot.compresion_resumen.resistencia_especificada} kg/cm²${
-              estudio?.edad_especificada ? ` @ ${estudio.edad_especificada}` : ''
-            }`
-          : '—',
-      ),
-    );
-    if (snapshot.compresion_resumen.incertidumbre_u) {
-      children.push(
-        paragraph(
-          textRun(`Incertidumbre de medición U: ${snapshot.compresion_resumen.incertidumbre_u.display}`, {
-            bold: true,
-            color: DOCX_NAVY,
-          }),
-        ),
-      );
-    }
-  } else {
-    children.push(paragraph(textRun('Sin ensayos de compresión registrados.')));
-  }
-
-  const cond = snapshot.condiciones_ensayo;
-  if (cond.temperatura_lab != null || cond.humedad_relativa_lab != null || cond.capping_type) {
-    children.push(sectionHeading('Condiciones ambientales y preparación de probetas'));
-    if (cond.temperatura_lab != null) {
-      children.push(kvParagraph('Temperatura en laboratorio', `${cond.temperatura_lab} °C`));
-    }
-    if (cond.humedad_relativa_lab != null) {
-      children.push(kvParagraph('Humedad relativa en laboratorio', `${cond.humedad_relativa_lab} %`));
-    }
-    if (cond.capping_type) {
-      children.push(
-        kvParagraph(
-          'Capado',
-          `${cond.capping_type}${cond.capping_norma ? ` · ${cond.capping_norma}` : ''}`,
-        ),
-      );
-    }
-  }
-
-  if (cond.equipos.length > 0) {
-    children.push(sectionHeading('Equipos utilizados'));
-    for (const eq of cond.equipos) {
-      children.push(
-        kvParagraph(
-          eq.codigo,
-          `${eq.nombre}${eq.vencimiento ? ` · vig. ${eq.vencimiento}` : ''}`,
-        ),
-      );
-    }
-  }
-
-  children.push(sectionHeading('§4 Declaraciones'));
-  for (const t of snapshot.declaraciones.texto_legal) {
-    children.push(paragraph(textRun(t, { size: 16 })));
-  }
-  for (const t of INFORME_DOCX_LEGAL) {
-    children.push(paragraph(textRun(t, { size: 16 })));
-  }
-  children.push(kvParagraph('Regla de decisión', snapshot.declaraciones.regla_decision));
-  if (snapshot.declaraciones.muestreado_por_cliente) {
-    children.push(
-      paragraph(
-        textRun('El muestreo fue realizado por el cliente (NMX-EC-17025-IMNC-2018 §7.8.6).', {
-          color: DOCX_AMBER_TEXT,
-        }),
-      ),
-    );
-  }
-
+  // Opinión
   if (snapshot.opinion_tecnica) {
-    children.push(sectionHeading('Opinión e interpretaciones (§7.8.7)'));
-    children.push(paragraph(textRun(snapshot.opinion_tecnica)));
+    children.push(secHdr('Opinión e interpretaciones (§7.8.7)'));
+    children.push(bodyP(snapshot.opinion_tecnica));
+    children.push(emptyLine());
   }
 
-  children.push(sectionHeading('Firmas'));
-  children.push(buildSignaturesTable(snapshot));
-
+  // Firmas
+  children.push(secHdr('Firmas'));
   children.push(
-    paragraph(
-      textRun(
-        lab.pie_pagina ??
-          `${lab.direccion ?? ''} · ${lab.telefono ?? ''} · ${lab.email ?? ''}`.trim(),
-        { size: 14, color: DOCX_NAVY },
-      ),
-    ),
-    paragraph(
-      textRun(`${DC_DOCUMENT_CONTACT.companyLine} · ${doc.numero ?? 'BORRADOR'}`, { size: 14, color: DOCX_NAVY }),
+    signaturesTable(
+      FIRMA_SLOTS.map((rol) => {
+        const meta = INFORME_FIRMA_LABELS[rol];
+        const firma = snapshot.firmas.find((f) => f.rol === rol);
+        return {
+          title: meta.title,
+          subtitle: meta.subtitle,
+          nombre: firma?.nombre ?? '—',
+          cedula: firma?.cedula ?? null,
+          signedAt: firma?.signed_at ? formatInformeSignedAt(firma.signed_at) : null,
+        };
+      }),
     ),
   );
+  children.push(emptyLine());
+
+  // Pie de página textual (uncertainty quick reference)
+  if (snapshot.uncertainty.length > 0) {
+    children.push(
+      bodyP(
+        `Incertidumbre declarada (EMA): ${snapshot.uncertainty
+          .map((u) => `${u.measurand_codigo} ${u.display}`)
+          .join(' · ')}`,
+        { size: 17, color: NAVY },
+      ),
+    );
+  }
+  if (lab.pie_pagina) {
+    children.push(bodyP(lab.pie_pagina, { size: 17, color: GREEN }));
+  }
+  // Suppress unused-import warning for CONTENT_WIDTH_DXA (kept for layout reasoning)
+  void CONTENT_WIDTH_DXA;
 
   return new Document({
     sections: [
       {
         properties: {
           page: {
+            size: { width: PAGE.width, height: PAGE.height },
             margin: {
-              top: DOCX_PAGE_MARGIN_DXA,
-              right: DOCX_PAGE_MARGIN_DXA,
-              bottom: DOCX_PAGE_MARGIN_DXA,
-              left: DOCX_PAGE_MARGIN_DXA,
+              top: PAGE.marginTop,
+              right: PAGE.marginRight,
+              bottom: PAGE.marginBottom,
+              left: PAGE.marginLeft,
             },
           },
         },
+        headers: {
+          default: makeInformeHeader(logo, {
+            razonSocial: lab.razon_social,
+            labNombre: lab.nombre,
+            acreditacion: lab.acreditacion_ema,
+            docLine,
+            contextLabel,
+          }),
+        },
+        footers: { default: makeInformeFooter(doc.numero ?? 'BORRADOR') },
         children,
       },
     ],
