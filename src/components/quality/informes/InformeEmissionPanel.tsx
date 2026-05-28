@@ -18,7 +18,6 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import { InformePreview } from '@/components/quality/informes/InformePreview';
 import { InformeFirmaDialog } from '@/components/quality/informes/InformeFirmaDialog';
 import {
   evaluateInformeChecklist,
@@ -47,7 +46,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [emitSheetOpen, setEmitSheetOpen] = useState(false);
   const [firmaOpen, setFirmaOpen] = useState(false);
   const [emitting, setEmitting] = useState(false);
   const [pdfDownloading, setPdfDownloading] = useState(false);
@@ -188,7 +187,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
       if (!res.ok) throw new Error(json.error ?? 'No se pudo emitir');
       toast({ title: `Informe ${json.data.informe.numero} emitido` });
       await load();
-      setPreviewOpen(false);
+      setEmitSheetOpen(false);
       setFirmaOpen(false);
     } catch (e) {
       toast({
@@ -239,7 +238,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     );
   };
 
-  const gapLinks = checklist.filter((i) => !i.ok).map((i) => ({ label: i.label, href: i.href }));
+  const imprimirHref = `/quality/muestreos/${muestreo.id}/imprimir`;
 
   const signerProfile = profileMeta ?? {
     first_name: profile?.first_name,
@@ -321,25 +320,11 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
               ) : null}
 
               <div className="flex flex-wrap gap-2 pt-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={previewLoading}
-                  onClick={() => {
-                    if (emitted) {
-                      setPreviewOpen(true);
-                      return;
-                    }
-                    void refreshPreview().then(() => setPreviewOpen(true));
-                  }}
-                >
-                  {previewLoading ? (
-                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                  ) : (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link href={imprimirHref}>
                     <Eye className="h-4 w-4 mr-1" />
-                  )}
-                  Vista previa
+                    Ver PDF
+                  </Link>
                 </Button>
                 <Button
                   type="button"
@@ -374,7 +359,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                     disabled={!snapshot || emitting}
                     onClick={() => {
                       if (!confirmProceedWithGaps('emitir el informe')) return;
-                      setPreviewOpen(true);
+                      setEmitSheetOpen(true);
                     }}
                   >
                     <FileText className="h-4 w-4 mr-1" />
@@ -387,67 +372,42 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
         </CardContent>
       </Card>
 
-      <Sheet open={previewOpen} onOpenChange={setPreviewOpen}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+      <Sheet open={emitSheetOpen} onOpenChange={setEmitSheetOpen}>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>Vista previa del informe</SheetTitle>
+            <SheetTitle>Emitir informe</SheetTitle>
             <SheetDescription>
-              Borrador con los datos actuales (campo y compresión). Los ensayos pendientes aparecen vacíos;
-              puede descargar el PDF sin emitir.
+              Revise el PDF en la vista de impresión antes de firmar. El informe emitido queda congelado.
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-4">
-            {previewLoading ? (
-              <div className="flex items-center gap-2 text-sm text-stone-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Generando vista previa…
-              </div>
-            ) : null}
-            {snapshot ? <InformePreview snapshot={snapshot} gaps={gapLinks} /> : null}
-            {!snapshot && !previewLoading && previewError ? (
-              <Button type="button" size="sm" variant="outline" onClick={() => void refreshPreview()}>
-                Reintentar vista previa
-              </Button>
-            ) : null}
-            {snapshot ? (
+            <Button type="button" variant="outline" size="sm" className="w-full" asChild>
+              <Link href={imprimirHref}>
+                <Eye className="h-4 w-4 mr-1" />
+                Abrir vista previa PDF
+              </Link>
+            </Button>
+            <div className="space-y-2">
+              <Label htmlFor="opinion">Opinión e interpretaciones (opcional)</Label>
+              <Textarea
+                id="opinion"
+                value={opinion}
+                onChange={(e) => setOpinion(e.target.value)}
+                rows={3}
+                placeholder="Solo si aplica §5.9 / interpretación técnica"
+              />
               <Button
                 type="button"
-                size="sm"
-                variant="secondary"
+                onClick={() => {
+                  if (!confirmProceedWithGaps('continuar a la emisión')) return;
+                  setFirmaOpen(true);
+                }}
+                disabled={!snapshot || emitting}
                 className="w-full"
-                disabled={pdfDownloading}
-                onClick={() => void handleDownloadPdf()}
               >
-                {pdfDownloading ? (
-                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-1" />
-                )}
-                Descargar PDF (borrador)
+                Continuar a firmas…
               </Button>
-            ) : null}
-            {!emitted && (
-              <div className="space-y-2">
-                <Label htmlFor="opinion">Opinión e interpretaciones (opcional)</Label>
-                <Textarea
-                  id="opinion"
-                  value={opinion}
-                  onChange={(e) => setOpinion(e.target.value)}
-                  rows={3}
-                  placeholder="Solo si aplica §5.9 / interpretación técnica"
-                />
-                <Button
-                  onClick={() => {
-                    if (!confirmProceedWithGaps('continuar a la emisión')) return;
-                    setFirmaOpen(true);
-                  }}
-                  disabled={!snapshot || emitting}
-                  className="w-full"
-                >
-                  Continuar a firmas…
-                </Button>
-              </div>
-            )}
+            </div>
           </div>
         </SheetContent>
       </Sheet>

@@ -20,10 +20,7 @@ export function buildInformePdfFilename(
   return options?.borrador ? `${base}-borrador.pdf` : `${base}.pdf`;
 }
 
-export async function downloadInformePdf(
-  snapshot: InformeSnapshot,
-  options?: { filename?: string; borrador?: boolean; numeroMuestreo?: number | null; muestreoId?: string },
-): Promise<void> {
+export async function renderInformePdfBlob(snapshot: InformeSnapshot): Promise<Blob> {
   registerEmaPdfFonts();
 
   const [{ pdf }, { InformeResultadosPDF }] = await Promise.all([
@@ -31,7 +28,14 @@ export async function downloadInformePdf(
     import('@/components/quality/informes/InformeResultadosPDF'),
   ]);
 
-  const blob = await pdf(<InformeResultadosPDF snapshot={snapshot} />).toBlob();
+  return pdf(<InformeResultadosPDF snapshot={snapshot} />).toBlob();
+}
+
+export async function downloadInformePdf(
+  snapshot: InformeSnapshot,
+  options?: { filename?: string; borrador?: boolean; numeroMuestreo?: number | null; muestreoId?: string },
+): Promise<void> {
+  const blob = await renderInformePdfBlob(snapshot);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -46,4 +50,14 @@ export async function downloadInformePdf(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export async function openInformePdfInNewTab(
+  snapshot: InformeSnapshot,
+  options?: { borrador?: boolean; numeroMuestreo?: number | null; muestreoId?: string },
+): Promise<void> {
+  const blob = await renderInformePdfBlob(snapshot);
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener,noreferrer');
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
