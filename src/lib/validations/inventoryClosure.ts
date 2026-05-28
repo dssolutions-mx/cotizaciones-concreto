@@ -8,6 +8,7 @@ export const InitiateClosureSchema = z.object({
   period_end: isoDate,
   variance_threshold_pct: z.number().min(0).max(100).optional().default(2),
   notes: z.string().max(2000).optional(),
+  parent_closure_id: z.string().uuid().optional(),
 }).refine((d) => d.period_end >= d.period_start, {
   message: 'period_end debe ser igual o posterior a period_start',
   path: ['period_end'],

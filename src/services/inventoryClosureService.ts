@@ -43,20 +43,50 @@ export class InventoryClosureService {
     userId: string,
     input: InitiateClosureInput,
   ): Promise<InventoryClosure> {
-    // Guard: no active closure for this plant+period
-    const { data: existing } = await this.supabase
-      .from('inventory_closures')
-      .select('id, status')
-      .eq('plant_id', input.plant_id)
-      .eq('period_start', input.period_start)
-      .eq('period_end', input.period_end)
-      .not('status', 'eq', 'cancelled')
-      .maybeSingle();
+    if (input.parent_closure_id) {
+      // ── Amendment path ─────────────────────────────────────────────────────
+      // Validate the parent exists, is sealed, belongs to the same plant, and matches period
+      const { data: parent } = await this.supabase
+        .from('inventory_closures')
+        .select('id, status, plant_id, period_start, period_end')
+        .eq('id', input.parent_closure_id)
+        .single();
 
-    if (existing) {
-      throw new Error(
-        `Ya existe un cierre ${existing.status} para este período. Cancela el anterior antes de iniciar uno nuevo.`,
-      );
+      if (!parent) throw new Error('El cierre original no existe');
+      if (parent.status !== 'sealed') throw new Error('Solo se puede enmendar un cierre sellado');
+      if (parent.plant_id !== input.plant_id) throw new Error('La enmienda debe ser para la misma planta que el cierre original');
+      if (parent.period_start !== input.period_start || parent.period_end !== input.period_end) {
+        throw new Error('La enmienda debe cubrir exactamente el mismo período que el cierre original');
+      }
+      // Guard: no open amendment already in progress for this parent
+      const { data: openAmend } = await this.supabase
+        .from('inventory_closures')
+        .select('id, status')
+        .eq('parent_closure_id', input.parent_closure_id)
+        .not('status', 'in', '("sealed","cancelled")')
+        .maybeSingle();
+
+      if (openAmend) {
+        throw new Error(`Ya existe una enmienda en progreso (${openAmend.status}) para este cierre. Cancélala antes de iniciar una nueva.`);
+      }
+    } else {
+      // ── Original path — period overlap guard ───────────────────────────────
+      // Detect any non-cancelled original that overlaps [period_start, period_end]
+      const { data: overlapping } = await this.supabase
+        .from('inventory_closures')
+        .select('id, status, period_start, period_end')
+        .eq('plant_id', input.plant_id)
+        .not('status', 'eq', 'cancelled')
+        .is('parent_closure_id', null)
+        .lte('period_start', input.period_end)
+        .gte('period_end', input.period_start)
+        .maybeSingle();
+
+      if (overlapping) {
+        throw new Error(
+          `Ya existe un cierre ${overlapping.status} que se traslapa con este período (${overlapping.period_start} – ${overlapping.period_end}). Cancela ese cierre antes de iniciar uno nuevo.`,
+        );
+      }
     }
 
     // Create closure header
@@ -70,6 +100,7 @@ export class InventoryClosureService {
         variance_threshold_pct: input.variance_threshold_pct ?? 2,
         notes: input.notes ?? null,
         status: 'draft',
+        parent_closure_id: input.parent_closure_id ?? null,
       })
       .select()
       .single();
@@ -77,9 +108,36 @@ export class InventoryClosureService {
     if (error || !closure) throw new Error(`Error al crear cierre: ${error?.message}`);
 
     // Snapshot theoretical inventory
+    // For amendments this naturally includes the original closure's adjustments
+    // because calculateHistoricalInventory reads live material_adjustments data.
     await this.snapshotTheoreticalInventory(closure.id, input.plant_id, input.period_start, input.period_end);
 
     return closure as InventoryClosure;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Cancel
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async cancelClosure(closureId: string, userId: string): Promise<void> {
+    const { data: closure } = await this.supabase
+      .from('inventory_closures')
+      .select('id, status')
+      .eq('id', closureId)
+      .single();
+
+    if (!closure) throw new Error('Cierre no encontrado');
+    if (closure.status === 'sealed') throw new Error('No se puede cancelar un cierre sellado');
+    if (closure.status === 'cancelled') throw new Error('El cierre ya está cancelado');
+
+    const { error } = await this.supabase
+      .from('inventory_closures')
+      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+      .eq('id', closureId);
+
+    if (error) throw new Error(`Error al cancelar cierre: ${error.message}`);
+
+    void userId; // logged via RLS / audit
   }
 
   private async snapshotTheoreticalInventory(
@@ -474,7 +532,7 @@ export class InventoryClosureService {
     let query = this.supabase
       .from('inventory_closures')
       .select(`
-        id, plant_id, period_start, period_end, status, initiated_at, signed_at,
+        id, plant_id, period_start, period_end, status, initiated_at, signed_at, parent_closure_id,
         plant:plants(name),
         initiated_by_user:user_profiles!initiated_by(first_name, last_name)
       `)
@@ -502,6 +560,7 @@ export class InventoryClosureService {
       sealed_at: row.signed_at ?? null,
       material_count: 0,
       materials_requiring_justification: 0,
+      parent_closure_id: row.parent_closure_id ?? null,
     }));
   }
 

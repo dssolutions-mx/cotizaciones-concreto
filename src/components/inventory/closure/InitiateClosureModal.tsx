@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { X, CalendarRange } from 'lucide-react'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import { format, startOfMonth, endOfMonth, subMonths, addDays, parseISO } from 'date-fns'
 
 interface Props {
   plantId: string
@@ -23,6 +23,27 @@ export default function InitiateClosureModal({ plantId, onClose, onCreated }: Pr
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Smart period suggestion: default to the month after the last sealed closure
+  useEffect(() => {
+    async function suggestPeriod() {
+      try {
+        const res = await fetch(`/api/inventory/closures?plant_id=${plantId}&status=sealed&limit=12`)
+        if (!res.ok) return
+        const data = await res.json()
+        const sealed: Array<{ period_end: string }> = data.closures ?? []
+        if (sealed.length === 0) return
+
+        const maxEnd = sealed.reduce((best, c) => (c.period_end > best ? c.period_end : best), sealed[0].period_end)
+        const nextStart = addDays(parseISO(maxEnd), 1)
+        setPeriodStart(toIso(nextStart))
+        setPeriodEnd(toIso(endOfMonth(nextStart)))
+      } catch {
+        // Silently fall back to default
+      }
+    }
+    suggestPeriod()
+  }, [plantId])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

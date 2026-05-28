@@ -83,7 +83,12 @@ function metaRow(ws: ExcelJS.Worksheet, label: string, value: string | number, r
 // ─────────────────────────────────────────────────────────────────────────────
 // Sheet 1: Resumen
 // ─────────────────────────────────────────────────────────────────────────────
-function buildResumenSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail) {
+async function buildResumenSheet(
+  wb: ExcelJS.Workbook,
+  detail: InventoryClosureDetail,
+  signatureBuffer?: Buffer,
+  signatureExtension?: string,
+) {
   const ws = wb.addWorksheet('Resumen')
   ws.views = [{ state: 'frozen', ySplit: 1 }]
   ws.columns = [
@@ -99,11 +104,37 @@ function buildResumenSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail)
   let r = 2
   metaRow(ws, 'Planta', detail.plant?.name ?? '—', r++, 5)
   metaRow(ws, 'Período', `${fmtDate(detail.period_start)} — ${fmtDate(detail.period_end)}`, r++, 5)
+  if (detail.parent_closure_id) {
+    metaRow(ws, 'Tipo', `Enmienda del cierre ${detail.parent_closure_id}`, r++, 5)
+  }
   metaRow(ws, 'Sellado por', detail.signed_by_user
     ? `${detail.signed_by_user.first_name} ${detail.signed_by_user.last_name}`
     : '—', r++, 5)
   metaRow(ws, 'Fecha sellado', detail.signed_at ? fmtDate(detail.signed_at) : 'Pendiente', r++, 5)
   metaRow(ws, 'Umbral de varianza', `${detail.variance_threshold_pct}%`, r++, 5)
+
+  // Embed signature image if available
+  if (signatureBuffer && signatureExtension) {
+    try {
+      const imgId = wb.addImage({ buffer: signatureBuffer, extension: signatureExtension as 'jpeg' | 'png' | 'gif' })
+      ws.addImage(imgId, {
+        tl: { col: 2, row: r },
+        ext: { width: 200, height: 80 },
+        editAs: 'oneCell',
+      })
+      ws.getRow(r).height = 65
+      ws.getRow(r).getCell(1).value = 'Firma'
+      ws.getRow(r).getCell(1).style = {
+        font: { italic: true, size: 9, color: { argb: argb(C.textMuted) }, name: 'Calibri' },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.surfacePanel) } },
+        alignment: { vertical: 'middle' },
+      }
+      r++
+    } catch {
+      // Signature embed failed — skip gracefully, don't break export
+    }
+  }
+
   r++ // blank
 
   // KPI summary headers
@@ -485,7 +516,24 @@ export async function buildInventoryClosureExcel(
   wb.creator = 'DC Concretos — Sistema de Control'
   wb.created = new Date()
 
-  buildResumenSheet(wb, detail)
+  // Fetch signature image for embedding in Resumen sheet
+  let signatureBuffer: Buffer | undefined
+  let signatureExtension: string | undefined
+  if (detail.signature_image_url) {
+    try {
+      const sigRes = await fetch(detail.signature_image_url)
+      if (sigRes.ok) {
+        const arrayBuf = await sigRes.arrayBuffer()
+        signatureBuffer = Buffer.from(arrayBuf)
+        const contentType = sigRes.headers.get('content-type') ?? ''
+        signatureExtension = contentType.includes('png') ? 'png' : 'jpeg'
+      }
+    } catch {
+      // Signature fetch failed — skip gracefully
+    }
+  }
+
+  await buildResumenSheet(wb, detail, signatureBuffer, signatureExtension)
   buildConciliacionSheet(wb, detail)
 
   if (supabase) {

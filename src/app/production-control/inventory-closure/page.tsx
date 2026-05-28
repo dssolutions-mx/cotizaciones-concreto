@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { ClipboardList, Plus, ChevronRight, Lock, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { ClipboardList, Plus, ChevronRight, Lock, Clock, CheckCircle2, AlertCircle, FilePen } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb'
@@ -141,7 +141,13 @@ export default function InventoryClosureListPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
+                {c.parent_closure_id && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                    <FilePen className="h-3 w-3" />
+                    Enmienda
+                  </span>
+                )}
                 <StatusBadge status={c.status} />
                 <ChevronRight className="h-4 w-4 text-stone-400 group-hover:text-stone-600 transition-colors" />
               </div>

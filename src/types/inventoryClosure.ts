@@ -30,6 +30,7 @@ export interface InventoryClosure {
   variance_threshold_pct: number;
   notes?: string | null;
   excel_export_path?: string | null;
+  parent_closure_id?: string | null;
   created_at: string;
   updated_at: string;
   // Joined
@@ -109,6 +110,7 @@ export interface InitiateClosureInput {
   period_end: string;
   variance_threshold_pct?: number;
   notes?: string;
+  parent_closure_id?: string;
 }
 
 // Input for bulk-upserting physical counts
@@ -146,4 +148,5 @@ export interface InventoryClosureSummary {
   sealed_at?: string | null;
   material_count: number;
   materials_requiring_justification: number;
+  parent_closure_id?: string | null;
 }
