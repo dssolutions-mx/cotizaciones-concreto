@@ -9,16 +9,20 @@ export function EmaVerificacionReportToolbar({
   backLabel = 'Volver',
   title,
   onDownloadPdf,
+  onDownloadDocx,
   onOpenPdf,
   downloading = false,
+  downloadingDocx = false,
   disabled = false,
 }: {
   backHref: string
   backLabel?: string
   title: string
   onDownloadPdf: () => void | Promise<void>
+  onDownloadDocx?: () => void | Promise<void>
   onOpenPdf?: () => void | Promise<void>
   downloading?: boolean
+  downloadingDocx?: boolean
   disabled?: boolean
 }) {
   return (
@@ -39,18 +43,35 @@ export function EmaVerificacionReportToolbar({
             size="sm"
             variant="outline"
             className="gap-1.5 border-stone-300"
-            disabled={disabled || downloading}
+            disabled={disabled || downloading || downloadingDocx}
             onClick={() => void onOpenPdf()}
           >
             <ExternalLink className="h-4 w-4" />
             Abrir PDF
           </Button>
         )}
+        {onDownloadDocx && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-stone-300"
+            disabled={disabled || downloading || downloadingDocx}
+            onClick={() => void onDownloadDocx()}
+          >
+            {downloadingDocx ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {downloadingDocx ? 'Generando…' : 'Descargar DOCX'}
+          </Button>
+        )}
         <Button
           type="button"
           size="sm"
           className="gap-1.5 bg-[#1B365D] hover:bg-[#142848] text-white"
-          disabled={disabled || downloading}
+          disabled={disabled || downloading || downloadingDocx}
           onClick={() => void onDownloadPdf()}
         >
           {downloading ? (

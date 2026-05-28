@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { EmaVerificacionReportToolbar } from '@/components/ema/EmaVerificacionReportToolbar';
 import { InformeEnsayoPdfViewer } from '@/components/quality/informes/InformeEnsayoPdfViewer';
+import { downloadInformeDocx } from '@/lib/quality/downloadInformeDocx';
 import {
   downloadInformePdf,
   openInformePdfInNewTab,
@@ -49,7 +50,8 @@ export default function MuestreoInformeImprimirPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [docxBusy, setDocxBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!muestreoId) return;
@@ -110,7 +112,7 @@ export default function MuestreoInformeImprimirPage() {
     async (mode: 'download' | 'open') => {
       if (!snapshot || !muestreoId) return;
       setPdfBusy(true);
-      setPdfError(null);
+      setExportError(null);
       try {
         const options = {
           borrador: !emitted,
@@ -123,13 +125,30 @@ export default function MuestreoInformeImprimirPage() {
           await openInformePdfInNewTab(snapshot, options);
         }
       } catch (e: unknown) {
-        setPdfError(e instanceof Error ? e.message : 'No se pudo generar el PDF');
+        setExportError(e instanceof Error ? e.message : 'No se pudo generar el PDF');
       } finally {
         setPdfBusy(false);
       }
     },
     [snapshot, muestreoId, emitted, numeroMuestreo],
   );
+
+  const runDocx = useCallback(async () => {
+    if (!snapshot || !muestreoId) return;
+    setDocxBusy(true);
+    setExportError(null);
+    try {
+      await downloadInformeDocx(snapshot, {
+        borrador: !emitted,
+        numeroMuestreo,
+        muestreoId,
+      });
+    } catch (e: unknown) {
+      setExportError(e instanceof Error ? e.message : 'No se pudo generar el DOCX');
+    } finally {
+      setDocxBusy(false);
+    }
+  }, [snapshot, muestreoId, emitted, numeroMuestreo]);
 
   return (
     <div className="-m-4 md:-m-6 min-h-screen bg-stone-50">
@@ -138,8 +157,10 @@ export default function MuestreoInformeImprimirPage() {
         backLabel="Muestreo"
         title={title}
         downloading={pdfBusy}
+        downloadingDocx={docxBusy}
         disabled={!snapshot || loading}
         onDownloadPdf={() => runPdf('download')}
+        onDownloadDocx={() => runDocx()}
         onOpenPdf={() => runPdf('open')}
       />
 
@@ -155,14 +176,16 @@ export default function MuestreoInformeImprimirPage() {
             <>
               {' '}
               <strong>Borrador</strong> — se actualiza con los ensayos y mediciones de campo ya capturados;
-              no sustituye el informe oficial con folio y firmas.
+              no sustituye el informe oficial con folio y firmas. El archivo Word (DOCX) es una
+              copia de trabajo editable; el registro controlado oficial sigue siendo el PDF emitido en el
+              sistema.
             </>
           )}
         </p>
 
-        {pdfError && (
+        {exportError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {pdfError}
+            {exportError}
           </div>
         )}
 

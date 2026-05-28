@@ -8,6 +8,11 @@ import {
 } from '@/components/ema/pdf/verificacionPdfTable';
 import { verificacionPdfStyles as s } from '@/components/ema/pdf/verificacionPdfStyles';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
+import {
+  buildCompressionExportTable,
+  buildFreshExportTable,
+  informeFreshShowsLecturaCol,
+} from '@/lib/quality/informeDocx/informeExportTables';
 import type { InformeFirmaRol, InformeSnapshot } from '@/types/informe-ensayo';
 
 type Props = { snapshot: InformeSnapshot };
@@ -138,7 +143,9 @@ export function InformeResultadosPDF({ snapshot }: Props) {
   const muestreadoLabel =
     snapshot.muestreo.muestreado_por === 'CLIENTE' ? 'Cliente' : 'Laboratorio acreditado';
 
-  const showLecturaCol = snapshot.resultados_fresco.some((r) => r.lectura);
+  const showLecturaCol = informeFreshShowsLecturaCol(snapshot);
+  const freshExport = buildFreshExportTable(snapshot);
+  const compressionExport = buildCompressionExportTable(snapshot);
 
   const freshCols: PdfTableColumn[] = showLecturaCol
     ? [
@@ -150,30 +157,8 @@ export function InformeResultadosPDF({ snapshot }: Props) {
       ]
     : FRESH_COLS;
 
-  const freshRows = snapshot.resultados_fresco.map((r) =>
-    showLecturaCol
-      ? [
-          r.ensayo,
-          r.lectura ?? '—',
-          r.uncertainty ? `${r.resultado}\n${r.uncertainty.display}` : r.resultado,
-          r.especificado,
-          r.conformidad,
-        ]
-      : [
-          r.ensayo,
-          r.uncertainty ? `${r.resultado}\n${r.uncertainty.display}` : r.resultado,
-          r.especificado,
-          r.conformidad,
-        ],
-  );
-
-  const compressionRows = snapshot.resultados_compresion.map((r) => [
-    r.identificacion,
-    r.edad_dias != null ? `${r.edad_dias} d` : '—',
-    r.carga_kn != null ? String(r.carga_kn) : '—',
-    r.fc_kg_cm2 != null ? String(r.fc_kg_cm2) : '—',
-    r.conformidad,
-  ]);
+  const freshRows = freshExport.rows;
+  const compressionRows = compressionExport.rows;
 
   const firmaSlots: InformeFirmaRol[] = ['elaboro', 'reviso', 'autorizo'];
   const metodoCompresion = snapshot.compresion_resumen.metodo ?? 'NMX-C-155-ONNCCE-2017';

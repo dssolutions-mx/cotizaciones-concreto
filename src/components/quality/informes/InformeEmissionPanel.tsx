@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Award, CheckCircle2, Download, Eye, FileText, Loader2 } from 'lucide-react';
+import { Award, CheckCircle2, Download, Eye, FileText, FileType, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
+import { downloadInformeDocx } from '@/lib/quality/downloadInformeDocx';
 import { downloadInformePdf } from '@/lib/quality/downloadInformePdf';
 
 type Props = {
@@ -50,6 +51,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
   const [firmaOpen, setFirmaOpen] = useState(false);
   const [emitting, setEmitting] = useState(false);
   const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [docxDownloading, setDocxDownloading] = useState(false);
   const [opinion, setOpinion] = useState('');
   const [profileMeta, setProfileMeta] = useState<{
     first_name?: string | null;
@@ -199,18 +201,23 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     }
   };
 
+  const resolveSnapshotForExport = async (): Promise<InformeSnapshot | null> => {
+    const snap = emitted ? snapshot : (await refreshPreview()) ?? snapshot;
+    if (!snap) {
+      toast({
+        title: 'No hay datos para exportar',
+        description: previewError ?? 'Genere la vista previa e intente de nuevo.',
+        variant: 'destructive',
+      });
+    }
+    return snap;
+  };
+
   const handleDownloadPdf = async () => {
     setPdfDownloading(true);
     try {
-      const snap = emitted ? snapshot : (await refreshPreview()) ?? snapshot;
-      if (!snap) {
-        toast({
-          title: 'No hay datos para el PDF',
-          description: previewError ?? 'Genere la vista previa e intente de nuevo.',
-          variant: 'destructive',
-        });
-        return;
-      }
+      const snap = await resolveSnapshotForExport();
+      if (!snap) return;
       await downloadInformePdf(snap, {
         borrador: !emitted,
         numeroMuestreo: muestreo.numero_muestreo,
@@ -224,6 +231,27 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
       });
     } finally {
       setPdfDownloading(false);
+    }
+  };
+
+  const handleDownloadDocx = async () => {
+    setDocxDownloading(true);
+    try {
+      const snap = await resolveSnapshotForExport();
+      if (!snap) return;
+      await downloadInformeDocx(snap, {
+        borrador: !emitted,
+        numeroMuestreo: muestreo.numero_muestreo,
+        muestreoId: muestreo.id,
+      });
+    } catch (e) {
+      toast({
+        title: 'Error al generar el Word',
+        description: e instanceof Error ? e.message : 'Revise la consola para más detalle.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDocxDownloading(false);
     }
   };
 
@@ -330,7 +358,7 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                   type="button"
                   size="sm"
                   variant="secondary"
-                  disabled={pdfDownloading || previewLoading || (!emitted && !snapshot)}
+                  disabled={pdfDownloading || docxDownloading || previewLoading || (!emitted && !snapshot)}
                   onClick={() => void handleDownloadPdf()}
                 >
                   {pdfDownloading ? (
@@ -339,6 +367,20 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
                     <Download className="h-4 w-4 mr-1" />
                   )}
                   {emitted ? 'Descargar PDF' : 'Descargar PDF (borrador)'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pdfDownloading || docxDownloading || previewLoading || (!emitted && !snapshot)}
+                  onClick={() => void handleDownloadDocx()}
+                >
+                  {docxDownloading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <FileType className="h-4 w-4 mr-1" />
+                  )}
+                  {emitted ? 'Descargar Word' : 'Descargar Word (borrador)'}
                 </Button>
                 {!snapshot ? (
                   <Button
