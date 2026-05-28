@@ -552,8 +552,8 @@ export default function CreateSupplierInvoiceDrawer({
         toast.error(`El CFDI está dirigido a otro RFC (${data.cfdi.receptor_rfc}). El RFC configurado es ${data.company_rfc}.`)
         return
       }
-      if (data.receptor_match === 'company_rfc_not_set') {
-        toast.warning('El RFC de la empresa no está configurado en system_settings; no se pudo validar receptor.')
+      if (data.receptor_match === 'skipped') {
+        toast.warning('RFC de empresa no configurado; no se validó el receptor del CFDI.')
       }
       if (data.duplicate_invoice) {
         toast.error(`Este CFDI ya está registrado en la factura ${data.duplicate_invoice.invoice_number}`)

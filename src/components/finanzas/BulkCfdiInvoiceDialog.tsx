@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, CheckCircle2, FileUp, Loader2, Upload,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileUp, Loader2, Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { OrphanEntry } from './CreateSupplierInvoiceDrawer'
@@ -21,11 +21,14 @@ import type { ParsedCfdiBulkItem } from '@/app/api/ap/cfdi/parse-bulk/route'
 import {
   matchCfdiToEntries,
   getEligibleCfdisForEntry,
+  getOrphanCfdis,
+  buildMatchDetails,
   cfdiDisplayLabel,
   type BulkAssignment,
   type MatchConfidence,
   type ParsedCfdiForMatch,
 } from '@/lib/ap/matchCfdiToEntries'
+import BulkCfdiMatchReview from '@/components/finanzas/BulkCfdiMatchReview'
 import { retentionsFromCfdi, toRetentionPayload } from '@/components/finanzas/InvoiceRetentionsEditor'
 
 type Step = 'upload' | 'assign' | 'creating' | 'results'
@@ -171,6 +174,10 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
   const [filterUnassigned, setFilterUnassigned] = useState(false)
   const [filterWarnings, setFilterWarnings] = useState(false)
   const [createResult, setCreateResult] = useState<BulkCreateResult | null>(null)
+  const [companyRfc, setCompanyRfc] = useState<string | null>(null)
+  const [skippedNonInvoice, setSkippedNonInvoice] = useState<Array<{ file: string; tipo: string; emisor_rfc: string; folio: string | null }>>([])
+  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null)
+  const [showOrphanCfdis, setShowOrphanCfdis] = useState(false)
 
   const parsedForMatch = useMemo(() => toMatchInput(parsedCfdis), [parsedCfdis])
   const entryById = useMemo(() => new Map(entries.map(e => [e.id, e])), [entries])
@@ -185,6 +192,10 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
     setFilterUnassigned(false)
     setFilterWarnings(false)
     setCreateResult(null)
+    setCompanyRfc(null)
+    setSkippedNonInvoice([])
+    setExpandedReviewId(null)
+    setShowOrphanCfdis(false)
     if (fileRef.current) fileRef.current.value = ''
   }, [])
 
@@ -227,6 +238,8 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
       const errors: Array<{ file: string; message: string }> = data.errors ?? []
       setParsedCfdis(parsed)
       setParseErrors(errors)
+      setCompanyRfc(data.company_rfc ?? null)
+      setSkippedNonInvoice(data.skipped_non_invoice ?? [])
 
       if (parsed.length === 0) {
         toast.error('No se pudo leer ningún CFDI válido')
@@ -236,7 +249,9 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
       const auto = matchCfdiToEntries(entries, toMatchInput(parsed))
       setAssignments(auto)
       setStep('assign')
-      toast.success(`${parsed.length} CFDI(s) listos${errors.length ? `, ${errors.length} con error` : ''}`)
+      toast.success(
+        `${parsed.length} factura(s) de ingreso${data.skipped_non_invoice?.length ? `, ${data.skipped_non_invoice.length} omitido(s) (no tipo I)` : ''}${errors.length ? `, ${errors.length} con error` : ''}`,
+      )
     } finally {
       setParsing(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -268,54 +283,94 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
     })
   }, [enrichedRows, filterUnassigned, filterWarnings])
 
-  const unassignedCount = assignments.filter(a => !a.cfdi_id).length
-  const blockingIssues = enrichedRows.some(r =>
-    !r.assignment.cfdi_id
-    || r.warnings.some(w =>
-      w.includes('RFC receptor')
-      || w.includes('ya registrado')
-      || w.includes('más de una recepción'),
-    ),
+  const orphanCfdis = useMemo(
+    () => getOrphanCfdis(parsedForMatch, assignments),
+    [parsedForMatch, assignments],
   )
+
+  const isBlockerWarning = (w: string) =>
+    w.includes('RFC receptor no coincide')
+    || w.includes('ya registrado')
+    || w.includes('más de una recepción')
+    || w.includes('Proveedor no coincide')
+
+  const rowsToCreate = useMemo(() =>
+    enrichedRows.filter(r =>
+      r.assignment.cfdi_id
+      && r.assignment.include_in_create !== false
+      && !r.warnings.some(isBlockerWarning),
+    ),
+  [enrichedRows])
+
+  const blockingIssues = enrichedRows.some(r =>
+    r.assignment.cfdi_id
+    && r.assignment.include_in_create !== false
+    && r.warnings.some(isBlockerWarning),
+  )
+
+  const unassignedCount = assignments.filter(a => !a.cfdi_id).length
+  const matchedCount = assignments.filter(a => a.cfdi_id).length
 
   const setAssignmentCfdi = (entryId: string, cfdiId: string | null) => {
     setAssignments(prev => prev.map(a => {
       if (a.entry_id !== entryId) return a
       if (!cfdiId) {
-        return { ...a, cfdi_id: null, confidence: null, warnings: ['Sin CFDI asignado'] }
+        return {
+          ...a,
+          cfdi_id: null,
+          confidence: null,
+          warnings: ['Sin CFDI asignado — se omitirá al facturar'],
+          match_details: undefined,
+          include_in_create: false,
+        }
       }
       const parsed = parsedForMatch.find(p => p.id === cfdiId)
       const entry = entryById.get(entryId)!
-      const eligible = getEligibleCfdisForEntry(entry, parsedForMatch)
-      if (!eligible.some(p => p.id === cfdiId)) {
-        return { ...a, cfdi_id: cfdiId, confidence: 'manual', warnings: ['Asignación manual'] }
-      }
+      if (!parsed) return a
+
+      const match_details = buildMatchDetails(entry, parsed.cfdi)
       const auto = matchCfdiToEntries([entry], parsedForMatch)
-      const match = auto[0]
+      const confidence = auto[0]?.cfdi_id === cfdiId ? auto[0].confidence : 'manual'
+      const warnings = rowWarnings(
+        entry,
+        { ...a, cfdi_id: cfdiId, confidence, warnings: [], match_details },
+        parsedForMatch,
+        duplicateCfdiIds,
+      )
+
       return {
         entry_id: entryId,
         cfdi_id: cfdiId,
-        confidence: match.cfdi_id === cfdiId ? match.confidence : 'manual',
-        warnings: parsed ? rowWarnings(entry, { ...a, cfdi_id: cfdiId }, parsedForMatch, new Set()) : [],
+        confidence,
+        warnings,
+        match_details,
+        include_in_create: true,
       }
     }))
   }
 
+  const toggleInclude = (entryId: string, include: boolean) => {
+    setAssignments(prev => prev.map(a =>
+      a.entry_id === entryId ? { ...a, include_in_create: include } : a,
+    ))
+  }
+
   const handleCreate = async () => {
+    if (rowsToCreate.length === 0) {
+      toast.error('No hay recepciones listas para facturar')
+      return
+    }
     if (blockingIssues) {
-      toast.error('Corrige las asignaciones antes de continuar')
+      toast.error('Corrige las asignaciones con errores bloqueantes antes de continuar')
       return
     }
 
     setStep('creating')
     try {
-      const payloads = assignments
-        .filter(a => a.cfdi_id)
-        .map(a => {
-          const entry = entryById.get(a.entry_id)!
-          const parsed = parsedCfdis.find(p => p.id === a.cfdi_id)!
-          return buildInvoicePayload(entry, parsed)
-        })
+      const payloads = rowsToCreate.map(({ assignment, entry }) => {
+        const parsed = parsedCfdis.find(p => p.id === assignment.cfdi_id)!
+        return buildInvoicePayload(entry, parsed)
+      })
 
       const res = await fetch('/api/ap/invoices/bulk', {
         method: 'POST',
@@ -349,7 +404,7 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[92vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Facturar en lote con XML</DialogTitle>
           <DialogDescription>
@@ -380,7 +435,7 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                 {parsing ? 'Leyendo CFDIs…' : 'Arrastra o haz clic para subir ZIP o XMLs'}
               </div>
               <div className="text-xs text-stone-500">
-                Acepta .zip con XMLs o varios archivos .xml a la vez
+                Sube el ZIP completo del proveedor — los XML sin recepción se listan como huérfanos
               </div>
               <input
                 id="bulk-cfdi-upload"
@@ -400,6 +455,35 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
 
           {step === 'assign' && (
             <>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-sky-100 text-sky-800 px-2.5 py-1 font-medium">
+                  {matchedCount} emparejada{matchedCount !== 1 ? 's' : ''}
+                </span>
+                <span className="rounded-full bg-stone-100 text-stone-700 px-2.5 py-1">
+                  {unassignedCount} recepción{unassignedCount !== 1 ? 'es' : ''} sin CFDI
+                </span>
+                <span className="rounded-full bg-stone-100 text-stone-700 px-2.5 py-1">
+                  {orphanCfdis.length} CFDI{orphanCfdis.length !== 1 ? 's' : ''} huérfano{orphanCfdis.length !== 1 ? 's' : ''}
+                </span>
+                {skippedNonInvoice.length > 0 && (
+                  <span className="rounded-full bg-stone-100 text-stone-500 px-2.5 py-1">
+                    {skippedNonInvoice.length} omitido(s) — no factura ingreso
+                  </span>
+                )}
+              </div>
+
+              {companyRfc ? (
+                <div className="text-xs text-emerald-700 flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  RFC empresa configurado: <span className="font-mono font-semibold">{companyRfc}</span>
+                </div>
+              ) : (
+                <div className="text-xs text-stone-600 flex items-center gap-1.5 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                  RFC empresa no encontrado en configuración — validación de receptor omitida
+                </div>
+              )}
+
               {parseErrors.length > 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-1">
                   <div className="font-medium flex items-center gap-1">
@@ -454,6 +538,8 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                 <table className="w-full text-xs">
                   <thead className="bg-stone-50 border-b">
                     <tr>
+                      <th className="w-8 px-2 py-2" />
+                      <th className="text-left px-2 py-2 font-medium text-stone-600 w-8">Fact.</th>
                       <th className="text-left px-3 py-2 font-medium text-stone-600">Recepción</th>
                       <th className="text-left px-3 py-2 font-medium text-stone-600">Material</th>
                       <th className="text-right px-3 py-2 font-medium text-stone-600">Monto</th>
@@ -467,21 +553,39 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                       const remisionLabel = orphanEntryLoggedRemisionLabel(entry, 'material')
                       const eligible = getEligibleCfdisForEntry(entry, parsedForMatch)
                       const selectedParsed = parsedForMatch.find(p => p.id === assignment.cfdi_id)
-                      const hasBlocker = warnings.some(w =>
-                        w.includes('RFC receptor')
-                        || w.includes('ya registrado')
-                        || w.includes('más de una recepción'),
-                      )
+                      const hasBlocker = warnings.some(isBlockerWarning)
+                      const isExpanded = expandedReviewId === entry.id
+                      const canReview = Boolean(assignment.cfdi_id && assignment.match_details)
                       return (
+                        <React.Fragment key={entry.id}>
                         <tr
-                          key={entry.id}
                           className={cn(
-                            'border-b last:border-0',
-                            !assignment.cfdi_id && 'bg-red-50/50',
+                            'border-b',
+                            !assignment.cfdi_id && 'bg-stone-50/80',
                             hasBlocker && assignment.cfdi_id && 'bg-red-50/30',
-                            assignment.confidence === 'high' && !hasBlocker && 'bg-emerald-50/30',
+                            assignment.confidence === 'high' && !hasBlocker && assignment.cfdi_id && 'bg-emerald-50/20',
                           )}
                         >
+                          <td className="px-2 py-2">
+                            {canReview ? (
+                              <button
+                                type="button"
+                                className="p-0.5 text-stone-400 hover:text-stone-700"
+                                onClick={() => setExpandedReviewId(isExpanded ? null : entry.id)}
+                                aria-label="Ver comparación"
+                              >
+                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              </button>
+                            ) : null}
+                          </td>
+                          <td className="px-2 py-2">
+                            <Checkbox
+                              checked={assignment.include_in_create !== false && Boolean(assignment.cfdi_id)}
+                              disabled={!assignment.cfdi_id || hasBlocker}
+                              onCheckedChange={(v) => toggleInclude(entry.id, Boolean(v))}
+                              aria-label="Incluir en lote"
+                            />
+                          </td>
                           <td className="px-3 py-2 font-mono">
                             <div>{entry.entry_number}</div>
                             {remisionLabel && (
@@ -506,14 +610,17 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value={NONE_VALUE}>— Sin asignar —</SelectItem>
-                                {eligible.map(p => (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    {cfdiDisplayLabel(p)}
-                                  </SelectItem>
-                                ))}
-                                {assignment.cfdi_id && !eligible.some(p => p.id === assignment.cfdi_id) && selectedParsed && (
+                                {parsedForMatch.map(p => {
+                                  const isEligible = eligible.some(e => e.id === p.id)
+                                  return (
+                                    <SelectItem key={p.id} value={p.id}>
+                                      {cfdiDisplayLabel(p)}{!isEligible ? ' (revisar)' : ''}
+                                    </SelectItem>
+                                  )
+                                })}
+                                {assignment.cfdi_id && !parsedForMatch.some(p => p.id === assignment.cfdi_id) && selectedParsed && (
                                   <SelectItem value={assignment.cfdi_id}>
-                                    {cfdiDisplayLabel(selectedParsed)} (no elegible)
+                                    {cfdiDisplayLabel(selectedParsed)}
                                   </SelectItem>
                                 )}
                               </SelectContent>
@@ -544,6 +651,19 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                             )}
                           </td>
                         </tr>
+                        {isExpanded && assignment.match_details && selectedParsed && (
+                          <tr className="border-b bg-white">
+                            <td colSpan={8} className="px-3 py-2">
+                              <BulkCfdiMatchReview
+                                fields={assignment.match_details.fields}
+                                scoreBreakdown={assignment.match_details.score_breakdown}
+                                fileName={selectedParsed.file_name}
+                                emisorNombre={selectedParsed.cfdi.emisor_nombre}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
                       )
                     })}
                   </tbody>
@@ -551,9 +671,51 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
               </div>
 
               {unassignedCount > 0 && (
-                <p className="text-xs text-red-600">
-                  Faltan {unassignedCount} asignación{unassignedCount !== 1 ? 'es' : ''}
+                <p className="text-xs text-stone-500">
+                  {unassignedCount} recepción{unassignedCount !== 1 ? 'es' : ''} sin CFDI — puedes facturarlas después o subir más XML.
                 </p>
+              )}
+
+              {(orphanCfdis.length > 0 || skippedNonInvoice.length > 0) && (
+                <div className="rounded-lg border border-stone-200 overflow-hidden">
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-stone-700 bg-stone-50 hover:bg-stone-100"
+                    onClick={() => setShowOrphanCfdis(v => !v)}
+                  >
+                    <span>
+                      CFDIs sin recepción ({orphanCfdis.length})
+                      {skippedNonInvoice.length > 0 && ` · ${skippedNonInvoice.length} no factura ingreso`}
+                    </span>
+                    {showOrphanCfdis ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  </button>
+                  {showOrphanCfdis && (
+                    <div className="max-h-48 overflow-y-auto divide-y divide-stone-100 text-xs">
+                      {orphanCfdis.map(p => (
+                        <div key={p.id} className="px-3 py-2 flex justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-mono text-stone-800">{cfdiDisplayLabel(p)}</div>
+                            <div className="text-[10px] text-stone-500 truncate">
+                              {p.cfdi.conceptos[0]?.descripcion ?? p.file_name}
+                            </div>
+                          </div>
+                          <span className="text-stone-400 shrink-0">sin match</span>
+                        </div>
+                      ))}
+                      {skippedNonInvoice.slice(0, 50).map((s, i) => (
+                        <div key={`skip-${i}`} className="px-3 py-2 flex justify-between gap-2 text-stone-500">
+                          <span className="truncate">{s.folio || s.file} · {s.emisor_rfc}</span>
+                          <span className="shrink-0">tipo {s.tipo}</span>
+                        </div>
+                      ))}
+                      {skippedNonInvoice.length > 50 && (
+                        <div className="px-3 py-2 text-stone-400 text-[10px]">
+                          … y {skippedNonInvoice.length - 50} más omitidos
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -627,11 +789,11 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
               <Button
                 type="button"
                 className="bg-sky-700 hover:bg-sky-800"
-                disabled={blockingIssues || assignments.length === 0}
+                disabled={rowsToCreate.length === 0 || blockingIssues}
                 onClick={() => void handleCreate()}
               >
                 <Upload className="h-4 w-4 mr-1" />
-                Crear {assignments.filter(a => a.cfdi_id).length} factura(s)
+                Crear {rowsToCreate.length} factura{rowsToCreate.length !== 1 ? 's' : ''}
               </Button>
             </>
           )}

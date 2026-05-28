@@ -668,7 +668,15 @@ export class InventoryDashboardService {
       historicalAdjustmentsByMaterial = new Map<string, { additions: number; withdrawals: number }>();
       (historicalAdjustmentsAggRows || []).forEach((adj) => {
         const qty = Number(adj.quantity_adjusted || 0);
-        if (isPositiveAdjustmentType(adj.adjustment_type || '') && openFifoMaterialIds.has(adj.material_id)) {
+        // initial_count is the canonical opening-balance book entry; always include it when it
+        // falls before startDate (the date query already ensures adjustment_date < startDate).
+        // Other positive adjustment types that have a paired ADJP-* synthetic layer (physical_count,
+        // positive_correction) are still excluded to avoid double-counting with their FIFO layers.
+        if (
+          isPositiveAdjustmentType(adj.adjustment_type || '') &&
+          adj.adjustment_type !== 'initial_count' &&
+          openFifoMaterialIds.has(adj.material_id)
+        ) {
           return;
         }
         const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');

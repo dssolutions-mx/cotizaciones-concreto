@@ -280,14 +280,20 @@ export default function ProcurementMaterialEntriesView({
   const entryIdFromUrl = searchParams.get('entry_id') || undefined
   const materialIdFromUrl = searchParams.get('material_id') || undefined
   const plantIdFromUrl = searchParams.get('plant_id') || undefined
-  const entradasViewRaw = searchParams.get('entradas_view')
-  // absent, entradas_view=list, or legacy/unknown values → Historial (list)
-  const entradasView =
-    entradasViewRaw === 'precios'
-      ? 'precios'
-      : entradasViewRaw === 'revisadas'
-        ? 'revisadas'
-        : 'list'
+  type EntradasView = 'list' | 'precios' | 'revisadas'
+  const entradasViewFromUrl = useMemo((): EntradasView => {
+    const raw = searchParams.get('entradas_view')
+    if (raw === 'precios') return 'precios'
+    if (raw === 'revisadas') return 'revisadas'
+    // absent, entradas_view=list, or legacy/unknown values → Historial (list)
+    return 'list'
+  }, [searchParams])
+  // Optimistic sub-tab while router.replace catches up (avoids controlled Tabs snapping back).
+  const [entradasViewOverride, setEntradasViewOverride] = useState<EntradasView | null>(null)
+  useEffect(() => {
+    setEntradasViewOverride(null)
+  }, [entradasViewFromUrl])
+  const entradasView = entradasViewOverride ?? entradasViewFromUrl
 
   const effectivePlantId = plantIdFromUrl || workspacePlantId || undefined
 
@@ -305,6 +311,11 @@ export default function ProcurementMaterialEntriesView({
   const [inspectionEntry, setInspectionEntry] = useState<MaterialEntry | null>(null)
   const autoPreciosAppliedRef = useRef(false)
   const inspectionAutoOpenedForEntryRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (searchParams.has('entradas_view')) {
+      autoPreciosAppliedRef.current = true
+    }
+  }, [searchParams])
   const { availablePlants, currentPlant, refreshPlantData } = usePlantContext()
 
   // ── Pending entries (queue) ──
@@ -435,7 +446,8 @@ export default function ProcurementMaterialEntriesView({
   )
 
   const setEntradasView = useCallback(
-    (v: 'list' | 'precios' | 'revisadas') => {
+    (v: EntradasView) => {
+      setEntradasViewOverride(v)
       autoPreciosAppliedRef.current = true
       replaceQuery({ entradas_view: v })
     },
@@ -537,12 +549,16 @@ export default function ProcurementMaterialEntriesView({
     setSelectedQueueEntryId(pendingEntries[0].id)
   }, [pendingLoading, pendingEntries, selectedQueueEntryId])
 
-  // Auto-switch to pricing queue when pending entries exist
+  // Auto-switch to pricing queue when pending entries exist (never override an explicit sub-view).
   useEffect(() => {
     if (!canReviewPricing || pendingLoading) return
-    if (searchParams.has('entradas_view')) return
     if (poIdFromUrl || entryIdFromUrl) return
     if (autoPreciosAppliedRef.current) return
+    const liveView =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('entradas_view')
+        : searchParams.get('entradas_view')
+    if (liveView) return
     if (pendingEntries.length > 0) {
       autoPreciosAppliedRef.current = true
       replaceQuery({ entradas_view: 'precios' })
@@ -1155,7 +1171,7 @@ export default function ProcurementMaterialEntriesView({
       {canReviewPricing ? (
         <Tabs
           value={entradasView}
-          onValueChange={(v) => setEntradasView(v as 'list' | 'precios' | 'revisadas')}
+          onValueChange={(v) => setEntradasView(v as EntradasView)}
           activationMode="manual"
           className="flex-1 min-h-0 flex flex-col"
         >

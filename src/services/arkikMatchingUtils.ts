@@ -1,5 +1,53 @@
 // Shared helpers for strict recipe matching between remisiones and order items
 
+/**
+ * Parse a date-only value (YYYY-MM-DD or Date) as a local calendar date (no TZ shift).
+ * Date objects use local year/month/day only (time-of-day ignored for calendar day).
+ */
+export function parseArkikLocalDate(dateInput: string | Date): Date {
+  if (dateInput instanceof Date) {
+    return new Date(
+      dateInput.getFullYear(),
+      dateInput.getMonth(),
+      dateInput.getDate()
+    );
+  }
+  if (!dateInput) return new Date();
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(dateInput);
+  if (m) {
+    const year = Number(m[1]);
+    const month = Number(m[2]) - 1;
+    const day = Number(m[3]);
+    return new Date(year, month, day);
+  }
+  return new Date(dateInput);
+}
+
+/** Format a Date as YYYY-MM-DD using local components (no UTC conversion). */
+export function formatArkikLocalYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Extract YYYY-MM-DD from staging/remisión fecha without timezone conversion. */
+export function extractArkikLocalYmdString(dateInput: string | Date): string {
+  if (typeof dateInput === 'string') {
+    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(dateInput);
+    if (m) return m[0];
+  }
+  if (dateInput instanceof Date) {
+    return formatArkikLocalYmd(parseArkikLocalDate(dateInput));
+  }
+  return '';
+}
+
+/** Local calendar date for Arkik grouping keys and order labels (Pitahaya UTC-split fix). */
+export function formatStagingRemisionLocalDate(fecha: string | Date): string {
+  return extractArkikLocalYmdString(fecha);
+}
+
 export interface MinimalOrderItem {
   recipe_id?: string | null;
   master_recipe_id?: string | null;  // NEW: Master recipe support

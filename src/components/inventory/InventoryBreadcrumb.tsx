@@ -75,11 +75,23 @@ const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Puntos de Reorden', href: '/production-control/reorder-config', icon: Settings }
   ],
+  '/production-control/inventory-closure': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Cierre de inventario', href: '/production-control/inventory-closure', icon: ClipboardPlus }
+  ],
 }
 
 export default function InventoryBreadcrumb() {
   const pathname = usePathname()
-  const breadcrumbItems = inventoryRoutes[pathname] || []
+
+  // Exact match first; then fall back to prefix match for dynamic routes
+  let breadcrumbItems = inventoryRoutes[pathname] || []
+  if (breadcrumbItems.length === 0) {
+    const matchedKey = Object.keys(inventoryRoutes).find(
+      (key) => pathname.startsWith(key + '/') && key !== '/production-control',
+    )
+    if (matchedKey) breadcrumbItems = inventoryRoutes[matchedKey]
+  }
 
   if (breadcrumbItems.length === 0) {
     return null

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
+import { fetchCompanyRfc, compareReceptorRfc } from '@/lib/ap/companyRfc'
 import { extractXmlFromFormData } from '@/lib/sat/extractXmlFromUpload'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
@@ -9,7 +10,7 @@ export type ParsedCfdiBulkItem = {
   id: string
   file_name: string
   cfdi: ReturnType<typeof parseCfdiXml>
-  receptor_match: 'ok' | 'mismatch' | 'company_rfc_not_set'
+  receptor_match: 'ok' | 'mismatch' | 'skipped'
   company_rfc: string | null
   supplier_group: { id: string; name: string; rfc: string | null } | null
   duplicate_invoice: { id: string; invoice_number: string } | null
@@ -33,35 +34,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: extracted.error }, { status: 400 })
     }
 
-    const { data: setting } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'company_rfc')
-      .maybeSingle()
-    const companyRfc = (setting?.value ?? '').trim().toUpperCase()
+    const companyRfc = await fetchCompanyRfc(supabase)
 
     const parsed: ParsedCfdiBulkItem[] = []
     const errors: Array<{ file: string; message: string }> = []
+    const skipped_non_invoice: Array<{ file: string; tipo: string; emisor_rfc: string; folio: string | null }> = []
 
     for (const { name, text } of extracted.entries) {
       try {
         const cfdi = parseCfdiXml(text)
 
         if (cfdi.tipo_comprobante !== 'I') {
-          const tipoLabel =
-            cfdi.tipo_comprobante === 'P' ? 'complemento de pago'
-              : cfdi.tipo_comprobante === 'E' ? 'nota de crédito'
-                : `tipo ${cfdi.tipo_comprobante}`
-          errors.push({ file: name, message: `Solo se aceptan facturas de ingreso (tipo I); este es ${tipoLabel}` })
+          skipped_non_invoice.push({
+            file: name,
+            tipo: cfdi.tipo_comprobante,
+            emisor_rfc: cfdi.emisor_rfc,
+            folio: [cfdi.serie, cfdi.folio].filter(Boolean).join('-') || null,
+          })
           continue
         }
 
-        let receptor_match: 'ok' | 'mismatch' | 'company_rfc_not_set' = 'ok'
-        if (!companyRfc) {
-          receptor_match = 'company_rfc_not_set'
-        } else if (cfdi.receptor_rfc !== companyRfc) {
-          receptor_match = 'mismatch'
-        }
+        const { receptor_match } = compareReceptorRfc(cfdi.receptor_rfc, companyRfc)
 
         const { data: matchingGroup } = await supabase
           .from('supplier_groups')
@@ -91,7 +84,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ parsed, errors })
+    return NextResponse.json({ parsed, errors, skipped_non_invoice, company_rfc: companyRfc })
   } catch (err) {
     console.error('/api/ap/cfdi/parse-bulk POST error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

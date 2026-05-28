@@ -229,6 +229,7 @@ export interface RepPaymentPreviewRow {
 export interface CfdiConcepto {
   clave_prod_serv: string | null
   clave_unidad: string | null
+  unidad: string | null
   no_identificacion: string | null
   cantidad: number
   descripcion: string

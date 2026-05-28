@@ -2,7 +2,12 @@ import { supabase } from '@/lib/supabase/client';
 import { normalizeRecipeCode } from '@/lib/utils/recipeCodeUtils';
 import { StagingRemision, OrderSuggestion } from '@/types/arkik';
 import { Order, OrderItem } from '@/types/orders';
-import { hasStrictRecipeMatch } from './arkikMatchingUtils';
+import {
+  extractArkikLocalYmdString,
+  formatArkikLocalYmd,
+  hasStrictRecipeMatch,
+  parseArkikLocalDate,
+} from './arkikMatchingUtils';
 
 /** Merge comma-separated order text fields with distinct tokens (Arkik append on existing order). */
 function mergeCommaSeparatedOrderField(
@@ -49,55 +54,6 @@ export class ArkikOrderMatcher {
   }
 
   /**
-   * Parse a date-only value (YYYY-MM-DD or Date) as a local date (no TZ shift)
-   */
-  private parseLocalDate(dateInput: string | Date): Date {
-    if (dateInput instanceof Date) {
-      // Normalize to local midnight to avoid time components affecting diffs
-      return new Date(
-        dateInput.getFullYear(),
-        dateInput.getMonth(),
-        dateInput.getDate()
-      );
-    }
-    if (!dateInput) return new Date();
-    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(dateInput);
-    if (m) {
-      const year = Number(m[1]);
-      const month = Number(m[2]) - 1;
-      const day = Number(m[3]);
-      return new Date(year, month, day);
-    }
-    // Fallback – let JS parse, but this should rarely be hit
-    return new Date(dateInput);
-  }
-
-  /**
-   * Extract YYYY-MM-DD string from date input without timezone conversion
-   */
-  private extractYmdString(dateInput: string | Date): string {
-    if (typeof dateInput === 'string') {
-      // If it's already in YYYY-MM-DD format, return as-is
-      const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(dateInput);
-      if (m) return m[0];
-    }
-    if (dateInput instanceof Date) {
-      return this.formatYmd(dateInput);
-    }
-    return '';
-  }
-
-  /**
-   * Format a Date as YYYY-MM-DD using local components (no TZ conversion)
-   */
-  private formatYmd(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  /**
    * Find existing orders that can accommodate remisiones
    */
   async findMatchingOrders(
@@ -121,8 +77,8 @@ export class ArkikOrderMatcher {
         client_name: criteria.client_name,
         construction_site_name: criteria.construction_site_name,
         delivery_date_range: {
-          start: this.formatYmd(criteria.delivery_date_start),
-          end: this.formatYmd(criteria.delivery_date_end)
+          start: formatArkikLocalYmd(criteria.delivery_date_start),
+          end: formatArkikLocalYmd(criteria.delivery_date_end)
         }
       });
       
@@ -132,8 +88,8 @@ export class ArkikOrderMatcher {
         client_id: criteria.client_id,
         construction_site_id: criteria.construction_site_id,
         dateRange: {
-          start: this.formatYmd(criteria.delivery_date_start),
-          end: this.formatYmd(criteria.delivery_date_end)
+          start: formatArkikLocalYmd(criteria.delivery_date_start),
+          end: formatArkikLocalYmd(criteria.delivery_date_end)
         }
       });
 
@@ -182,7 +138,7 @@ export class ArkikOrderMatcher {
     // Prioritize client names for flexible matching (like validation does)
     const client = remision.cliente_name || remision.client_id || 'UNKNOWN_CLIENT';
     const site = remision.obra_name || remision.construction_site_id || 'UNKNOWN_SITE';
-    const date = this.formatYmd(this.parseLocalDate(remision.fecha as any));
+    const date = formatArkikLocalYmd(parseArkikLocalDate(remision.fecha as any));
     const recipe = remision.product_description || remision.recipe_id || 'UNKNOWN_RECIPE';
     
     // Normalize the key for consistent grouping
@@ -199,7 +155,7 @@ export class ArkikOrderMatcher {
     const firstRemision = remisiones[0];
 
     // Same calendar day only (0-day tolerance): query start/end both equal to remisión local date
-    const baseDate = this.parseLocalDate(firstRemision.fecha as any);
+    const baseDate = parseArkikLocalDate(firstRemision.fecha as any);
     const startDate = new Date(baseDate);
     const endDate = new Date(baseDate);
 
@@ -220,8 +176,8 @@ export class ArkikOrderMatcher {
    */
   private async queryExistingOrders(criteria: OrderMatchCriteria): Promise<Order[]> {
     // Use broader query criteria for flexible matching
-    const startYmd = this.formatYmd(criteria.delivery_date_start);
-    const endYmd = this.formatYmd(criteria.delivery_date_end);
+    const startYmd = formatArkikLocalYmd(criteria.delivery_date_start);
+    const endYmd = formatArkikLocalYmd(criteria.delivery_date_end);
 
     let query = supabase
       .from('orders')
@@ -302,7 +258,7 @@ export class ArkikOrderMatcher {
   ): ExistingOrderMatch | null {
     const firstRemision = remisiones[0];
     // Use direct string extraction to avoid timezone conversion issues
-    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
+    const remisionYmd = extractArkikLocalYmdString(firstRemision.fecha as any);
 
     // Evaluate all candidates and mark if same-day
     // Filter out orders that do not strictly match recipes for ALL remisiones with recipe_id
@@ -314,7 +270,7 @@ export class ArkikOrderMatcher {
     const evaluated = strictlyCompatible.map(order => {
       const match = this.evaluateOrderMatch(remisiones, order);
       // Use direct string extraction for order date too
-      const orderYmd = this.extractYmdString((order as any).delivery_date);
+      const orderYmd = extractArkikLocalYmdString((order as any).delivery_date);
       const isSameDay = orderYmd === remisionYmd;
       return { match, isSameDay };
     });
@@ -398,8 +354,8 @@ export class ArkikOrderMatcher {
 
     // Pre-calculate values used in multiple places
     const orderItems = (order as any).order_items || [];
-    const orderYmd = this.extractYmdString((order as any).delivery_date);
-    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
+    const orderYmd = extractArkikLocalYmdString((order as any).delivery_date);
+    const remisionYmd = extractArkikLocalYmdString(firstRemision.fecha as any);
     const hasExactDateMatch = orderYmd === remisionYmd;
     
     // Calculate recipe match percentage (used for both recipe scoring and construction site relaxation)
@@ -448,8 +404,8 @@ export class ArkikOrderMatcher {
       matchReasons.push('Fecha exacta');
     } else {
       // Only calculate day difference if strings don't match exactly
-      const orderDate = this.parseLocalDate((order as any).delivery_date);
-      const remisionDate = this.parseLocalDate(firstRemision.fecha as any);
+      const orderDate = parseArkikLocalDate((order as any).delivery_date);
+      const remisionDate = parseArkikLocalDate(firstRemision.fecha as any);
       const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
       if (daysDiff <= 1) {
         score += 1.2;
@@ -496,7 +452,7 @@ export class ArkikOrderMatcher {
       clientSimilarity: clientSimilarity.toFixed(3),
       siteSimilarity: siteSimilarity.toFixed(3),
       // daysDiff logged as 0.0 for exact date to reflect strict preference
-      daysDiff: (orderYmd === remisionYmd ? 0 : Math.abs((this.parseLocalDate((order as any).delivery_date).getTime() - this.parseLocalDate(firstRemision.fecha as any).getTime()) / (1000 * 60 * 60 * 24))).toFixed(1),
+      daysDiff: (orderYmd === remisionYmd ? 0 : Math.abs((parseArkikLocalDate((order as any).delivery_date).getTime() - parseArkikLocalDate(firstRemision.fecha as any).getTime()) / (1000 * 60 * 60 * 24))).toFixed(1),
       recipeMatchPercentage: (recipeMatchPercentage * 100).toFixed(1) + '%',
       recipeMatchReason,
       totalScore: score.toFixed(2),

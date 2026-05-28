@@ -121,6 +121,7 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     conceptos.push({
       clave_prod_serv: str(c?.['@_ClaveProdServ']),
       clave_unidad: str(c?.['@_ClaveUnidad']),
+      unidad: str(c?.['@_Unidad']),
       no_identificacion: str(c?.['@_NoIdentificacion']),
       cantidad: num(c?.['@_Cantidad'], 1),
       descripcion: str(c?.['@_Descripcion']) ?? '',

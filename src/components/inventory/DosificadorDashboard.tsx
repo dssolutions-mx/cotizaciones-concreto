@@ -27,6 +27,7 @@ import {
   ChevronRight,
   FileStack,
   ShieldAlert,
+  ClipboardList,
 } from 'lucide-react'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -591,6 +592,11 @@ export default function DosificadorDashboard() {
                 href: '/production-control/evidencia-concreto',
                 label: 'Evidencia remisiones (concreto)',
                 Icon: FileStack,
+              },
+              {
+                href: '/production-control/inventory-closure',
+                label: 'Cierre de inventario',
+                Icon: ClipboardList,
               },
             ].map(({ href, label, Icon }) => (
               <Link

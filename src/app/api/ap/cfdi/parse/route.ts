@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
+import { fetchCompanyRfc, compareReceptorRfc } from '@/lib/ap/companyRfc'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
 
@@ -34,19 +35,8 @@ export async function POST(request: NextRequest) {
       throw err
     }
 
-    // Validate receptor RFC against company_rfc setting
-    const { data: setting } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'company_rfc')
-      .maybeSingle()
-    const companyRfc = (setting?.value ?? '').trim().toUpperCase()
-    let receptor_match: 'ok' | 'mismatch' | 'company_rfc_not_set' = 'ok'
-    if (!companyRfc) {
-      receptor_match = 'company_rfc_not_set'
-    } else if (parsed.receptor_rfc !== companyRfc) {
-      receptor_match = 'mismatch'
-    }
+    const companyRfc = await fetchCompanyRfc(supabase)
+    const { receptor_match } = compareReceptorRfc(parsed.receptor_rfc, companyRfc)
 
     // Try to find existing supplier_group by emisor RFC
     const { data: matchingGroup } = await supabase

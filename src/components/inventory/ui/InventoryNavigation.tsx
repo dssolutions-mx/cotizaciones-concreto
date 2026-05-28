@@ -4,13 +4,14 @@ import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { 
-  Package, 
-  TrendingDown, 
-  FileText, 
+import {
+  Package,
+  TrendingDown,
+  FileText,
   BarChart3,
   Plus,
-  Clock
+  Clock,
+  ClipboardList,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -51,6 +52,12 @@ const navItems: NavItem[] = [
     icon: Clock,
     roles: ['DOSIFICADOR', 'EXECUTIVE', 'ADMIN_OPERATIONS']
   },
+  {
+    href: '/production-control/inventory-closure',
+    label: 'Cierre',
+    icon: ClipboardList,
+    roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR'],
+  },
 ]
 
 export default function InventoryNavigation() {
@@ -64,13 +71,7 @@ export default function InventoryNavigation() {
   })
 
   const isActive = (href: string) => {
-    if (href === '/production-control/inventario') {
-      return pathname === href || pathname?.startsWith('/production-control/inventario')
-    }
-    if (href === '/production-control/reloj-checador') {
-      return pathname === href || pathname?.startsWith('/production-control/reloj-checador')
-    }
-    return pathname === href
+    return pathname === href || pathname?.startsWith(href + '/')
   }
 
   return (

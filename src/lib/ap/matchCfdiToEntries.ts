@@ -1,4 +1,5 @@
 import type { ParsedCfdi } from '@/types/finance'
+import { buildMatchDetails, scoreFromMatchDetails, type MatchDetailField, type ScoreBreakdownItem } from './cfdiEntryMatchDetails'
 
 /** Minimal entry shape for matching — avoids coupling to UI component types. */
 export type MatchableOrphanEntry = {
@@ -8,6 +9,11 @@ export type MatchableOrphanEntry = {
   plant_id: string
   total_cost: number | null
   supplier_invoice: string | null
+  received_qty_entered?: number | null
+  received_qty_kg?: number | null
+  received_uom?: string | null
+  unit_price?: number | null
+  material?: { id: string; material_name: string } | null
   supplier?: {
     group_id: string | null
     supplier_group?: { id: string; name: string; rfc?: string | null } | null
@@ -15,12 +21,11 @@ export type MatchableOrphanEntry = {
 }
 
 export type ParsedCfdiForMatch = {
-  /** Stable id for UI — file name or uuid */
   id: string
   file_name: string
   cfdi: ParsedCfdi
   supplier_group: { id: string; name: string; rfc: string | null } | null
-  receptor_match: 'ok' | 'mismatch' | 'company_rfc_not_set'
+  receptor_match: 'ok' | 'mismatch' | 'skipped'
   duplicate_invoice: { id: string; invoice_number: string } | null
 }
 
@@ -31,10 +36,14 @@ export type BulkAssignment = {
   cfdi_id: string | null
   confidence: MatchConfidence | null
   warnings: string[]
+  match_details?: {
+    fields: MatchDetailField[]
+    score_breakdown: ScoreBreakdownItem[]
+  }
+  /** User can exclude a matched row from batch create without unassigning. */
+  include_in_create?: boolean
 }
 
-const AMOUNT_TOLERANCE = 1.0
-const DATE_PROXIMITY_DAYS = 30
 
 function cfdiFolioLabel(cfdi: ParsedCfdi): string {
   return [cfdi.serie, cfdi.folio].filter(Boolean).join('-')
@@ -44,26 +53,16 @@ function cfdiTaxableBase(cfdi: ParsedCfdi): number {
   return Math.max(0, cfdi.subtotal - (cfdi.descuento || 0))
 }
 
-function normalizeFolio(s: string | null | undefined): string {
-  return (s ?? '').trim().toLowerCase().replace(/\s+/g, '')
-}
-
-function daysBetween(a: string, b: string): number {
-  const da = new Date(a.slice(0, 10))
-  const db = new Date(b.slice(0, 10))
-  return Math.abs(da.getTime() - db.getTime()) / (1000 * 60 * 60 * 24)
-}
-
 function entryGroupId(entry: MatchableOrphanEntry): string | null {
   return entry.supplier?.group_id ?? entry.supplier?.supplier_group?.id ?? null
 }
 
-function cfdiEligibleForEntry(
+export function cfdiEligibleForEntry(
   entry: MatchableOrphanEntry,
   parsed: ParsedCfdiForMatch,
 ): { eligible: boolean; reason?: string } {
   if (parsed.receptor_match === 'mismatch') {
-    return { eligible: false, reason: 'RFC receptor no coincide' }
+    return { eligible: false, reason: 'RFC receptor no coincide con la empresa' }
   }
   if (parsed.duplicate_invoice) {
     return { eligible: false, reason: `CFDI ya registrado (${parsed.duplicate_invoice.invoice_number})` }
@@ -76,45 +75,19 @@ function cfdiEligibleForEntry(
   if (entryGroup && cfdiGroup && entryGroup !== cfdiGroup) {
     return { eligible: false, reason: 'Proveedor no coincide' }
   }
-  if (entryGroup && !cfdiGroup) {
-    return { eligible: false, reason: 'CFDI sin grupo de proveedor conocido' }
-  }
   return { eligible: true }
 }
 
 function scorePair(entry: MatchableOrphanEntry, parsed: ParsedCfdiForMatch): number {
   const { eligible } = cfdiEligibleForEntry(entry, parsed)
   if (!eligible) return -1
-
-  let score = 0
-  const cfdi = parsed.cfdi
-  const entryAmount = Number(entry.total_cost ?? 0)
-  const cfdiBase = cfdiTaxableBase(cfdi)
-
-  const folioCfdi = normalizeFolio(cfdiFolioLabel(cfdi))
-  const folioEntry = normalizeFolio(entry.supplier_invoice)
-  if (folioCfdi && folioEntry && folioCfdi === folioEntry) {
-    score += 100
-  }
-
-  if (entryAmount > 0 && Math.abs(entryAmount - cfdiBase) <= AMOUNT_TOLERANCE) {
-    score += 80
-  } else if (entryAmount > 0 && Math.abs(entryAmount - cfdiBase) <= 10) {
-    score += 40
-  }
-
-  const days = daysBetween(cfdi.fecha_emision, entry.entry_date)
-  if (days <= DATE_PROXIMITY_DAYS) {
-    score += Math.max(0, 20 - Math.floor(days / 2))
-  }
-
-  return score
+  return scoreFromMatchDetails(entry, parsed.cfdi)
 }
 
 function confidenceFromScore(score: number): MatchConfidence {
   if (score >= 150) return 'high'
-  if (score >= 80) return 'medium'
-  if (score >= 40) return 'low'
+  if (score >= 90) return 'medium'
+  if (score >= 45) return 'low'
   return 'manual'
 }
 
@@ -123,17 +96,42 @@ function warningsForPair(entry: MatchableOrphanEntry, parsed: ParsedCfdiForMatch
   const { reason, eligible } = cfdiEligibleForEntry(entry, parsed)
   if (!eligible && reason) warnings.push(reason)
 
+  const details = buildMatchDetails(entry, parsed.cfdi)
+  for (const f of details.fields) {
+    if (f.status === 'mismatch' && f.label !== 'Cantidad') {
+      warnings.push(`${f.label}: recepción ${f.entry_value ?? '—'} vs CFDI ${f.cfdi_value ?? '—'}`)
+    }
+  }
+
   const entryAmount = Number(entry.total_cost ?? 0)
   const cfdiBase = cfdiTaxableBase(parsed.cfdi)
-  if (entryAmount > 0 && Math.abs(entryAmount - cfdiBase) > AMOUNT_TOLERANCE) {
-    warnings.push(
-      `Monto recepción (${entryAmount.toFixed(2)}) difiere del CFDI (${cfdiBase.toFixed(2)})`,
-    )
+  if (entryAmount > 0 && Math.abs(entryAmount - cfdiBase) > 1) {
+    if (!warnings.some(w => w.includes('Subtotal'))) {
+      warnings.push(
+        `Subtotal recepción (${entryAmount.toFixed(2)}) difiere del CFDI (${cfdiBase.toFixed(2)})`,
+      )
+    }
   }
-  if (parsed.receptor_match === 'company_rfc_not_set') {
-    warnings.push('RFC empresa no configurado')
-  }
+
   return warnings
+}
+
+function assignmentForPair(
+  entry: MatchableOrphanEntry,
+  parsed: ParsedCfdiForMatch,
+  confidence: MatchConfidence | null,
+): BulkAssignment {
+  const match_details = parsed
+    ? buildMatchDetails(entry, parsed.cfdi)
+    : undefined
+  return {
+    entry_id: entry.id,
+    cfdi_id: parsed?.id ?? null,
+    confidence,
+    warnings: parsed ? warningsForPair(entry, parsed) : ['Sin CFDI asignado'],
+    match_details,
+    include_in_create: confidence !== null && confidence !== 'manual',
+  }
 }
 
 /**
@@ -163,7 +161,7 @@ export function matchCfdiToEntries(
 
   for (const p of pairs) {
     if (assignedEntries.has(p.entryId) || assignedCfdis.has(p.cfdiId)) continue
-    if (p.score < 40) continue
+    if (p.score < 45) continue
     assignedEntries.add(p.entryId)
     assignedCfdis.add(p.cfdiId)
     assignmentByEntry.set(p.entryId, { cfdiId: p.cfdiId, score: p.score })
@@ -176,15 +174,14 @@ export function matchCfdiToEntries(
         entry_id: entry.id,
         cfdi_id: null,
         confidence: null,
-        warnings: ['Sin CFDI asignado'],
+        warnings: ['Sin CFDI asignado — se omitirá al facturar'],
+        include_in_create: false,
       }
     }
     const parsed = parsedCfdis.find(p => p.id === match.cfdiId)!
     return {
-      entry_id: entry.id,
+      ...assignmentForPair(entry, parsed, confidenceFromScore(match.score)),
       cfdi_id: match.cfdiId,
-      confidence: confidenceFromScore(match.score),
-      warnings: warningsForPair(entry, parsed),
     }
   })
 }
@@ -199,5 +196,20 @@ export function getEligibleCfdisForEntry(
 export function cfdiDisplayLabel(parsed: ParsedCfdiForMatch): string {
   const folio = cfdiFolioLabel(parsed.cfdi)
   const base = cfdiTaxableBase(parsed.cfdi)
-  return folio ? `${folio} — $${base.toFixed(2)}` : `${parsed.file_name} — $${base.toFixed(2)}`
+  const concepto = parsed.cfdi.conceptos[0]
+  const desc = concepto?.descripcion
+    ? (concepto.descripcion.length > 28 ? `${concepto.descripcion.slice(0, 28)}…` : concepto.descripcion)
+    : null
+  const parts = [folio || parsed.file_name, desc, `$${base.toFixed(2)}`].filter(Boolean)
+  return parts.join(' · ')
 }
+
+export function getOrphanCfdis(
+  parsedCfdis: ParsedCfdiForMatch[],
+  assignments: BulkAssignment[],
+): ParsedCfdiForMatch[] {
+  const used = new Set(assignments.map(a => a.cfdi_id).filter(Boolean) as string[])
+  return parsedCfdis.filter(p => !used.has(p.id))
+}
+
+export { buildMatchDetails, cfdiTaxableBase, cfdiFolioLabel }

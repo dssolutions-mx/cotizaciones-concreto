@@ -1,6 +1,6 @@
 import { StagingRemision, OrderSuggestion, ValidationError } from '@/types/arkik';
 import { ExistingOrderMatch } from './arkikOrderMatcher';
-import { hasStrictRecipeMatch } from './arkikMatchingUtils';
+import { formatStagingRemisionLocalDate, hasStrictRecipeMatch } from './arkikMatchingUtils';
 
 export interface OrderGroupingOptions {
   processingMode: 'dedicated' | 'commercial' | 'hybrid';
@@ -190,7 +190,7 @@ export class ArkikOrderGrouper {
       construction_site_id: firstRemision.construction_site_id!,
       obra_name: firstRemision.obra_name || '',
       construction_site: firstRemision.obra_name || '',
-      delivery_date: firstRemision.fecha.toISOString().split('T')[0],
+      delivery_date: formatStagingRemisionLocalDate(firstRemision.fecha),
       delivery_time: firstRemision.hora_carga.toTimeString().split(' ')[0],
       quote_id: firstRemision.quote_id,
       quote_detail_id: firstRemision.quote_detail_id,
@@ -265,7 +265,7 @@ export class ArkikOrderGrouper {
   private generateGroupKey(remision: StagingRemision): string {
     const client = (remision.cliente_name || '').replace(/\s+/g, '_').toUpperCase();
     const site = (remision.obra_name || '').replace(/\s+/g, '_').toUpperCase();
-    const date = remision.fecha.toISOString().split('T')[0];
+    const date = formatStagingRemisionLocalDate(remision.fecha);
     const comentario = this.extractMainElement(remision.comentarios_externos || '');
     return `${client}_${site}_${date}_${comentario}`;
   }
@@ -308,7 +308,7 @@ export class ArkikOrderGrouper {
   }
 
   private generateOrderName(firstRemision: StagingRemision, comentarios: Set<string>): string {
-    const date = firstRemision.fecha.toISOString().split('T')[0];
+    const date = formatStagingRemisionLocalDate(firstRemision.fecha);
     const obra = firstRemision.obra_name;
     if (comentarios.size === 1) {
       const element = Array.from(comentarios)[0].split(',')[0].trim();

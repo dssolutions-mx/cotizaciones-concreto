@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
     // --- 4. Partial POs with no receipt activity in 15+ days ---
     let poOpenQuery = supabase
       .from('purchase_orders')
-      .select('id, po_date, created_at, updated_at')
+      .select('id, po_date, created_at')
       .in('status', ['open', 'partial']);
     if (plantId) poOpenQuery = poOpenQuery.eq('plant_id', plantId);
     const { data: openPos } = await poOpenQuery;

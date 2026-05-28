@@ -4,6 +4,7 @@ import {
   deriveInvoiceSource,
   normalizeInvoiceItems,
 } from '@/lib/ap/normalizeInvoicePayload'
+import { fetchCompanyRfc } from '@/lib/ap/companyRfc'
 import { roundMoney } from '@/lib/ap/invoiceTotals'
 import { mapSupplierInvoiceDbError } from '@/lib/ap/mapSupplierInvoiceDbError'
 
@@ -112,12 +113,7 @@ export async function createSupplierInvoice(
         status: 400,
       }
     }
-    const { data: setting } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'company_rfc')
-      .maybeSingle()
-    const companyRfc = (setting?.value ?? '').trim().toUpperCase()
+    const companyRfc = await fetchCompanyRfc(supabase)
     if (companyRfc && String(cfdi_receptor_rfc).toUpperCase() !== companyRfc) {
       return {
         ok: false,
