@@ -6,6 +6,10 @@ import {
 } from '@/lib/quality/ensayoEvidence';
 import { handleError } from '@/utils/errorHandler';
 import {
+  type MuestraSpecDims,
+  rpcArgsForMuestraSpec,
+} from '@/lib/quality/specimenTypeSpec';
+import {
   Ensayo,
   EnsayoWithRelations,
   FiltrosCalidad
@@ -247,6 +251,22 @@ export async function uploadEnsayoEvidencias(
   }
 
   return result;
+}
+
+/** Re-resolve correction spec from current muestra dimensions (fixes stale ensayo rows). */
+export async function syncEnsayoSpecFromMuestra(ensayoId: string, muestra: MuestraSpecDims) {
+  const { data, error } = await supabase.rpc('resolve_specimen_type_spec', rpcArgsForMuestraSpec(muestra));
+  if (error) {
+    console.error('resolve_specimen_type_spec:', error);
+    throw new Error('No se pudo resolver la especificación de probeta');
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { spec_id: string; correction_factor: number }
+    | undefined;
+  if (!row?.spec_id) {
+    throw new Error('Especificación de probeta no encontrada para esta muestra');
+  }
+  return updateEnsayoById(ensayoId, { specimen_type_spec_id: row.spec_id });
 }
 
 export async function updateEnsayoById(

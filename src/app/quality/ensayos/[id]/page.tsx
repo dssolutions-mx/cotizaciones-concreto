@@ -39,7 +39,12 @@ import {
   ChevronLeft,
   ArrowUpRight,
 } from 'lucide-react'
-import { fetchEnsayoById, updateEnsayoById } from '@/services/qualityEnsayoService'
+import {
+  fetchEnsayoById,
+  syncEnsayoSpecFromMuestra,
+  updateEnsayoById,
+} from '@/services/qualityEnsayoService'
+import { ensayoSpecMismatchesMuestra } from '@/lib/quality/specimenTypeSpec'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import type { EnsayoWithRelations, Evidencia } from '@/types/quality'
 import { EnsayoEvidenceGallery } from '@/components/quality/ensayos/EnsayoEvidenceGallery'
@@ -229,6 +234,7 @@ export default function EnsayoDetailPage() {
   const [draftFactor, setDraftFactor] = useState('1')
   const [factorSaving, setFactorSaving] = useState(false)
   const [factorError, setFactorError] = useState<string | null>(null)
+  const [specSyncing, setSpecSyncing] = useState(false)
 
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN']
   const canPatchEnsayo =
@@ -325,6 +331,25 @@ export default function EnsayoDetailPage() {
   const appliedFactor = ensayo?.factor_correccion != null ? Number(ensayo.factor_correccion) : 1
   const isCustomFactor =
     specFactor != null && Number.isFinite(specFactor) && Math.abs(appliedFactor - specFactor) > 0.0001
+
+  const muestraForSpec = ensayo?.muestra
+  const specMismatch =
+    muestraForSpec != null &&
+    ensayoSpecMismatchesMuestra(muestraForSpec, ensayo?.specimen_type_spec ?? null)
+
+  async function syncSpecFromMuestra() {
+    if (!ensayo?.muestra || !canPatchEnsayo) return
+    setSpecSyncing(true)
+    setFactorError(null)
+    try {
+      await syncEnsayoSpecFromMuestra(ensayo.id, ensayo.muestra)
+      await reload()
+    } catch (e: unknown) {
+      setFactorError(e instanceof Error ? e.message : 'Error al sincronizar especificación')
+    } finally {
+      setSpecSyncing(false)
+    }
+  }
 
   const plantCode =
     (ensayo?.muestra?.muestreo as { plant?: { code?: string }; planta?: string } | undefined)?.plant?.code ||
@@ -648,6 +673,30 @@ export default function EnsayoDetailPage() {
                 <Badge variant="outline" className="mt-2 border-amber-200 bg-amber-50 text-amber-800 text-[10px]">
                   Factor personalizado
                 </Badge>
+              )}
+              {specMismatch && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <p>
+                    La especificación guardada en este ensayo no coincide con las dimensiones actuales de la
+                    muestra ({specimenLabel(muestraForSpec)}).
+                  </p>
+                  {canPatchEnsayo && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={cn(qualityHubOutlineNeutralClass, 'mt-2 h-8 text-xs')}
+                      disabled={specSyncing || factorSaving}
+                      onClick={syncSpecFromMuestra}
+                    >
+                      {specSyncing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        'Aplicar especificación de la muestra'
+                      )}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 
