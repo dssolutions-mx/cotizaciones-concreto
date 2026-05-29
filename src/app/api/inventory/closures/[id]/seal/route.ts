@@ -3,7 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { SealClosureSchema } from '@/lib/validations/inventoryClosure';
 
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
+const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
 
 export async function POST(
   request: NextRequest,
@@ -23,7 +23,7 @@ export async function POST(
 
     if (!profile || !SEAL_ROLES.includes(profile.role)) {
       return NextResponse.json(
-        { error: 'Solo PLANT_MANAGER, ADMIN_OPERATIONS o EXECUTIVE pueden sellar un cierre' },
+        { error: 'Sin permisos para sellar este cierre' },
         { status: 403 },
       );
     }

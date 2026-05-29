@@ -1,17 +1,16 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Stamp, Upload, Lock, AlertTriangle } from 'lucide-react'
+import { Stamp, Lock, AlertTriangle } from 'lucide-react'
 import type { InventoryClosureMaterial } from '@/types/inventoryClosure'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import SignaturePad from '@/components/inventory/closure/SignaturePad'
+import { createClient } from '@/lib/supabase/client'
 
 function fmtKg(n: number | null | undefined) {
   if (n == null) return '—'
   return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kg'
 }
-
-const BUCKET = 'inventory-closure-evidence'
 
 interface Props {
   closureId: string
@@ -20,44 +19,47 @@ interface Props {
 }
 
 export default function SealStep({ closureId, materials, onSealed }: Props) {
-  const [signatureFile, setSignatureFile] = useState<File | null>(null)
-  const [signaturePreview, setSignaturePreview] = useState<string | null>(null)
+  const [hasSignature, setHasSignature] = useState(false)
   const [sealing, setSealing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-
-  const supabase = createClientComponentClient()
-
-  function handleSignatureFile(file: File) {
-    setSignatureFile(file)
-    const url = URL.createObjectURL(file)
-    setSignaturePreview(url)
-  }
+  const exportSignatureRef = useRef<(() => Promise<Blob | null>) | null>(null)
 
   async function handleSeal() {
-    if (!signatureFile) { setError('Adjunta la firma antes de sellar'); return }
+    if (!hasSignature) { setError('Dibuja tu firma antes de sellar'); return }
     if (!confirmed) { setError('Confirma que los datos son correctos'); return }
 
     setError(null)
     setSealing(true)
     try {
-      // Upload signature to storage
-      const sanitized = signatureFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const storagePath = `${closureId}/signatures/${Date.now()}_${sanitized}`
+      const exportPng = exportSignatureRef.current
+      if (!exportPng) throw new Error('No se pudo capturar la firma')
+      const blob = await exportPng()
+      if (!blob) throw new Error('Dibuja tu firma antes de sellar')
 
-      const { error: uploadError } = await supabase.storage
-        .from(BUCKET)
-        .upload(storagePath, signatureFile, { cacheControl: '31536000', upsert: true })
+      const fd = new FormData()
+      fd.append('file', blob, 'signature.png')
 
-      if (uploadError) throw new Error(`Error al subir firma: ${uploadError.message}`)
+      const uploadRes = await fetch(`/api/inventory/closures/${closureId}/signature`, {
+        method: 'POST',
+        body: fd,
+      })
+      const uploadData = await uploadRes.json()
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error ?? 'Error al subir firma')
+      }
 
-      // Store the path — the service generates signed URLs on demand so they never expire
-      // Seal the closure
+      const storagePath = uploadData.storage_path as string
+
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Sesión expirada — vuelve a iniciar sesión')
+
       const res = await fetch(`/api/inventory/closures/${closureId}/seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          signed_by: (await supabase.auth.getUser()).data.user?.id ?? '',
+          signed_by: user.id,
           signature_image_url: storagePath,
         }),
       })
@@ -109,36 +111,16 @@ export default function SealStep({ closureId, materials, onSealed }: Props) {
         )}
       </div>
 
-      {/* Signature upload */}
+      {/* Signature pad */}
       <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
         <div className="flex items-center gap-2">
           <Stamp className="h-4 w-4 text-[#1B2A4A]" />
           <p className="text-sm font-medium text-stone-800">Firma del responsable</p>
         </div>
-        {signaturePreview ? (
-          <div className="relative w-48 h-24 rounded-lg border border-stone-200 overflow-hidden bg-white">
-            <img src={signaturePreview} alt="Firma" className="w-full h-full object-contain" />
-            <button
-              type="button"
-              onClick={() => { setSignatureFile(null); setSignaturePreview(null) }}
-              className="absolute top-1 right-1 rounded-full bg-white border border-stone-200 p-0.5 text-stone-500 hover:text-red-500"
-            >
-              ✕
-            </button>
-          </div>
-        ) : (
-          <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 py-6 hover:border-stone-400 hover:bg-stone-100 transition-colors">
-            <Upload className="h-5 w-5 text-stone-400 mb-2" />
-            <p className="text-sm text-stone-600">Subir imagen de firma</p>
-            <p className="text-xs text-stone-400 mt-0.5">PNG, JPG — máx. 5 MB</p>
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSignatureFile(f) }}
-            />
-          </label>
-        )}
+        <SignaturePad
+          exportRef={exportSignatureRef}
+          onChange={setHasSignature}
+        />
       </div>
 
       {/* Final confirmation checkbox */}
@@ -162,7 +144,7 @@ export default function SealStep({ closureId, materials, onSealed }: Props) {
       <div className="flex justify-end">
         <Button
           onClick={handleSeal}
-          disabled={sealing || !confirmed || !signatureFile}
+          disabled={sealing || !confirmed || !hasSignature}
           className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
         >
           <Lock className="h-4 w-4" />
