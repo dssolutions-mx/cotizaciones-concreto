@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClientForApi } from '@/lib/supabase/api';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { BulkJustificationsSchema } from '@/lib/validations/inventoryClosure';
-
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+import {
+  assertClosurePlantAccess,
+  canAccessInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
 export async function PUT(
   request: NextRequest,
@@ -17,22 +20,28 @@ export async function PUT(
 
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canAccessInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: closure } = await (supabase as any)
       .from('inventory_closures')
-      .select('status')
+      .select('status, plant_id')
       .eq('id', closureId)
       .single();
 
     if (!closure) return NextResponse.json({ error: 'Cierre no encontrado' }, { status: 404 });
+
+    try {
+      assertClosurePlantAccess(profile, closure.plant_id as string);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 403 });
+    }
     if (['sealed', 'cancelled'].includes(closure.status)) {
       return NextResponse.json({ error: 'Cierre ya sellado o cancelado' }, { status: 409 });
     }
@@ -40,7 +49,7 @@ export async function PUT(
     const body = await request.json();
     const { justifications } = BulkJustificationsSchema.parse(body);
 
-    const service = new InventoryClosureService(supabase);
+    const service = new InventoryClosureService(createAdminClientForApi());
     await service.saveJustifications(closureId, justifications);
 
     return NextResponse.json({ success: true });

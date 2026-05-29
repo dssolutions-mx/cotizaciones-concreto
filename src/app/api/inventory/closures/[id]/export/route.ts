@@ -3,35 +3,55 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { buildInventoryClosureExcel } from '@/lib/reports/inventoryClosureExcel';
 import { createAdminClientForApi } from '@/lib/supabase/api';
+import {
+  assertClosurePlantAccess,
+  canAccessInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
 const BUCKET = 'inventory-closure-evidence';
 
+export const maxDuration = 120;
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id: closureId } = await params;
+    const preliminary = request.nextUrl.searchParams.get('preliminary') === '1';
+
     const supabase = await createServerSupabaseClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canAccessInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
     const service = new InventoryClosureService(supabase);
     const detail = await service.getClosureDetail(closureId);
 
-    // If already exported, redirect to signed URL
-    if (detail.excel_export_path) {
+    try {
+      assertClosurePlantAccess(profile, detail.plant_id);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 403 });
+    }
+
+    if (preliminary && (detail.status === 'sealed' || detail.status === 'cancelled')) {
+      return NextResponse.json(
+        { error: 'El reporte preliminar solo aplica a cierres en progreso' },
+        { status: 409 },
+      );
+    }
+
+    // Sealed export: reuse stored file when available
+    if (!preliminary && detail.excel_export_path) {
       const admin = createAdminClientForApi();
       const { data: signed } = await admin.storage
         .from(BUCKET)
@@ -41,17 +61,22 @@ export async function GET(
       }
     }
 
-    const buffer = await buildInventoryClosureExcel(detail, supabase);
-    const fileName = `Cierre_Inventario_${detail.period_start}_${detail.period_end}.xlsx`;
-
-    // Persist to storage so re-downloads are cheap
     const admin = createAdminClientForApi();
-    const storagePath = `${closureId}/exports/${fileName}`;
-    await admin.storage
-      .from(BUCKET)
-      .upload(storagePath, buffer, { contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', upsert: true });
+    const buffer = await buildInventoryClosureExcel(detail, admin, { preliminary });
 
-    await service.updateExcelPath(closureId, storagePath);
+    const prefix = preliminary ? 'Preliminar' : 'Cierre';
+    const fileName = `${prefix}_Inventario_${detail.period_start}_${detail.period_end}.xlsx`;
+
+    if (!preliminary) {
+      const storagePath = `${closureId}/exports/${fileName}`;
+      await admin.storage
+        .from(BUCKET)
+        .upload(storagePath, buffer, {
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          upsert: true,
+        });
+      await service.updateExcelPath(closureId, storagePath);
+    }
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

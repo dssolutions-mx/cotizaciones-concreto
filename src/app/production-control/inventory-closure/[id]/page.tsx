@@ -13,7 +13,7 @@ import ExportStep from '@/components/inventory/closure/ExportStep'
 import type { InventoryClosureDetail, TheoreticalReviewMaterialRow } from '@/types/inventoryClosure'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { ClipboardList, XCircle, FilePen } from 'lucide-react'
+import { ClipboardList, XCircle, FilePen, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { cn } from '@/lib/utils'
@@ -31,7 +31,7 @@ const STEP_ORDER: ClosureStep[] = [
   'export',
 ]
 
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
+import { canAdminInventoryClosure } from '@/lib/auth/inventoryClosureRoles'
 
 export default function ClosureWizardPage() {
   const params = useParams<{ id: string }>()
@@ -54,8 +54,10 @@ export default function ClosureWizardPage() {
   const [cancelError, setCancelError] = useState<string | null>(null)
   const [creatingAmendment, setCreatingAmendment] = useState(false)
   const [amendmentError, setAmendmentError] = useState<string | null>(null)
+  const [preliminaryLoading, setPreliminaryLoading] = useState(false)
+  const [preliminaryError, setPreliminaryError] = useState<string | null>(null)
 
-  const canManage = SEAL_ROLES.includes(profile?.role ?? '')
+  const canManage = canAdminInventoryClosure(profile?.role)
 
   const fetchDetail = useCallback(async () => {
     setError(null)
@@ -146,6 +148,31 @@ export default function ClosureWizardPage() {
     }
   }
 
+  async function handlePreliminaryExport() {
+    setPreliminaryLoading(true)
+    setPreliminaryError(null)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}/export?preliminary=1`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Error al generar Excel preliminar')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Preliminar_Inventario_${detail?.period_start}_${detail?.period_end}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setPreliminaryError((e as Error).message)
+    } finally {
+      setPreliminaryLoading(false)
+    }
+  }
+
   async function handleCreateAmendment() {
     if (!detail) return
     setCreatingAmendment(true)
@@ -225,7 +252,19 @@ export default function ClosureWizardPage() {
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {!isSealed && !isCancelled && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreliminaryExport}
+              disabled={preliminaryLoading}
+              className="gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {preliminaryLoading ? 'Generando...' : 'Excel preliminar'}
+            </Button>
+          )}
           {isSealed && canManage && (
             <Button
               variant="outline"
@@ -255,6 +294,19 @@ export default function ClosureWizardPage() {
       {amendmentError && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {amendmentError}
+        </p>
+      )}
+
+      {preliminaryError && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {preliminaryError}
+        </p>
+      )}
+
+      {!isSealed && !isCancelled && (
+        <p className="text-xs text-stone-500 -mt-2">
+          Usa <strong>Excel preliminar</strong> para compartir el puente teórico, consumos y conciliación con tu
+          jefe antes de sellar el cierre.
         </p>
       )}
 

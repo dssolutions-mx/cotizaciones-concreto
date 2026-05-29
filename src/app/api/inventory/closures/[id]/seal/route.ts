@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClientForApi } from '@/lib/supabase/api';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { SealClosureSchema } from '@/lib/validations/inventoryClosure';
+import {
+  assertClosurePlantAccess,
+  canSealInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+export const maxDuration = 120;
 
 export async function POST(
   request: NextRequest,
@@ -21,22 +26,38 @@ export async function POST(
       .eq('id', user.id)
       .single();
 
-    if (!profile || !SEAL_ROLES.includes(profile.role)) {
+    if (!profile || !canSealInventoryClosure(profile.role)) {
       return NextResponse.json(
         { error: 'Sin permisos para sellar este cierre' },
         { status: 403 },
       );
     }
 
+    const { data: closureRow } = await supabase
+      .from('inventory_closures')
+      .select('plant_id')
+      .eq('id', closureId)
+      .single();
+
+    if (!closureRow) {
+      return NextResponse.json({ error: 'Cierre no encontrado' }, { status: 404 });
+    }
+
+    try {
+      assertClosurePlantAccess(profile, closureRow.plant_id);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 403 });
+    }
+
     const body = await request.json();
     const input = SealClosureSchema.parse(body);
 
-    // Prevent a client from spoofing a different signer identity
     if (input.signed_by !== user.id) {
       return NextResponse.json({ error: 'El firmante debe ser el usuario autenticado' }, { status: 403 });
     }
 
-    const service = new InventoryClosureService(supabase);
+    const admin = createAdminClientForApi();
+    const service = new InventoryClosureService(admin);
     const sealed = await service.sealClosure(closureId, user.id, input);
 
     return NextResponse.json({ success: true, closure: sealed });

@@ -3,6 +3,26 @@ import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { DC_DOCUMENT_THEME as C } from './branding'
 import type { InventoryClosureDetail } from '@/types/inventoryClosure'
+import {
+  fetchConsumosAllPages,
+  fetchRemisionMaterialesByRemisionIds,
+} from '@/lib/procurement/consumosSupabaseFetch'
+import { computeBridgeTheoreticalFinalKg } from '@/lib/inventory/theoreticalBridge'
+
+export type InventoryClosureExcelOptions = {
+  /** Draft / in-progress report for supervisor review — not the legal sealed export */
+  preliminary?: boolean
+}
+
+type ConsumoRemisionRow = {
+  remision_number: string
+  fecha: string
+  cliente: string
+  obra: string
+  material_name: string
+  cantidad_teorica: number
+  cantidad_real: number
+}
 
 function argb(hex: string, alpha = 'FF') {
   return alpha + hex.replace('#', '')
@@ -88,6 +108,7 @@ async function buildResumenSheet(
   detail: InventoryClosureDetail,
   signatureBuffer?: Buffer,
   signatureExtension?: string,
+  options?: InventoryClosureExcelOptions,
 ) {
   const ws = wb.addWorksheet('Resumen')
   ws.views = [{ state: 'frozen', ySplit: 1 }]
@@ -99,9 +120,21 @@ async function buildResumenSheet(
     { width: 22 },
   ]
 
-  titleRow(ws, 'Cierre de Inventario — Resumen Ejecutivo', 5, 1)
+  const title = options?.preliminary
+    ? 'Cierre de Inventario — Reporte preliminar (borrador)'
+    : 'Cierre de Inventario — Resumen Ejecutivo'
+  titleRow(ws, title, 5, 1)
 
   let r = 2
+  if (options?.preliminary) {
+    metaRow(
+      ws,
+      'Estado',
+      'PRELIMINAR — sin validez de cierre hasta sellar con firma',
+      r++,
+      5,
+    )
+  }
   metaRow(ws, 'Planta', detail.plant?.name ?? '—', r++, 5)
   metaRow(ws, 'Período', `${fmtDate(detail.period_start)} — ${fmtDate(detail.period_end)}`, r++, 5)
   if (detail.parent_closure_id) {
@@ -353,24 +386,214 @@ async function buildEntradasSheet(wb: ExcelJS.Workbook, detail: InventoryClosure
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sheet 4: Consumos (reuse existing per-remision data)
+// Consumos — two-step fetch (PostgREST cannot filter on embedded remisiones)
 // ─────────────────────────────────────────────────────────────────────────────
-async function buildConsumosSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail, supabase: any) {
-  const ws = wb.addWorksheet('Consumos')
+const RM_CLOSURE_SELECT = `
+  material_id,
+  cantidad_teorica,
+  cantidad_real,
+  remision_id,
+  materials (material_name),
+  remisiones (
+    id,
+    remision_number,
+    fecha,
+    orders (
+      construction_site,
+      clients (business_name)
+    )
+  )
+`
+
+async function fetchClosureConsumoRows(
+  detail: InventoryClosureDetail,
+  supabase: any,
+): Promise<ConsumoRemisionRow[]> {
+  const remisiones = await fetchConsumosAllPages(async (from, to) =>
+    supabase
+      .from('remisiones')
+      .select('id, remision_number, fecha, orders(construction_site, clients(business_name))')
+      .eq('plant_id', detail.plant_id)
+      .gte('fecha', detail.period_start)
+      .lte('fecha', detail.period_end)
+      .order('fecha', { ascending: true })
+      .order('remision_number', { ascending: true })
+      .range(from, to),
+  )
+
+  const remisionIds = remisiones.map((r: { id: string }) => r.id)
+  if (remisionIds.length === 0) return []
+
+  const raw = (await fetchRemisionMaterialesByRemisionIds(
+    supabase,
+    remisionIds,
+    RM_CLOSURE_SELECT,
+  )) as Array<{
+    cantidad_teorica?: number | string | null
+    cantidad_real?: number | string | null
+    materials?: { material_name?: string | null } | null
+    remisiones?: {
+      remision_number?: string | null
+      fecha?: string | null
+      orders?: {
+        construction_site?: string | null
+        clients?: { business_name?: string | null } | null
+      } | null
+    } | null
+  }>
+
+  const out: ConsumoRemisionRow[] = []
+  for (const row of raw) {
+    const rem = row.remisiones
+    if (!rem?.fecha) continue
+    const cliente = rem.orders?.clients?.business_name ?? '—'
+    const obra = rem.orders?.construction_site ?? '—'
+    out.push({
+      remision_number: rem.remision_number ?? '—',
+      fecha: rem.fecha,
+      cliente,
+      obra,
+      material_name: row.materials?.material_name ?? '—',
+      cantidad_teorica: Number(row.cantidad_teorica ?? 0),
+      cantidad_real: Number(row.cantidad_real ?? 0),
+    })
+  }
+
+  out.sort((a, b) => {
+    const d = a.fecha.localeCompare(b.fecha)
+    if (d !== 0) return d
+    return a.remision_number.localeCompare(b.remision_number)
+  })
+  return out
+}
+
+function buildPuenteTeoricoSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail) {
+  const ws = wb.addWorksheet('Puente teórico')
   ws.views = [{ state: 'frozen', ySplit: 2 }]
 
-  const { data: rows } = await supabase
-    .from('remision_materiales')
-    .select('material:materials(material_name), cantidad_teorica, cantidad_real, remision:remisiones!remision_id(folio, fecha, cliente:orders(client:clients(name)))')
-    .eq('remision.plant_id', detail.plant_id)
-    .gte('remision.fecha', detail.period_start)
-    .lte('remision.fecha', detail.period_end)
-    .order('remision.fecha')
+  const cols = [
+    { header: 'Material', width: 30 },
+    { header: 'Inv. inicial (kg)', width: 16 },
+    { header: 'Entradas (kg)', width: 14 },
+    { header: 'Ajustes neto (kg)', width: 16 },
+    { header: 'Consumo (kg)', width: 14 },
+    { header: 'Desperdicio (kg)', width: 14 },
+    { header: 'Teórico final (kg)', width: 16 },
+    { header: 'Verificación puente', width: 16 },
+  ]
+
+  titleRow(ws, 'Puente teórico por material (aritmética del período)', cols.length, 1)
+  ws.columns = cols.map((c) => ({ width: c.width }))
+
+  const hRow = ws.getRow(2)
+  hRow.height = 30
+  cols.forEach((c, i) => {
+    const cell = hRow.getCell(i + 1)
+    cell.value = c.header
+    cell.style = headerStyle()
+  })
+
+  let r = 3
+  for (const m of detail.materials) {
+    const alt = r % 2 === 0
+    const adj = m.period_adjustments_kg ?? 0
+    const bridge = computeBridgeTheoreticalFinalKg({
+      initial_stock_kg: m.initial_stock_kg ?? 0,
+      period_entries_kg: m.period_entries_kg ?? 0,
+      period_adjustments_positive_kg: adj > 0 ? adj : 0,
+      period_adjustments_negative_kg: adj < 0 ? Math.abs(adj) : 0,
+      period_consumption_kg: m.period_consumption_kg ?? 0,
+      period_waste_kg: m.period_waste_kg ?? 0,
+    })
+    const stored = m.theoretical_final_kg ?? 0
+    const row = ws.getRow(r++)
+    row.height = 14
+    const vals = [
+      m.material?.material_name ?? m.material_id,
+      m.initial_stock_kg ?? 0,
+      m.period_entries_kg ?? 0,
+      adj,
+      m.period_consumption_kg ?? 0,
+      m.period_waste_kg ?? 0,
+      stored,
+      Math.abs(bridge - stored) < 0.05 ? 'OK' : `Δ ${(stored - bridge).toFixed(2)}`,
+    ]
+    vals.forEach((v, i) => {
+      const cell = row.getCell(i + 1)
+      cell.value = typeof v === 'number' ? Number(v) : v
+      if (typeof v === 'number') cell.numFmt = '#,##0.00'
+      cell.style = dataStyle(alt)
+    })
+  }
+}
+
+function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRemisionRow[]) {
+  const ws = wb.addWorksheet('Consumos resumen')
+  ws.views = [{ state: 'frozen', ySplit: 2 }]
+
+  const byMaterial = new Map<string, { teorica: number; real: number; remisiones: number }>()
+  for (const row of consumoRows) {
+    const cur = byMaterial.get(row.material_name) ?? { teorica: 0, real: 0, remisiones: 0 }
+    cur.teorica += row.cantidad_teorica
+    cur.real += row.cantidad_real
+    cur.remisiones += 1
+    byMaterial.set(row.material_name, cur)
+  }
+
+  const cols = [
+    { header: 'Material', width: 30 },
+    { header: '# líneas remisión', width: 16 },
+    { header: 'Σ teórica (kg)', width: 16 },
+    { header: 'Σ real (kg)', width: 16 },
+    { header: 'Δ real − teórica', width: 16 },
+  ]
+
+  titleRow(ws, 'Consumos agregados por material', cols.length, 1)
+  ws.columns = cols.map((c) => ({ width: c.width }))
+
+  const hRow = ws.getRow(2)
+  hRow.height = 30
+  cols.forEach((c, i) => {
+    const cell = hRow.getCell(i + 1)
+    cell.value = c.header
+    cell.style = headerStyle()
+  })
+
+  let r = 3
+  const sorted = [...byMaterial.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))
+  for (const [name, agg] of sorted) {
+    const alt = r % 2 === 0
+    const row = ws.getRow(r++)
+    row.height = 14
+    const delta = agg.real - agg.teorica
+    const vals = [name, agg.remisiones, agg.teorica, agg.real, delta]
+    vals.forEach((v, i) => {
+      const cell = row.getCell(i + 1)
+      cell.value = typeof v === 'number' ? Number(v) : v
+      if (typeof v === 'number') cell.numFmt = i >= 1 ? '#,##0.00' : undefined
+      cell.style = dataStyle(alt)
+    })
+  }
+
+  if (sorted.length === 0) {
+    const row = ws.getRow(r++)
+    row.getCell(1).value = 'Sin consumos en remisiones para este período'
+    ws.mergeCells(r - 1, 1, r - 1, cols.length)
+  }
+}
+
+async function buildConsumosSheet(
+  wb: ExcelJS.Workbook,
+  consumoRows: ConsumoRemisionRow[],
+) {
+  const ws = wb.addWorksheet('Consumos detalle')
+  ws.views = [{ state: 'frozen', ySplit: 2 }]
 
   const cols = [
     { header: 'Folio remisión', width: 18 },
     { header: 'Fecha', width: 14 },
     { header: 'Cliente', width: 28 },
+    { header: 'Obra', width: 24 },
     { header: 'Material', width: 28 },
     { header: 'Cant. teórica (kg)', width: 18 },
     { header: 'Cant. real (kg)', width: 18 },
@@ -381,20 +604,38 @@ async function buildConsumosSheet(wb: ExcelJS.Workbook, detail: InventoryClosure
 
   const hRow = ws.getRow(2)
   hRow.height = 30
-  cols.forEach((c, i) => { const cell = hRow.getCell(i + 1); cell.value = c.header; cell.style = headerStyle() })
+  cols.forEach((c, i) => {
+    const cell = hRow.getCell(i + 1)
+    cell.value = c.header
+    cell.style = headerStyle()
+  })
 
   let r = 3
-  for (const row of (rows ?? [])) {
+  for (const row of consumoRows) {
     const alt = r % 2 === 0
     const ws_row = ws.getRow(r++)
     ws_row.height = 14
-    const vals = [row.remision?.folio ?? '—', row.remision?.fecha ?? '—', row.remision?.cliente?.client?.name ?? '—', row.material?.material_name ?? '—', row.cantidad_teorica, row.cantidad_real]
+    const vals = [
+      row.remision_number,
+      row.fecha,
+      row.cliente,
+      row.obra,
+      row.material_name,
+      row.cantidad_teorica,
+      row.cantidad_real,
+    ]
     vals.forEach((v, i) => {
       const cell = ws_row.getCell(i + 1)
       cell.value = typeof v === 'number' ? Number(v) : v
-      if (typeof v === 'number' && i >= 4) cell.numFmt = '#,##0.00'
+      if (typeof v === 'number' && i >= 5) cell.numFmt = '#,##0.00'
       cell.style = dataStyle(alt)
     })
+  }
+
+  if (consumoRows.length === 0) {
+    const row = ws.getRow(r++)
+    row.getCell(1).value = 'Sin líneas de consumo en el período'
+    ws.mergeCells(r - 1, 1, r - 1, cols.length)
   }
 }
 
@@ -511,6 +752,7 @@ function buildEvidenciasSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDeta
 export async function buildInventoryClosureExcel(
   detail: InventoryClosureDetail,
   supabase?: any,
+  options?: InventoryClosureExcelOptions,
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'DC Concretos — Sistema de Control'
@@ -533,16 +775,18 @@ export async function buildInventoryClosureExcel(
     }
   }
 
-  await buildResumenSheet(wb, detail, signatureBuffer, signatureExtension)
+  await buildResumenSheet(wb, detail, signatureBuffer, signatureExtension, options)
   buildConciliacionSheet(wb, detail)
+  buildPuenteTeoricoSheet(wb, detail)
 
   if (supabase) {
+    const consumoRows = await fetchClosureConsumoRows(detail, supabase)
+    buildConsumosResumenSheet(wb, consumoRows)
+    await buildConsumosSheet(wb, consumoRows)
     await buildEntradasSheet(wb, detail, supabase)
-    await buildConsumosSheet(wb, detail, supabase)
     await buildAjustesSheet(wb, detail, supabase)
   } else {
-    // Placeholder sheets when supabase not available (e.g., client-side preview)
-    for (const name of ['Entradas', 'Consumos', 'Ajustes']) {
+    for (const name of ['Consumos resumen', 'Consumos detalle', 'Entradas', 'Ajustes']) {
       const ws = wb.addWorksheet(name)
       ws.getCell(1, 1).value = 'Datos disponibles al descargar desde el servidor'
     }

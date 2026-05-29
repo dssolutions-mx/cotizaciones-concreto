@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClientForApi, isUsingFallbackEnv } from '@/lib/supabase/api';
-
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+import {
+  assertClosurePlantAccess,
+  canSealInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 const MAX_BYTES = 5 * 1024 * 1024;
 const BUCKET = 'inventory-closure-evidence';
 
@@ -19,11 +21,11 @@ export async function POST(
 
     const { data: profile } = await authClient
       .from('user_profiles')
-      .select('role')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
-    if (!profile || !SEAL_ROLES.includes(profile.role as string)) {
+    if (!profile || !canSealInventoryClosure(profile.role as string)) {
       return NextResponse.json(
         { error: 'Sin permisos para firmar este cierre' },
         { status: 403 },
@@ -33,11 +35,21 @@ export async function POST(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: closure } = await (authClient as any)
       .from('inventory_closures')
-      .select('status')
+      .select('status, plant_id')
       .eq('id', closureId)
       .single();
 
     if (!closure) return NextResponse.json({ error: 'Cierre no encontrado' }, { status: 404 });
+
+    try {
+      assertClosurePlantAccess(
+        { role: profile.role as string, plant_id: profile.plant_id },
+        closure.plant_id as string,
+      );
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 403 });
+    }
+
     if (['sealed', 'cancelled'].includes(closure.status)) {
       return NextResponse.json({ error: 'No se puede firmar un cierre ya sellado o cancelado' }, { status: 409 });
     }
