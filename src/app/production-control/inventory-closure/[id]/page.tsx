@@ -19,7 +19,7 @@ import ExportStep from '@/components/inventory/closure/ExportStep'
 import type { InventoryClosureDetail, TheoreticalReviewMaterialRow } from '@/types/inventoryClosure'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { ClipboardList, XCircle, FilePen, Download } from 'lucide-react'
+import { ClipboardList, XCircle, FilePen, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { cn } from '@/lib/utils'
@@ -41,7 +41,10 @@ const STEP_ORDER: ClosureStep[] = [
   'export',
 ]
 
-import { canAdminInventoryClosure } from '@/lib/auth/inventoryClosureRoles'
+import {
+  canAdminInventoryClosure,
+  canDeleteInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles'
 
 export default function ClosureWizardPage() {
   const params = useParams<{ id: string }>()
@@ -66,8 +69,12 @@ export default function ClosureWizardPage() {
   const [amendmentError, setAmendmentError] = useState<string | null>(null)
   const [preliminaryLoading, setPreliminaryLoading] = useState(false)
   const [preliminaryError, setPreliminaryError] = useState<string | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const canManage = canAdminInventoryClosure(profile?.role)
+  const canDelete = canDeleteInventoryClosure(profile?.role)
 
   const closureHref = `/production-control/inventory-closure/${closureId}`
 
@@ -181,6 +188,22 @@ export default function ClosureWizardPage() {
       setCancelError((e as Error).message)
     } finally {
       setCancelling(false)
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al eliminar')
+      setShowDeleteConfirm(false)
+      router.push('/production-control/inventory-closure')
+    } catch (e) {
+      setDeleteError((e as Error).message)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -330,6 +353,17 @@ export default function ClosureWizardPage() {
               Cancelar cierre
             </Button>
           )}
+          {canDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar
+            </Button>
+          )}
         </div>
       </div>
 
@@ -437,6 +471,50 @@ export default function ClosureWizardPage() {
           {(activeStep === 'export' || isSealed) && (
             <ExportStep closure={detail} />
           )}
+        </div>
+      )}
+
+      {/* Delete confirmation (executive) */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <p className="font-semibold text-stone-900">¿Eliminar este cierre?</p>
+                <p className="text-xs text-stone-500">Solo disponible para ejecutivos.</p>
+              </div>
+            </div>
+            <p className="text-sm text-stone-700">
+              Se borrará el registro del cierre, el snapshot por material y la evidencia adjunta.
+              Los <strong>ajustes de inventario</strong> generados al sellar (si los hay){' '}
+              <strong>no</strong> se eliminan.
+            </p>
+            {deleteError && (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteError}
+              </p>
+            )}
+            <div className={cn('flex gap-3', deleteError ? '' : 'pt-1')}>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => { setShowDeleteConfirm(false); setDeleteError(null) }}
+                disabled={deleting}
+              >
+                Mantener
+              </Button>
+              <Button
+                className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Eliminando...' : 'Sí, eliminar'}
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -18,6 +18,9 @@ export const INVENTORY_CLOSURE_ADMIN_ROLES = [
   'PLANT_MANAGER',
 ] as const
 
+/** Hard-delete closure records (test data / mistaken runs). Does not remove material adjustments. */
+export const INVENTORY_CLOSURE_DELETE_ROLES = ['EXECUTIVE'] as const
+
 export function canAccessInventoryClosure(role: string | undefined): boolean {
   if (!role) return false
   return (INVENTORY_CLOSURE_ROLES as readonly string[]).includes(role)
@@ -30,6 +33,11 @@ export function canSealInventoryClosure(role: string | undefined): boolean {
 export function canAdminInventoryClosure(role: string | undefined): boolean {
   if (!role) return false
   return (INVENTORY_CLOSURE_ADMIN_ROLES as readonly string[]).includes(role)
+}
+
+export function canDeleteInventoryClosure(role: string | undefined): boolean {
+  if (!role) return false
+  return (INVENTORY_CLOSURE_DELETE_ROLES as readonly string[]).includes(role)
 }
 
 export function assertClosurePlantAccess(

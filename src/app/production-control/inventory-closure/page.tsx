@@ -6,7 +6,17 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { ClipboardList, Plus, ChevronRight, Lock, Clock, CheckCircle2, AlertCircle, FilePen } from 'lucide-react'
+import {
+  ClipboardList,
+  Plus,
+  ChevronRight,
+  Lock,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  FilePen,
+  Trash2,
+} from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb'
@@ -15,6 +25,7 @@ import type { InventoryClosureSummary, ClosureStatus } from '@/types/inventoryCl
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
+import { canDeleteInventoryClosure } from '@/lib/auth/inventoryClosureRoles'
 
 const STATUS_META: Record<ClosureStatus, { label: string; color: string; Icon: React.ElementType }> = {
   draft: { label: 'Borrador', color: 'bg-stone-100 text-stone-700 border-stone-200', Icon: Clock },
@@ -50,8 +61,11 @@ export default function InventoryClosureListPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const canInitiate = CLOSURE_ROLES.includes(profile?.role ?? '')
+  const canDelete = canDeleteInventoryClosure(profile?.role)
 
   const fetchClosures = useCallback(async () => {
     if (!currentPlant?.id) return
@@ -70,6 +84,28 @@ export default function InventoryClosureListPage() {
   }, [currentPlant?.id])
 
   useEffect(() => { fetchClosures() }, [fetchClosures])
+
+  async function handleDeleteClosure(closureId: string, label: string) {
+    if (
+      !window.confirm(
+        `¿Eliminar el cierre ${label}?\n\nSe borrará el registro y el snapshot; los ajustes de inventario del sellado no se eliminan.`,
+      )
+    ) {
+      return
+    }
+    setDeletingId(closureId)
+    setDeleteError(null)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al eliminar')
+      await fetchClosures()
+    } catch (e) {
+      setDeleteError((e as Error).message)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -110,6 +146,12 @@ export default function InventoryClosureListPage() {
         </div>
       )}
 
+      {deleteError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {deleteError}
+        </div>
+      )}
+
       {!loading && !error && closures.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-stone-300 bg-white py-16 text-center">
           <ClipboardList className="h-10 w-10 text-stone-300 mb-3" />
@@ -122,37 +164,57 @@ export default function InventoryClosureListPage() {
 
       {!loading && !error && closures.length > 0 && (
         <div className="space-y-2">
-          {closures.map((c) => (
-            <Link
-              key={c.id}
-              href={`/production-control/inventory-closure/${c.id}`}
-              className="group flex items-center justify-between gap-4 rounded-xl border border-stone-200 bg-white p-4 hover:bg-stone-50 hover:border-stone-300 transition-all"
-            >
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#f5f3f0] border border-stone-200">
-                  <ClipboardList className="h-4 w-4 text-stone-500" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-stone-900 truncate">
-                    {fmtDate(c.period_start)} — {fmtDate(c.period_end)}
-                  </p>
-                  <p className="text-xs text-stone-500 mt-0.5">
-                    Iniciado por {c.initiated_by_name || '—'} · {fmtDate(c.initiated_at)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {c.parent_closure_id && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
-                    <FilePen className="h-3 w-3" />
-                    Enmienda
-                  </span>
+          {closures.map((c) => {
+            const periodLabel = `${fmtDate(c.period_start)} — ${fmtDate(c.period_end)}`
+            return (
+              <div
+                key={c.id}
+                className="group flex items-center gap-2 rounded-xl border border-stone-200 bg-white hover:bg-stone-50 hover:border-stone-300 transition-all"
+              >
+                <Link
+                  href={`/production-control/inventory-closure/${c.id}`}
+                  className="flex flex-1 items-center justify-between gap-4 p-4 min-w-0"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#f5f3f0] border border-stone-200">
+                      <ClipboardList className="h-4 w-4 text-stone-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-stone-900 truncate">
+                        {periodLabel}
+                      </p>
+                      <p className="text-xs text-stone-500 mt-0.5">
+                        Iniciado por {c.initiated_by_name || '—'} · {fmtDate(c.initiated_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {c.parent_closure_id && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                        <FilePen className="h-3 w-3" />
+                        Enmienda
+                      </span>
+                    )}
+                    <StatusBadge status={c.status} />
+                    <ChevronRight className="h-4 w-4 text-stone-400 group-hover:text-stone-600 transition-colors" />
+                  </div>
+                </Link>
+                {canDelete && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 mr-2 text-stone-400 hover:text-red-600 hover:bg-red-50"
+                    title="Eliminar cierre (solo ejecutivo)"
+                    disabled={deletingId === c.id}
+                    onClick={() => handleDeleteClosure(c.id, periodLabel)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 )}
-                <StatusBadge status={c.status} />
-                <ChevronRight className="h-4 w-4 text-stone-400 group-hover:text-stone-600 transition-colors" />
               </div>
-            </Link>
-          ))}
+            )
+          })}
         </div>
       )}
 

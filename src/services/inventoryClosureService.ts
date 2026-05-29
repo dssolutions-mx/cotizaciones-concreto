@@ -143,6 +143,39 @@ export class InventoryClosureService {
     void userId; // logged via RLS / audit
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Hard delete (executive only — via API auth)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Permanently removes a closure and its snapshot/evidence rows (CASCADE).
+   * Child amendments are deleted first. Material adjustments created at seal are NOT removed.
+   */
+  async deleteClosure(closureId: string, userId: string): Promise<void> {
+    const { data: closure } = await this.supabase
+      .from('inventory_closures')
+      .select('id')
+      .eq('id', closureId)
+      .single();
+
+    if (!closure) throw new Error('Cierre no encontrado');
+
+    const { data: children } = await this.supabase
+      .from('inventory_closures')
+      .select('id')
+      .eq('parent_closure_id', closureId);
+
+    for (const child of children ?? []) {
+      await this.deleteClosure(child.id, userId);
+    }
+
+    const { error } = await this.supabase.from('inventory_closures').delete().eq('id', closureId);
+
+    if (error) throw new Error(`Error al eliminar cierre: ${error.message}`);
+
+    void userId;
+  }
+
   private async snapshotTheoreticalInventory(
     closureId: string,
     plantId: string,
