@@ -105,6 +105,12 @@ export default function EntryPricingReviewList({
                   {hasNoEvidence && (
                     <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" title="Sin evidencia" />
                   )}
+                  {hasReceptionNotes && (
+                    <span
+                      className="h-2 w-2 rounded-full bg-yellow-500 shrink-0"
+                      title="Observaciones de recepción en planta"
+                    />
+                  )}
                 </div>
               </div>
               <div className="flex items-baseline justify-between gap-2 mt-0.5">

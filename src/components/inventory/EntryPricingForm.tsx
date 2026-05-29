@@ -998,6 +998,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
   const totalMaterial = parseFloat(formData.total_cost || '0')
   const totalFleet = parseFloat(formData.fleet_cost || '0')
   const grandTotal = totalMaterial + totalFleet
+  const receptionNotes = entry.notes?.trim() || ''
 
   return (
     <>
@@ -1100,7 +1101,22 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
       {/* NOTE: keep overflow-y-auto on the OUTER div and pointer-events-none on the INNER div.
           pointer-events-none on a scrollable container also kills mouse-wheel scroll. */}
       <div className={cn(embedded ? 'flex-1 overflow-y-auto' : '', readOnly && 'select-none opacity-75')}>
-      <div className={cn(embedded ? 'px-5 py-4 space-y-4' : 'space-y-5', readOnly && 'pointer-events-none')}>
+      <div className={cn(embedded ? 'px-5 py-4 space-y-4' : 'space-y-5')}>
+        {receptionNotes ? (
+          <div
+            className={cn(
+              'rounded-lg border border-yellow-200 bg-yellow-50 p-3',
+              readOnly && 'pointer-events-auto select-text'
+            )}
+          >
+            <h4 className="text-xs font-semibold text-yellow-900 mb-1">
+              Observaciones de recepción (planta)
+            </h4>
+            <p className="text-sm text-yellow-800 whitespace-pre-wrap">{receptionNotes}</p>
+          </div>
+        ) : null}
+
+        <div className={cn(embedded ? 'space-y-4' : 'space-y-5', readOnly && 'pointer-events-none')}>
         {/* API warnings */}
         {apiWarnings.length > 0 && (
           <Alert className="border-amber-300 bg-amber-50 text-amber-800 [&>svg]:text-amber-600">
@@ -2046,6 +2062,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
           </CollapsibleContent>
         </Collapsible>
       </div>
+        </div>
       </div>
 
       {/* ─── Sticky footer ─── */}
