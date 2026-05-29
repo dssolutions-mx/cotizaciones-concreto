@@ -254,31 +254,86 @@ export class InventoryClosureService {
 
   /**
    * Live theoretical rows for UI — matches consumos Excel bridge (Inv. inicial + Ajustes ± auditoría).
+   * Read-only by default; pass `persistSnapshot` to rewrite draft snapshot (slow — use on confirm or explicit refresh).
    */
-  async getTheoreticalReviewRows(closureId: string): Promise<TheoreticalReviewMaterialRow[]> {
-    const detail = await this.getClosureDetail(closureId);
-    if (detail.status === 'draft') {
+  async getTheoreticalReviewRows(
+    closureId: string,
+    options?: { persistSnapshot?: boolean },
+  ): Promise<TheoreticalReviewMaterialRow[]> {
+    const { data: closure, error: closureError } = await this.supabase
+      .from('inventory_closures')
+      .select('id, status, plant_id, period_start, period_end')
+      .eq('id', closureId)
+      .single();
+
+    if (closureError || !closure) {
+      throw new Error(`Cierre no encontrado: ${closureError?.message ?? ''}`.trim());
+    }
+
+    if (options?.persistSnapshot && closure.status === 'draft') {
       await this.refreshTheoreticalSnapshot(closureId);
     }
-    const refreshed = await this.getClosureDetail(closureId);
+
+    const { data: snapshotRows, error: materialsError } = await this.supabase
+      .from('inventory_closure_materials')
+      .select(`
+        *,
+        material:materials(id, material_code, material_name, category, unit_of_measure, bulk_density_kg_per_m3)
+      `)
+      .eq('closure_id', closureId)
+      .order('material_id');
+
+    if (materialsError) {
+      throw new Error(`Error al cargar materiales del cierre: ${materialsError.message}`);
+    }
+
+    const materials = (snapshotRows ?? []) as InventoryClosureMaterial[];
 
     const dashService = new InventoryDashboardService(this.supabase);
     const flows = await dashService.calculateHistoricalInventory(
-      refreshed.plant_id,
-      refreshed.period_start,
-      refreshed.period_end,
+      closure.plant_id,
+      closure.period_start,
+      closure.period_end,
     );
     const flowByMaterial = new Map(flows.map((f) => [f.material_id, f]));
 
-    const materialIds = refreshed.materials.map((m) => m.material_id);
+    const materialIds =
+      materials.length > 0
+        ? materials.map((m) => m.material_id)
+        : flows.map((f) => f.material_id);
+
     const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
-      plantId: refreshed.plant_id,
-      startDate: refreshed.period_start,
-      endDate: refreshed.period_end,
+      plantId: closure.plant_id,
+      startDate: closure.period_start,
+      endDate: closure.period_end,
       materialIds,
     });
 
-    return refreshed.materials.map((m) => {
+    const baseRows: InventoryClosureMaterial[] =
+      materials.length > 0
+        ? materials
+        : flows.map((flow) => ({
+            id: '',
+            closure_id: closureId,
+            material_id: flow.material_id,
+            initial_stock_kg: 0,
+            period_entries_kg: 0,
+            period_consumption_kg: 0,
+            period_adjustments_kg: 0,
+            period_waste_kg: 0,
+            theoretical_final_kg: 0,
+            requires_justification: false,
+            created_at: '',
+            updated_at: '',
+            material: {
+              id: flow.material_id,
+              material_name: flow.material_name,
+              category: flow.category,
+              unit_of_measure: 'kg',
+            },
+          }));
+
+    return baseRows.map((m) => {
       const flow = flowByMaterial.get(m.material_id);
       const ledger = ledgerMap.get(m.material_id);
       const fromLedger = !!ledger;
