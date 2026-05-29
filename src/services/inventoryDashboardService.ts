@@ -1,6 +1,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { isGlobalInventoryRole } from '@/lib/auth/inventoryRoles';
-import { isSyntheticFifoOpeningEntry } from '@/lib/procurement/openingConsumosMerge';
+import {
+  adjustmentDisplayForConsumos,
+  isPlantOpeningBalanceAdjustment,
+  isSyntheticFifoOpeningEntry,
+} from '@/lib/procurement/openingConsumosMerge';
 import {
   isAdjpFreeAdjustmentLayerEntry,
   isFifoOrphanBucketEntry,
@@ -16,6 +20,13 @@ import {
   RemisionMaterialConsumption,
   InventoryDashboardSummary
 } from '@/types/inventory';
+
+function dayBeforeIso(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
+}
 
 export class InventoryDashboardService {
   private supabase;
@@ -482,7 +493,9 @@ export class InventoryDashboardService {
         this.fetchAllPages(() =>
           this.supabase
             .from('material_adjustments')
-            .select('material_id, quantity_adjusted, adjustment_type, adjustment_date')
+            .select(
+              'material_id, quantity_adjusted, adjustment_type, adjustment_date, inventory_before, inventory_after, reference_type, reference_notes',
+            )
             .eq('plant_id', plantId)
             .in('material_id', materialIdsList)
             .lt('adjustment_date', startDate)
@@ -679,12 +692,29 @@ export class InventoryDashboardService {
         ) {
           return;
         }
-        const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');
 
         if (!historicalAdjustmentsByMaterial.has(adj.material_id)) {
           historicalAdjustmentsByMaterial.set(adj.material_id, { additions: 0, withdrawals: 0 });
         }
         const current = historicalAdjustmentsByMaterial.get(adj.material_id)!;
+
+        if (
+          isPlantOpeningBalanceAdjustment(adj.reference_type, adj.reference_notes)
+        ) {
+          const effect = adjustmentDisplayForConsumos({
+            adjustment_type: adj.adjustment_type || '',
+            quantity_adjusted: qty,
+            inventory_before: adj.inventory_before,
+            inventory_after: adj.inventory_after,
+            reference_type: adj.reference_type,
+            reference_notes: adj.reference_notes,
+          }).effectSignedKg;
+          if (effect >= 0) current.additions += effect;
+          else current.withdrawals += Math.abs(effect);
+          return;
+        }
+
+        const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');
         if (isWithdrawal) {
           current.withdrawals += Math.abs(qty);
         } else {
@@ -986,6 +1016,55 @@ export class InventoryDashboardService {
           variance: variance,
           variance_percentage: variancePercentage,
         });
+      }
+
+      // Post-cutover plants (e.g. León desde 2026-04-01): inventario inicial del periodo =
+      // cierre teórico del tramo [cutover .. día anterior al inicio], no “toda la historia < start”.
+      // Evita restar remisiones pre-corte y el clamp a 0 por saldos negativos heredados.
+      const { data: plantCutover } = await this.supabase
+        .from('plant_cutover_dates')
+        .select('cutover_date')
+        .eq('plant_id', plantId)
+        .maybeSingle();
+
+      const cutoverDate = plantCutover?.cutover_date as string | undefined;
+      if (cutoverDate && startDate > cutoverDate) {
+        const rollforwardEnd = dayBeforeIso(startDate);
+        if (rollforwardEnd >= cutoverDate) {
+          const priorFlows = await this.calculateHistoricalInventory(
+            plantId,
+            cutoverDate,
+            rollforwardEnd,
+            materialIds,
+            categoryFilter,
+          );
+          const priorClosing = new Map(
+            priorFlows.map((f) => [f.material_id, f.theoretical_final_stock]),
+          );
+          for (const row of calculatedData) {
+            const priorInitial = priorClosing.get(row.material_id);
+            if (priorInitial === undefined) continue;
+            row.initial_stock = priorInitial;
+            row.theoretical_final_stock =
+              priorInitial +
+              row.total_entries +
+              row.total_manual_additions -
+              row.total_remisiones_consumption -
+              row.total_manual_withdrawals -
+              row.total_waste;
+            row.variance = Number(row.actual_current_stock) - row.theoretical_final_stock;
+            row.variance_percentage =
+              row.theoretical_final_stock !== 0
+                ? (row.variance / row.theoretical_final_stock) * 100
+                : 0;
+          }
+          console.log('✅ Post-cutover rollforward initial stock applied', {
+            cutoverDate,
+            rollforwardEnd,
+            startDate,
+            materials: priorClosing.size,
+          });
+        }
       }
 
       console.log('✅ Historical calculation completed:', {

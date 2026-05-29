@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals';
 import { InventoryDashboardService } from './inventoryDashboardService';
 import { resolveClosureVolumetricWeight, convertToKg } from '@/lib/inventory/closureVolumetricWeight';
 import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
@@ -13,6 +14,7 @@ import type {
   PhysicalCountInput,
   JustificationInput,
   SealClosureInput,
+  TheoreticalReviewMaterialRow,
 } from '@/types/inventoryClosure';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,6 +221,91 @@ export class InventoryClosureService {
     // Status stays draft until the user confirms theoretical review in the UI.
   }
 
+  /**
+   * Rebuilds theoretical snapshot from live `calculateHistoricalInventory` (same engine as consumos Excel).
+   * Only allowed while closure is in draft.
+   */
+  async refreshTheoreticalSnapshot(closureId: string): Promise<void> {
+    const { data: closure } = await this.supabase
+      .from('inventory_closures')
+      .select('id, status, plant_id, period_start, period_end')
+      .eq('id', closureId)
+      .single();
+
+    if (!closure) throw new Error('Cierre no encontrado');
+    if (closure.status !== 'draft') {
+      throw new Error('Solo se puede recalcular el teórico en borrador');
+    }
+
+    const { error: delError } = await this.supabase
+      .from('inventory_closure_materials')
+      .delete()
+      .eq('closure_id', closureId);
+
+    if (delError) throw new Error(`Error al limpiar snapshot: ${delError.message}`);
+
+    await this.snapshotTheoreticalInventory(
+      closureId,
+      closure.plant_id,
+      closure.period_start,
+      closure.period_end,
+    );
+  }
+
+  /**
+   * Live theoretical rows for UI — matches consumos Excel bridge (Inv. inicial + Ajustes ± auditoría).
+   */
+  async getTheoreticalReviewRows(closureId: string): Promise<TheoreticalReviewMaterialRow[]> {
+    const detail = await this.getClosureDetail(closureId);
+    if (detail.status === 'draft') {
+      await this.refreshTheoreticalSnapshot(closureId);
+    }
+    const refreshed = await this.getClosureDetail(closureId);
+
+    const dashService = new InventoryDashboardService(this.supabase);
+    const flows = await dashService.calculateHistoricalInventory(
+      refreshed.plant_id,
+      refreshed.period_start,
+      refreshed.period_end,
+    );
+    const flowByMaterial = new Map(flows.map((f) => [f.material_id, f]));
+
+    const materialIds = refreshed.materials.map((m) => m.material_id);
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
+      plantId: refreshed.plant_id,
+      startDate: refreshed.period_start,
+      endDate: refreshed.period_end,
+      materialIds,
+    });
+
+    return refreshed.materials.map((m) => {
+      const flow = flowByMaterial.get(m.material_id);
+      const ledger = ledgerMap.get(m.material_id);
+      const fromLedger = !!ledger;
+
+      const period_adjustments_positive_kg = fromLedger
+        ? ledger!.adj_positive_kg
+        : (flow?.total_manual_additions ?? 0);
+      const period_adjustments_negative_kg = fromLedger
+        ? ledger!.adj_negative_abs_kg
+        : Math.abs(flow?.total_manual_withdrawals ?? 0);
+
+      return {
+        ...m,
+        initial_stock_kg: flow?.initial_stock ?? m.initial_stock_kg,
+        period_entries_kg: flow?.total_entries ?? m.period_entries_kg,
+        period_consumption_kg: flow?.total_remisiones_consumption ?? m.period_consumption_kg,
+        period_waste_kg: flow?.total_waste ?? m.period_waste_kg,
+        theoretical_final_kg: flow?.theoretical_final_stock ?? m.theoretical_final_kg,
+        period_adjustments_kg:
+          period_adjustments_positive_kg - period_adjustments_negative_kg,
+        period_adjustments_positive_kg,
+        period_adjustments_negative_kg,
+        adjustments_from_ledger_audit: fromLedger,
+      };
+    });
+  }
+
   async confirmTheoreticalReview(closureId: string): Promise<void> {
     const { data: closure } = await this.supabase
       .from('inventory_closures')
@@ -231,6 +318,8 @@ export class InventoryClosureService {
       throw new Error('No se puede modificar un cierre sellado o cancelado');
     }
     if (closure.status !== 'draft') return;
+
+    await this.refreshTheoreticalSnapshot(closureId);
 
     const { count, error: countError } = await this.supabase
       .from('inventory_closure_materials')

@@ -10,7 +10,7 @@ import ReconciliationStep from '@/components/inventory/closure/ReconciliationSte
 import JustificationStep from '@/components/inventory/closure/JustificationStep'
 import SealStep from '@/components/inventory/closure/SealStep'
 import ExportStep from '@/components/inventory/closure/ExportStep'
-import type { InventoryClosureDetail } from '@/types/inventoryClosure'
+import type { InventoryClosureDetail, TheoreticalReviewMaterialRow } from '@/types/inventoryClosure'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ClipboardList, XCircle, FilePen } from 'lucide-react'
@@ -46,6 +46,9 @@ export default function ClosureWizardPage() {
   const [theoreticalConfirmed, setTheoreticalConfirmed] = useState(false)
   const [confirmingTheoretical, setConfirmingTheoretical] = useState(false)
   const [theoreticalError, setTheoreticalError] = useState<string | null>(null)
+  const [theoreticalMaterials, setTheoreticalMaterials] = useState<TheoreticalReviewMaterialRow[]>([])
+  const [theoreticalLoading, setTheoreticalLoading] = useState(false)
+  const [adjustmentsFromLedgerAudit, setAdjustmentsFromLedgerAudit] = useState(false)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
@@ -85,6 +88,29 @@ export default function ClosureWizardPage() {
   }, [closureId])
 
   useEffect(() => { fetchDetail() }, [fetchDetail])
+
+  const loadTheoreticalReview = useCallback(async () => {
+    setTheoreticalLoading(true)
+    setTheoreticalError(null)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}/theoretical-review`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al cargar revisión teórica')
+      setTheoreticalMaterials(data.materials ?? [])
+      setAdjustmentsFromLedgerAudit(!!data.adjustments_from_ledger_audit)
+      await fetchDetail()
+    } catch (e) {
+      setTheoreticalError((e as Error).message)
+    } finally {
+      setTheoreticalLoading(false)
+    }
+  }, [closureId, fetchDetail])
+
+  useEffect(() => {
+    if (activeStep === 'theoretical' && detail && detail.status !== 'cancelled') {
+      loadTheoreticalReview()
+    }
+  }, [activeStep, detail?.id, detail?.status, loadTheoreticalReview])
 
   function advanceStep() {
     const current = STEP_ORDER.indexOf(activeStep)
@@ -171,8 +197,8 @@ export default function ClosureWizardPage() {
     )
   }
 
-  const isSealed = detail.status === 'sealed'
-  const isCancelled = detail.status === 'cancelled'
+  const isSealed = detail?.status === 'sealed'
+  const isCancelled = detail?.status === 'cancelled'
   const isAmendment = !!detail.parent_closure_id
   const canCancel = canManage && !isSealed && !isCancelled
 
@@ -265,9 +291,13 @@ export default function ClosureWizardPage() {
                 </p>
               )}
               <TheoreticalReviewStep
-                materials={detail.materials}
+                materials={
+                  theoreticalMaterials.length > 0 ? theoreticalMaterials : detail.materials
+                }
                 periodStart={detail.period_start}
                 periodEnd={detail.period_end}
+                adjustmentsFromLedgerAudit={adjustmentsFromLedgerAudit}
+                loading={theoreticalLoading}
                 confirmed={theoreticalConfirmed}
                 confirming={confirmingTheoretical}
                 onConfirm={handleConfirmTheoretical}

@@ -135,6 +135,14 @@ export interface SealClosureInput {
   signature_image_url: string;
 }
 
+/** Theoretical review row aligned with consumos Excel «puente teórico» columns. */
+export interface TheoreticalReviewMaterialRow extends InventoryClosureMaterial {
+  period_adjustments_positive_kg: number
+  period_adjustments_negative_kg: number
+  /** True when Ajustes ± come from auditoría de material (same as consumos contable export). */
+  adjustments_from_ledger_audit: boolean
+}
+
 // Summary item in list view
 export interface InventoryClosureSummary {
   id: string;
