@@ -17,7 +17,13 @@ export type ConsumeFifoForAdjustmentParams = {
 
 export type ConsumeFifoForAdjustmentResult =
   | { ok: true; totalCost: number }
-  | { ok: false; error: string; code?: 'INSUFFICIENT_INVENTORY' | 'NO_ENTRIES' | 'ALLOCATION_FAILED' };
+  | {
+      ok: false;
+      error: string;
+      code?: 'INSUFFICIENT_INVENTORY' | 'NO_ENTRIES' | 'ALLOCATION_FAILED';
+      /** Present when code is INSUFFICIENT_INVENTORY — kg available in FIFO layers at consumption date. */
+      totalAvailableKg?: number;
+    };
 
 const MATERIAL_ENTRIES_FIFO_PAGE = 1000;
 const QTY_EPS_KG = 1e-6;
@@ -127,6 +133,27 @@ export async function consumeFifoForAdjustment(
   }
 
   if (!entries.length) {
+    const { count: historicLayerCount, error: historicErr } = await supabase
+      .from('material_entries')
+      .select('id', { count: 'exact', head: true })
+      .eq('material_id', materialId)
+      .eq('plant_id', plantId)
+      .eq('excluded_from_fifo', false)
+      .lte('entry_date', consumptionDate);
+
+    if (historicErr) {
+      return { ok: false, error: `FIFO historic layer check failed: ${historicErr.message}` };
+    }
+
+    if ((historicLayerCount ?? 0) > 0) {
+      return {
+        ok: false,
+        error: `Inventario FIFO insuficiente para el ajuste: se necesitan ${quantityKg.toFixed(3)} kg, disponibles 0.000 kg (capas agotadas a esta fecha).`,
+        code: 'INSUFFICIENT_INVENTORY',
+        totalAvailableKg: 0,
+      };
+    }
+
     return {
       ok: false,
       error:
@@ -170,6 +197,7 @@ export async function consumeFifoForAdjustment(
       ok: false,
       error: `Inventario FIFO insuficiente para el ajuste: se necesitan ${quantityKg.toFixed(3)} kg, disponibles ${totalAvailable.toFixed(3)} kg.`,
       code: 'INSUFFICIENT_INVENTORY',
+      totalAvailableKg: totalAvailable,
     };
   }
 

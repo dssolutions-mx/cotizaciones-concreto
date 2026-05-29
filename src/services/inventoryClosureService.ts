@@ -5,7 +5,7 @@ import { InventoryDashboardService } from './inventoryDashboardService';
 import { resolveClosureVolumetricWeight, convertToKg } from '@/lib/inventory/closureVolumetricWeight';
 import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
 import { insertAdjustmentFifoLayer } from '@/lib/inventory/insertAdjustmentFifoLayer';
-import { consumeFifoForAdjustment } from '@/lib/inventory/consumeFifoForAdjustment';
+import { consumeFifoForClosureAdjustment } from '@/lib/inventory/consumeFifoForClosureAdjustment';
 import type {
   InventoryClosure,
   InventoryClosureDetail,
@@ -828,17 +828,22 @@ export class InventoryClosureService {
           throw new Error(`Error FIFO para ${mat.material_id}: ${fifoResult.error}`);
         }
       } else {
-        const consResult = await consumeFifoForAdjustment(this.supabase, {
+        const consResult = await consumeFifoForClosureAdjustment(this.supabase, {
           adjustmentId: adj.id,
+          adjustmentNumber,
           plantId: closure.plant_id,
           materialId: mat.material_id,
           quantityKg: quantityAdjusted,
           consumptionDate: adjustmentDate,
           userId,
+          inventoryBefore,
+          inventoryAfter,
         });
         if (!consResult.ok) {
           await this.supabase.from('material_adjustments').delete().eq('id', adj.id);
-          throw new Error(`Error FIFO consumo para ${mat.material_id}: ${consResult.error}`);
+          throw new Error(
+            `Error FIFO consumo para ${mat.material?.material_name ?? mat.material_id}: ${consResult.error}`,
+          );
         }
       }
 
