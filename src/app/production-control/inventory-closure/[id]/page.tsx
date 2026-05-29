@@ -44,6 +44,8 @@ export default function ClosureWizardPage() {
   const [error, setError] = useState<string | null>(null)
   const [activeStep, setActiveStep] = useState<ClosureStep>('theoretical')
   const [theoreticalConfirmed, setTheoreticalConfirmed] = useState(false)
+  const [confirmingTheoretical, setConfirmingTheoretical] = useState(false)
+  const [theoreticalError, setTheoreticalError] = useState<string | null>(null)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
@@ -59,9 +61,22 @@ export default function ClosureWizardPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Error al cargar cierre')
       setDetail(data.closure)
-      const step = statusToStep(data.closure.status)
-      setActiveStep(step)
-      if (data.closure.status !== 'draft') setTheoreticalConfirmed(true)
+      const materials = data.closure.materials ?? []
+      const hasPhysicalCounts = materials.some(
+        (m: { physical_count_value?: number | null }) => m.physical_count_value != null,
+      )
+      // Closures created before confirm-theoretical existed jumped to physical_count on snapshot
+      const needsTheoreticalReview =
+        data.closure.status === 'draft' ||
+        (data.closure.status === 'physical_count' && !hasPhysicalCounts)
+
+      if (needsTheoreticalReview) {
+        setActiveStep('theoretical')
+        setTheoreticalConfirmed(false)
+      } else {
+        setActiveStep(statusToStep(data.closure.status))
+        if (data.closure.status !== 'draft') setTheoreticalConfirmed(true)
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -77,6 +92,25 @@ export default function ClosureWizardPage() {
       setActiveStep(STEP_ORDER[current + 1])
     }
     fetchDetail()
+  }
+
+  async function handleConfirmTheoretical() {
+    setTheoreticalError(null)
+    setConfirmingTheoretical(true)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}/confirm-theoretical`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al confirmar revisión teórica')
+      setTheoreticalConfirmed(true)
+      setActiveStep('physical_count')
+      await fetchDetail()
+    } catch (e) {
+      setTheoreticalError((e as Error).message)
+    } finally {
+      setConfirmingTheoretical(false)
+    }
   }
 
   async function handleCancel() {
@@ -224,16 +258,21 @@ export default function ClosureWizardPage() {
       ) : (
         <div className="rounded-2xl border border-stone-200 bg-white p-5 md:p-6">
           {activeStep === 'theoretical' && (
-            <TheoreticalReviewStep
-              materials={detail.materials}
-              periodStart={detail.period_start}
-              periodEnd={detail.period_end}
-              confirmed={theoreticalConfirmed}
-              onConfirm={() => {
-                setTheoreticalConfirmed(true)
-                setActiveStep('physical_count')
-              }}
-            />
+            <>
+              {theoreticalError && (
+                <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {theoreticalError}
+                </p>
+              )}
+              <TheoreticalReviewStep
+                materials={detail.materials}
+                periodStart={detail.period_start}
+                periodEnd={detail.period_end}
+                confirmed={theoreticalConfirmed}
+                confirming={confirmingTheoretical}
+                onConfirm={handleConfirmTheoretical}
+              />
+            </>
           )}
 
           {activeStep === 'physical_count' && (

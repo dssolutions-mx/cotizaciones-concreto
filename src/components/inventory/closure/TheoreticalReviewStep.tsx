@@ -14,11 +14,19 @@ interface Props {
   materials: InventoryClosureMaterial[]
   periodStart: string
   periodEnd: string
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   confirmed: boolean
+  confirming?: boolean
 }
 
-export default function TheoreticalReviewStep({ materials, periodStart, periodEnd, onConfirm, confirmed }: Props) {
+export default function TheoreticalReviewStep({
+  materials,
+  periodStart,
+  periodEnd,
+  onConfirm,
+  confirmed,
+  confirming = false,
+}: Props) {
   const totalEntries = materials.reduce((s, m) => s + (m.period_entries_kg ?? 0), 0)
   const totalConsumption = materials.reduce((s, m) => s + (m.period_consumption_kg ?? 0), 0)
   const totalAdjustments = materials.reduce((s, m) => s + (m.period_adjustments_kg ?? 0), 0)
@@ -51,6 +59,13 @@ export default function TheoreticalReviewStep({ materials, periodStart, periodEn
             </div>
           ))}
         </div>
+
+        {materials.length === 0 && (
+          <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            No se encontraron materiales con movimientos en este período. Verifica las fechas del cierre o
+            cancela e inicia uno nuevo con el rango correcto.
+          </p>
+        )}
 
         {/* Per-material table */}
         <div className="overflow-x-auto rounded-lg border border-stone-200">
@@ -104,11 +119,13 @@ export default function TheoreticalReviewStep({ materials, periodStart, periodEn
       <div className="flex justify-end">
         <Button
           onClick={onConfirm}
-          disabled={confirmed}
+          disabled={confirmed || confirming || materials.length === 0}
           className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
         >
           {confirmed ? (
             <><CheckCircle2 className="h-4 w-4" /> Datos confirmados</>
+          ) : confirming ? (
+            <>Confirmando...</>
           ) : (
             <>Confirmar datos y continuar</>
           )}

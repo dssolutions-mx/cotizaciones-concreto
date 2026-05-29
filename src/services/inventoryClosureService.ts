@@ -216,11 +216,40 @@ export class InventoryClosureService {
     const { error } = await this.supabase.from('inventory_closure_materials').insert(rows);
     if (error) throw new Error(`Error al guardar snapshot teórico: ${error.message}`);
 
-    // Advance status
-    await this.supabase
+    // Status stays draft until the user confirms theoretical review in the UI.
+  }
+
+  async confirmTheoreticalReview(closureId: string): Promise<void> {
+    const { data: closure } = await this.supabase
+      .from('inventory_closures')
+      .select('id, status')
+      .eq('id', closureId)
+      .single();
+
+    if (!closure) throw new Error('Cierre no encontrado');
+    if (closure.status === 'sealed' || closure.status === 'cancelled') {
+      throw new Error('No se puede modificar un cierre sellado o cancelado');
+    }
+    if (closure.status !== 'draft') return;
+
+    const { count, error: countError } = await this.supabase
+      .from('inventory_closure_materials')
+      .select('material_id', { count: 'exact', head: true })
+      .eq('closure_id', closureId);
+
+    if (countError) throw new Error(`Error al verificar materiales: ${countError.message}`);
+    if (!count) {
+      throw new Error(
+        'No hay materiales en el inventario teórico para este período. Ajusta las fechas o verifica movimientos en la planta.',
+      );
+    }
+
+    const { error } = await this.supabase
       .from('inventory_closures')
       .update({ status: 'physical_count', updated_at: new Date().toISOString() })
       .eq('id', closureId);
+
+    if (error) throw new Error(`Error al confirmar revisión teórica: ${error.message}`);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -536,12 +565,14 @@ export class InventoryClosureService {
         plant:plants(name),
         initiated_by_user:user_profiles!initiated_by(first_name, last_name)
       `)
-      .order('initiated_at', { ascending: false })
-      .limit(filters.limit ?? 20)
-      .range(filters.offset ?? 0, (filters.offset ?? 0) + (filters.limit ?? 20) - 1);
+      .order('initiated_at', { ascending: false });
 
     if (filters.plantId) query = query.eq('plant_id', filters.plantId);
     if (filters.status) query = query.eq('status', filters.status);
+
+    const limit = filters.limit ?? 20;
+    const offset = filters.offset ?? 0;
+    query = query.range(offset, offset + limit - 1);
 
     const { data, error } = await query;
     if (error) throw new Error(`Error al listar cierres: ${error.message}`);
