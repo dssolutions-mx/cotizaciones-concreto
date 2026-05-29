@@ -147,6 +147,17 @@ export class InventoryClosureService {
     plantId: string,
     startDate: string,
     endDate: string,
+    options?: {
+      /** Reuse volumetric fields from a prior snapshot to avoid N quality lookups on confirm. */
+      volumetricHintsByMaterialId?: Map<
+        string,
+        {
+          volumetric_weight_kg_per_m3: number | null;
+          volumetric_weight_source: string | null;
+          quality_study_id: string | null;
+        }
+      >;
+    },
   ): Promise<void> {
     const dashService = new InventoryDashboardService(this.supabase);
     const flows = await dashService.calculateHistoricalInventory(plantId, startDate, endDate);
@@ -173,18 +184,20 @@ export class InventoryClosureService {
         .single()
     ).data?.variance_threshold_pct ?? 2;
 
+    const volumetricHints = options?.volumetricHintsByMaterialId;
+
     const rows = await Promise.all(
       flows.map(async (flow) => {
         const mat = materialMap.get(flow.material_id);
         const netAdjustments =
           (flow.total_manual_additions ?? 0) - (flow.total_manual_withdrawals ?? 0);
 
-        // Pre-resolve volumetric weight hint from quality characterization
-        let volW: number | null = null;
-        let volSource: string | null = null;
-        let qualityStudyId: string | null = null;
+        const hinted = volumetricHints?.get(flow.material_id);
+        let volW: number | null = hinted?.volumetric_weight_kg_per_m3 ?? null;
+        let volSource: string | null = hinted?.volumetric_weight_source ?? null;
+        let qualityStudyId: string | null = hinted?.quality_study_id ?? null;
 
-        if (mat?.material_name) {
+        if (!hinted && mat?.material_name) {
           const resolved = await resolveClosureVolumetricWeight(this.supabase, {
             plantId,
             materialId: flow.material_id,
@@ -237,6 +250,31 @@ export class InventoryClosureService {
       throw new Error('Solo se puede recalcular el teórico en borrador');
     }
 
+    const { data: existingRows } = await this.supabase
+      .from('inventory_closure_materials')
+      .select(
+        'material_id, volumetric_weight_kg_per_m3, volumetric_weight_source, quality_study_id',
+      )
+      .eq('closure_id', closureId);
+
+    const volumetricHintsByMaterialId = new Map(
+      (existingRows ?? []).map(
+        (r: {
+          material_id: string;
+          volumetric_weight_kg_per_m3: number | null;
+          volumetric_weight_source: string | null;
+          quality_study_id: string | null;
+        }) => [
+          r.material_id,
+          {
+            volumetric_weight_kg_per_m3: r.volumetric_weight_kg_per_m3,
+            volumetric_weight_source: r.volumetric_weight_source,
+            quality_study_id: r.quality_study_id,
+          },
+        ],
+      ),
+    );
+
     const { error: delError } = await this.supabase
       .from('inventory_closure_materials')
       .delete()
@@ -249,6 +287,7 @@ export class InventoryClosureService {
       closure.plant_id,
       closure.period_start,
       closure.period_end,
+      { volumetricHintsByMaterialId },
     );
   }
 
