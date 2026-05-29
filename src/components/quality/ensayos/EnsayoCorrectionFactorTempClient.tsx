@@ -10,6 +10,7 @@ import {
   Loader2,
   RefreshCw,
   Save,
+  Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ import type { SpecimenTypeSpec } from '@/types/quality'
 
 const ALLOWED_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN', 'ADMIN_OPERATIONS']
 const WRITE_SPEC_ROLES = ['EXECUTIVE', 'ADMIN']
+const APPLY_ENSAYO_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE', 'PLANT_MANAGER', 'ADMIN']
 
 export type PreviewRow = {
   ensayo_id: string
@@ -88,8 +90,10 @@ export default function EnsayoCorrectionFactorTempClient() {
   const [fechaHasta, setFechaHasta] = useState(defaultHasta)
   const [savingSpecId, setSavingSpecId] = useState<string | null>(null)
   const [recomputingPct, setRecomputingPct] = useState(false)
+  const [applyingBulk, setApplyingBulk] = useState(false)
 
   const canWriteSpecs = profile?.role && WRITE_SPEC_ROLES.includes(profile.role)
+  const canApplyEnsayos = profile?.role && APPLY_ENSAYO_ROLES.includes(profile.role)
   const specsById = useMemo(() => new Map(specs.map((s) => [s.id, s])), [specs])
 
   const load = useCallback(async () => {
@@ -173,6 +177,62 @@ export default function EnsayoCorrectionFactorTempClient() {
   }, [specs, draftFactors])
 
   const impactCount = simulatedRows.filter((r) => r.mismatch_simulacion).length
+  const tableMismatchCount = summary?.mismatch_tabla ?? rows.filter((r) => r.mismatch_tabla).length
+
+  async function applyBulkCorrections(mode: 'tabla' | 'borrador') {
+    const count =
+      mode === 'tabla'
+        ? tableMismatchCount
+        : simulatedRows.filter((r) => r.mismatch_simulacion).length
+
+    if (count <= 0) {
+      toast.message(mode === 'tabla' ? 'No hay desvíos vs catálogo' : 'No hay cambios con el borrador')
+      return
+    }
+
+    const label =
+      mode === 'tabla'
+        ? `Se actualizarán hasta ${count} ensayo(s) para alinear factor, resistencia corregida y % cumplimiento con el catálogo guardado.`
+        : `Se actualizarán hasta ${count} ensayo(s) con los factores del borrador (sin guardar el catálogo).`
+
+    if (!window.confirm(`${label}\n\n¿Continuar?`)) return
+
+    setApplyingBulk(true)
+    try {
+      const draftMap: Record<string, number> = {}
+      if (mode === 'borrador') {
+        for (const s of specs) {
+          const v = parseFloat(draftFactors[s.id] ?? String(s.correction_factor))
+          if (Number.isFinite(v) && v > 0) draftMap[s.id] = v
+        }
+      }
+
+      const res = await fetch('/api/quality/ensayos/correction-factor-preview/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          fecha_desde: fechaDesde,
+          fecha_hasta: fechaHasta,
+          plant_id: currentPlant?.id ?? null,
+          limit: 500,
+          draft_factors: draftMap,
+        }),
+      })
+      const j = await res.json()
+      if (!res.ok) throw new Error(j.error || 'Error al aplicar')
+
+      const failed = (j.failed as { ensayo_id: string; reason: string }[])?.length ?? 0
+      toast.success(
+        `Listo: ${j.updated ?? 0} ensayo(s) corregido(s)${failed > 0 ? `, ${failed} fallido(s)` : ''}`
+      )
+      await load()
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Error al corregir ensayos')
+    } finally {
+      setApplyingBulk(false)
+    }
+  }
 
   async function saveSpec(id: string) {
     const correction_factor = parseFloat(draftFactors[id])
@@ -292,9 +352,9 @@ export default function EnsayoCorrectionFactorTempClient() {
       </div>
 
       <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-950">
-        Los cambios en la tabla de especificaciones no actualizan ensayos ya registrados hasta que
-        guardes el catálogo y reasignes el factor en cada ensayo (o uses sincronizar desde la ficha
-        del ensayo). Esta pantalla es solo para simular el impacto.
+        El botón «Corregir desvíos vs catálogo» actualiza en bloque factor, resistencia corregida y
+        porcentaje de cumplimiento según specimen_type_specs. Si editaste el borrador, guarda el
+        catálogo antes o usa «Corregir según borrador».
       </div>
 
       {error && (
@@ -422,6 +482,32 @@ export default function EnsayoCorrectionFactorTempClient() {
           ) : null}
           Recalcular % oficial
         </Button>
+        {canApplyEnsayos && (
+          <>
+            <Button
+              className={qualityHubPrimaryButtonClass}
+              disabled={applyingBulk || loading || tableMismatchCount <= 0}
+              onClick={() => void applyBulkCorrections('tabla')}
+            >
+              {applyingBulk ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+              ) : (
+                <Wrench className="h-4 w-4 mr-1.5" />
+              )}
+              Corregir desvíos vs catálogo ({tableMismatchCount})
+            </Button>
+            {dirtySpecIds.length > 0 && (
+              <Button
+                variant="outline"
+                className={qualityHubOutlineNeutralClass}
+                disabled={applyingBulk || loading || impactCount <= 0}
+                onClick={() => void applyBulkCorrections('borrador')}
+              >
+                Corregir según borrador ({impactCount})
+              </Button>
+            )}
+          </>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
