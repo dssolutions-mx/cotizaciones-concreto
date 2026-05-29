@@ -13,13 +13,23 @@ import {
 } from '@/components/ui/breadcrumb'
 import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText } from 'lucide-react'
 
-interface BreadcrumbItem {
+interface BreadcrumbRouteItem {
   label: string
   href: string
   icon?: React.ElementType
 }
 
-const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
+/** Extra segments after the matched inventory route (e.g. closure period + wizard step). */
+export type InventoryBreadcrumbTailItem = {
+  label: string
+  href?: string
+}
+
+export type InventoryBreadcrumbProps = {
+  tailItems?: InventoryBreadcrumbTailItem[]
+}
+
+const inventoryRoutes: Record<string, BreadcrumbRouteItem[]> = {
   '/production-control': [
     { label: 'Control de Producción', href: '/production-control', icon: Home }
   ],
@@ -81,21 +91,39 @@ const inventoryRoutes: Record<string, BreadcrumbItem[]> = {
   ],
 }
 
-export default function InventoryBreadcrumb() {
+type RenderedBreadcrumbItem = {
+  label: string
+  href?: string
+  icon?: React.ElementType
+}
+
+export default function InventoryBreadcrumb({ tailItems = [] }: InventoryBreadcrumbProps) {
   const pathname = usePathname()
 
   // Exact match first; then fall back to prefix match for dynamic routes
-  let breadcrumbItems = inventoryRoutes[pathname] || []
-  if (breadcrumbItems.length === 0) {
+  let baseItems = inventoryRoutes[pathname] || []
+  if (baseItems.length === 0) {
     const matchedKey = Object.keys(inventoryRoutes).find(
       (key) => pathname.startsWith(key + '/') && key !== '/production-control',
     )
-    if (matchedKey) breadcrumbItems = inventoryRoutes[matchedKey]
+    if (matchedKey) baseItems = inventoryRoutes[matchedKey]
   }
 
-  if (breadcrumbItems.length === 0) {
+  if (baseItems.length === 0) {
     return null
   }
+
+  const breadcrumbItems: RenderedBreadcrumbItem[] = [
+    ...baseItems.map((item) => ({
+      label: item.label,
+      href: item.href,
+      icon: item.icon,
+    })),
+    ...tailItems.map((item) => ({
+      label: item.label,
+      href: item.href,
+    })),
+  ]
 
   return (
     <div className="mb-6">
@@ -106,9 +134,9 @@ export default function InventoryBreadcrumb() {
             const IconComponent = item.icon
 
             return (
-              <React.Fragment key={item.href}>
+              <React.Fragment key={`${item.href ?? item.label}-${index}`}>
                 <BreadcrumbItem>
-                  {isLast ? (
+                  {isLast || !item.href ? (
                     <BreadcrumbPage className="flex items-center gap-2">
                       {IconComponent && <IconComponent className="h-4 w-4" />}
                       {item.label}

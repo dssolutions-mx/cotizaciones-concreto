@@ -1,9 +1,15 @@
 'use client'
 
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb'
-import ClosureStepper, { statusToStep, type ClosureStep } from '@/components/inventory/closure/ClosureStepper'
+import InventoryBreadcrumb, {
+  type InventoryBreadcrumbTailItem,
+} from '@/components/inventory/InventoryBreadcrumb'
+import ClosureStepper, {
+  getClosureStepLabel,
+  statusToStep,
+  type ClosureStep,
+} from '@/components/inventory/closure/ClosureStepper'
 import TheoreticalReviewStep from '@/components/inventory/closure/TheoreticalReviewStep'
 import PhysicalCountStep from '@/components/inventory/closure/PhysicalCountStep'
 import ReconciliationStep from '@/components/inventory/closure/ReconciliationStep'
@@ -18,8 +24,12 @@ import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { cn } from '@/lib/utils'
 
-function fmtDate(d: string) {
-  try { return format(parseISO(d), "MMM yyyy", { locale: es }) } catch { return d }
+function formatClosurePeriodRange(start: string, end: string) {
+  try {
+    return `${format(parseISO(start), 'd MMM', { locale: es })} — ${format(parseISO(end), 'd MMM yyyy', { locale: es })}`
+  } catch {
+    return `${start} — ${end}`
+  }
 }
 
 const STEP_ORDER: ClosureStep[] = [
@@ -58,6 +68,32 @@ export default function ClosureWizardPage() {
   const [preliminaryError, setPreliminaryError] = useState<string | null>(null)
 
   const canManage = canAdminInventoryClosure(profile?.role)
+
+  const closureHref = `/production-control/inventory-closure/${closureId}`
+
+  const breadcrumbTail = useMemo((): InventoryBreadcrumbTailItem[] => {
+    if (!detail) {
+      return [{ label: 'Cargando cierre...' }]
+    }
+
+    const periodLabel = formatClosurePeriodRange(detail.period_start, detail.period_end)
+    const plantName = detail.plant?.name ?? 'Planta'
+    const kindLabel = detail.parent_closure_id ? 'Enmienda' : 'Cierre'
+
+    const closureLabel = [periodLabel, plantName, kindLabel].filter(Boolean).join(' · ')
+
+    if (detail.status === 'cancelled') {
+      return [
+        { label: closureLabel, href: closureHref },
+        { label: 'Cancelado' },
+      ]
+    }
+
+    return [
+      { label: closureLabel, href: closureHref },
+      { label: getClosureStepLabel(activeStep) },
+    ]
+  }, [activeStep, closureHref, detail])
 
   const fetchDetail = useCallback(async () => {
     setError(null)
@@ -201,16 +237,22 @@ export default function ClosureWizardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24 text-stone-400 text-sm">
-        Cargando cierre...
+      <div className="space-y-6">
+        <InventoryBreadcrumb tailItems={[{ label: 'Cargando cierre...' }]} />
+        <div className="flex items-center justify-center py-24 text-stone-400 text-sm">
+          Cargando cierre...
+        </div>
       </div>
     )
   }
 
   if (error || !detail) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-        {error ?? 'Cierre no encontrado'}
+      <div className="space-y-6">
+        <InventoryBreadcrumb tailItems={[{ label: 'Cierre no encontrado' }]} />
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {error ?? 'Cierre no encontrado'}
+        </div>
       </div>
     )
   }
@@ -222,7 +264,7 @@ export default function ClosureWizardPage() {
 
   return (
     <div className="space-y-6">
-      <InventoryBreadcrumb />
+      <InventoryBreadcrumb tailItems={breadcrumbTail} />
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">

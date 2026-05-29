@@ -32,6 +32,15 @@ const STEPS: { id: ClosureStep; label: string; Icon: React.ElementType }[] = [
 
 const ORDER: ClosureStep[] = STEPS.map((s) => s.id)
 
+const STEP_LABEL_BY_ID = Object.fromEntries(STEPS.map((s) => [s.id, s.label])) as Record<
+  ClosureStep,
+  string
+>
+
+export function getClosureStepLabel(step: ClosureStep): string {
+  return STEP_LABEL_BY_ID[step] ?? step
+}
+
 /** Map DB status → active step */
 export function statusToStep(status: ClosureStatus): ClosureStep {
   switch (status) {
