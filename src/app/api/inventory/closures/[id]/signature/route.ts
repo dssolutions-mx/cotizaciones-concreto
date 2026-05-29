@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClientForApi, isUsingFallbackEnv } from '@/lib/supabase/api';
 
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
+const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
 const MAX_BYTES = 5 * 1024 * 1024;
 const BUCKET = 'inventory-closure-evidence';
 
@@ -25,7 +25,7 @@ export async function POST(
 
     if (!profile || !SEAL_ROLES.includes(profile.role as string)) {
       return NextResponse.json(
-        { error: 'Solo PLANT_MANAGER, ADMIN_OPERATIONS o EXECUTIVE pueden firmar un cierre' },
+        { error: 'Sin permisos para firmar este cierre' },
         { status: 403 },
       );
     }

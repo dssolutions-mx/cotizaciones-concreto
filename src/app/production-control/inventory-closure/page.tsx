@@ -25,7 +25,7 @@ const STATUS_META: Record<ClosureStatus, { label: string; color: string; Icon: R
   cancelled: { label: 'Cancelado', color: 'bg-red-50 text-red-700 border-red-200', Icon: AlertCircle },
 }
 
-const SEAL_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
+const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR']
 
 function fmtDate(d: string) {
   try { return format(parseISO(d), "d 'de' MMMM yyyy", { locale: es }) } catch { return d }
@@ -51,7 +51,7 @@ export default function InventoryClosureListPage() {
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
 
-  const canSeal = SEAL_ROLES.includes(profile?.role ?? '')
+  const canInitiate = CLOSURE_ROLES.includes(profile?.role ?? '')
 
   const fetchClosures = useCallback(async () => {
     if (!currentPlant?.id) return
@@ -85,7 +85,7 @@ export default function InventoryClosureListPage() {
             <p className="text-sm text-stone-500">{currentPlant?.name ?? '—'}</p>
           </div>
         </div>
-        {canSeal && (
+        {canInitiate && (
           <Button
             onClick={() => setShowModal(true)}
             className="bg-[#1B2A4A] text-white hover:bg-[#243560] gap-1.5"
@@ -115,7 +115,7 @@ export default function InventoryClosureListPage() {
           <ClipboardList className="h-10 w-10 text-stone-300 mb-3" />
           <p className="text-stone-600 font-medium">Sin cierres registrados</p>
           <p className="text-stone-400 text-sm mt-1">
-            {canSeal ? 'Inicia el primer cierre de inventario para este período.' : 'No hay cierres disponibles.'}
+            {canInitiate ? 'Inicia el primer cierre de inventario para este período.' : 'No hay cierres disponibles.'}
           </p>
         </div>
       )}
