@@ -24,6 +24,7 @@ import {
   getDocumentContact,
 } from '@/lib/reports/branding'
 import type { MaterialFlowSummary } from '@/types/inventory'
+import { computeBridgeTheoreticalFinalKg } from '@/lib/inventory/theoreticalBridge'
 
 function argb(hex: string, alpha = 'FF'): string {
   return alpha + hex.replace('#', '')
@@ -402,6 +403,9 @@ function buildBridgeResumenRows(
     payload.mode === 'range' || payload.mode === 'single' ? payload.plant_name : ''
   const rows: BridgeResumenRow[] = flows.map((f) => {
     const ledger = ledgerAdjustmentOverride(payload, f.material_id)
+    const total_manual_additions = ledger?.adj_positive_kg ?? f.total_manual_additions
+    const total_manual_withdrawals_abs =
+      ledger?.adj_negative_abs_kg ?? Math.abs(f.total_manual_withdrawals)
     return {
       plant_name: plantName,
       material_id: f.material_id,
@@ -409,11 +413,18 @@ function buildBridgeResumenRows(
       clave: codeMap.get(f.material_id) || '',
       initial_stock: f.initial_stock,
       total_entries: f.total_entries,
-      total_manual_additions: ledger?.adj_positive_kg ?? f.total_manual_additions,
-      total_manual_withdrawals_abs: ledger?.adj_negative_abs_kg ?? Math.abs(f.total_manual_withdrawals),
+      total_manual_additions,
+      total_manual_withdrawals_abs,
       total_remisiones_consumption: f.total_remisiones_consumption,
       total_waste: f.total_waste,
-      theoretical_final_stock: f.theoretical_final_stock,
+      theoretical_final_stock: computeBridgeTheoreticalFinalKg({
+        initial_stock_kg: f.initial_stock,
+        period_entries_kg: f.total_entries,
+        period_adjustments_positive_kg: total_manual_additions,
+        period_adjustments_negative_kg: total_manual_withdrawals_abs,
+        period_consumption_kg: f.total_remisiones_consumption,
+        period_waste_kg: f.total_waste,
+      }),
     }
   })
   rows.sort((a, b) => a.material_name.localeCompare(b.material_name, 'es', { sensitivity: 'base' }))

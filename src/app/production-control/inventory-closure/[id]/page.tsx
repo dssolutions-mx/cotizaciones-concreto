@@ -64,21 +64,13 @@ export default function ClosureWizardPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Error al cargar cierre')
       setDetail(data.closure)
-      const materials = data.closure.materials ?? []
-      const hasPhysicalCounts = materials.some(
-        (m: { physical_count_value?: number | null }) => m.physical_count_value != null,
-      )
-      // Closures created before confirm-theoretical existed jumped to physical_count on snapshot
-      const needsTheoreticalReview =
-        data.closure.status === 'draft' ||
-        (data.closure.status === 'physical_count' && !hasPhysicalCounts)
-
-      if (needsTheoreticalReview) {
+      // Only draft needs theoretical confirm; physical_count without counts is the normal next step.
+      if (data.closure.status === 'draft') {
         setActiveStep('theoretical')
         setTheoreticalConfirmed(false)
       } else {
         setActiveStep(statusToStep(data.closure.status))
-        if (data.closure.status !== 'draft') setTheoreticalConfirmed(true)
+        setTheoreticalConfirmed(true)
       }
     } catch (e) {
       setError((e as Error).message)
@@ -98,7 +90,6 @@ export default function ClosureWizardPage() {
       if (!res.ok) throw new Error(data.error ?? 'Error al cargar revisión teórica')
       setTheoreticalMaterials(data.materials ?? [])
       setAdjustmentsFromLedgerAudit(!!data.adjustments_from_ledger_audit)
-      await fetchDetail()
     } catch (e) {
       setTheoreticalError((e as Error).message)
     } finally {

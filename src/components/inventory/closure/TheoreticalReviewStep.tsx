@@ -4,6 +4,10 @@ import React from 'react'
 import { Button } from '@/components/ui/button'
 import { CheckCircle2, Info } from 'lucide-react'
 import type { TheoreticalReviewMaterialRow } from '@/types/inventoryClosure'
+import { todayIsoDate } from '@/lib/validations/inventoryClosure'
+import { cn } from '@/lib/utils'
+
+const VARIANCE_EPS_KG = 0.05
 
 function fmtKg(n: number | null | undefined) {
   if (n == null) return '—'
@@ -38,6 +42,9 @@ export default function TheoreticalReviewStep({
   const totalAdjNeg = materials.reduce((s, m) => s + (m.period_adjustments_negative_kg ?? 0), 0)
   const totalWaste = materials.reduce((s, m) => s + (m.period_waste_kg ?? 0), 0)
   const totalFinal = materials.reduce((s, m) => s + (m.theoretical_final_kg ?? 0), 0)
+  const totalSystem = materials.reduce((s, m) => s + (m.system_current_stock_kg ?? 0), 0)
+  const totalVariance = materials.reduce((s, m) => s + (m.variance_vs_system_kg ?? 0), 0)
+  const periodEndsToday = periodEnd === todayIsoDate()
 
   return (
     <div className="space-y-6">
@@ -46,10 +53,15 @@ export default function TheoreticalReviewStep({
           <Info className="h-4 w-4 text-sky-600 mt-0.5 shrink-0" />
           <p className="text-sm text-stone-600">
             Revisa el inventario teórico del período <strong>{periodStart}</strong> al{' '}
-            <strong>{periodEnd}</strong>.             Usa el mismo cálculo que el Excel de consumos (puente teórico en Resumen). En plantas con
-            corte ERP (desde abril 2026), el <strong>inventario inicial</strong> es el cierre teórico del tramo
-            desde el día de corte hasta el día anterior a {periodStart} (p. ej. todo abril si el cierre es de
-            mayo).
+            <strong>{periodEnd}</strong>. El <strong>inv. teórico final</strong> es la suma aritmética de las
+            columnas (inicial + entradas + ajustes − consumo − desperdicio), alineada con consumos y auditoría de
+            material. La columna <strong>inv. actual (sistema)</strong> es el stock vivo en{' '}
+            <code className="text-xs bg-stone-100 px-1 rounded">material_inventory</code>
+            {periodEndsToday
+              ? ' — con el período cerrado a hoy, ambas cifras deben coincidir si los movimientos están completos.'
+              : ' — si el fin del período es anterior a hoy, puede diferir del teórico (movimientos posteriores).'}
+            En plantas con corte ERP, el <strong>inventario inicial</strong> es el cierre del tramo desde el día
+            de corte hasta el día anterior a {periodStart}.
           </p>
         </div>
 
@@ -68,6 +80,10 @@ export default function TheoreticalReviewStep({
             { label: 'Ajustes −', value: -totalAdjNeg, color: 'text-red-700' },
             { label: 'Consumo', value: -totalConsumption, color: 'text-red-700' },
             { label: 'Desperdicio', value: -totalWaste, color: 'text-amber-700' },
+            { label: 'Teórico final', value: totalFinal, color: 'text-stone-900' },
+            ...(periodEndsToday
+              ? [{ label: 'Actual sistema', value: totalSystem, color: 'text-sky-800' as const }]
+              : []),
           ].map(({ label, value, color }) => (
             <div key={label} className="rounded-lg bg-[#f5f3f0] px-3 py-2">
               <p className="text-xs text-stone-500 mb-0.5">{label}</p>
@@ -102,11 +118,25 @@ export default function TheoreticalReviewStep({
                 <th className="px-3 py-2 text-right font-medium">Consumo</th>
                 <th className="px-3 py-2 text-right font-medium">Desperdicio</th>
                 <th className="px-3 py-2 text-right font-medium">Inv. teórico final</th>
+                <th className="px-3 py-2 text-right font-medium">Inv. actual (sistema)</th>
+                {periodEndsToday && (
+                  <th className="px-3 py-2 text-right font-medium">Dif. vs sistema</th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {materials.map((m, idx) => (
-                <tr key={m.material_id} className={idx % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
+              {materials.map((m, idx) => {
+                const rowVariance = m.variance_vs_system_kg ?? 0
+                const mismatch =
+                  periodEndsToday && Math.abs(rowVariance) > VARIANCE_EPS_KG
+                return (
+                <tr
+                  key={m.material_id}
+                  className={cn(
+                    idx % 2 === 0 ? 'bg-white' : 'bg-stone-50',
+                    mismatch && 'bg-amber-50/80',
+                  )}
+                >
                   <td className="px-3 py-2 font-medium text-stone-800">
                     {m.material?.material_name ?? m.material_id}
                   </td>
@@ -121,8 +151,21 @@ export default function TheoreticalReviewStep({
                   <td className="px-3 py-2 text-right text-red-700">{fmtKg(m.period_consumption_kg)}</td>
                   <td className="px-3 py-2 text-right text-amber-700">{fmtKg(m.period_waste_kg)}</td>
                   <td className="px-3 py-2 text-right font-semibold text-stone-900">{fmtKg(m.theoretical_final_kg)}</td>
+                  <td className="px-3 py-2 text-right font-medium text-sky-800">
+                    {fmtKg(m.system_current_stock_kg)}
+                  </td>
+                  {periodEndsToday && (
+                    <td
+                      className={cn(
+                        'px-3 py-2 text-right font-medium',
+                        mismatch ? 'text-amber-800' : 'text-stone-500',
+                      )}
+                    >
+                      {fmtKg(rowVariance)}
+                    </td>
+                  )}
                 </tr>
-              ))}
+              )})}
               <tr className="bg-[#f5f3f0] font-semibold border-t border-stone-300">
                 <td className="px-3 py-2 text-stone-800">TOTAL</td>
                 <td className="px-3 py-2 text-right text-stone-600">{fmtKg(totalInitial)}</td>
@@ -132,6 +175,17 @@ export default function TheoreticalReviewStep({
                 <td className="px-3 py-2 text-right text-red-700">{fmtKg(totalConsumption)}</td>
                 <td className="px-3 py-2 text-right text-amber-700">{fmtKg(totalWaste)}</td>
                 <td className="px-3 py-2 text-right text-stone-900">{fmtKg(totalFinal)}</td>
+                <td className="px-3 py-2 text-right text-sky-800">{fmtKg(totalSystem)}</td>
+                {periodEndsToday && (
+                  <td
+                    className={cn(
+                      'px-3 py-2 text-right',
+                      Math.abs(totalVariance) > VARIANCE_EPS_KG ? 'text-amber-800' : 'text-stone-600',
+                    )}
+                  >
+                    {fmtKg(totalVariance)}
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

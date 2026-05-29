@@ -15,10 +15,22 @@ function toIso(d: Date) {
   return format(d, 'yyyy-MM-dd')
 }
 
+function clampEndDate(start: string, end: string, maxDate: string): string {
+  let next = end < start ? start : end
+  if (next > maxDate) next = maxDate
+  return next
+}
+
 export default function InitiateClosureModal({ plantId, onClose, onCreated }: Props) {
+  const todayIso = toIso(new Date())
   const lastMonth = subMonths(new Date(), 1)
+  const defaultEnd = clampEndDate(
+    toIso(startOfMonth(lastMonth)),
+    toIso(endOfMonth(lastMonth)),
+    todayIso,
+  )
   const [periodStart, setPeriodStart] = useState(toIso(startOfMonth(lastMonth)))
-  const [periodEnd, setPeriodEnd] = useState(toIso(endOfMonth(lastMonth)))
+  const [periodEnd, setPeriodEnd] = useState(defaultEnd)
   const [threshold, setThreshold] = useState('2')
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
@@ -36,8 +48,11 @@ export default function InitiateClosureModal({ plantId, onClose, onCreated }: Pr
 
         const maxEnd = sealed.reduce((best, c) => (c.period_end > best ? c.period_end : best), sealed[0].period_end)
         const nextStart = addDays(parseISO(maxEnd), 1)
-        setPeriodStart(toIso(nextStart))
-        setPeriodEnd(toIso(endOfMonth(nextStart)))
+        const startIso = toIso(nextStart)
+        const today = toIso(new Date())
+        if (startIso > today) return
+        setPeriodStart(startIso)
+        setPeriodEnd(clampEndDate(startIso, toIso(endOfMonth(nextStart)), today))
       } catch {
         // Silently fall back to default
       }
@@ -45,9 +60,26 @@ export default function InitiateClosureModal({ plantId, onClose, onCreated }: Pr
     suggestPeriod()
   }, [plantId])
 
+  function handlePeriodStartChange(value: string) {
+    const today = toIso(new Date())
+    const start = value > today ? today : value
+    setPeriodStart(start)
+    setPeriodEnd((prev) => clampEndDate(start, prev, today))
+  }
+
+  function handlePeriodEndChange(value: string) {
+    const today = toIso(new Date())
+    setPeriodEnd(clampEndDate(periodStart, value, today))
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    const today = toIso(new Date())
+    if (periodStart > today || periodEnd > today) {
+      setError('El período no puede incluir fechas posteriores a hoy.')
+      return
+    }
     setLoading(true)
     try {
       const res = await fetch('/api/inventory/closures', {
@@ -91,8 +123,9 @@ export default function InitiateClosureModal({ plantId, onClose, onCreated }: Pr
               <input
                 type="date"
                 value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+                onChange={(e) => handlePeriodStartChange(e.target.value)}
                 required
+                max={todayIso}
                 className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]"
               />
             </div>
@@ -101,13 +134,17 @@ export default function InitiateClosureModal({ plantId, onClose, onCreated }: Pr
               <input
                 type="date"
                 value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
+                onChange={(e) => handlePeriodEndChange(e.target.value)}
                 required
                 min={periodStart}
+                max={todayIso}
                 className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]"
               />
             </div>
           </div>
+          <p className="text-xs text-stone-500 -mt-2">
+            El cierre solo puede cubrir hasta el día de hoy (inventario y movimientos registrados).
+          </p>
 
           <div>
             <label className="text-xs font-medium text-stone-600 mb-1 block">

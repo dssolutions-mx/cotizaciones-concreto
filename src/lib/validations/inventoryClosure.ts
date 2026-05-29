@@ -1,6 +1,12 @@
 import { z } from 'zod';
+import { format } from 'date-fns';
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD');
+
+/** Local calendar date YYYY-MM-DD (closure periods are plant-day boundaries). */
+export function todayIsoDate(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
 
 export const InitiateClosureSchema = z.object({
   plant_id: z.string().uuid('plant_id debe ser un UUID válido'),
@@ -9,10 +15,19 @@ export const InitiateClosureSchema = z.object({
   variance_threshold_pct: z.number().min(0).max(100).optional().default(2),
   notes: z.string().max(2000).optional(),
   parent_closure_id: z.string().uuid().optional(),
-}).refine((d) => d.period_end >= d.period_start, {
-  message: 'period_end debe ser igual o posterior a period_start',
-  path: ['period_end'],
-});
+})
+  .refine((d) => d.period_end >= d.period_start, {
+    message: 'La fecha fin debe ser igual o posterior al inicio',
+    path: ['period_end'],
+  })
+  .refine((d) => d.period_start <= todayIsoDate(), {
+    message: 'La fecha de inicio no puede ser posterior a hoy',
+    path: ['period_start'],
+  })
+  .refine((d) => d.period_end <= todayIsoDate(), {
+    message: 'La fecha fin no puede ser posterior a hoy',
+    path: ['period_end'],
+  });
 
 export const PhysicalCountUnitSchema = z.enum(['kg', 'm3', 'ton', 'unit']);
 

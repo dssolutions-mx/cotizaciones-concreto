@@ -141,6 +141,10 @@ export interface TheoreticalReviewMaterialRow extends InventoryClosureMaterial {
   period_adjustments_negative_kg: number
   /** True when Ajustes ± come from auditoría de material (same as consumos contable export). */
   adjustments_from_ledger_audit: boolean
+  /** Live stock in material_inventory (dosificador / sistema). */
+  system_current_stock_kg: number
+  /** actual − teórico (puente); should be ~0 when el período cierra hoy y movimientos están completos. */
+  variance_vs_system_kg: number
 }
 
 // Summary item in list view

@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals';
+import { buildTheoreticalBridgeFromFlow } from '@/lib/inventory/theoreticalBridge';
 import { InventoryDashboardService } from './inventoryDashboardService';
 import { resolveClosureVolumetricWeight, convertToKg } from '@/lib/inventory/closureVolumetricWeight';
 import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
@@ -164,8 +165,15 @@ export class InventoryClosureService {
 
     if (flows.length === 0) return;
 
-    // Fetch material meta (name + bulk density) for volumetric weight resolution
     const materialIds = flows.map((f) => f.material_id);
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
+      plantId,
+      startDate,
+      endDate,
+      materialIds,
+    });
+
+    // Fetch material meta (name + bulk density) for volumetric weight resolution
     const { data: materials } = await this.supabase
       .from('materials')
       .select('id, material_name, bulk_density_kg_per_m3')
@@ -189,8 +197,7 @@ export class InventoryClosureService {
     const rows = await Promise.all(
       flows.map(async (flow) => {
         const mat = materialMap.get(flow.material_id);
-        const netAdjustments =
-          (flow.total_manual_additions ?? 0) - (flow.total_manual_withdrawals ?? 0);
+        const bridge = buildTheoreticalBridgeFromFlow(flow, ledgerMap.get(flow.material_id));
 
         const hinted = volumetricHints?.get(flow.material_id);
         let volW: number | null = hinted?.volumetric_weight_kg_per_m3 ?? null;
@@ -214,12 +221,12 @@ export class InventoryClosureService {
         return {
           closure_id: closureId,
           material_id: flow.material_id,
-          initial_stock_kg: flow.initial_stock ?? 0,
-          period_entries_kg: flow.total_entries ?? 0,
-          period_consumption_kg: flow.total_remisiones_consumption ?? 0,
-          period_adjustments_kg: netAdjustments,
-          period_waste_kg: flow.total_waste ?? 0,
-          theoretical_final_kg: flow.theoretical_final_stock ?? 0,
+          initial_stock_kg: bridge.initial_stock_kg,
+          period_entries_kg: bridge.period_entries_kg,
+          period_consumption_kg: bridge.period_consumption_kg,
+          period_adjustments_kg: bridge.period_adjustments_kg,
+          period_waste_kg: bridge.period_waste_kg,
+          theoretical_final_kg: bridge.theoretical_final_kg,
           volumetric_weight_kg_per_m3: volW,
           volumetric_weight_source: volSource,
           quality_study_id: qualityStudyId,
@@ -374,36 +381,161 @@ export class InventoryClosureService {
 
     return baseRows.map((m) => {
       const flow = flowByMaterial.get(m.material_id);
-      const ledger = ledgerMap.get(m.material_id);
-      const fromLedger = !!ledger;
+      if (!flow) {
+        return {
+          ...m,
+          period_adjustments_positive_kg: 0,
+          period_adjustments_negative_kg: 0,
+          adjustments_from_ledger_audit: false,
+          system_current_stock_kg: 0,
+          variance_vs_system_kg: 0,
+        };
+      }
 
-      const period_adjustments_positive_kg = fromLedger
-        ? ledger!.adj_positive_kg
-        : (flow?.total_manual_additions ?? 0);
-      const period_adjustments_negative_kg = fromLedger
-        ? ledger!.adj_negative_abs_kg
-        : Math.abs(flow?.total_manual_withdrawals ?? 0);
+      const bridge = buildTheoreticalBridgeFromFlow(flow, ledgerMap.get(m.material_id));
 
       return {
         ...m,
-        initial_stock_kg: flow?.initial_stock ?? m.initial_stock_kg,
-        period_entries_kg: flow?.total_entries ?? m.period_entries_kg,
-        period_consumption_kg: flow?.total_remisiones_consumption ?? m.period_consumption_kg,
-        period_waste_kg: flow?.total_waste ?? m.period_waste_kg,
-        theoretical_final_kg: flow?.theoretical_final_stock ?? m.theoretical_final_kg,
-        period_adjustments_kg:
-          period_adjustments_positive_kg - period_adjustments_negative_kg,
-        period_adjustments_positive_kg,
-        period_adjustments_negative_kg,
-        adjustments_from_ledger_audit: fromLedger,
+        initial_stock_kg: bridge.initial_stock_kg,
+        period_entries_kg: bridge.period_entries_kg,
+        period_consumption_kg: bridge.period_consumption_kg,
+        period_waste_kg: bridge.period_waste_kg,
+        theoretical_final_kg: bridge.theoretical_final_kg,
+        period_adjustments_kg: bridge.period_adjustments_kg,
+        period_adjustments_positive_kg: bridge.period_adjustments_positive_kg,
+        period_adjustments_negative_kg: bridge.period_adjustments_negative_kg,
+        adjustments_from_ledger_audit: bridge.adjustments_from_ledger_audit,
+        system_current_stock_kg: bridge.system_current_stock_kg,
+        variance_vs_system_kg: bridge.variance_vs_system_kg,
       };
     });
+  }
+
+  /**
+   * Updates theoretical kg columns on existing snapshot rows (no delete/recreate).
+   * Faster than full refresh — used when confirming after the user reviewed live numbers.
+   */
+  private async syncTheoreticalSnapshotNumbers(
+    closureId: string,
+    plantId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<number> {
+    const dashService = new InventoryDashboardService(this.supabase);
+    const flows = await dashService.calculateHistoricalInventory(plantId, startDate, endDate);
+    if (flows.length === 0) return 0;
+
+    const materialIds = flows.map((f) => f.material_id);
+    const { data: existingRows } = await this.supabase
+      .from('inventory_closure_materials')
+      .select('id, material_id')
+      .eq('closure_id', closureId)
+      .in('material_id', materialIds);
+
+    const existingByMaterial = new Map(
+      (existingRows ?? []).map((r: { id: string; material_id: string }) => [r.material_id, r.id]),
+    );
+
+    const { data: materials } = await this.supabase
+      .from('materials')
+      .select('id, material_name, bulk_density_kg_per_m3')
+      .in('id', materialIds);
+
+    const materialMap = new Map(
+      (materials as Array<{ id: string; material_name: string; bulk_density_kg_per_m3: number | null }> ?? []).map(
+        (m) => [m.id, m],
+      ),
+    );
+
+    const { data: volHints } = await this.supabase
+      .from('inventory_closure_materials')
+      .select(
+        'material_id, volumetric_weight_kg_per_m3, volumetric_weight_source, quality_study_id',
+      )
+      .eq('closure_id', closureId);
+
+    const volumetricHintsByMaterialId = new Map(
+      (volHints ?? []).map(
+        (r: {
+          material_id: string;
+          volumetric_weight_kg_per_m3: number | null;
+          volumetric_weight_source: string | null;
+          quality_study_id: string | null;
+        }) => [r.material_id, r],
+      ),
+    );
+
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
+      plantId,
+      startDate,
+      endDate,
+      materialIds,
+    });
+
+    let written = 0;
+    for (const flow of flows) {
+      const bridge = buildTheoreticalBridgeFromFlow(flow, ledgerMap.get(flow.material_id));
+      const payload = {
+        initial_stock_kg: bridge.initial_stock_kg,
+        period_entries_kg: bridge.period_entries_kg,
+        period_consumption_kg: bridge.period_consumption_kg,
+        period_adjustments_kg: bridge.period_adjustments_kg,
+        period_waste_kg: bridge.period_waste_kg,
+        theoretical_final_kg: bridge.theoretical_final_kg,
+        updated_at: new Date().toISOString(),
+      };
+
+      const existingId = existingByMaterial.get(flow.material_id);
+      if (existingId) {
+        const { error } = await this.supabase
+          .from('inventory_closure_materials')
+          .update(payload)
+          .eq('id', existingId);
+        if (error) throw new Error(`Error al actualizar snapshot: ${error.message}`);
+        written += 1;
+        continue;
+      }
+
+      const mat = materialMap.get(flow.material_id);
+      const hinted = volumetricHintsByMaterialId.get(flow.material_id);
+      let volW: number | null = hinted?.volumetric_weight_kg_per_m3 ?? null;
+      let volSource: string | null = hinted?.volumetric_weight_source ?? null;
+      let qualityStudyId: string | null = hinted?.quality_study_id ?? null;
+
+      if (!hinted && mat?.material_name) {
+        const resolved = await resolveClosureVolumetricWeight(this.supabase, {
+          plantId,
+          materialId: flow.material_id,
+          materialName: mat.material_name,
+          materialBulkDensityKgPerM3: mat?.bulk_density_kg_per_m3 ?? null,
+        });
+        if (resolved) {
+          volW = resolved.volW;
+          volSource = resolved.source;
+          qualityStudyId = resolved.qualityStudyId ?? null;
+        }
+      }
+
+      const { error } = await this.supabase.from('inventory_closure_materials').insert({
+        closure_id: closureId,
+        material_id: flow.material_id,
+        ...payload,
+        volumetric_weight_kg_per_m3: volW,
+        volumetric_weight_source: volSource,
+        quality_study_id: qualityStudyId,
+        requires_justification: false,
+      });
+      if (error) throw new Error(`Error al guardar snapshot teórico: ${error.message}`);
+      written += 1;
+    }
+
+    return written;
   }
 
   async confirmTheoreticalReview(closureId: string): Promise<void> {
     const { data: closure } = await this.supabase
       .from('inventory_closures')
-      .select('id, status')
+      .select('id, status, plant_id, period_start, period_end')
       .eq('id', closureId)
       .single();
 
@@ -411,9 +543,14 @@ export class InventoryClosureService {
     if (closure.status === 'sealed' || closure.status === 'cancelled') {
       throw new Error('No se puede modificar un cierre sellado o cancelado');
     }
-    if (closure.status !== 'draft') return;
+    if (closure.status === 'physical_count') return;
 
-    await this.refreshTheoreticalSnapshot(closureId);
+    const written = await this.syncTheoreticalSnapshotNumbers(
+      closureId,
+      closure.plant_id,
+      closure.period_start,
+      closure.period_end,
+    );
 
     const { count, error: countError } = await this.supabase
       .from('inventory_closure_materials')
@@ -421,7 +558,7 @@ export class InventoryClosureService {
       .eq('closure_id', closureId);
 
     if (countError) throw new Error(`Error al verificar materiales: ${countError.message}`);
-    if (!count) {
+    if (!count && !written) {
       throw new Error(
         'No hay materiales en el inventario teórico para este período. Ajusta las fechas o verifica movimientos en la planta.',
       );
