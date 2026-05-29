@@ -55,6 +55,56 @@ async function downloadStorageFile(
   }
 }
 
+/** Read width/height from PNG/JPEG headers (no extra dependencies). */
+function readImageDimensions(
+  buffer: Buffer,
+  ext: 'jpeg' | 'png' | 'gif',
+): { width: number; height: number } | null {
+  if (ext === 'png' && buffer.length >= 24) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+  }
+  if (ext === 'jpeg') {
+    let offset = 2
+    while (offset + 8 < buffer.length) {
+      if (buffer[offset] !== 0xff) break
+      const marker = buffer[offset + 1]
+      if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+        return {
+          height: buffer.readUInt16BE(offset + 5),
+          width: buffer.readUInt16BE(offset + 7),
+        }
+      }
+      const len = buffer.readUInt16BE(offset + 2)
+      offset += 2 + len
+    }
+  }
+  return null
+}
+
+function scaleImageToFit(
+  width: number,
+  height: number,
+  maxWidth: number,
+  maxHeight: number,
+): { width: number; height: number } {
+  if (width <= 0 || height <= 0) return { width: maxWidth, height: maxHeight }
+  const scale = Math.min(maxWidth / width, maxHeight / height, 1)
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  }
+}
+
+/** Pixels → Excel row height (points). */
+function rowHeightForImagePx(heightPx: number): number {
+  return Math.min(409, Math.round(heightPx * 0.75 + 12))
+}
+
+function shortUserId(id: string): string {
+  if (id.length <= 12) return id
+  return `${id.slice(0, 8)}…`
+}
+
 /** ExcelJS image anchors use 0-based col/row; worksheet rows are 1-based. */
 function anchorImageInRow(
   ws: ExcelJS.Worksheet,
@@ -64,6 +114,7 @@ function anchorImageInRow(
   col0Based: number,
   width = 200,
   height = 80,
+  editAs: 'oneCell' | 'absolute' = 'oneCell',
 ) {
   const imgId = wb.addImage({
     buffer: image.buffer,
@@ -72,7 +123,7 @@ function anchorImageInRow(
   ws.addImage(imgId, {
     tl: { col: col0Based, row: row1Based - 1 },
     ext: { width, height },
-    editAs: 'oneCell',
+    editAs,
   })
 }
 
@@ -803,7 +854,7 @@ async function buildAjustesSheet(wb: ExcelJS.Workbook, detail: InventoryClosureD
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sheet 6: Evidencias (images embedded — no expiring signed URLs)
+// Sheet 6: Evidencias — card layout (metadata row + full-width image row)
 // ─────────────────────────────────────────────────────────────────────────────
 async function buildEvidenciasSheet(
   wb: ExcelJS.Workbook,
@@ -823,16 +874,16 @@ async function buildEvidenciasSheet(
     return true
   })
 
+  const numCols = 5
   const cols = [
-    { header: 'Material', width: 28 },
-    { header: 'Nombre archivo', width: 35 },
-    { header: 'Tipo', width: 18 },
-    { header: 'Subido por (ID)', width: 36 },
-    { header: 'Fecha de subida', width: 22 },
-    { header: 'Vista previa', width: 42 },
+    { header: 'Material', width: 26 },
+    { header: 'Archivo', width: 40 },
+    { header: 'Fecha', width: 20 },
+    { header: 'Tipo', width: 14 },
+    { header: 'Subido por', width: 16 },
   ]
 
-  titleRow(ws, 'Evidencias del cierre', cols.length, 1)
+  titleRow(ws, 'Evidencias del cierre', numCols, 1)
   ws.columns = cols.map((c) => ({ width: c.width }))
 
   const hRow = ws.getRow(2)
@@ -841,40 +892,84 @@ async function buildEvidenciasSheet(
 
   let r = 3
   const materialNameMap = new Map(detail.materials.map((m) => [m.material_id, m.material?.material_name ?? m.material_id]))
+  const maxImageWidth = 560
+  const maxImageHeight = 400
 
-  for (const ev of allEvidence) {
-    const alt = r % 2 === 0
-    const rowNum = r++
-    const row = ws.getRow(rowNum)
-    row.height = 14
+  for (let i = 0; i < allEvidence.length; i++) {
+    const ev = allEvidence[i]
+    const alt = i % 2 === 0
     const matName = ev.material_id ? (materialNameMap.get(ev.material_id) ?? ev.material_id) : '(cierre general)'
-    const metaVals = [matName, ev.original_name, ev.file_type ?? '—', ev.uploaded_by, ev.uploaded_at ? fmtDate(ev.uploaded_at) : '—']
-    metaVals.forEach((v, i) => {
-      const cell = row.getCell(i + 1)
+
+    const metaRowNum = r++
+    const metaRow = ws.getRow(metaRowNum)
+    metaRow.height = 16
+    const metaVals = [
+      matName,
+      ev.original_name,
+      ev.uploaded_at ? fmtDate(ev.uploaded_at) : '—',
+      ev.file_type ?? '—',
+      shortUserId(ev.uploaded_by),
+    ]
+    metaVals.forEach((v, ci) => {
+      const cell = metaRow.getCell(ci + 1)
       cell.value = v
-      cell.style = dataStyle(alt)
+      cell.style = {
+        ...dataStyle(alt),
+        font: { ...dataStyle(alt).font, bold: ci === 0 },
+      }
     })
 
-    const previewCell = row.getCell(6)
-    previewCell.style = dataStyle(alt)
+    const imageRowNum = r++
+    const imageRow = ws.getRow(imageRowNum)
+    ws.mergeCells(imageRowNum, 1, imageRowNum, numCols)
+    const imageCell = imageRow.getCell(1)
+    imageCell.style = {
+      ...dataStyle(alt),
+      alignment: { vertical: 'middle', horizontal: 'center', wrapText: true },
+    }
 
+    let imagePlaced = false
     if (supabase && isEmbeddableImage(ev.file_path, ev.file_type)) {
       try {
         const embedded = await downloadStorageFile(supabase, ev.file_path, ev.file_type)
         if (embedded) {
-          row.height = 100
-          previewCell.value = '(imagen incrustada)'
-          anchorImageInRow(ws, wb, embedded, rowNum, 5, 280, 90)
-          continue
+          const natural = readImageDimensions(embedded.buffer, embedded.extension) ?? {
+            width: 1200,
+            height: 1600,
+          }
+          const { width, height } = scaleImageToFit(
+            natural.width,
+            natural.height,
+            maxImageWidth,
+            maxImageHeight,
+          )
+          imageRow.height = rowHeightForImagePx(height)
+          imageCell.value = null
+          anchorImageInRow(ws, wb, embedded, imageRowNum, 0, width, height, 'absolute')
+          imagePlaced = true
         }
       } catch {
-        // fall through to path label
+        // fall through to text placeholder
       }
     }
 
-    previewCell.value = supabase
-      ? ev.file_path
-      : 'Descargar desde el servidor para incrustar evidencias'
+    if (!imagePlaced) {
+      imageRow.height = 28
+      imageCell.value = supabase
+        ? `[Sin vista previa] ${ev.file_path}`
+        : 'Descargar desde el servidor para incrustar evidencias'
+    }
+
+    if (i < allEvidence.length - 1) {
+      r++
+      ws.getRow(r - 1).height = 6
+    }
+  }
+
+  if (allEvidence.length === 0) {
+    const row = ws.getRow(r)
+    row.getCell(1).value = 'Sin evidencias registradas para este cierre'
+    ws.mergeCells(r, 1, r, numCols)
   }
 }
 
