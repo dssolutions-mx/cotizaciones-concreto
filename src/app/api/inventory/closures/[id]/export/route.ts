@@ -50,17 +50,7 @@ export async function GET(
       );
     }
 
-    // Sealed export: reuse stored file when available
-    if (!preliminary && detail.excel_export_path) {
-      const admin = createAdminClientForApi();
-      const { data: signed } = await admin.storage
-        .from(BUCKET)
-        .createSignedUrl(detail.excel_export_path, 900);
-      if (signed?.signedUrl) {
-        return NextResponse.redirect(signed.signedUrl);
-      }
-    }
-
+    // Always rebuild so signatures/evidence are embedded (not expiring signed URLs).
     const admin = createAdminClientForApi();
     const buffer = await buildInventoryClosureExcel(detail, admin, { preliminary });
 

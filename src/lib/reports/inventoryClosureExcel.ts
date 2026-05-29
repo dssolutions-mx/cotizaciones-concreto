@@ -14,6 +14,68 @@ export type InventoryClosureExcelOptions = {
   preliminary?: boolean
 }
 
+const CLOSURE_STORAGE_BUCKET = 'inventory-closure-evidence'
+
+type EmbeddedImage = {
+  buffer: Buffer
+  extension: 'jpeg' | 'png' | 'gif'
+}
+
+function imageExtensionFrom(
+  filePath: string,
+  contentType?: string | null,
+): 'jpeg' | 'png' | 'gif' {
+  const lower = filePath.toLowerCase()
+  if (lower.endsWith('.png') || contentType?.includes('png')) return 'png'
+  if (lower.endsWith('.gif') || contentType?.includes('gif')) return 'gif'
+  return 'jpeg'
+}
+
+function isEmbeddableImage(filePath: string, fileType?: string | null): boolean {
+  if (fileType?.startsWith('image/')) {
+    const t = fileType.toLowerCase()
+    if (t.includes('svg') || t.includes('webp')) return false
+    return true
+  }
+  return /\.(jpe?g|png|gif)$/i.test(filePath)
+}
+
+/** Download file bytes from storage (durable; avoids expiring signed URLs in the workbook). */
+async function downloadStorageFile(
+  supabase: { storage: { from: (bucket: string) => { download: (path: string) => Promise<{ data: Blob | null; error: { message: string } | null }> } } },
+  filePath: string,
+  contentTypeHint?: string | null,
+): Promise<EmbeddedImage | null> {
+  const { data, error } = await supabase.storage.from(CLOSURE_STORAGE_BUCKET).download(filePath)
+  if (error || !data) return null
+  const buffer = Buffer.from(await data.arrayBuffer())
+  return {
+    buffer,
+    extension: imageExtensionFrom(filePath, contentTypeHint ?? data.type),
+  }
+}
+
+/** ExcelJS image anchors use 0-based col/row; worksheet rows are 1-based. */
+function anchorImageInRow(
+  ws: ExcelJS.Worksheet,
+  wb: ExcelJS.Workbook,
+  image: EmbeddedImage,
+  row1Based: number,
+  col0Based: number,
+  width = 200,
+  height = 80,
+) {
+  const imgId = wb.addImage({
+    buffer: image.buffer,
+    extension: image.extension,
+  })
+  ws.addImage(imgId, {
+    tl: { col: col0Based, row: row1Based - 1 },
+    ext: { width, height },
+    editAs: 'oneCell',
+  })
+}
+
 type ConsumoRemisionRow = {
   remision_number: string
   fecha: string
@@ -111,7 +173,7 @@ async function buildResumenSheet(
   wb: ExcelJS.Workbook,
   detail: InventoryClosureDetail,
   signatureBuffer?: Buffer,
-  signatureExtension?: string,
+  signatureExtension?: 'jpeg' | 'png' | 'gif',
   options?: InventoryClosureExcelOptions,
 ) {
   const ws = wb.addWorksheet('Resumen')
@@ -150,22 +212,19 @@ async function buildResumenSheet(
   metaRow(ws, 'Fecha sellado', detail.signed_at ? fmtDate(detail.signed_at) : 'Pendiente', r++, 5)
   metaRow(ws, 'Umbral de varianza', `${detail.variance_threshold_pct}%`, r++, 5)
 
-  // Embed signature image if available
+  // Embed signature image (column B, same layout as metaRow value cells)
   if (signatureBuffer && signatureExtension) {
+    const sigRow = r
     try {
-      const imgId = wb.addImage({ buffer: signatureBuffer, extension: signatureExtension as 'jpeg' | 'png' | 'gif' })
-      ws.addImage(imgId, {
-        tl: { col: 2, row: r },
-        ext: { width: 200, height: 80 },
-        editAs: 'oneCell',
-      })
-      ws.getRow(r).height = 65
-      ws.getRow(r).getCell(1).value = 'Firma'
-      ws.getRow(r).getCell(1).style = {
+      ws.getRow(sigRow).height = 65
+      ws.getRow(sigRow).getCell(1).value = 'Firma'
+      ws.getRow(sigRow).getCell(1).style = {
         font: { italic: true, size: 9, color: { argb: argb(C.textMuted) }, name: 'Calibri' },
         fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(C.surfacePanel) } },
         alignment: { vertical: 'middle' },
       }
+      ws.mergeCells(sigRow, 2, sigRow, 5)
+      anchorImageInRow(ws, wb, { buffer: signatureBuffer, extension: signatureExtension }, sigRow, 1)
       r++
     } catch {
       // Signature embed failed — skip gracefully, don't break export
@@ -744,16 +803,25 @@ async function buildAjustesSheet(wb: ExcelJS.Workbook, detail: InventoryClosureD
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sheet 6: Evidencias
+// Sheet 6: Evidencias (images embedded — no expiring signed URLs)
 // ─────────────────────────────────────────────────────────────────────────────
-function buildEvidenciasSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail) {
+async function buildEvidenciasSheet(
+  wb: ExcelJS.Workbook,
+  detail: InventoryClosureDetail,
+  supabase?: Parameters<typeof downloadStorageFile>[0],
+) {
   const ws = wb.addWorksheet('Evidencias')
   ws.views = [{ state: 'frozen', ySplit: 2 }]
 
+  const seenIds = new Set<string>()
   const allEvidence = [
     ...detail.evidence,
     ...detail.materials.flatMap((m) => m.evidence ?? []),
-  ]
+  ].filter((ev) => {
+    if (seenIds.has(ev.id)) return false
+    seenIds.add(ev.id)
+    return true
+  })
 
   const cols = [
     { header: 'Material', width: 28 },
@@ -761,7 +829,7 @@ function buildEvidenciasSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDeta
     { header: 'Tipo', width: 18 },
     { header: 'Subido por (ID)', width: 36 },
     { header: 'Fecha de subida', width: 22 },
-    { header: 'URL firmada (1h)', width: 80 },
+    { header: 'Vista previa', width: 42 },
   ]
 
   titleRow(ws, 'Evidencias del cierre', cols.length, 1)
@@ -776,19 +844,37 @@ function buildEvidenciasSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDeta
 
   for (const ev of allEvidence) {
     const alt = r % 2 === 0
-    const row = ws.getRow(r++)
+    const rowNum = r++
+    const row = ws.getRow(rowNum)
     row.height = 14
     const matName = ev.material_id ? (materialNameMap.get(ev.material_id) ?? ev.material_id) : '(cierre general)'
-    const vals = [matName, ev.original_name, ev.file_type ?? '—', ev.uploaded_by, ev.uploaded_at ? fmtDate(ev.uploaded_at) : '—', ev.signed_url ?? ev.file_path]
-    vals.forEach((v, i) => {
+    const metaVals = [matName, ev.original_name, ev.file_type ?? '—', ev.uploaded_by, ev.uploaded_at ? fmtDate(ev.uploaded_at) : '—']
+    metaVals.forEach((v, i) => {
       const cell = row.getCell(i + 1)
       cell.value = v
       cell.style = dataStyle(alt)
-      if (i === 5 && v && typeof v === 'string' && v.startsWith('http')) {
-        cell.value = { text: 'Abrir', hyperlink: v }
-        cell.style = { ...dataStyle(alt), font: { ...dataStyle(alt).font, underline: true, color: { argb: argb('#1D4ED8') } } }
-      }
     })
+
+    const previewCell = row.getCell(6)
+    previewCell.style = dataStyle(alt)
+
+    if (supabase && isEmbeddableImage(ev.file_path, ev.file_type)) {
+      try {
+        const embedded = await downloadStorageFile(supabase, ev.file_path, ev.file_type)
+        if (embedded) {
+          row.height = 100
+          previewCell.value = '(imagen incrustada)'
+          anchorImageInRow(ws, wb, embedded, rowNum, 5, 280, 90)
+          continue
+        }
+      } catch {
+        // fall through to path label
+      }
+    }
+
+    previewCell.value = supabase
+      ? ev.file_path
+      : 'Descargar desde el servidor para incrustar evidencias'
   }
 }
 
@@ -804,17 +890,37 @@ export async function buildInventoryClosureExcel(
   wb.creator = 'DC Concretos — Sistema de Control'
   wb.created = new Date()
 
-  // Fetch signature image for embedding in Resumen sheet
+  // Fetch signature from storage (stable); fall back to signed URL only if needed
   let signatureBuffer: Buffer | undefined
-  let signatureExtension: string | undefined
+  let signatureExtension: 'jpeg' | 'png' | 'gif' | undefined
   if (detail.signature_image_url) {
     try {
-      const sigRes = await fetch(detail.signature_image_url)
-      if (sigRes.ok) {
-        const arrayBuf = await sigRes.arrayBuffer()
-        signatureBuffer = Buffer.from(arrayBuf)
-        const contentType = sigRes.headers.get('content-type') ?? ''
-        signatureExtension = contentType.includes('png') ? 'png' : 'jpeg'
+      let embedded: EmbeddedImage | null = null
+      if (supabase) {
+        const { data: closureRow } = await supabase
+          .from('inventory_closures')
+          .select('signature_image_url')
+          .eq('id', detail.id)
+          .single()
+        const storagePath = closureRow?.signature_image_url as string | undefined
+        if (storagePath && !storagePath.startsWith('http')) {
+          embedded = await downloadStorageFile(supabase, storagePath)
+        }
+      }
+      if (!embedded && detail.signature_image_url.startsWith('http')) {
+        const sigRes = await fetch(detail.signature_image_url)
+        if (sigRes.ok) {
+          const arrayBuf = await sigRes.arrayBuffer()
+          const contentType = sigRes.headers.get('content-type') ?? ''
+          embedded = {
+            buffer: Buffer.from(arrayBuf),
+            extension: imageExtensionFrom('signature', contentType),
+          }
+        }
+      }
+      if (embedded) {
+        signatureBuffer = embedded.buffer
+        signatureExtension = embedded.extension
       }
     } catch {
       // Signature fetch failed — skip gracefully
@@ -838,7 +944,7 @@ export async function buildInventoryClosureExcel(
     }
   }
 
-  buildEvidenciasSheet(wb, detail)
+  await buildEvidenciasSheet(wb, detail, supabase)
 
   const buffer = await wb.xlsx.writeBuffer()
   return Buffer.from(buffer)
