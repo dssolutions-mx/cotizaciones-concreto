@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import {
   AlertTriangle,
   Archive,
@@ -10,6 +11,7 @@ import {
   List,
   Loader2,
   RefreshCw,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { addDays, isSameDay, startOfWeek, subDays } from 'date-fns'
 import type { DateRange } from 'react-day-picker'
@@ -94,6 +96,15 @@ function plantScopeForFetch(
 
 const filterSelectClass =
   'h-9 min-h-9 text-sm border-stone-300 bg-white text-stone-900 shadow-none'
+
+const FACTOR_PREVIEW_ROLES = [
+  'QUALITY_TEAM',
+  'LABORATORY',
+  'EXECUTIVE',
+  'PLANT_MANAGER',
+  'ADMIN',
+  'ADMIN_OPERATIONS',
+]
 
 export type EnsayosSortOption =
   | 'fecha_asc'
@@ -288,6 +299,7 @@ export default function EnsayosListClient() {
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'EXECUTIVE']
   const hasAccess = profile && allowedRoles.includes(profile.role)
   const canArchive = profile && ['QUALITY_TEAM', 'EXECUTIVE'].includes(profile.role)
+  const canFactorPreview = profile?.role && FACTOR_PREVIEW_ROLES.includes(profile.role)
 
   const canScope =
     !!plantScope.plant_id || (plantScope.plant_ids?.length ?? 0) > 0
@@ -420,6 +432,19 @@ export default function EnsayosListClient() {
               <span className="hidden sm:inline">Lista</span>
             </Button>
           </div>
+          {canFactorPreview && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 gap-1.5 border-stone-300 bg-white px-3 shadow-none hover:bg-stone-50"
+              asChild
+            >
+              <Link href="/quality/ensayos-temp" title="Simular cambios masivos en factores de corrección">
+                <SlidersHorizontal className="h-4 w-4 text-stone-700" />
+                <span className="hidden sm:inline">Factores (temp)</span>
+              </Link>
+            </Button>
+          )}
           {canArchive && (
             <Button
               type="button"
