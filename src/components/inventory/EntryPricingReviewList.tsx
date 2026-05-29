@@ -62,6 +62,7 @@ export default function EntryPricingReviewList({
         const isSelected = selectedId === entry.id
         const hasNoPo = !entry.po_id && !entry.fleet_po_id
         const hasNoEvidence = (entry.document_count ?? 0) === 0
+        const hasReceptionNotes = Boolean(entry.notes?.trim())
         const day = formatReceptionAssignedDay(entry, 'dd MMM yyyy')
         const reg = formatEntrySavedShortFor(entry)
         const receptionLabel =

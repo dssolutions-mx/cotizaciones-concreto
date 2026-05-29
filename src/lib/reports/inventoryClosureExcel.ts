@@ -20,8 +20,12 @@ type ConsumoRemisionRow = {
   cliente: string
   obra: string
   material_name: string
+  /** Dosificación de mezcla / receta en el ticket (no es inventario del almacén). */
   cantidad_teorica: number
+  /** Consumo registrado en remisión (incluye retrabajo/manual ya sumados en cantidad_real). */
   cantidad_real: number
+  /** Corrección en línea de remisión (retrabajo + manual); ya va dentro de cantidad_real. */
+  ajuste_remision: number
 }
 
 function argb(hex: string, alpha = 'FF') {
@@ -392,6 +396,7 @@ const RM_CLOSURE_SELECT = `
   material_id,
   cantidad_teorica,
   cantidad_real,
+  ajuste,
   remision_id,
   materials (material_name),
   remisiones (
@@ -431,6 +436,7 @@ async function fetchClosureConsumoRows(
   )) as Array<{
     cantidad_teorica?: number | string | null
     cantidad_real?: number | string | null
+    ajuste?: number | string | null
     materials?: { material_name?: string | null } | null
     remisiones?: {
       remision_number?: string | null
@@ -456,6 +462,7 @@ async function fetchClosureConsumoRows(
       material_name: row.materials?.material_name ?? '—',
       cantidad_teorica: Number(row.cantidad_teorica ?? 0),
       cantidad_real: Number(row.cantidad_real ?? 0),
+      ajuste_remision: Number(row.ajuste ?? 0),
     })
   }
 
@@ -469,23 +476,34 @@ async function fetchClosureConsumoRows(
 
 function buildPuenteTeoricoSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail) {
   const ws = wb.addWorksheet('Puente teórico')
-  ws.views = [{ state: 'frozen', ySplit: 2 }]
+  ws.views = [{ state: 'frozen', ySplit: 3 }]
 
   const cols = [
     { header: 'Material', width: 30 },
     { header: 'Inv. inicial (kg)', width: 16 },
     { header: 'Entradas (kg)', width: 14 },
-    { header: 'Ajustes neto (kg)', width: 16 },
-    { header: 'Consumo (kg)', width: 14 },
+    { header: 'Ajustes inventario (kg)', width: 20 },
+    { header: 'Consumo remisiones (kg)', width: 20 },
     { header: 'Desperdicio (kg)', width: 14 },
     { header: 'Teórico final (kg)', width: 16 },
     { header: 'Verificación puente', width: 16 },
   ]
 
-  titleRow(ws, 'Puente teórico por material (aritmética del período)', cols.length, 1)
+  titleRow(ws, 'Puente teórico de inventario (almacén)', cols.length, 1)
+  ws.getRow(2).height = 24
+  const note = ws.getCell(2, 1)
+  note.value =
+    'Inventario = inicial + entradas + ajustes de inventario − consumo (Σ remisiones) − desperdicio. ' +
+    '«Consumo remisiones» debe igualar «Consumos resumen» columna consumo. Ajustes aquí son material_adjustments, no ajuste en línea de ticket.'
+  note.style = {
+    font: { italic: true, size: 9, color: { argb: argb(C.textMuted) }, name: 'Calibri' },
+    alignment: { wrapText: true, vertical: 'top' },
+  }
+  ws.mergeCells(2, 1, 2, cols.length)
+
   ws.columns = cols.map((c) => ({ width: c.width }))
 
-  const hRow = ws.getRow(2)
+  const hRow = ws.getRow(3)
   hRow.height = 30
   cols.forEach((c, i) => {
     const cell = hRow.getCell(i + 1)
@@ -493,7 +511,7 @@ function buildPuenteTeoricoSheet(wb: ExcelJS.Workbook, detail: InventoryClosureD
     cell.style = headerStyle()
   })
 
-  let r = 3
+  let r = 4
   for (const m of detail.materials) {
     const alt = r % 2 === 0
     const adj = m.period_adjustments_kg ?? 0
@@ -529,13 +547,22 @@ function buildPuenteTeoricoSheet(wb: ExcelJS.Workbook, detail: InventoryClosureD
 
 function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRemisionRow[]) {
   const ws = wb.addWorksheet('Consumos resumen')
-  ws.views = [{ state: 'frozen', ySplit: 2 }]
+  ws.views = [{ state: 'frozen', ySplit: 3 }]
 
-  const byMaterial = new Map<string, { teorica: number; real: number; remisiones: number }>()
+  const byMaterial = new Map<
+    string,
+    { receta: number; real: number; ajusteLinea: number; remisiones: number }
+  >()
   for (const row of consumoRows) {
-    const cur = byMaterial.get(row.material_name) ?? { teorica: 0, real: 0, remisiones: 0 }
-    cur.teorica += row.cantidad_teorica
+    const cur = byMaterial.get(row.material_name) ?? {
+      receta: 0,
+      real: 0,
+      ajusteLinea: 0,
+      remisiones: 0,
+    }
+    cur.receta += row.cantidad_teorica
     cur.real += row.cantidad_real
+    cur.ajusteLinea += row.ajuste_remision
     cur.remisiones += 1
     byMaterial.set(row.material_name, cur)
   }
@@ -543,15 +570,30 @@ function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRem
   const cols = [
     { header: 'Material', width: 30 },
     { header: '# líneas remisión', width: 16 },
-    { header: 'Σ teórica (kg)', width: 16 },
-    { header: 'Σ real (kg)', width: 16 },
-    { header: 'Δ real − teórica', width: 16 },
+    { header: 'Σ dosificación receta (kg)', width: 22 },
+    { header: 'Σ consumo en remisiones (kg)', width: 24 },
+    { header: 'Σ ajuste en línea rem. (kg)', width: 22 },
+    { header: 'Δ consumo − receta', width: 18 },
+    { header: '≈ Puente «Consumo»', width: 18 },
   ]
 
-  titleRow(ws, 'Consumos agregados por material', cols.length, 1)
+  titleRow(ws, 'Consumos por remisión — comparación receta vs ticket', cols.length, 1)
+  ws.getRow(2).height = 28
+  const noteCell = ws.getCell(2, 1)
+  noteCell.value =
+    'No confundir con «Puente teórico»: aquí la «receta» es la dosificación de mezcla por remisión. ' +
+    'El consumo en remisiones debe coincidir con la columna Consumo del puente. ' +
+    'Los ajustes de inventario (material_adjustments) van en Puente/Ajustes, no en esta tabla. ' +
+    'El ajuste en línea ya está incluido en consumo en remisiones.'
+  noteCell.style = {
+    font: { italic: true, size: 9, color: { argb: argb(C.textMuted) }, name: 'Calibri' },
+    alignment: { wrapText: true, vertical: 'top' },
+  }
+  ws.mergeCells(2, 1, 2, cols.length)
+
   ws.columns = cols.map((c) => ({ width: c.width }))
 
-  const hRow = ws.getRow(2)
+  const hRow = ws.getRow(3)
   hRow.height = 30
   cols.forEach((c, i) => {
     const cell = hRow.getCell(i + 1)
@@ -559,14 +601,14 @@ function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRem
     cell.style = headerStyle()
   })
 
-  let r = 3
+  let r = 4
   const sorted = [...byMaterial.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))
   for (const [name, agg] of sorted) {
     const alt = r % 2 === 0
     const row = ws.getRow(r++)
     row.height = 14
-    const delta = agg.real - agg.teorica
-    const vals = [name, agg.remisiones, agg.teorica, agg.real, delta]
+    const delta = agg.real - agg.receta
+    const vals = [name, agg.remisiones, agg.receta, agg.real, agg.ajusteLinea, delta, agg.real]
     vals.forEach((v, i) => {
       const cell = row.getCell(i + 1)
       cell.value = typeof v === 'number' ? Number(v) : v
@@ -595,8 +637,10 @@ async function buildConsumosSheet(
     { header: 'Cliente', width: 28 },
     { header: 'Obra', width: 24 },
     { header: 'Material', width: 28 },
-    { header: 'Cant. teórica (kg)', width: 18 },
-    { header: 'Cant. real (kg)', width: 18 },
+    { header: 'Dosificación receta (kg)', width: 20 },
+    { header: 'Consumo remisión (kg)', width: 20 },
+    { header: 'Ajuste línea (kg)', width: 16 },
+    { header: 'Δ consumo − receta', width: 16 },
   ]
 
   titleRow(ws, 'Consumos por remisión del período', cols.length, 1)
@@ -623,6 +667,8 @@ async function buildConsumosSheet(
       row.material_name,
       row.cantidad_teorica,
       row.cantidad_real,
+      row.ajuste_remision,
+      row.cantidad_real - row.cantidad_teorica,
     ]
     vals.forEach((v, i) => {
       const cell = ws_row.getCell(i + 1)

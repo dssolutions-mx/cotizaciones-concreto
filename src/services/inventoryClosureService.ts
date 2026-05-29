@@ -712,6 +712,9 @@ export class InventoryClosureService {
       .single();
 
     if (!closure) throw new Error('Cierre no encontrado');
+    if (closure.status === 'sealed') {
+      return closure as InventoryClosure;
+    }
     if (!['justified', 'reconciled'].includes(closure.status)) {
       throw new Error(`No se puede sellar un cierre con estatus "${closure.status}"`);
     }
@@ -741,10 +744,42 @@ export class InventoryClosureService {
     const adjustmentDate = closure.period_end;
     const dateStr = adjustmentDate.replace(/-/g, '');
 
-    // Create adjustment for each material with variance
+    // Create adjustment for each material with variance (idempotent — no double seal)
     for (const mat of materials) {
       const varianceKg = Number(mat.variance_kg ?? 0);
       if (Math.abs(varianceKg) < 0.001) continue; // skip zero-variance materials
+
+      if (mat.adjustment_id) {
+        const { data: linkedAdj } = await this.supabase
+          .from('material_adjustments')
+          .select('id')
+          .eq('id', mat.adjustment_id)
+          .maybeSingle();
+        if (linkedAdj) continue;
+      }
+
+      const { data: existingClosureAdj } = await this.supabase
+        .from('material_adjustments')
+        .select('id')
+        .eq('plant_id', closure.plant_id)
+        .eq('material_id', mat.material_id)
+        .eq('reference_type', 'inventory_closure')
+        .ilike('reference_notes', `%${closureId}%`)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingClosureAdj) {
+        await this.supabase
+          .from('inventory_closure_materials')
+          .update({
+            adjustment_id: existingClosureAdj.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('closure_id', closureId)
+          .eq('material_id', mat.material_id);
+        continue;
+      }
 
       // Get next adjustment number for this plant
       const { data: lastAdj } = await this.supabase
