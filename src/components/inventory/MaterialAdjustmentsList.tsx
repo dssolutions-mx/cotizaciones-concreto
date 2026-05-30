@@ -67,16 +67,18 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
       }
       const response = await fetch(url)
       
-      if (response.ok) {
-        const data = await response.json()
-        const adjustmentsData = data.adjustments || []
-        setAdjustments(adjustmentsData)
-        onAdjustmentsLoaded?.(adjustmentsData)
-      } else {
-        console.error('Adjustments API error:', response.status, response.statusText)
-        const errorData = await response.json()
-        console.error('Error details:', errorData)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const msg = data.error ?? `Error al cargar ajustes (${response.status})`
+        console.error('Adjustments API error:', msg)
+        toast.error(msg)
+        setAdjustments([])
+        onAdjustmentsLoaded?.([])
+        return
       }
+      const adjustmentsData = data.adjustments || []
+      setAdjustments(adjustmentsData)
+      onAdjustmentsLoaded?.(adjustmentsData)
     } catch (error) {
       console.error('Error fetching adjustments:', error)
       toast.error('Error al cargar los ajustes')

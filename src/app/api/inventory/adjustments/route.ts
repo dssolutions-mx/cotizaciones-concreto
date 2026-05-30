@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createAdminClientForApi } from '@/lib/supabase/api';
 import { 
   GetActivitiesQuerySchema,
   MaterialAdjustmentInputSchema,
@@ -56,35 +57,40 @@ export async function GET(request: NextRequest) {
     // Validate query parameters
     const validatedQuery = GetActivitiesQuerySchema.parse(queryParams);
 
-    // Build query for material adjustments
-    // For EXECUTIVE users, allow filtering by plant_id, otherwise use user's plant_id
-    let query = supabase
+    const queryPlantId = searchParams.get('plant_id');
+    let scopedPlantId: string | null = null;
+    if (canAccessAllInventoryPlants(profile.role)) {
+      scopedPlantId = queryPlantId;
+    } else {
+      if (!profile.plant_id) {
+        return NextResponse.json({ error: 'Usuario sin planta asignada' }, { status: 400 });
+      }
+      if (queryPlantId && queryPlantId !== profile.plant_id) {
+        return NextResponse.json({ error: 'Sin permisos para esta planta' }, { status: 403 });
+      }
+      scopedPlantId = profile.plant_id;
+    }
+
+    const admin = createAdminClientForApi();
+
+    // Build query (admin client + server-side plant scope; materials.unit_of_measure not "unit")
+    let query = admin
       .from('material_adjustments')
       .select(`
         *,
         materials:material_id (
           material_name,
           category,
-          unit
+          unit_of_measure
         ),
-        adjusted_by_user:user_profiles!adjusted_by (
+        adjusted_by_user:user_profiles!material_adjustments_adjusted_by_fkey (
           first_name,
           last_name
         )
       `);
-    
-    // Apply plant filter based on user role
-    if (profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS') {
-      // Executives and Admin Operations can see all plants, but if plant_id is provided in query, filter by it
-      const queryPlantId = searchParams.get('plant_id');
-      if (queryPlantId) {
-        query = query.eq('plant_id', queryPlantId);
-      }
-    } else {
-      if (!profile.plant_id) {
-        return NextResponse.json({ error: 'Usuario sin planta asignada' }, { status: 400 });
-      }
-      query = query.eq('plant_id', profile.plant_id);
+
+    if (scopedPlantId) {
+      query = query.eq('plant_id', scopedPlantId);
     }
 
     if (validatedQuery.date_from) {
@@ -126,9 +132,23 @@ export async function GET(request: NextRequest) {
       throw new Error(`Error al obtener ajustes de material: ${adjustmentsError.message}`);
     }
 
+    const normalized = (adjustments ?? []).map((row: Record<string, unknown>) => {
+      const mats = row.materials as Record<string, unknown> | null;
+      return {
+        ...row,
+        materials: mats
+          ? {
+              material_name: mats.material_name,
+              category: mats.category,
+              unit: mats.unit_of_measure ?? mats.unit,
+            }
+          : null,
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      adjustments: adjustments, // Return as 'adjustments' to match frontend expectation
+      adjustments: normalized,
       pagination: {
         limit: validatedQuery.limit,
         offset: validatedQuery.offset,

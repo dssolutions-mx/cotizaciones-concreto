@@ -64,16 +64,16 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const canDelete = canDeleteInventoryClosure(profile?.role)
-  // Default to last 7 days as recommended in plan
   const defaultDateRange = {
-    from: subDays(new Date(), 6),
-    to: new Date()
+    from: subDays(new Date(), 29),
+    to: new Date(),
   }
   const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(defaultDateRange)
-  const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last7days')
+  const [selectedPreset, setSelectedPreset] = useState<DateRangePreset>('last30days')
   const [stats, setStats] = useState({
     today: 0,
     thisWeek: 0,
@@ -86,6 +86,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   const fetchAdjustments = async () => {
     setLoading(true)
+    setFetchError(null)
     try {
       let url = '/api/inventory/adjustments?limit=200&offset=0'
       if (dateRange?.from && dateRange?.to) {
@@ -101,40 +102,44 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
       }
 
       const response = await fetch(url)
+      const data = await response.json().catch(() => ({}))
 
-      if (response.ok) {
-        const data = await response.json()
-        setAdjustments(data.adjustments || [])
-        setHasMore(!!data.pagination?.hasMore)
-
-        // Calculate stats
-        const now = new Date()
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-        const weekStart = new Date(today)
-        weekStart.setDate(today.getDate() - today.getDay())
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-
-        const todayCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
-          new Date(adj.adjustment_date) >= today
-        ).length || 0
-
-        const weekCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
-          new Date(adj.adjustment_date) >= weekStart
-        ).length || 0
-
-        const monthCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
-          new Date(adj.adjustment_date) >= monthStart
-        ).length || 0
-
-        setStats({
-          today: todayCount,
-          thisWeek: weekCount,
-          thisMonth: monthCount
-        })
+      if (!response.ok) {
+        throw new Error(data.error ?? `Error al cargar ajustes (${response.status})`)
       }
+
+      setAdjustments(data.adjustments || [])
+      setHasMore(!!data.pagination?.hasMore)
+
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const weekStart = new Date(today)
+      weekStart.setDate(today.getDate() - today.getDay())
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+      const todayCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
+        new Date(adj.adjustment_date) >= today,
+      ).length || 0
+
+      const weekCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
+        new Date(adj.adjustment_date) >= weekStart,
+      ).length || 0
+
+      const monthCount = data.adjustments?.filter((adj: MaterialAdjustment) =>
+        new Date(adj.adjustment_date) >= monthStart,
+      ).length || 0
+
+      setStats({
+        today: todayCount,
+        thisWeek: weekCount,
+        thisMonth: monthCount,
+      })
     } catch (error) {
       console.error('Error fetching adjustments:', error)
-      toast.error('Error al cargar los ajustes')
+      const msg = (error as Error).message
+      setFetchError(msg)
+      setAdjustments([])
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -317,6 +322,18 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
           subtitle="registros mensuales"
         />
       </div>
+
+      {fetchError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {fetchError}
+        </div>
+      )}
+
+      {!currentPlant?.id && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Seleccione una planta en el menú superior para ver los ajustes de esa planta.
+        </div>
+      )}
 
       {/* Detailed Statistics */}
       <AdjustmentsStatistics adjustments={adjustments} />
