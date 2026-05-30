@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -71,6 +71,8 @@ export default function InformeEmissionPanel({
     last_name?: string | null;
     cedula_profesional?: string | null;
   }>();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const previewRequestedRef = useRef(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -85,14 +87,11 @@ export default function InformeEmissionPanel({
   }, [user?.id]);
 
   const refreshPreview = useCallback(async (): Promise<InformeSnapshot | null> => {
+    previewRequestedRef.current = true;
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      const previewRes = await fetch('/api/quality/informes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'preview', muestreo_id: muestreo.id }),
-      });
+      const previewRes = await fetch(`/api/quality/muestreos/${muestreo.id}/informe-preview`);
       const previewJson = await previewRes.json();
       if (!previewRes.ok) {
         throw new Error(
@@ -143,11 +142,9 @@ export default function InformeEmissionPanel({
         setInformeRecord(informeJson.data);
       }
 
-      // Borrador snapshots are rebuilt from live DB so new ensayos appear; emitted informes stay frozen.
+      // Borrador snapshots load on demand (scroll or explicit action) to avoid heavy DB work on page open.
       if (informeJson.data?.estado === 'emitido' && informeJson.data.snapshot_json) {
         setSnapshot(informeJson.data.snapshot_json as InformeSnapshot);
-      } else {
-        await refreshPreview();
       }
 
       const required = requiredUFromMuestreoRow({
@@ -190,15 +187,36 @@ export default function InformeEmissionPanel({
     } finally {
       setLoading(false);
     }
-  }, [muestreo, ensayoHasEquipment, toast, refreshPreview, onRefresh]);
+  }, [muestreo, ensayoHasEquipment, toast, onRefresh]);
 
   useEffect(() => {
     if (initialInforme !== undefined) return;
     load();
   }, [initialInforme, load]);
 
-  const hasGaps = checklistHasGaps(checklist);
   const emitted = informeRecord?.estado === 'emitido';
+
+  useEffect(() => {
+    if (emitted || snapshot || previewLoading || previewRequestedRef.current) return;
+    const node = cardRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          previewRequestedRef.current = true;
+          void refreshPreview();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '120px' }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [emitted, snapshot, previewLoading, refreshPreview]);
+
+  const hasGaps = checklistHasGaps(checklist);
   const isLabMuestreo =
     muestreo.sampling_type === 'LAB_EXPERIMENT' || !!muestreo.laboratorio_lote_id;
   const isLabInforme = snapshot ? isInformeLabExperiment(snapshot) : isLabMuestreo;
@@ -307,7 +325,7 @@ export default function InformeEmissionPanel({
 
   return (
     <>
-      <Card className="border-stone-200 shadow-sm">
+      <Card ref={cardRef} className="border-stone-200 shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div>

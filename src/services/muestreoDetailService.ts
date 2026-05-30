@@ -2,11 +2,7 @@ import { calcularRendimientoVolumetrico } from '@/lib/qualityMetricsUtils';
 import { evaluateInformeChecklist, requiredUFromMuestreoRow } from '@/lib/quality/informeChecklist';
 import { createServiceClient } from '@/lib/supabase/server';
 import { listMedicionesCampoGrouped } from '@/services/muestreoFieldMeasurementService';
-import {
-  getInformeByMuestreo,
-  getLabConfig,
-  previewInformeSnapshot,
-} from '@/services/informeEnsayoService';
+import { getInformeByMuestreo, getLabConfig } from '@/services/informeEnsayoService';
 import { listPublishedU } from '@/services/emaUncertaintyService';
 import type { MuestreoInstrumentoRow } from '@/components/quality/muestreos/detail/MuestreoEquipmentCard';
 import type { ProductionRemision } from '@/components/quality/muestreos/detail/CrossPlantProductionCard';
@@ -53,34 +49,35 @@ export type MuestreoDetailBundle = {
   informe: MuestreoInformeBundle;
 };
 
-const MUESTREO_SELECT = `
+export const MUESTREO_CORE_SELECT = `
   *,
   remision:remision_id (
     *,
-    recipe:recipes(
-      *,
-      recipe_versions(*)
-    )
+    recipe:recipes(*)
   ),
   laboratorio_lote:laboratorio_lote_id (
     id,
     lote_number,
     study_name,
-    protocol_type
+    protocol_type,
+    hypothesis_notes,
+    volumen_m3,
+    designacion_ehe,
+    recipe_snapshot,
+    concrete_specs
   ),
   muestras(
     *,
     ensayos(*),
-    alertas_ensayos(*),
     molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(id, codigo, nombre)
   )
 `;
 
-async function fetchMuestreoCore(muestreoId: string): Promise<MuestreoWithRelations> {
+export async function fetchMuestreoCore(muestreoId: string): Promise<MuestreoWithRelations> {
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from('muestreos')
-    .select(MUESTREO_SELECT)
+    .select(MUESTREO_CORE_SELECT)
     .eq('id', muestreoId)
     .single();
 
@@ -318,7 +315,7 @@ export async function loadMuestreoDetailBundle(muestreoId: string): Promise<Mues
   const snapshot: InformeSnapshot | null =
     informeRecord?.estado === 'emitido' && informeRecord.snapshot_json
       ? (informeRecord.snapshot_json as InformeSnapshot)
-      : await previewInformeSnapshot(muestreoId);
+      : null;
 
   const checklist = buildInformeChecklist(
     muestreo,

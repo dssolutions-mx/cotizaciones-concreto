@@ -2,6 +2,8 @@ import { format } from 'date-fns';
 import { createServiceClient } from '@/lib/supabase/server';
 import { buildInformeSnapshot, type BuildInformeInput } from '@/lib/quality/buildInformeSnapshot';
 import { listMedicionesCampo } from '@/services/muestreoFieldMeasurementService';
+import type { MuestreoMedicionCampo } from '@/types/muestreoFieldMeasurement';
+import type { MuestreoWithRelations } from '@/types/quality';
 import {
   buildInformeUncertaintySnapshot,
 } from '@/lib/quality/buildInformeUncertaintySnapshot';
@@ -57,6 +59,123 @@ export async function upsertLabConfig(
   const { data, error } = await supabase.from('laboratorio_acreditacion_config').insert(row).select().single();
   if (error) throw error;
   return data as LaboratorioAcreditacionConfig;
+}
+
+export type InformeBuildHints = {
+  muestreo?: MuestreoWithRelations;
+  medicionesCampo?: MuestreoMedicionCampo[];
+  labConfig?: LaboratorioAcreditacionConfig | null;
+};
+
+export function muestreoToInformeListRow(muestreo: MuestreoWithRelations): Record<string, unknown> {
+  const remision = muestreo.remision as
+    | {
+        remision_number?: string;
+        volumen_fabricado?: number;
+        designacion_ehe?: string | null;
+        order?: {
+          id?: string;
+          order_number?: string;
+          construction_site?: string;
+          elemento?: string;
+          clients?: {
+            id?: string;
+            business_name?: string;
+            contact_name?: string | null;
+            address?: string | null;
+            phone?: string | null;
+            email?: string | null;
+          };
+        };
+      }
+    | null
+    | undefined;
+  const recipe = remision?.recipe;
+  const order = remision?.order;
+  const lote = muestreo.laboratorio_lote as
+    | {
+        lote_number?: string;
+        study_name?: string;
+        protocol_type?: string;
+      }
+    | null
+    | undefined;
+
+  return {
+    ...muestreo,
+    remision_number: remision?.remision_number ?? null,
+    remision_volumen_fabricado: remision?.volumen_fabricado ?? null,
+    remision_designacion_ehe: remision?.designacion_ehe ?? null,
+    strength_fc: recipe?.strength_fc ?? null,
+    slump: recipe?.slump ?? null,
+    age_days: recipe?.age_days ?? null,
+    age_hours: recipe?.age_hours ?? null,
+    recipe_code: recipe?.recipe_code ?? null,
+    order_number: order?.order_number ?? null,
+    order_construction_site: order?.construction_site ?? null,
+    order_elemento: order?.elemento ?? null,
+    obra_nombre: order?.construction_site ?? null,
+    client_id: order?.clients?.id ?? null,
+    client_business_name: order?.clients?.business_name ?? null,
+    laboratorio_lote_number: lote?.lote_number ?? null,
+    laboratorio_study_name: lote?.study_name ?? null,
+    laboratorio_protocol_type: lote?.protocol_type ?? null,
+  };
+}
+
+function mapMuestrasForInforme(
+  muestras: MuestreoWithRelations['muestras']
+): BuildInformeInput['muestras'] {
+  return (muestras ?? []).map((m) => ({
+    id: m.id,
+    tipo_muestra: m.tipo_muestra,
+    identificacion: m.identificacion,
+    diameter_cm: m.diameter_cm,
+    cube_side_cm: m.cube_side_cm,
+    is_edad_garantia: m.is_edad_garantia,
+    molde_instrumento: m.molde_instrumento as BuildInformeInput['muestras'][number]['molde_instrumento'],
+    ensayos: (m.ensayos ?? []).map((e) => ({
+      id: e.id,
+      fecha_ensayo: e.fecha_ensayo,
+      carga_kg: e.carga_kg,
+      resistencia_calculada: e.resistencia_calculada,
+      resistencia_corregida: e.resistencia_corregida,
+      factor_correccion: e.factor_correccion,
+      porcentaje_cumplimiento: e.porcentaje_cumplimiento,
+      temp_laboratorio_c: (e as { temp_laboratorio_c?: number | null }).temp_laboratorio_c,
+      humedad_relativa_lab: (e as { humedad_relativa_lab?: number | null }).humedad_relativa_lab,
+      capping_type: (e as { capping_type?: string | null }).capping_type,
+      capping_norma: (e as { capping_norma?: string | null }).capping_norma,
+    })),
+  }));
+}
+
+function collectEnsayoIdsFromMuestreo(muestreo: MuestreoWithRelations): string[] {
+  return (muestreo.muestras ?? [])
+    .flatMap((m) => (m.ensayos ?? []).map((e) => e.id))
+    .filter(Boolean);
+}
+
+function clientFromMuestreo(muestreo: MuestreoWithRelations): BuildInformeInput['client'] {
+  const clients = (
+    muestreo.remision as { order?: { clients?: BuildInformeInput['client'] } } | null | undefined
+  )?.order?.clients;
+  if (!clients) return null;
+  return {
+    business_name: clients.business_name,
+    contact_name: clients.contact_name,
+    address: clients.address,
+    phone: clients.phone,
+    email: clients.email,
+  };
+}
+
+function laboratorioLoteFromMuestreo(
+  muestreo: MuestreoWithRelations
+): BuildInformeInput['laboratorioLote'] {
+  const lote = muestreo.laboratorio_lote as BuildInformeInput['laboratorioLote'] | null | undefined;
+  if (!lote?.lote_number) return null;
+  return lote;
 }
 
 async function fetchMuestreoListRow(muestreoId: string) {
@@ -120,15 +239,18 @@ async function fetchClientForMuestreo(muestreoListRow: Record<string, unknown>) 
   return data;
 }
 
-async function fetchEnsayoInstrumentos(muestreoId: string) {
+async function fetchEnsayoInstrumentos(muestreoId: string, ensayoIds?: string[]) {
   const supabase = await createServiceClient();
-  const { data: muestras } = await supabase.from('muestras').select('id').eq('muestreo_id', muestreoId);
-  const muestraIds = (muestras ?? []).map((m) => m.id);
-  if (muestraIds.length === 0) return [];
+  let ids = ensayoIds;
+  if (!ids) {
+    const { data: muestras } = await supabase.from('muestras').select('id').eq('muestreo_id', muestreoId);
+    const muestraIds = (muestras ?? []).map((m) => m.id);
+    if (muestraIds.length === 0) return [];
 
-  const { data: ensayos } = await supabase.from('ensayos').select('id').in('muestra_id', muestraIds);
-  const ensayoIds = (ensayos ?? []).map((e) => e.id);
-  if (ensayoIds.length === 0) return [];
+    const { data: ensayos } = await supabase.from('ensayos').select('id').in('muestra_id', muestraIds);
+    ids = (ensayos ?? []).map((e) => e.id);
+  }
+  if (ids.length === 0) return [];
 
   const { data: links } = await supabase
     .from('ensayo_instrumentos')
@@ -138,7 +260,7 @@ async function fetchEnsayoInstrumentos(muestreoId: string) {
       instrumento:instrumentos(codigo, nombre)
     `
     )
-    .in('ensayo_id', ensayoIds);
+    .in('ensayo_id', ids);
 
   const seen = new Set<string>();
   return (links ?? [])
@@ -159,21 +281,39 @@ async function fetchEnsayoInstrumentos(muestreoId: string) {
     });
 }
 
-export async function loadInformeBuildInput(muestreoId: string): Promise<BuildInformeInput> {
-  const listRow = await fetchMuestreoListRow(muestreoId);
+export async function loadInformeBuildInput(
+  muestreoId: string,
+  hints?: InformeBuildHints
+): Promise<BuildInformeInput> {
+  const muestreo = hints?.muestreo;
+  const listRow = muestreo ? muestreoToInformeListRow(muestreo) : await fetchMuestreoListRow(muestreoId);
   const plantId = listRow.plant_id as string | null;
   const loteId = listRow.laboratorio_lote_id as string | undefined;
-  const isLab =
-    listRow.sampling_type === 'LAB_EXPERIMENT' || loteId != null;
+  const isLab = listRow.sampling_type === 'LAB_EXPERIMENT' || loteId != null;
+
+  const ensayoIds = muestreo ? collectEnsayoIdsFromMuestreo(muestreo) : undefined;
+  const hintedLote = muestreo ? laboratorioLoteFromMuestreo(muestreo) : null;
 
   const [muestras, client, labConfig, ensayoInstrumentos, laboratorioLote, medicionesCampo] =
     await Promise.all([
-      fetchMuestrasWithEnsayos(muestreoId),
-      isLab ? Promise.resolve(null) : fetchClientForMuestreo(listRow),
-      getLabConfig(plantId),
-      fetchEnsayoInstrumentos(muestreoId),
-      loteId ? fetchLaboratorioLoteForInforme(loteId) : Promise.resolve(null),
-      listMedicionesCampo(muestreoId),
+      muestreo?.muestras?.length
+        ? Promise.resolve(mapMuestrasForInforme(muestreo.muestras))
+        : fetchMuestrasWithEnsayos(muestreoId),
+      isLab
+        ? Promise.resolve(null)
+        : muestreo
+          ? Promise.resolve(clientFromMuestreo(muestreo))
+          : fetchClientForMuestreo(listRow),
+      hints?.labConfig !== undefined ? Promise.resolve(hints.labConfig) : getLabConfig(plantId),
+      fetchEnsayoInstrumentos(muestreoId, ensayoIds),
+      loteId
+        ? hintedLote
+          ? Promise.resolve(hintedLote)
+          : fetchLaboratorioLoteForInforme(loteId)
+        : Promise.resolve(null),
+      hints?.medicionesCampo !== undefined
+        ? Promise.resolve(hints.medicionesCampo)
+        : listMedicionesCampo(muestreoId),
     ]);
 
   return {
@@ -187,8 +327,11 @@ export async function loadInformeBuildInput(muestreoId: string): Promise<BuildIn
   };
 }
 
-export async function previewInformeSnapshot(muestreoId: string): Promise<InformeSnapshot> {
-  const input = await loadInformeBuildInput(muestreoId);
+export async function previewInformeSnapshot(
+  muestreoId: string,
+  hints?: InformeBuildHints
+): Promise<InformeSnapshot> {
+  const input = await loadInformeBuildInput(muestreoId, hints);
   return buildInformeSnapshot(input);
 }
 

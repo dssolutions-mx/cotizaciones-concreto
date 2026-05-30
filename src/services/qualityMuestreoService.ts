@@ -271,10 +271,7 @@ export async function fetchMuestreoById(id: string) {
         *,
         remision:remision_id (
           *,
-          recipe:recipes(
-            *,
-            recipe_versions(*)
-          )
+          recipe:recipes(*)
         ),
         laboratorio_lote:laboratorio_lote_id (
           id,
@@ -285,7 +282,6 @@ export async function fetchMuestreoById(id: string) {
         muestras(
           *,
           ensayos(*),
-          alertas_ensayos(*),
           molde_instrumento:instrumentos!muestras_molde_instrumento_id_fkey(id, codigo, nombre)
         )
       `)
