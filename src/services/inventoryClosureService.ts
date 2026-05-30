@@ -792,10 +792,13 @@ export class InventoryClosureService {
     const adjustmentDate = closure.period_end;
     const dateStr = adjustmentDate.replace(/-/g, '');
 
-    // Create adjustment for each material with variance (idempotent — no double seal)
+    // Create adjustment for each material (idempotent — no double seal).
+    // NOTE: the reported variance (physical vs theoretical) is for justification/audit only.
+    // The stock movement below is driven by physical vs LIVE book stock so the closure always
+    // trues current_stock up to the counted reality, independent of any live/theoretical drift.
     for (const mat of materials) {
-      const varianceKg = Number(mat.variance_kg ?? 0);
-      if (Math.abs(varianceKg) < 0.001) continue; // skip zero-variance materials
+      const physicalCountKg = mat.physical_count_kg == null ? null : Number(mat.physical_count_kg);
+      if (physicalCountKg == null) continue; // no physical count → nothing to reconcile
 
       if (mat.adjustment_id) {
         const { data: linkedAdj } = await this.supabase
@@ -853,10 +856,13 @@ export class InventoryClosureService {
         .maybeSingle();
 
       const inventoryBefore = Number(invRow?.current_stock ?? 0);
-      // positive variance → stock was under-counted → add stock (physical_count type)
-      // negative variance → stock was over-counted → remove stock (correction type)
-      const adjustmentType = varianceKg > 0 ? 'physical_count' : 'correction';
-      const quantityAdjusted = Math.abs(varianceKg); // always positive; direction from type
+      // Drive the movement off LIVE book vs physical count so the closure always converges
+      // current_stock → physical, regardless of any prior live/theoretical drift.
+      const stockDeltaKg = physicalCountKg - inventoryBefore;
+      if (Math.abs(stockDeltaKg) < 0.001) continue; // live book already matches physical count
+      // physical > live → under-counted → add stock (physical_count); else remove (correction)
+      const adjustmentType = stockDeltaKg > 0 ? 'physical_count' : 'correction';
+      const quantityAdjusted = Math.abs(stockDeltaKg); // always positive; direction from type
 
       const inventoryAfter = computeInventoryAfter(
         inventoryBefore,
@@ -890,7 +896,7 @@ export class InventoryClosureService {
       }
 
       // Run FIFO logic (positive → ADJP layer, negative → consume FIFO)
-      if (varianceKg > 0) {
+      if (stockDeltaKg > 0) {
         const fifoResult = await insertAdjustmentFifoLayer(this.supabase, {
           adjustmentId: adj.id,
           adjustmentNumber,
