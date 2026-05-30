@@ -48,10 +48,17 @@ interface Props {
   closureId: string
   materials: InventoryClosureMaterial[]
   thresholdPct: number
+  mode?: 'initial' | 'edit'
   onSaved: () => void
 }
 
-export default function PhysicalCountStep({ closureId, materials, thresholdPct, onSaved }: Props) {
+export default function PhysicalCountStep({
+  closureId,
+  materials,
+  thresholdPct,
+  mode = 'initial',
+  onSaved,
+}: Props) {
   const [rows, setRows] = useState<Record<string, RowState>>(() => {
     const init: Record<string, RowState> = {}
     for (const m of materials) {
@@ -161,6 +168,12 @@ export default function PhysicalCountStep({ closureId, materials, thresholdPct, 
 
   return (
     <div className="space-y-4">
+      {mode === 'edit' && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          Al cambiar los conteos se recalculan las varianzas. Revisa la reconciliación y las
+          justificaciones antes de sellar el cierre.
+        </p>
+      )}
       <p className="text-sm text-stone-500">
         Ingresa el conteo físico real de cada material. Para agregados medidos en m³ elige la unidad
         m³ y confirma el peso volumétrico sugerido por el estudio de calidad.
@@ -338,7 +351,11 @@ export default function PhysicalCountStep({ closureId, materials, thresholdPct, 
           disabled={saving}
           className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
         >
-          {saving ? 'Guardando...' : 'Guardar conteos y continuar'}
+          {saving
+            ? 'Guardando...'
+            : mode === 'edit'
+              ? 'Guardar conteos'
+              : 'Guardar conteos y continuar'}
         </Button>
       </div>
     </div>

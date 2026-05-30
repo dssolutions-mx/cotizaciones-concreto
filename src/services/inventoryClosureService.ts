@@ -686,6 +686,21 @@ export class InventoryClosureService {
         .from('inventory_closures')
         .update({ status: 'reconciled', updated_at: new Date().toISOString() })
         .eq('id', closureId);
+    } else if (closure?.status === 'justified') {
+      const { data: pending } = await this.supabase
+        .from('inventory_closure_materials')
+        .select('material_id')
+        .eq('closure_id', closureId)
+        .eq('requires_justification', true)
+        .is('justification_text', null);
+
+      if (pending && pending.length > 0) {
+        await this.supabase
+          .from('inventory_closures')
+          .update({ status: 'reconciled', updated_at: new Date().toISOString() })
+          .eq('id', closureId)
+          .eq('status', 'justified');
+      }
     }
 
     return (data ?? []) as InventoryClosureMaterial[];

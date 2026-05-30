@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { ArrowRight, TrendingUp, TrendingDown, Minus, ScanLine } from 'lucide-react'
 import type { InventoryClosureMaterial } from '@/types/inventoryClosure'
 
 function fmtKg(n: number | null | undefined) {
@@ -14,10 +14,17 @@ interface Props {
   materials: InventoryClosureMaterial[]
   thresholdPct: number
   onConfirm: () => void
+  onEditPhysicalCount?: () => void
   saving: boolean
 }
 
-export default function ReconciliationStep({ materials, thresholdPct, onConfirm, saving }: Props) {
+export default function ReconciliationStep({
+  materials,
+  thresholdPct,
+  onConfirm,
+  onEditPhysicalCount,
+  saving,
+}: Props) {
   const withVariance = materials.filter((m) => Math.abs(m.variance_kg ?? 0) > 0.001)
   const zeroVariance = materials.filter((m) => Math.abs(m.variance_kg ?? 0) <= 0.001)
 
@@ -103,7 +110,20 @@ export default function ReconciliationStep({ materials, thresholdPct, onConfirm,
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {onEditPhysicalCount ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onEditPhysicalCount}
+            className="gap-2"
+          >
+            <ScanLine className="h-4 w-4" />
+            Editar conteo físico
+          </Button>
+        ) : (
+          <span />
+        )}
         <Button
           onClick={onConfirm}
           disabled={saving}

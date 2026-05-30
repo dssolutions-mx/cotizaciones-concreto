@@ -7,6 +7,7 @@ import InventoryBreadcrumb, {
 } from '@/components/inventory/InventoryBreadcrumb'
 import ClosureStepper, {
   getClosureStepLabel,
+  statusToReachableStep,
   statusToStep,
   type ClosureStep,
 } from '@/components/inventory/closure/ClosureStepper'
@@ -72,6 +73,7 @@ export default function ClosureWizardPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [physicalCountReturnStep, setPhysicalCountReturnStep] = useState<ClosureStep | null>(null)
 
   const canManage = canAdminInventoryClosure(profile?.role)
   const canDelete = canDeleteInventoryClosure(profile?.role)
@@ -154,6 +156,23 @@ export default function ClosureWizardPage() {
       setActiveStep(STEP_ORDER[current + 1])
     }
     fetchDetail()
+  }
+
+  function goToPhysicalCountForEdit(fromStep: ClosureStep) {
+    setPhysicalCountReturnStep(fromStep)
+    setActiveStep('physical_count')
+  }
+
+  function handleStepClick(step: ClosureStep) {
+    if (
+      step === 'physical_count' &&
+      (activeStep === 'reconciliation' || activeStep === 'justification')
+    ) {
+      setPhysicalCountReturnStep(activeStep)
+    } else if (step !== 'physical_count') {
+      setPhysicalCountReturnStep(null)
+    }
+    setActiveStep(step)
   }
 
   async function handleConfirmTheoretical() {
@@ -389,6 +408,8 @@ export default function ClosureWizardPage() {
       {!isCancelled && (
         <ClosureStepper
           currentStep={activeStep}
+          reachableStep={detail ? statusToReachableStep(detail.status) : activeStep}
+          onStepClick={!isSealed ? handleStepClick : undefined}
           sealed={isSealed}
           className="mb-2"
         />
@@ -429,9 +450,12 @@ export default function ClosureWizardPage() {
               closureId={closureId}
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
+              mode={physicalCountReturnStep ? 'edit' : 'initial'}
               onSaved={async () => {
                 await fetchDetail()
-                setActiveStep('reconciliation')
+                const next = physicalCountReturnStep ?? 'reconciliation'
+                setPhysicalCountReturnStep(null)
+                setActiveStep(next)
               }}
             />
           )}
@@ -442,6 +466,7 @@ export default function ClosureWizardPage() {
               thresholdPct={detail.variance_threshold_pct}
               saving={false}
               onConfirm={() => setActiveStep('justification')}
+              onEditPhysicalCount={() => goToPhysicalCountForEdit('reconciliation')}
             />
           )}
 
@@ -454,6 +479,7 @@ export default function ClosureWizardPage() {
                 fetchDetail()
                 setActiveStep('seal')
               }}
+              onEditPhysicalCount={() => goToPhysicalCountForEdit('justification')}
             />
           )}
 

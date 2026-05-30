@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { MessageSquareWarning, CheckCircle2 } from 'lucide-react'
+import { MessageSquareWarning, CheckCircle2, ScanLine } from 'lucide-react'
 import type { InventoryClosureMaterial } from '@/types/inventoryClosure'
 
 function fmtKg(n: number | null | undefined) {
@@ -15,9 +15,16 @@ interface Props {
   materials: InventoryClosureMaterial[]
   thresholdPct: number
   onSaved: () => void
+  onEditPhysicalCount?: () => void
 }
 
-export default function JustificationStep({ closureId, materials, thresholdPct, onSaved }: Props) {
+export default function JustificationStep({
+  closureId,
+  materials,
+  thresholdPct,
+  onSaved,
+  onEditPhysicalCount,
+}: Props) {
   const requiring = materials.filter((m) => m.requires_justification)
   const optional = materials.filter((m) => !m.requires_justification && Math.abs(m.variance_kg ?? 0) > 0.001)
 
@@ -135,7 +142,20 @@ export default function JustificationStep({ closureId, materials, thresholdPct, 
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {onEditPhysicalCount ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onEditPhysicalCount}
+            className="gap-2"
+          >
+            <ScanLine className="h-4 w-4" />
+            Editar conteo físico
+          </Button>
+        ) : (
+          <span />
+        )}
         <Button
           onClick={handleSave}
           disabled={saving || !allRequiredFilled}
