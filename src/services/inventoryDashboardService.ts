@@ -10,7 +10,11 @@ import {
   isFifoOrphanBucketEntry,
   isSyntheticFifoCostLayerEntry,
 } from '@/lib/inventory/fifoSyntheticLayers';
-import { isPositiveAdjustmentType, signedQuantityForStockEffect } from '@/lib/inventory/adjustmentModel';
+import {
+  isFlowWithdrawalAdjustmentType,
+  isPositiveAdjustmentType,
+  signedQuantityForStockEffect,
+} from '@/lib/inventory/adjustmentModel';
 import { mergeLedgerSyntheticFifoPairs } from '@/lib/inventory/mergeLedgerOpeningMovement';
 import { 
   InventoryDashboardData, 
@@ -150,7 +154,7 @@ export class InventoryDashboardService {
             -- Historical adjustments (before period)
             COALESCE(SUM(
               CASE 
-                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer') 
+                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer', 'correction') 
                 THEN -ma.quantity_adjusted 
                 ELSE ma.quantity_adjusted 
               END
@@ -190,7 +194,7 @@ export class InventoryDashboardService {
             -- Period adjustments (positive)
             COALESCE(SUM(
               CASE 
-                WHEN ma.adjustment_type NOT IN ('consumption', 'waste', 'loss', 'transfer') 
+                WHEN ma.adjustment_type NOT IN ('consumption', 'waste', 'loss', 'transfer', 'correction') 
                 THEN ma.quantity_adjusted 
                 ELSE 0 
               END
@@ -199,7 +203,7 @@ export class InventoryDashboardService {
             -- Period adjustments (negative)
             COALESCE(SUM(
               CASE 
-                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer') 
+                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer', 'correction') 
                 THEN ma.quantity_adjusted 
                 ELSE 0 
               END
@@ -714,8 +718,7 @@ export class InventoryDashboardService {
           return;
         }
 
-        const isWithdrawal = ['consumption', 'waste', 'loss', 'transfer'].includes(adj.adjustment_type || '');
-        if (isWithdrawal) {
+        if (isFlowWithdrawalAdjustmentType(adj.adjustment_type || '')) {
           current.withdrawals += Math.abs(qty);
         } else {
           current.additions += qty;
@@ -874,7 +877,7 @@ export class InventoryDashboardService {
 
           periodEntriesTotal = (periodEntriesByMaterial.get(materialId) || []).reduce((sum, qty) => sum + qty, 0);
           periodManualAdditions = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
-            if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+            if (isFlowWithdrawalAdjustmentType(adj.type)) {
               return sum;
             }
             if (isPositiveAdjustmentType(adj.type) && openFifoMaterialIds.has(materialId)) {
@@ -883,7 +886,7 @@ export class InventoryDashboardService {
             return sum + adj.qty;
           }, 0);
           periodManualWithdrawals = (periodAdjustmentsByMaterial.get(materialId) || []).reduce((sum, adj) => {
-            if (['consumption', 'waste', 'loss', 'transfer'].includes(adj.type)) {
+            if (isFlowWithdrawalAdjustmentType(adj.type)) {
               return sum + adj.qty;
             }
             return sum;
@@ -1880,13 +1883,7 @@ export class InventoryDashboardService {
         }
         return;
       }
-      if (adj.adjustment_type === 'correction' && qty > 0) {
-        const refType = String(adj.reference_type ?? '').trim();
-        const isOpeningCorrection = refType.endsWith('_opening');
-        if (!(isOpeningCorrection && has0OpenFifoLayer)) {
-          totalManualAdditions += qty;
-        }
-      } else if (['consumption', 'waste', 'loss'].includes(adj.adjustment_type)) {
+      if (isFlowWithdrawalAdjustmentType(adj.adjustment_type || '')) {
         totalManualWithdrawals += Math.abs(qty);
       }
     });
@@ -2105,10 +2102,10 @@ export class InventoryDashboardService {
       const qty = Number(adj.quantity_adjusted);
       totalAdjustments += Math.abs(qty);
       
-      if (adj.adjustment_type === 'correction' && qty > 0) {
-        totalManualAdditions += qty;
-      } else if (['consumption', 'waste', 'loss'].includes(adj.adjustment_type)) {
+      if (isFlowWithdrawalAdjustmentType(adj.adjustment_type || '')) {
         totalManualWithdrawals += Math.abs(qty);
+      } else if (isPositiveAdjustmentType(adj.adjustment_type || '')) {
+        totalManualAdditions += qty;
       }
     });
 

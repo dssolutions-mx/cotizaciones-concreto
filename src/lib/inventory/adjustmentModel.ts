@@ -20,6 +20,11 @@ export const NEGATIVE_ADJUSTMENT_TYPES = [
 
 export type NegativeAdjustmentType = (typeof NEGATIVE_ADJUSTMENT_TYPES)[number]
 
+/** Types that reduce stock in dashboard / reconciled roll-forward (quantity_adjusted is always positive). */
+export function isFlowWithdrawalAdjustmentType(adjustmentType: string): boolean {
+  return (NEGATIVE_ADJUSTMENT_TYPES as readonly string[]).includes(adjustmentType)
+}
+
 export type MaterialAdjustmentTypeKey =
   | PositiveAdjustmentType
   | NegativeAdjustmentType
