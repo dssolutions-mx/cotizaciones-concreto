@@ -18,6 +18,7 @@ import type {
   MuestreoMedicionCampoInput,
 } from '@/types/muestreoFieldMeasurement';
 import type { MuestreoWithRelations } from '@/types/quality';
+import type { UncertaintyPublished } from '@/types/ema-uncertainty';
 import {
   uncertaintyDisplayByFieldCodigo,
   type PublishedUncertaintyRow,
@@ -28,6 +29,8 @@ type Props = {
   muestreo: MuestreoWithRelations;
   canEdit?: boolean;
   onSaved: () => void;
+  initialGrouped?: MuestreoMedicionCampoGrouped[];
+  initialPublishedUncertainty?: UncertaintyPublished[];
 };
 
 function rowsForCodigo(
@@ -56,10 +59,12 @@ export default function MuestreoFieldMeasurementsCard({
   muestreo,
   canEdit = false,
   onSaved,
+  initialGrouped,
+  initialPublishedUncertainty,
 }: Props) {
   const { toast } = useToast();
-  const [grouped, setGrouped] = useState<MuestreoMedicionCampoGrouped[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [grouped, setGrouped] = useState<MuestreoMedicionCampoGrouped[]>(initialGrouped ?? []);
+  const [loading, setLoading] = useState(initialGrouped === undefined);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mediciones, setMediciones] = useState<MuestreoMedicionCampoInput[]>([]);
@@ -77,6 +82,12 @@ export default function MuestreoFieldMeasurementsCard({
       setUncertaintyByField(new Map());
       return;
     }
+    if (initialPublishedUncertainty !== undefined) {
+      setUncertaintyByField(
+        uncertaintyDisplayByFieldCodigo(initialPublishedUncertainty as PublishedUncertaintyRow[])
+      );
+      return;
+    }
     let cancelled = false;
     void fetch('/api/ema/uncertainty/published')
       .then((r) => r.json())
@@ -91,7 +102,7 @@ export default function MuestreoFieldMeasurementsCard({
     return () => {
       cancelled = true;
     };
-  }, [declararU, muestreo.id]);
+  }, [declararU, muestreo.id, initialPublishedUncertainty]);
 
   const uFor = (codigo: MuestreoFieldMeasurandCodigo) =>
     declararU ? uncertaintyByField.get(codigo) : undefined;
@@ -126,8 +137,16 @@ export default function MuestreoFieldMeasurementsCard({
   }, [muestreoId, editing, toast, initScalarsFromMuestreo]);
 
   useEffect(() => {
+    if (initialGrouped !== undefined) {
+      setGrouped(initialGrouped);
+      setLoading(false);
+      if (!editing) {
+        initScalarsFromMuestreo();
+      }
+      return;
+    }
     void load();
-  }, [load]);
+  }, [initialGrouped, load, editing, initScalarsFromMuestreo]);
 
   const startEdit = () => {
     const expanded = expandedFromGrouped(grouped);

@@ -18,6 +18,8 @@ import { cn } from '@/lib/utils'
 import {
   adjustmentTypeLabelEs,
   adjustmentBadgeClass,
+  adjustmentSourceLabelEs,
+  classifyAdjustmentSource,
   formatSignedKg,
   signedQuantityForStockEffect,
   stockDirectionForType,
@@ -224,12 +226,16 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
               {(adjustment.reference_type || adjustment.reference_notes) && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <h5 className="text-sm font-medium text-gray-900 mb-2">Información de Referencia</h5>
-                  {adjustment.reference_type && (
-                    <p className="text-sm text-gray-600 mb-1">
-                      <span className="font-medium">Origen:</span>{' '}
-                      {referenceTypeLabelEs(adjustment.reference_type)}
-                    </p>
-                  )}
+                  <p className="text-sm text-gray-600 mb-1">
+                    <span className="font-medium">Origen:</span>{' '}
+                    {adjustmentSourceLabelEs(
+                      adjustment.adjustment_source ??
+                        classifyAdjustmentSource(
+                          adjustment.reference_type,
+                          adjustment.reference_notes,
+                        ),
+                    )}
+                  </p>
                   {adjustment.reference_notes && (
                     <p className="text-sm text-gray-600">
                       <span className="font-medium">Notas:</span> {adjustment.reference_notes}

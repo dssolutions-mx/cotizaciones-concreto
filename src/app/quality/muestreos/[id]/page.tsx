@@ -7,17 +7,16 @@ import { AlertTriangle, ChevronLeft, Package } from 'lucide-react'
 import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { fetchMuestreoById, deleteMuestreo } from '@/services/qualityMuestreoService'
+import { deleteMuestreo } from '@/services/qualityMuestreoService'
 import { deleteMuestra } from '@/services/qualityMuestraService'
+import type { MuestreoDetailBundle } from '@/services/muestreoDetailService'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import type { MuestreoWithRelations } from '@/types/quality'
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal'
 import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis'
 import ResistanceEvolutionTimeline from '@/components/quality/muestreos/ResistanceEvolutionTimeline'
-import { calcularRendimientoVolumetrico } from '@/lib/qualityMetricsUtils'
-import { supabase } from '@/lib/supabase'
-import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/components/ui/use-toast'
 import { qualityHubOutlineNeutralClass } from '@/components/quality/qualityHubUi'
 import type { MoldeRow, MuestreoInstrumentoRow } from '@/components/quality/muestreos/detail/MuestreoEquipmentCard'
 import MuestreoDetailHeader from '@/components/quality/muestreos/detail/MuestreoDetailHeader'
@@ -47,6 +46,7 @@ export default function MuestreoDetailPage() {
   const { profile } = useAuthBridge()
   const { toast } = useToast()
 
+  const [detailBundle, setDetailBundle] = useState<MuestreoDetailBundle | null>(null)
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null)
   const [orderTotals, setOrderTotals] = useState<{
     totalOrderVolume: number
@@ -63,7 +63,6 @@ export default function MuestreoDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showAddSampleModal, setShowAddSampleModal] = useState(false)
   const [orderTotalsLoading, setOrderTotalsLoading] = useState(false)
-  const [rendimientoLoading, setRendimientoLoading] = useState(false)
   const [showDeleteMuestreoDialog, setShowDeleteMuestreoDialog] = useState(false)
   const [showDeleteMuestraDialog, setShowDeleteMuestraDialog] = useState(false)
   const [muestraToDelete, setMuestraToDelete] = useState<string | null>(null)
@@ -73,8 +72,16 @@ export default function MuestreoDetailPage() {
   const [productionRemision, setProductionRemision] = useState<ProductionRemision | null>(null)
   const [emaInstrumentos, setEmaInstrumentos] = useState<MuestreoInstrumentoRow[]>([])
   const [emaInstrumentosLoading, setEmaInstrumentosLoading] = useState(false)
-  const [ensayoHasEquipment, setEnsayoHasEquipment] = useState(false)
   const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
+
+  const applyDetailBundle = useCallback((bundle: MuestreoDetailBundle) => {
+    setDetailBundle(bundle)
+    setMuestreo(bundle.muestreo)
+    setEmaInstrumentos(bundle.emaInstrumentos)
+    setProductionRemision(bundle.productionRemision)
+    setOrderTotals(bundle.orderTotals)
+    setRendimientoVolumetrico(bundle.rendimientoVolumetrico)
+  }, [])
 
   const fetchMuestreoDetails = useCallback(async () => {
     if (!params.id) return
@@ -82,116 +89,30 @@ export default function MuestreoDetailPage() {
     try {
       setLoading(true)
       setError(null)
-      setProductionRemision(null)
+      setEmaInstrumentosLoading(true)
+      setOrderTotalsLoading(true)
 
       const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id
-      const data = await fetchMuestreoById(muestreoId)
-      setMuestreo(data)
-
-      setEmaInstrumentosLoading(true)
-      fetch(`/api/ema/muestreos/${muestreoId}/instrumentos`)
-        .then((r) => r.json())
-        .then((j) => setEmaInstrumentos(Array.isArray(j.data) ? j.data : []))
-        .catch(() => setEmaInstrumentos([]))
-        .finally(() => setEmaInstrumentosLoading(false))
-
-      const garantiaEnsayoIds = (data?.muestras ?? [])
-        .filter((m) => m.is_edad_garantia)
-        .flatMap((m) => (m.ensayos ?? []).map((e) => e.id))
-        .filter(Boolean)
-      if (garantiaEnsayoIds.length === 0) {
-        setEnsayoHasEquipment(false)
-      } else {
-        void supabase
-          .from('ensayo_instrumentos')
-          .select('id', { count: 'exact', head: true })
-          .in('ensayo_id', garantiaEnsayoIds)
-          .then(({ count }) => setEnsayoHasEquipment((count ?? 0) > 0))
-          .catch(() => setEnsayoHasEquipment(false))
+      const res = await fetch(`/api/quality/muestreos/${muestreoId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(typeof json.error === 'string' ? json.error : 'No se pudo cargar el muestreo')
       }
 
-      const cpRemisionId = (data?.remision as { cross_plant_billing_remision_id?: string | null })
-        ?.cross_plant_billing_remision_id
-      if (cpRemisionId) {
-        try {
-          const { data: cpData } = await supabase
-            .from('remisiones')
-            .select(
-              `
-              id,
-              remision_number,
-              fecha,
-              hora_carga,
-              conductor,
-              unidad,
-              volumen_fabricado,
-              plant_id,
-              plant:plants!plant_id(id, code, name),
-              recipe:recipes(recipe_code, strength_fc, slump, age_days, age_hours, tma)
-            `
-            )
-            .eq('id', cpRemisionId)
-            .maybeSingle()
-          if (cpData) setProductionRemision(cpData as ProductionRemision)
-        } catch {
-          // non-critical
-        }
-      }
-
-      if (data?.remision?.order?.id) {
-        setOrderTotalsLoading(true)
-        try {
-          const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), 10000)
-          const totalsResponse = await fetch(`/api/orders/${data.remision.order.id}/order-totals`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-          })
-          clearTimeout(timeoutId)
-          if (totalsResponse.ok) {
-            const totals = await totalsResponse.json()
-            setOrderTotals(totals)
-          }
-        } catch {
-          // non-critical
-        } finally {
-          setOrderTotalsLoading(false)
-        }
-      }
-
-      if (data?.remision?.id && data.masa_unitaria) {
-        setRendimientoLoading(true)
-        try {
-          const { data: materialesData, error: materialesError } = await supabase
-            .from('remision_materiales')
-            .select('cantidad_real')
-            .eq('remision_id', data.remision.id)
-
-          if (!materialesError && materialesData) {
-            const sumaMateriales = materialesData.reduce((sum, material) => sum + (material.cantidad_real || 0), 0)
-            const volumenFabricado = data.remision.volumen_fabricado || 0
-            const masaUnitaria = data.masa_unitaria
-            const rendimientoValue = calcularRendimientoVolumetrico(volumenFabricado, sumaMateriales, masaUnitaria)
-            setRendimientoVolumetrico({
-              value: rendimientoValue,
-              sumaMateriales,
-              volumenFabricado,
-              masaUnitaria,
-            })
-          }
-        } catch {
-          // non-critical
-        } finally {
-          setRendimientoLoading(false)
-        }
-      }
-    } catch {
-      setError('No se pudo cargar la información del muestreo')
+      applyDetailBundle(json.data as MuestreoDetailBundle)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'No se pudo cargar la información del muestreo'
+      setError(message)
     } finally {
       setLoading(false)
+      setEmaInstrumentosLoading(false)
+      setOrderTotalsLoading(false)
     }
-  }, [params.id])
+  }, [applyDetailBundle, params.id])
 
   useEffect(() => {
     void fetchMuestreoDetails()
@@ -233,26 +154,7 @@ export default function MuestreoDetailPage() {
   }
 
   const retryOrderTotals = async () => {
-    if (!muestreo?.remision?.order?.id) return
-    setOrderTotalsLoading(true)
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 10000)
-      const totalsResponse = await fetch(`/api/orders/${muestreo.remision.order.id}/order-totals`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-      if (totalsResponse.ok) {
-        const totals = await totalsResponse.json()
-        setOrderTotals(totals)
-      }
-    } catch {
-      // ignore
-    } finally {
-      setOrderTotalsLoading(false)
-    }
+    await fetchMuestreoDetails()
   }
 
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE']
@@ -315,6 +217,8 @@ export default function MuestreoDetailPage() {
 
   const { muestrasOrdenadas, displayNameById } = buildOrderedMuestrasWithDisplayNames(muestreo)
   const firstEnsayoId = getFirstEnsayoId(muestreo)
+  const ensayoHasEquipment = detailBundle?.ensayoHasEquipment ?? false
+  const rendimientoLoading = loading && !rendimientoVolumetrico
   const pageStatus = getMuestreoPageStatus(muestreo)
 
   // Derive unique mold instruments from per-sample links for the equipment card
@@ -416,6 +320,8 @@ export default function MuestreoDetailPage() {
                 muestreo={muestreo}
                 canEdit={canEditMuestreoEquipment}
                 onSaved={() => void fetchMuestreoDetails()}
+                initialGrouped={detailBundle?.medicionesCampoGrouped}
+                initialPublishedUncertainty={detailBundle?.publishedUncertainty}
               />
               <MuestreoEnvironmentalCard muestreo={muestreo} />
               <MuestreoSampleSummaryCard
@@ -429,7 +335,12 @@ export default function MuestreoDetailPage() {
                 firstEnsayoId={firstEnsayoId}
               />
               <MuestreoInformeFieldsCard muestreo={muestreo} onSaved={() => void fetchMuestreoDetails()} />
-              <InformeEmissionPanel muestreo={muestreo} ensayoHasEquipment={ensayoHasEquipment} />
+              <InformeEmissionPanel
+                muestreo={muestreo}
+                ensayoHasEquipment={ensayoHasEquipment}
+                initialInforme={detailBundle?.informe}
+                onRefresh={() => void fetchMuestreoDetails()}
+              />
             </div>
 
             {productionRemision && (

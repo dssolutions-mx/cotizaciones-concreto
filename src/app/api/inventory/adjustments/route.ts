@@ -6,7 +6,11 @@ import {
   MaterialAdjustmentInputSchema,
   UpdateMaterialAdjustmentSchema 
 } from '@/lib/validations/inventory';
-import { computeInventoryAfter, isPositiveAdjustmentType } from '@/lib/inventory/adjustmentModel';
+import {
+  classifyAdjustmentSource,
+  computeInventoryAfter,
+  isPositiveAdjustmentType,
+} from '@/lib/inventory/adjustmentModel';
 import { insertAdjustmentFifoLayer } from '@/lib/inventory/insertAdjustmentFifoLayer';
 import { consumeFifoForAdjustment } from '@/lib/inventory/consumeFifoForAdjustment';
 import { parseOpeningSheetLayerQtyFromNotes } from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
@@ -115,10 +119,6 @@ export async function GET(request: NextRequest) {
 
     if (validatedQuery.reference_type) {
       query = query.eq('reference_type', validatedQuery.reference_type);
-    } else if (validatedQuery.source === 'closure') {
-      query = query.eq('reference_type', 'inventory_closure');
-    } else if (validatedQuery.source === 'manual') {
-      query = query.or('reference_type.is.null,reference_type.neq.inventory_closure');
     }
 
     // Get material adjustments with pagination
@@ -132,10 +132,13 @@ export async function GET(request: NextRequest) {
       throw new Error(`Error al obtener ajustes de material: ${adjustmentsError.message}`);
     }
 
-    const normalized = (adjustments ?? []).map((row: Record<string, unknown>) => {
+    let normalized = (adjustments ?? []).map((row: Record<string, unknown>) => {
       const mats = row.materials as Record<string, unknown> | null;
+      const referenceType = row.reference_type as string | null | undefined;
+      const referenceNotes = row.reference_notes as string | null | undefined;
       return {
         ...row,
+        adjustment_source: classifyAdjustmentSource(referenceType, referenceNotes),
         materials: mats
           ? {
               material_name: mats.material_name,
@@ -146,13 +149,17 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    if (validatedQuery.source && validatedQuery.source !== 'all') {
+      normalized = normalized.filter((row) => row.adjustment_source === validatedQuery.source);
+    }
+
     return NextResponse.json({
       success: true,
       adjustments: normalized,
       pagination: {
         limit: validatedQuery.limit,
         offset: validatedQuery.offset,
-        hasMore: adjustments.length === validatedQuery.limit,
+        hasMore: (adjustments?.length ?? 0) === validatedQuery.limit,
       },
     });
 

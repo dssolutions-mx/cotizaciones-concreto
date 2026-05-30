@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -37,10 +37,14 @@ import { toast } from 'sonner'
 import {
   adjustmentBadgeClass,
   adjustmentTypeLabelEs,
+  adjustmentSourceLabelEs,
+  classifyAdjustmentSource,
   formatSignedKg,
+  matchesAdjustmentSourceFilter,
   MATERIAL_ADJUSTMENT_TYPES_ORDERED,
   signedQuantityForStockEffect,
   stockDirectionForType,
+  type AdjustmentSourceCategory,
 } from '@/lib/inventory/adjustmentModel'
 import { format, subDays } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -55,7 +59,7 @@ interface MaterialAdjustmentsPageProps {
   // Future props for filtering, etc.
 }
 
-type SourceFilter = 'all' | 'closure' | 'manual'
+type SourceFilter = AdjustmentSourceCategory | 'all'
 
 export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps) {
   const { currentPlant } = usePlantContext()
@@ -82,7 +86,37 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   useEffect(() => {
     fetchAdjustments()
-  }, [dateRange, currentPlant?.id, sourceFilter])
+  }, [dateRange, currentPlant?.id])
+
+  const sourceCounts = useMemo(() => {
+    const counts: Record<SourceFilter, number> = {
+      all: adjustments.length,
+      closure: 0,
+      opening: 0,
+      manual: 0,
+      other: 0,
+    }
+    for (const adj of adjustments) {
+      const cat =
+        adj.adjustment_source ??
+        classifyAdjustmentSource(adj.reference_type, adj.reference_notes)
+      counts[cat]++
+    }
+    return counts
+  }, [adjustments])
+
+  const visibleAdjustments = useMemo(
+    () =>
+      adjustments.filter((adj) =>
+        matchesAdjustmentSourceFilter(
+          adj.reference_type,
+          adj.reference_notes,
+          sourceFilter,
+          adj.adjustment_source,
+        ),
+      ),
+    [adjustments, sourceFilter],
+  )
 
   const fetchAdjustments = async () => {
     setLoading(true)
@@ -97,10 +131,6 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
       if (currentPlant?.id) {
         url += `&plant_id=${currentPlant.id}`
       }
-      if (sourceFilter !== 'all') {
-        url += `&source=${sourceFilter}`
-      }
-
       const response = await fetch(url)
       const data = await response.json().catch(() => ({}))
 
@@ -147,10 +177,13 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   async function handleDeleteAdjustment(adjustment: MaterialAdjustment) {
     const label = adjustment.adjustment_number
-    const extra =
-      adjustment.reference_type === 'inventory_closure'
-        ? '\n\nEste ajuste proviene de un cierre de inventario. Se restaurará el stock al valor anterior al ajuste.'
-        : ''
+    const isClosureAdj =
+      (adjustment.adjustment_source ??
+        classifyAdjustmentSource(adjustment.reference_type, adjustment.reference_notes)) ===
+      'closure'
+    const extra = isClosureAdj
+      ? '\n\nEste ajuste proviene de un cierre de inventario. Se restaurará el stock al valor anterior al ajuste.'
+      : ''
     if (
       !window.confirm(
         `¿Eliminar el ajuste ${label}?${extra}\n\nEsta acción no se puede deshacer.`,
@@ -271,9 +304,21 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
               <SelectValue placeholder="Origen" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos los orígenes</SelectItem>
-              <SelectItem value="closure">Cierre de inventario</SelectItem>
-              <SelectItem value="manual">Manuales / otros</SelectItem>
+              <SelectItem value="all">
+                Todos los orígenes ({sourceCounts.all})
+              </SelectItem>
+              <SelectItem value="closure">
+                Cierre de inventario ({sourceCounts.closure})
+              </SelectItem>
+              <SelectItem value="opening">
+                Apertura / cutover ({sourceCounts.opening})
+              </SelectItem>
+              <SelectItem value="manual">
+                Manuales ({sourceCounts.manual})
+              </SelectItem>
+              <SelectItem value="other">
+                Otro ({sourceCounts.other})
+              </SelectItem>
             </SelectContent>
           </Select>
 
@@ -336,7 +381,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
       )}
 
       {/* Detailed Statistics */}
-      <AdjustmentsStatistics adjustments={adjustments} />
+      <AdjustmentsStatistics adjustments={visibleAdjustments} allAdjustments={adjustments} />
 
       {/* Main Content */}
       {showForm ? (
@@ -359,8 +404,10 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                 <p className="text-sm text-gray-600">
                   {loading
                     ? 'Cargando...'
-                    : `${adjustments.length} ajuste${adjustments.length !== 1 ? 's' : ''} en el rango seleccionado`}
-                  {hasMore ? ' (hay más; acote fechas o use filtro Cierre)' : ''}
+                    : sourceFilter === 'all'
+                      ? `${adjustments.length} ajuste${adjustments.length !== 1 ? 's' : ''} en el rango`
+                      : `${visibleAdjustments.length} de ${adjustments.length} — ${adjustmentSourceLabelEs(sourceFilter)}`}
+                  {hasMore ? ' (hay más; acote fechas)' : ''}
                 </p>
               </CardHeader>
               <CardContent>
@@ -372,17 +419,25 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                       </div>
                     ))}
                   </div>
-                ) : adjustments.length === 0 ? (
+                ) : visibleAdjustments.length === 0 ? (
                   <EmptyState
                     icon={TrendingDown}
-                    title="No hay ajustes registrados"
-                    description="Los ajustes aparecerán aquí una vez que registre el primero. Use el botón de abajo para crear un nuevo ajuste."
+                    title={
+                      adjustments.length === 0
+                        ? 'No hay ajustes registrados'
+                        : 'Ningún ajuste con este origen'
+                    }
+                    description={
+                      adjustments.length === 0
+                        ? 'Los ajustes aparecerán aquí una vez que registre el primero. Use el botón de abajo para crear un nuevo ajuste.'
+                        : `Hay ${adjustments.length} ajuste(s) en el rango, pero ninguno coincide con «${adjustmentSourceLabelEs(sourceFilter)}». Pruebe «Todos los orígenes».`
+                    }
                     actionLabel="Nuevo Ajuste"
                     onAction={() => setShowForm(true)}
                   />
                 ) : (
                   <div className="space-y-4">
-                    {adjustments.map((adjustment) => (
+                    {visibleAdjustments.map((adjustment) => (
                       <AdjustmentRowCard
                         key={adjustment.id}
                         adjustment={adjustment}
@@ -401,7 +456,9 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
             <Card>
               <CardHeader>
                 <CardTitle>Ajustes por Tipo</CardTitle>
-                <p className="text-sm text-gray-600">Resumen de ajustes agrupados por tipo</p>
+                <p className="text-sm text-gray-600">
+                  Resumen por tipo de movimiento (corrección, merma, etc.) — respeta el filtro de origen
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
@@ -433,8 +490,8 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                                 : type === 'transfer'
                                   ? 'border-violet-200'
                                   : 'border-stone-200'
-                      const count = adjustments.filter((adj) => adj.adjustment_type === type).length
-                      const totalSigned = adjustments
+                      const count = visibleAdjustments.filter((adj) => adj.adjustment_type === type).length
+                      const totalSigned = visibleAdjustments
                         .filter((adj) => adj.adjustment_type === type)
                         .reduce(
                           (sum, adj) => sum + signedQuantityForStockEffect(adj.adjustment_type, adj.quantity_adjusted),
@@ -484,7 +541,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                       </div>
                     ))}
                   </div>
-                ) : adjustments.length === 0 ? (
+                ) : visibleAdjustments.length === 0 ? (
                   <EmptyState
                     icon={TrendingDown}
                     title="No hay ajustes por material"
@@ -496,7 +553,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                   <div className="space-y-4">
                     {/* Group adjustments by material */}
                     {Object.entries(
-                      adjustments.reduce((acc, adj) => {
+                      visibleAdjustments.reduce((acc, adj) => {
                         const materialName = adj.materials?.material_name || 'Material desconocido'
                         if (!acc[materialName]) {
                           acc[materialName] = []

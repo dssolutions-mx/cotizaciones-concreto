@@ -83,10 +83,61 @@ export const ADJUSTMENT_TYPE_LABELS_ES: Record<MaterialAdjustmentTypeKey, string
   loss: 'Pérdida',
 }
 
+/** Origen / clasificación del ajuste (independiente de `adjustment_type`). */
+export type AdjustmentSourceCategory = 'closure' | 'opening' | 'manual' | 'other'
+
+const CLOSURE_NOTES_PREFIX = 'cierre de inventario'
+
+/**
+ * Clasifica el origen de un ajuste usando `reference_type`, notas y convenciones históricas.
+ * Los cierres sellados usan reference_type=inventory_closure; filas viejas pueden tener solo notas.
+ */
+export function classifyAdjustmentSource(
+  referenceType: string | null | undefined,
+  referenceNotes?: string | null,
+): AdjustmentSourceCategory {
+  const rt = (referenceType ?? '').trim()
+  const notes = (referenceNotes ?? '').trim().toLowerCase()
+
+  if (rt === 'inventory_closure' || notes.includes(CLOSURE_NOTES_PREFIX)) {
+    return 'closure'
+  }
+  if (rt.endsWith('_opening') || rt.toLowerCase().includes('opening')) {
+    return 'opening'
+  }
+  if (!rt) {
+    return 'manual'
+  }
+  return 'other'
+}
+
+export function adjustmentSourceLabelEs(category: AdjustmentSourceCategory): string {
+  switch (category) {
+    case 'closure':
+      return 'Cierre de inventario'
+    case 'opening':
+      return 'Apertura / cutover'
+    case 'manual':
+      return 'Manual'
+    case 'other':
+      return 'Otro'
+  }
+}
+
+export function matchesAdjustmentSourceFilter(
+  referenceType: string | null | undefined,
+  referenceNotes: string | null | undefined,
+  filter: AdjustmentSourceCategory | 'all',
+  adjustmentSource?: AdjustmentSourceCategory,
+): boolean {
+  if (filter === 'all') return true
+  const cat = adjustmentSource ?? classifyAdjustmentSource(referenceType, referenceNotes)
+  return cat === filter
+}
+
+/** @deprecated Prefer classifyAdjustmentSource + adjustmentSourceLabelEs */
 export function referenceTypeLabelEs(referenceType: string | null | undefined): string {
-  if (!referenceType) return 'Manual';
-  if (referenceType === 'inventory_closure') return 'Cierre de inventario';
-  return referenceType;
+  return adjustmentSourceLabelEs(classifyAdjustmentSource(referenceType, null))
 }
 
 export function adjustmentTypeLabelEs(adjustmentType: string): string {

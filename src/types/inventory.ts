@@ -139,6 +139,8 @@ export interface MaterialAdjustment {
   /** Populated by GET /api/inventory/adjustments */
   materials?: { material_name: string; category: string; unit: string } | null;
   adjusted_by_user?: { first_name: string; last_name: string } | null;
+  /** Origen: closure | opening | manual | other — from classifyAdjustmentSource */
+  adjustment_source?: 'closure' | 'opening' | 'manual' | 'other';
 }
 
 export interface MaterialInventory {

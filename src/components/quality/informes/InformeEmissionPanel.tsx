@@ -32,19 +32,32 @@ import { supabase } from '@/lib/supabase';
 import { isInformeLabExperiment } from '@/lib/quality/informeLabContext';
 import { downloadInformeDocx } from '@/lib/quality/downloadInformeDocx';
 import { downloadInformePdf } from '@/lib/quality/downloadInformePdf';
+import type { MuestreoInformeBundle } from '@/services/muestreoDetailService';
 
 type Props = {
   muestreo: MuestreoWithRelations;
   ensayoHasEquipment?: boolean;
+  initialInforme?: MuestreoInformeBundle | null;
+  onRefresh?: () => void;
 };
 
-export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: Props) {
+export default function InformeEmissionPanel({
+  muestreo,
+  ensayoHasEquipment,
+  initialInforme,
+  onRefresh,
+}: Props) {
   const { toast } = useToast();
   const { profile, user } = useAuthBridge();
-  const [checklist, setChecklist] = useState<InformeChecklistItem[]>([]);
-  const [snapshot, setSnapshot] = useState<InformeSnapshot | null>(null);
-  const [informeRecord, setInformeRecord] = useState<{ id: string; numero: string; estado: string; issued_at?: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [checklist, setChecklist] = useState<InformeChecklistItem[]>(initialInforme?.checklist ?? []);
+  const [snapshot, setSnapshot] = useState<InformeSnapshot | null>(initialInforme?.snapshot ?? null);
+  const [informeRecord, setInformeRecord] = useState<{
+    id: string;
+    numero: string;
+    estado: string;
+    issued_at?: string;
+  } | null>(initialInforme?.informeRecord ?? null);
+  const [loading, setLoading] = useState(initialInforme === undefined);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [emitSheetOpen, setEmitSheetOpen] = useState(false);
@@ -98,7 +111,24 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     }
   }, [muestreo.id]);
 
+  const applyInformeBundle = useCallback((bundle: MuestreoInformeBundle) => {
+    setInformeRecord(bundle.informeRecord);
+    setSnapshot(bundle.snapshot);
+    setChecklist(bundle.checklist);
+  }, []);
+
+  useEffect(() => {
+    if (initialInforme !== undefined) {
+      applyInformeBundle(initialInforme);
+      setLoading(false);
+    }
+  }, [initialInforme, applyInformeBundle]);
+
   const load = useCallback(async () => {
+    if (onRefresh) {
+      onRefresh();
+      return;
+    }
     setLoading(true);
     try {
       const [informeRes, configRes] = await Promise.all([
@@ -160,11 +190,12 @@ export default function InformeEmissionPanel({ muestreo, ensayoHasEquipment }: P
     } finally {
       setLoading(false);
     }
-  }, [muestreo, ensayoHasEquipment, toast, refreshPreview]);
+  }, [muestreo, ensayoHasEquipment, toast, refreshPreview, onRefresh]);
 
   useEffect(() => {
+    if (initialInforme !== undefined) return;
     load();
-  }, [load]);
+  }, [initialInforme, load]);
 
   const hasGaps = checklistHasGaps(checklist);
   const emitted = informeRecord?.estado === 'emitido';

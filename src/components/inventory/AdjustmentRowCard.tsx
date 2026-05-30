@@ -17,8 +17,9 @@ import { cn } from '@/lib/utils'
 import {
   adjustmentBadgeClass,
   adjustmentTypeLabelEs,
+  adjustmentSourceLabelEs,
+  classifyAdjustmentSource,
   formatSignedKg,
-  referenceTypeLabelEs,
   signedQuantityForStockEffect,
   stockDirectionForType,
 } from '@/lib/inventory/adjustmentModel'
@@ -67,7 +68,10 @@ export default function AdjustmentRowCard({
     adjustment.quantity_adjusted,
   )
   const matName = adjustment.materials?.material_name
-  const isClosure = adjustment.reference_type === 'inventory_closure'
+  const sourceCategory =
+    adjustment.adjustment_source ??
+    classifyAdjustmentSource(adjustment.reference_type, adjustment.reference_notes)
+  const isClosure = sourceCategory === 'closure'
   const userName = adjustment.adjusted_by_user
     ? `${adjustment.adjusted_by_user.first_name} ${adjustment.adjusted_by_user.last_name}`.trim()
     : null
@@ -98,12 +102,13 @@ export default function AdjustmentRowCard({
                   variant="outline"
                   className={cn(
                     'text-xs',
-                    isClosure
-                      ? 'border-violet-200 bg-violet-50 text-violet-800'
-                      : 'border-stone-200 bg-stone-50 text-stone-600',
+                    isClosure && 'border-violet-200 bg-violet-50 text-violet-800',
+                    sourceCategory === 'opening' && 'border-sky-200 bg-sky-50 text-sky-800',
+                    sourceCategory === 'manual' && 'border-stone-200 bg-stone-50 text-stone-600',
+                    sourceCategory === 'other' && 'border-amber-200 bg-amber-50 text-amber-800',
                   )}
                 >
-                  {referenceTypeLabelEs(adjustment.reference_type)}
+                  {adjustmentSourceLabelEs(sourceCategory)}
                 </Badge>
               </div>
               {matName && (
