@@ -8,6 +8,7 @@ import PumpingServiceForm from '@/components/inventory/PumpingServiceForm'
 import PumpingRemisionesAdmin from '@/components/inventory/PumpingRemisionesAdmin'
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb'
 import { useUnifiedAuthBridge } from '@/adapters/unified-auth-bridge'
+import { REMISION_CREATE_EDIT_ROLES } from '@/lib/auth/remisionRoles'
 
 export default function PumpingServicePage() {
   const { hasRole, isInitialized } = useUnifiedAuthBridge({ preferUnified: true });
@@ -19,7 +20,7 @@ export default function PumpingServicePage() {
     setMounted(true);
   }, []);
 
-  const canViewAdmin = hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS', 'DOSIFICADOR']);
+  const canViewAdmin = hasRole([...REMISION_CREATE_EDIT_ROLES, 'ADMIN_OPERATIONS']);
 
   // Show loading state during hydration
   if (!mounted || !isInitialized) {

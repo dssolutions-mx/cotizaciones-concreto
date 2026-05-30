@@ -24,8 +24,11 @@ export async function GET(request: NextRequest) {
     }
 
     const isDosificador = profile.role === 'DOSIFICADOR';
+    const isCreditValidator = profile.role === 'CREDIT_VALIDATOR';
     const isPumpAdmin =
-      isDosificador || ['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'].includes(profile.role);
+      isDosificador ||
+      isCreditValidator ||
+      ['EXECUTIVE', 'PLANT_MANAGER', 'ADMIN_OPERATIONS'].includes(profile.role);
 
     if (!isPumpAdmin) {
       return NextResponse.json({ error: 'Acceso denegado. Se requieren permisos de administrador.' }, { status: 403 });

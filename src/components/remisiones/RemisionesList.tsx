@@ -18,6 +18,7 @@ import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye, ArrowLeftRight,
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import { REMISION_CREATE_EDIT_ROLES } from '@/lib/auth/remisionRoles';
 import EditRemisionModal from './EditRemisionModal';
 import { toast } from "sonner";
 import {
@@ -499,7 +500,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                                 <TableCell className="text-right">
                                   <div onClick={(e) => e.stopPropagation()} className="flex gap-1 justify-end">
                                     <RoleProtectedButton
-                                      allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                                      allowedRoles={[...REMISION_CREATE_EDIT_ROLES]}
                                       onClick={() => handleEditClick(remision)}
                                       className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
                                       title="Editar remisión"
@@ -625,7 +626,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                         <TableCell className="text-right">
                           <div className="flex gap-1 justify-end">
                             <RoleProtectedButton
-                              allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                              allowedRoles={[...REMISION_CREATE_EDIT_ROLES]}
                               onClick={() => handleEditClick(remision)}
                               className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
                               title="Editar remisión"

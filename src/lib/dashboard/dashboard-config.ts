@@ -64,6 +64,11 @@ const BASE_CONFIG: Record<UserRole, Omit<RoleDashboardConfig, 'subtitle' | 'show
     quickActions: [
       { href: '/finanzas/credito-validacion', label: 'Validar créditos', description: 'Pedidos pendientes' },
       { href: '/finanzas/cartera', label: 'Cartera CxC', description: 'Saldos por cliente' },
+      {
+        href: '/production-control/pumping-service',
+        label: 'Servicio de bombeo',
+        description: 'Registrar remisiones de bombeo',
+      },
     ],
     showSalesChart: false,
     showQuotesList: false,

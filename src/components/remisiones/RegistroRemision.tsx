@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
+import { canManageRemisiones } from '@/lib/auth/remisionRoles';
 
 // Material type mapping from VerificationModal
 const MATERIAL_TYPE_MAP: Record<string, string> = {
@@ -66,10 +67,7 @@ export default function RegistroRemision({
   });
   const { profile } = useAuthBridge();
   
-  // Solo permitir a dosificadores y roles superiores
-  const canCreateRemisiones = profile?.role === 'DOSIFICADOR' || 
-                             profile?.role === 'PLANT_MANAGER' || 
-                             profile?.role === 'EXECUTIVE';
+  const canCreateRemisiones = canManageRemisiones(profile?.role);
   
   // Log cuando cambian los allowedRecipeIds para depuración
   useEffect(() => {

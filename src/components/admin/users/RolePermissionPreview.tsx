@@ -28,7 +28,12 @@ const rolePermissions: Record<UserRole, string[]> = {
   QUALITY_TEAM: ['Gestionar recetas', 'Crear ensayos', 'Ver reportes de calidad'],
   PLANT_MANAGER: ['Gestionar costos', 'Ver producción', 'Administrar planta'],
   DOSIFICADOR: ['Ver recetas', 'Acceso a dosificación'],
-  CREDIT_VALIDATOR: ['Validar créditos', 'Aprobar órdenes', 'Ver reportes financieros'],
+  CREDIT_VALIDATOR: [
+    'Validar créditos',
+    'Aprobar órdenes',
+    'Registrar y editar remisiones',
+    'Ver reportes financieros',
+  ],
   EXECUTIVE: ['Acceso completo', 'Gestionar usuarios', 'Ver todos los reportes'],
   ADMIN_OPERATIONS: ['Gestionar usuarios', 'Administrar sistema', 'Ver reportes'],
   ADMINISTRATIVE: ['Acceso financiero', 'Ver reportes', 'Gestionar pagos'],

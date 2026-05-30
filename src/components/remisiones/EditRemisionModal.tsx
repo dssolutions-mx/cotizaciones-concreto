@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { canManageRemisiones } from '@/lib/auth/remisionRoles';
 import { toast } from 'sonner';
 
 interface EditRemisionModalProps {
@@ -68,10 +69,7 @@ export default function EditRemisionModal({ isOpen, onClose, remision, onSuccess
     tipo_remision: 'CONCRETO'
   });
 
-  // Verificar permisos
-  const canEdit = profile?.role === 'DOSIFICADOR' || 
-                  profile?.role === 'PLANT_MANAGER' || 
-                  profile?.role === 'EXECUTIVE';
+  const canEdit = canManageRemisiones(profile?.role);
 
   useEffect(() => {
     console.log('EditRemisionModal: useEffect triggered', { isOpen, remisionId: remision?.id });
@@ -276,7 +274,7 @@ export default function EditRemisionModal({ isOpen, onClose, remision, onSuccess
             <DialogTitle>Acceso Denegado</DialogTitle>
           </DialogHeader>
           <p className="text-gray-600">
-            No tienes permisos para editar remisiones. Esta función está disponible solo para el equipo de dosificación, jefes de planta y ejecutivos.
+            No tienes permisos para editar remisiones. Esta función está disponible para dosificación, validación de crédito, jefes de planta y ejecutivos.
           </p>
           <DialogFooter>
             <Button onClick={onClose}>Cerrar</Button>

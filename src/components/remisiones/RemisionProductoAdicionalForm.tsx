@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase/client'; // Adjusted path
-import { useAuthBridge } from '@/adapters/auth-context-bridge'; // Import bridge
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { canManageRemisiones } from '@/lib/auth/remisionRoles';
 
 interface RemisionProductoAdicionalFormProps {
   remisionId: string;
@@ -19,10 +20,7 @@ const RemisionProductoAdicionalForm: React.FC<RemisionProductoAdicionalFormProps
   const [submitting, setSubmitting] = useState(false);
   const { profile } = useAuthBridge();
 
-  // Verificar permisos
-  const canAddProducts = profile?.role === 'DOSIFICADOR' || 
-                         profile?.role === 'PLANT_MANAGER' || 
-                         profile?.role === 'EXECUTIVE';
+  const canAddProducts = canManageRemisiones(profile?.role);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;

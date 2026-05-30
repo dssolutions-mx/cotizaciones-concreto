@@ -96,8 +96,8 @@ Visualización de remisiones registradas:
 
 ## Control de Acceso
 
-- Solo los roles DOSIFICADOR, PLANT_MANAGER y EXECUTIVE pueden crear remisiones
-- Todos los roles anteriores más SALES_AGENT pueden visualizarlas
+- Los roles DOSIFICADOR, PLANT_MANAGER, EXECUTIVE y CREDIT_VALIDATOR pueden crear y editar remisiones
+- SALES_AGENT y los roles anteriores pueden visualizarlas (según políticas RLS)
 - Las políticas RLS garantizan la seguridad a nivel de base de datos
 
 ## Tecnologías Utilizadas
