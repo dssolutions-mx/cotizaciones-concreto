@@ -61,7 +61,7 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
     setLoading(true)
     try {
       const dateStr = format(date, 'yyyy-MM-dd')
-      let url = `/api/inventory/adjustments?date=${dateStr}`
+      let url = `/api/inventory/adjustments?date=${dateStr}&limit=100`
       if (currentPlant?.id) {
         url += `&plant_id=${currentPlant.id}`
       }
@@ -224,7 +224,8 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey, o
                   <h5 className="text-sm font-medium text-gray-900 mb-2">Información de Referencia</h5>
                   {adjustment.reference_type && (
                     <p className="text-sm text-gray-600 mb-1">
-                      <span className="font-medium">Tipo:</span> {adjustment.reference_type}
+                      <span className="font-medium">Origen:</span>{' '}
+                      {referenceTypeLabelEs(adjustment.reference_type)}
                     </p>
                   )}
                   {adjustment.reference_notes && (

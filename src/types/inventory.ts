@@ -138,6 +138,7 @@ export interface MaterialAdjustment {
   updated_at: string;
   /** Populated by GET /api/inventory/adjustments */
   materials?: { material_name: string; category: string; unit: string } | null;
+  adjusted_by_user?: { first_name: string; last_name: string } | null;
 }
 
 export interface MaterialInventory {

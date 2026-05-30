@@ -8,10 +8,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import MaterialAdjustmentForm from './MaterialAdjustmentForm'
+import AdjustmentRowCard from './AdjustmentRowCard'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
-import { Plus, History, TrendingDown, Minus, AlertTriangle, RotateCcw, ArrowUpDown, Clock, RefreshCw, Calendar as CalendarIcon } from 'lucide-react'
+import {
+  Plus,
+  History,
+  TrendingDown,
+  Minus,
+  AlertTriangle,
+  RotateCcw,
+  ArrowUpDown,
+  Clock,
+  RefreshCw,
+  Calendar as CalendarIcon,
+} from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import { canDeleteInventoryClosure } from '@/lib/auth/inventoryClosureRoles'
 import { MaterialAdjustment } from '@/types/inventory'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { toast } from 'sonner'
 import {
   adjustmentBadgeClass,
   adjustmentTypeLabelEs,
@@ -33,11 +55,18 @@ interface MaterialAdjustmentsPageProps {
   // Future props for filtering, etc.
 }
 
+type SourceFilter = 'all' | 'closure' | 'manual'
+
 export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps) {
   const { currentPlant } = usePlantContext()
+  const { profile } = useAuthSelectors()
   const [showForm, setShowForm] = useState(false)
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
+  const [hasMore, setHasMore] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const canDelete = canDeleteInventoryClosure(profile?.role)
   // Default to last 7 days as recommended in plan
   const defaultDateRange = {
     from: subDays(new Date(), 6),
@@ -53,12 +82,12 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   useEffect(() => {
     fetchAdjustments()
-  }, [dateRange, currentPlant?.id])
+  }, [dateRange, currentPlant?.id, sourceFilter])
 
   const fetchAdjustments = async () => {
     setLoading(true)
     try {
-      let url = '/api/inventory/adjustments?limit=50'
+      let url = '/api/inventory/adjustments?limit=200&offset=0'
       if (dateRange?.from && dateRange?.to) {
         const fromStr = format(dateRange.from, 'yyyy-MM-dd')
         const toStr = format(dateRange.to, 'yyyy-MM-dd')
@@ -67,12 +96,16 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
       if (currentPlant?.id) {
         url += `&plant_id=${currentPlant.id}`
       }
+      if (sourceFilter !== 'all') {
+        url += `&source=${sourceFilter}`
+      }
 
       const response = await fetch(url)
 
       if (response.ok) {
         const data = await response.json()
         setAdjustments(data.adjustments || [])
+        setHasMore(!!data.pagination?.hasMore)
 
         // Calculate stats
         const now = new Date()
@@ -101,8 +134,36 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
       }
     } catch (error) {
       console.error('Error fetching adjustments:', error)
+      toast.error('Error al cargar los ajustes')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleDeleteAdjustment(adjustment: MaterialAdjustment) {
+    const label = adjustment.adjustment_number
+    const extra =
+      adjustment.reference_type === 'inventory_closure'
+        ? '\n\nEste ajuste proviene de un cierre de inventario. Se restaurará el stock al valor anterior al ajuste.'
+        : ''
+    if (
+      !window.confirm(
+        `¿Eliminar el ajuste ${label}?${extra}\n\nEsta acción no se puede deshacer.`,
+      )
+    ) {
+      return
+    }
+    setDeletingId(adjustment.id)
+    try {
+      const res = await fetch(`/api/inventory/adjustments/${adjustment.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al eliminar')
+      toast.success('Ajuste eliminado')
+      await fetchAdjustments()
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -197,6 +258,20 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
             </PopoverContent>
           </Popover>
           
+          <Select
+            value={sourceFilter}
+            onValueChange={(v) => setSourceFilter(v as SourceFilter)}
+          >
+            <SelectTrigger className="w-full sm:w-[200px] order-2 sm:order-2">
+              <SelectValue placeholder="Origen" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los orígenes</SelectItem>
+              <SelectItem value="closure">Cierre de inventario</SelectItem>
+              <SelectItem value="manual">Manuales / otros</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Button
             variant="outline"
             size="sm"
@@ -264,7 +339,12 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
             <Card>
               <CardHeader>
                 <CardTitle>Ajustes Recientes</CardTitle>
-                <p className="text-sm text-gray-600">Últimos ajustes registrados en el sistema</p>
+                <p className="text-sm text-gray-600">
+                  {loading
+                    ? 'Cargando...'
+                    : `${adjustments.length} ajuste${adjustments.length !== 1 ? 's' : ''} en el rango seleccionado`}
+                  {hasMore ? ' (hay más; acote fechas o use filtro Cierre)' : ''}
+                </p>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -285,88 +365,15 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
                   />
                 ) : (
                   <div className="space-y-4">
-                    {adjustments.slice(0, 10).map((adjustment) => {
-                      const getAdjustmentIcon = (type: string) => {
-                        switch (type) {
-                          case 'initial_count':
-                          case 'physical_count':
-                          case 'positive_correction':
-                            return Plus
-                          case 'consumption':
-                            return TrendingDown
-                          case 'waste':
-                            return AlertTriangle
-                          case 'correction':
-                            return RotateCcw
-                          case 'transfer':
-                            return ArrowUpDown
-                          case 'loss':
-                            return Minus
-                          default:
-                            return TrendingDown
-                        }
-                      }
-
-                      const Icon = getAdjustmentIcon(adjustment.adjustment_type)
-                      const inc = stockDirectionForType(adjustment.adjustment_type) === 'increase'
-                      const signed = signedQuantityForStockEffect(
-                        adjustment.adjustment_type,
-                        adjustment.quantity_adjusted
-                      )
-
-                      return (
-                        <Card
-                          key={adjustment.id}
-                          className={cn(
-                            'border-l-4 hover:shadow-md transition-shadow',
-                            inc ? 'border-l-emerald-500' : 'border-l-red-500'
-                          )}
-                        >
-                          <CardContent className="p-4 sm:p-6">
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                              <div className="flex items-start space-x-3 flex-1 min-w-0">
-                                <div className="flex-shrink-0">
-                                  <Icon className={cn('h-8 w-8', inc ? 'text-emerald-600' : 'text-red-500')} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                                    <p className="text-sm sm:text-base font-medium text-gray-900 truncate">
-                                      {adjustment.adjustment_number}
-                                    </p>
-                                    <Badge
-                                      variant="outline"
-                                      className={cn('text-xs', adjustmentBadgeClass(adjustment.adjustment_type))}
-                                    >
-                                      {adjustmentTypeLabelEs(adjustment.adjustment_type)}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-gray-500 line-clamp-2 mb-1">
-                                    {adjustment.reference_notes}
-                                  </p>
-                                  <p className="text-xs text-gray-400">
-                                    {format(new Date(adjustment.adjustment_date), 'dd/MM/yyyy HH:mm', { locale: es })}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="text-left sm:text-right flex-shrink-0">
-                                <p
-                                  className={cn(
-                                    'text-lg sm:text-xl font-semibold font-mono tabular-nums',
-                                    inc ? 'text-emerald-700' : 'text-red-600'
-                                  )}
-                                >
-                                  {formatSignedKg(signed)} kg
-                                </p>
-                                <p className="text-xs sm:text-sm text-gray-500 mt-1">
-                                  Inventario: {adjustment.inventory_before.toLocaleString('es-MX')} →{' '}
-                                  {adjustment.inventory_after.toLocaleString('es-MX')}
-                                </p>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    })}
+                    {adjustments.map((adjustment) => (
+                      <AdjustmentRowCard
+                        key={adjustment.id}
+                        adjustment={adjustment}
+                        canDelete={canDelete}
+                        deleting={deletingId === adjustment.id}
+                        onDelete={handleDeleteAdjustment}
+                      />
+                    ))}
                   </div>
                 )}
               </CardContent>

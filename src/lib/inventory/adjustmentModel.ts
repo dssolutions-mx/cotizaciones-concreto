@@ -83,6 +83,12 @@ export const ADJUSTMENT_TYPE_LABELS_ES: Record<MaterialAdjustmentTypeKey, string
   loss: 'Pérdida',
 }
 
+export function referenceTypeLabelEs(referenceType: string | null | undefined): string {
+  if (!referenceType) return 'Manual';
+  if (referenceType === 'inventory_closure') return 'Cierre de inventario';
+  return referenceType;
+}
+
 export function adjustmentTypeLabelEs(adjustmentType: string): string {
   const k = adjustmentType as MaterialAdjustmentTypeKey
   return ADJUSTMENT_TYPE_LABELS_ES[k] ?? adjustmentType

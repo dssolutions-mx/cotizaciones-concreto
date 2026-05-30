@@ -140,8 +140,10 @@ export const GetActivitiesQuerySchema = z.object({
   date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha desde debe estar en formato YYYY-MM-DD').optional(),
   date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha hasta debe estar en formato YYYY-MM-DD').optional(),
   material_id: z.string().uuid('ID de material debe ser un UUID válido').optional(),
+  reference_type: z.string().max(64).optional(),
+  source: z.enum(['all', 'closure', 'manual']).optional().default('all'),
   activity_type: z.enum(['ENTRY', 'ADJUSTMENT', 'all']).optional().default('all'),
-  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(100)).optional().default(20),
+  limit: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(1).max(500)).optional().default(100),
   offset: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().min(0)).optional().default(0),
 });
 

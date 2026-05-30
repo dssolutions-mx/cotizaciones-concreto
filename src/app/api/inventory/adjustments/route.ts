@@ -17,11 +17,16 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
+    const dateFromParam = searchParams.get('date_from');
+    const dateToParam = searchParams.get('date_to');
+    const today = new Date().toISOString().split('T')[0];
     const queryParams = {
-      date_from: searchParams.get('date_from') || (date ? date : new Date().toISOString().split('T')[0]), // Default to today
-      date_to: searchParams.get('date_to') || (date ? date : new Date().toISOString().split('T')[0]), // Default to today
+      date_from: dateFromParam ?? (date ?? (dateToParam ? undefined : today)),
+      date_to: dateToParam ?? (date ?? (dateFromParam ? undefined : today)),
       material_id: searchParams.get('material_id') || undefined,
-      limit: searchParams.get('limit') || '20',
+      reference_type: searchParams.get('reference_type') || undefined,
+      source: searchParams.get('source') || 'all',
+      limit: searchParams.get('limit') || '100',
       offset: searchParams.get('offset') || '0',
     };
 
@@ -61,6 +66,10 @@ export async function GET(request: NextRequest) {
           material_name,
           category,
           unit
+        ),
+        adjusted_by_user:user_profiles!adjusted_by (
+          first_name,
+          last_name
         )
       `);
     
@@ -96,6 +105,14 @@ export async function GET(request: NextRequest) {
 
     if (validatedQuery.material_id) {
       query = query.eq('material_id', validatedQuery.material_id);
+    }
+
+    if (validatedQuery.reference_type) {
+      query = query.eq('reference_type', validatedQuery.reference_type);
+    } else if (validatedQuery.source === 'closure') {
+      query = query.eq('reference_type', 'inventory_closure');
+    } else if (validatedQuery.source === 'manual') {
+      query = query.or('reference_type.is.null,reference_type.neq.inventory_closure');
     }
 
     // Get material adjustments with pagination
